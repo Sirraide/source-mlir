@@ -33,6 +33,12 @@ def FuncOp : HLIR_Op<"func", [FunctionOpInterface, IsolatedFromAbove]> {
     let skipDefaultBuilders = 1;
 }
 
+def PrintOp : HLIR_Op<"print"> {
+    let summary = "Print";
+    let arguments = (ins HLIR_Type:$value);
+    let assemblyFormat = "$value attr-dict `:` type($value)";
+}
+
 def StringOp : HLIR_Op<"string"> {
     let summary = "String literal";
     let arguments = (ins StrAttr:$value);

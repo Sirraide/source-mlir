@@ -50,12 +50,6 @@ class HLIR_Type<string name, string type_mnemonic, list<Trait> traits = []> :
 
 def HLIR_StringType : HLIR_Type<"String", "string">;
 
-//def HLIR_StringType : DialectType<
-//    HLIR_Dialect,
-//    CPred<"$_self.isa<StringType>()">,
-//    "HLIR string type"
-//>;
-//
-//def HLIR_Type : AnyTypeOf<[HLIR_StringType]>;
+def HLIR_Type : AnyTypeOf<[HLIR_StringType]>;
 
 #endif // HLIR_DIALECT_TD

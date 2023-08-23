@@ -10,7 +10,7 @@ $ git submodule update --init --recursive
 2. Fetch the version you want to use
 ```bash
 $ cd llvm
-$ git fetch origin llvmorg-VERSION --depth 1 # e.g. `llvmord-16.0.6`
+$ git fetch origin llvmorg-VERSION --depth 1 # e.g. `llvmorg-16.0.6`
 ```
 
 3. Checkout that version.

@@ -302,5 +302,6 @@ endif()
 ## Add the executable.
 add_llvm_executable(srcc ${sources})
 target_link_libraries(srcc PRIVATE options)
+target_precompile_headers(srcc PRIVATE include/hlir/HLIRDialect.hh)
 #llvm_update_compile_flags(srcc)
 #mlir_check_all_link_libraries(srcc)
