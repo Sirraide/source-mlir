@@ -37,6 +37,7 @@ def PrintOp : HLIR_Op<"print"> {
     let summary = "Print";
     let arguments = (ins HLIR_Type:$value);
     let assemblyFormat = "$value attr-dict `:` type($value)";
+    let hasVerifier = 1;
 }
 
 def StringOp : HLIR_Op<"string"> {
@@ -57,6 +58,7 @@ def StringOp : HLIR_Op<"string"> {
     ];
 
     let assemblyFormat = "$value attr-dict";
+    let hasVerifier = 1;
 }
 
 #endif // HLIR_OPS_TD

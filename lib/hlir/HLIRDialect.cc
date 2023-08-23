@@ -70,3 +70,14 @@ void hlir::FuncOp::print(::mlir::OpAsmPrinter& p) {
         getResAttrsAttrName()
     );
 }
+
+auto hlir::PrintOp::verify() -> mlir::LogicalResult {
+    auto op = getOperand();
+    if (not op.getType().isa<StringType>())
+        return emitOpError("operand of print must be a string");
+    return mlir::success();
+}
+
+auto hlir::StringOp::verify() -> mlir::LogicalResult {
+    return mlir::success();
+}

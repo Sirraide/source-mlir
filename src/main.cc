@@ -50,22 +50,23 @@ int main() {
     builder.setInsertionPointToStart(&entryBlock);
 
     /// Create a string constant and print it.
-    /*auto s = builder.create<mlir::hlir::StringOp>(builder.getUnknownLoc(), "Hello, World!");
-    builder.create<mlir::hlir::PrintOp>(builder.getUnknownLoc(), s);*/
+    auto s = builder.create<mlir::hlir::StringOp>(builder.getUnknownLoc(), "Hello, World!");
+    builder.create<mlir::hlir::PrintOp>(builder.getUnknownLoc(), s);
 
     /// Return 0.
     auto i = builder.create<mlir::arith::ConstantIntOp>(builder.getUnknownLoc(), 42, 32);
     builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(), mlir::ValueRange{i});
 
     fmt::print("=== Module before lowering ===\n");
-    mod->print(llvm::outs(), mlir::OpPrintingFlags{}.assumeVerified());
+    if (not mlir::succeeded(mod.verify())) return 1;
+    mod->print(llvm::outs());
 
     /// Lower the module.
     pm.addPass(mlir::hlir::CreateLowerToLLVMPass());
     if (mlir::failed(pm.run(mod))) return 1;
 
     fmt::print("\n=== Module after lowering ===\n");
-    mod->print(llvm::outs(), mlir::OpPrintingFlags{}.assumeVerified());
+    mod->print(llvm::outs());
 
     /// Convert to LLVM IR.
     mlir::registerLLVMDialectTranslation(*mod->getContext());
