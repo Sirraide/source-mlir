@@ -1,0 +1,476 @@
+#ifndef SOURCE_INCLUDE_CONTEXT_HH
+#define SOURCE_INCLUDE_CONTEXT_HH
+
+#include <llvm/MC/TargetRegistry.h>
+#include <utils.hh>
+
+class Context;
+class Module;
+class Decl;
+class FunctionDecl;
+
+/// A file in the context.
+class File {
+    /// Context handle.
+    Context& ctx;
+
+    /// The name of the file.
+    fs::path file_path;
+
+    /// The contents of the file.
+    std::vector<char> contents;
+
+    /// The id of the file.
+    u32 id;
+
+public:
+    /// Get a temporary file path.
+    static auto TempPath(std::string_view extension) -> fs::path;
+
+    /// Write to a file on disk.
+    [[nodiscard]] static bool Write(void* data, usz size, const fs::path& file);
+
+    /// Write to a file on disk and terminate on error.
+    static void WriteOrDie(void* data, usz size, const fs::path& file);
+
+    /// We cannot move or copy files.
+    File(const File&) = delete;
+    File(File&&) = delete;
+    File& operator=(const File&) = delete;
+    File& operator=(File&&) = delete;
+
+    /// Get an iterator to the beginning of the file.
+    [[nodiscard]] auto begin() const { return contents.begin(); }
+
+    /// Get the file data.
+    [[nodiscard]] auto data() const -> const char* { return contents.data(); }
+
+    /// Get an iterator to the end of the file.
+    [[nodiscard]] auto end() const { return contents.end(); }
+
+    /// Get the id of this file.
+    [[nodiscard]] auto file_id() const { return id; }
+
+    /// Get the file path.
+    [[nodiscard]] auto path() const -> const fs::path& { return file_path; }
+
+    /// Get the size of the file.
+    [[nodiscard]] auto size() const -> usz { return contents.size(); }
+
+private:
+    /// Construct a file from a name and source.
+    explicit File(Context& _ctx, fs::path _name, std::vector<char>&& _contents);
+
+    /// Load a file from disk.
+    static auto LoadFileData(const fs::path& path) -> std::vector<char>;
+
+    /// The context is the only thing that can create files.
+    friend Context;
+};
+
+class Context {
+    /// The files owned by the context.
+    std::vector<std::unique_ptr<File>> owned_files;
+
+    /// Error flag. This is set-only.
+    mutable bool error_flag = false;
+
+    /// The target we’re compiling for.
+    const llvm::Target* tgt;
+
+    /// Contexts.
+    mlir::MLIRContext mlir_ctx;
+    llvm::LLVMContext llvm_ctx;
+
+    /// Modules in the context.
+    std::vector<std::unique_ptr<Module>> modules;
+
+public:
+    /// Create a context for the host target.
+    explicit Context();
+
+    /// Create a new context with a target.
+    explicit Context(const llvm::Target* tgt);
+
+    /// Do not allow copying or moving the context.
+    Context(const Context&) = delete;
+    Context(Context&&) = delete;
+    Context& operator=(const Context&) = delete;
+    Context& operator=(Context&&) = delete;
+
+    /// Delete context data.
+    ~Context();
+
+    /// Create a new file from a name and contents.
+    template <typename Buffer>
+    File& create_file(fs::path name, Buffer&& contents) {
+        return MakeFile(
+            std::move(name),
+            std::vector<char>{std::forward<Buffer>(contents)}
+        );
+    }
+
+    /// Get a list of all files owned by the context.
+    [[nodiscard]] auto files() const -> const decltype(owned_files)& {
+        return owned_files;
+    }
+
+    /// Get a file from disk.
+    ///
+    /// This loads a file from disk or returns a reference to it if
+    /// is has already been loaded.
+    ///
+    /// \param path The path to the file.
+    /// \return A reference to the file.
+    File& get_or_load_file(fs::path path);
+
+    /// Check if the error flag is set.
+    [[nodiscard]] bool has_error() const { return error_flag; }
+
+    /// Get LLVM context.
+    [[nodiscard]] auto llvm() -> llvm::LLVMContext& { return llvm_ctx; }
+
+    /// Get MLIR context.
+    [[nodiscard]] auto mlir() -> mlir::MLIRContext& { return mlir_ctx; }
+
+    /// Set the error flag.
+    ///
+    /// \return The previous value of the error flag.
+    bool set_error() const {
+        auto old = error_flag;
+        error_flag = true;
+        return old;
+    }
+
+    /// Get the target.
+    [[nodiscard]] auto target() const -> const llvm::Target* { return tgt; }
+
+private:
+    /// Initialise the context.
+    void Initialise();
+
+    /// Register a file in the context.
+    File& MakeFile(fs::path name, std::vector<char>&& contents);
+};
+
+/// A decoded source location.
+struct LocInfo {
+    usz line;
+    usz col;
+    const char* line_start;
+    const char* line_end;
+};
+
+/// A short decoded source location.
+struct LocInfoShort {
+    usz line;
+    usz col;
+};
+
+/// A source range in a file.
+struct Location {
+    u32 pos{};
+    u16 len{};
+    u16 file_id{};
+
+    constexpr Location() = default;
+    constexpr Location(u32 pos, u16 len, u16 file_id)
+        : pos(pos)
+        , len(len)
+        , file_id(file_id) {}
+
+    /// Create a new location that spans two locations.
+    constexpr Location(Location a, Location b) {
+        if (a.file_id != b.file_id) return;
+        if (not a.is_valid() or not b.is_valid()) return;
+        pos = std::min<u32>(a.pos, b.pos);
+        len = u16(std::max<u32>(a.pos + a.len, b.pos + b.len) - pos);
+    }
+
+    /// Shift a source location to the left.
+    [[nodiscard]] constexpr auto operator<<(isz amount) const -> Location{
+        Location l = *this;
+        l.pos = u32(pos - u32(amount));
+        return l;
+    }
+
+    /// Shift a source location to the right.
+    [[nodiscard]] constexpr auto operator>>(isz amount) const -> Location {
+        Location l = *this;
+        l.pos = u32(pos + u32(amount));
+        return l;
+    }
+
+    /// Extend a source location to the left.
+    [[nodiscard]] constexpr auto operator<<=(isz amount) const -> Location {
+        Location l = *this << amount;
+        l.len = u16(l.len + amount);
+        return l;
+    }
+
+    /// Extend a source location to the right.
+    [[nodiscard]] constexpr auto operator>>=(isz amount) const -> Location {
+        Location l = *this;
+        l.len = u16(l.len + amount);
+        return l;
+    }
+
+    /// Contract a source location to the left.
+    [[nodiscard]] constexpr auto contract_left(isz amount) const -> Location {
+        if (amount > len) return {};
+        Location l = *this;
+        l.len = u16(l.len - amount);
+        return l;
+    }
+
+    /// Contract a source location to the right.
+    [[nodiscard]] constexpr auto contract_right(isz amount) const -> Location {
+        if (amount > len) return {};
+        Location l = *this;
+        l.pos = u32(l.pos + u32(amount));
+        l.len = u16(l.len - amount);
+        return l;
+    }
+
+    [[nodiscard]] constexpr bool is_valid() const { return len != 0; }
+
+    /// Seek to a source location.
+    [[nodiscard]] auto seek(const Context* ctx) const -> LocInfo;
+
+    /// Seek to a source location, but only return the line and column.
+    [[nodiscard]] auto seek_line_column(const Context* ctx) const -> LocInfoShort;
+
+    /// Check if the source location is seekable.
+    [[nodiscard]] bool seekable(const Context* ctx) const;
+};
+
+
+/// Reference to an imported module.
+struct ImportedModuleRef {
+    /// The actual name of the module for linkage purposes.
+    std::string linkage_name;
+
+    /// The name of the module in code.
+    std::string logical_name;
+
+    /// Location of the import declaration.
+    Location import_location;
+
+    /// Whether this is an open module.
+    bool is_open : 1;
+
+    /// Whether this is actually a C++ header.
+    bool is_cxx_header : 1;
+
+    /// Resolved module path.
+    fs::path resolved_path{};
+
+    /// The module.
+    Module* mod{};
+};
+
+/// A Source module.
+class Module {
+    property_r(Context* const, context);
+
+    /// Associated MLIR module op.
+    mlir::ModuleOp mlir;
+
+    /// Associated LLVM module. This is null for
+    /// imported modules.
+    std::unique_ptr<llvm::Module> llvm;
+
+    /// Modules imported by this module.
+    property_r(SmallVector<ImportedModuleRef>, imports);
+
+    /// Exported declarations.
+    property_r(decltype(StringMap<SmallVector<Decl*, 1>>{}), exports);
+
+    /// Top-level module function.
+    property_r(FunctionDecl*, top_level_func);
+
+public:
+    /// An empty name means this isn’t a logical module.
+    explicit Module(Context* ctx, std::string name, Location module_decl_location = {});
+};
+
+
+/// A diagnostic. The diagnostic is issued when the destructor is called.
+struct Diag {
+    /// Diagnostic severity.
+    enum struct Kind {
+        None,    ///< Not an error. Do not emit this diagnostic.
+        Note,    ///< Informational note.
+        Warning, ///< Warning, but no hard error.
+        Error,   ///< Hard error. Program is ill-formed.
+        FError,  ///< Fatal (system) error. NOT a compiler bug.
+        ICError, ///< Compiler bug.
+    };
+
+private:
+    const Context* ctx;
+    Kind kind;
+    Location where;
+    std::string msg;
+
+    /// Handle fatal error codes.
+    void HandleFatalErrors();
+
+    /// Print a diagnostic with no (valid) location info.
+    void PrintDiagWithoutLocation();
+
+public:
+    static constexpr u8 ICEExitCode = 17;
+    static constexpr u8 FatalExitCode = 18;
+
+    Diag(Diag&& other)
+        : ctx(other.ctx)
+        , kind(other.kind)
+        , where(other.where)
+        , msg(std::move(other.msg)) {
+        other.kind = Kind::None;
+    }
+
+    Diag& operator=(Diag&& other) {
+        if (this == &other) return *this;
+        ctx = other.ctx;
+        kind = other.kind;
+        where = other.where;
+        msg = std::move(other.msg);
+        other.kind = Kind::None;
+        return *this;
+    }
+
+    /// Create an empty diagnostic.
+    explicit Diag()
+        : ctx(nullptr)
+        , kind(Kind::None)
+        , where()
+        , msg() {}
+
+    /// Disallow copying.
+    Diag(const Diag&) = delete;
+    Diag& operator=(const Diag&) = delete;
+
+    /// The destructor prints the diagnostic, if it hasn’t been moved from.
+    ~Diag();
+
+    /// Issue a diagnostic.
+    Diag(const Context* ctx, Kind kind, Location where, std::string msg)
+        : ctx(ctx)
+        , kind(kind)
+        , where(where)
+        , msg(std::move(msg)) {}
+
+    /// Issue a diagnostic with no location.
+    Diag(Kind _kind, std::string&& msg)
+        : ctx(nullptr)
+        , kind(_kind)
+        , where()
+        , msg(std::move(msg)) {}
+
+    /// Issue a diagnostic with a format string and arguments.
+    template <typename... Args>
+    Diag(
+        const Context* ctx,
+        Kind kind,
+        Location where,
+        fmt::format_string<Args...> fmt,
+        Args&&... args
+    )
+        : Diag{ctx, kind, where, fmt::format(fmt, std::forward<Args>(args)...)} {}
+
+    /// Issue a diagnostic with a format string and arguments, but no location.
+    template <typename... Args>
+    Diag(Kind kind, fmt::format_string<Args...> fmt, Args&&... args)
+        : Diag{kind, fmt::format(fmt, std::forward<Args>(args)...)} {}
+
+    /// Print this diagnostic now. This resets the diagnostic.
+    void print();
+
+    /// Suppress this diagnostic.
+    void suppress() { kind = Kind::None; }
+
+    /// Emit a note.
+    template <typename... Args>
+    static Diag Note(fmt::format_string<Args...> fmt, Args&&... args) {
+        return Diag{Kind::Note, fmt::format(fmt, std::forward<Args>(args)...)};
+    }
+
+    /// Emit a note.
+    template <typename... Args>
+    static Diag Note(
+        const Context* ctx,
+        Location where,
+        fmt::format_string<Args...> fmt,
+        Args&&... args
+    ) {
+        return Diag{ctx, Kind::Note, where, fmt::format(fmt, std::forward<Args>(args)...)};
+    }
+
+    /// Emit a warning.
+    template <typename... Args>
+    static Diag Warning(fmt::format_string<Args...> fmt, Args&&... args) {
+        return Diag{Kind::Warning, fmt::format(fmt, std::forward<Args>(args)...)};
+    }
+
+    /// Emit a warning.
+    template <typename... Args>
+    static Diag Warning(
+        const Context* ctx,
+        Location where,
+        fmt::format_string<Args...> fmt,
+        Args&&... args
+    ) {
+        return Diag{ctx, Kind::Warning, where, fmt::format(fmt, std::forward<Args>(args)...)};
+    }
+
+    /// Emit an error.
+    template <typename... Args>
+    static Diag Error(fmt::format_string<Args...> fmt, Args&&... args) {
+        return Diag{Kind::Error, fmt::format(fmt, std::forward<Args>(args)...)};
+    }
+
+    /// Emit an error.
+    template <typename... Args>
+    static Diag Error(
+        const Context* ctx,
+        Location where,
+        fmt::format_string<Args...> fmt,
+        Args&&... args
+    ) {
+        return Diag{ctx, Kind::Error, where, fmt::format(fmt, std::forward<Args>(args)...)};
+    }
+
+    /// Raise an internal compiler error and exit.
+    template <typename... Args>
+    [[noreturn]] static void ICE(fmt::format_string<Args...> fmt, Args&&... args) {
+        Diag{Kind::ICError, fmt::format(fmt, std::forward<Args>(args)...)};
+        std::terminate(); /// Should never be reached.
+    }
+
+    /// Raise an internal compiler error at a location and exit.
+    template <typename... Args>
+    [[noreturn]] static void ICE(
+        const Context* ctx,
+        Location where,
+        fmt::format_string<Args...> fmt,
+        Args&&... args
+    ) {
+        Diag{ctx, Kind::ICError, where, fmt::format(fmt, std::forward<Args>(args)...)};
+        std::terminate(); /// Should never be reached.
+    }
+
+    /// Raise a fatal error and exit.
+    ///
+    /// This is NOT an ICE; instead it is an error that is probably caused by
+    /// the underlying system, such as attempting to output to a directory that
+    /// isn’t accessible to the user.
+    template <typename... Args>
+    [[noreturn]] static void Fatal(fmt::format_string<Args...> fmt, Args&&... args) {
+        Diag{Kind::FError, fmt::format(fmt, std::forward<Args>(args)...)};
+        std::terminate(); /// Should never be reached.
+    }
+};
+
+#endif // SOURCE_INCLUDE_CONTEXT_HH

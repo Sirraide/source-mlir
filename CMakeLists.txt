@@ -37,6 +37,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clan
     target_compile_options(options INTERFACE
         -fno-exceptions
         -fno-rtti
+        -fdeclspec
 
         ## Warnings.
         -Wall -Wextra     # Enable ‘all’ warnings.
@@ -302,6 +303,9 @@ endif()
 ## Add the executable.
 add_llvm_executable(srcc ${sources})
 target_link_libraries(srcc PRIVATE options)
-target_precompile_headers(srcc PRIVATE include/hlir/HLIRDialect.hh)
+target_precompile_headers(srcc PRIVATE
+    include/utils.hh
+    include/hlir/HLIRDialect.hh
+)
 #llvm_update_compile_flags(srcc)
 #mlir_check_all_link_libraries(srcc)

@@ -1,10 +1,9 @@
+#include <core.hh>
 #include <hlir/HLIRDialect.hh>
 #include <hlir/HLIRLowering.hh>
+#include <llvm/Support/PrettyStackTrace.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/Passes.h>
-#include <utils.hh>
-
-using namespace llvm;
 
 auto get_puts(
     mlir::PatternRewriter& rewriter,
@@ -32,12 +31,19 @@ auto get_puts(
 }
 
 int main() {
-    mlir::MLIRContext ctx;
-    mlir::PassManager pm(&ctx);
-    ctx.getOrLoadDialect<mlir::BuiltinDialect>();
-    ctx.getOrLoadDialect<mlir::func::FuncDialect>();
-    ctx.getOrLoadDialect<hlir::HLIRDialect>();
-    mlir::OpBuilder builder(&ctx);
+    llvm::EnablePrettyStackTrace();
+
+    /// Create context.
+    Context ctx;
+
+    /// Notes:
+    /// - ‘freeze’ keyword that makes a value const rather than forcing
+    ///   it to be const in the declaration?
+    ///
+    /// - When parsing a declaration, the declaration itself is attached
+    ///   to the nearest enclosing ‘declaration context’; the occurrence
+    ///   of the declaration is replaced with an already resolved NameRef
+    ///   to that declaration.
 
     /// Create a function that returns void and takes no arguments.
     auto mod = mlir::ModuleOp::create(builder.getUnknownLoc(), "bla");

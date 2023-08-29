@@ -1,0 +1,349 @@
+module lexer;
+
+export enum Tk {
+    Invalid,
+    Eof,
+    Identifier,
+    Integer,
+    StringLiteral,
+    MacroParameter,
+
+    /// Keywords.
+    Module,
+    Export,
+    Import,
+    Pragma,
+    Assert,
+    Asm,
+    If,
+    Then,
+    Elif,
+    Else,
+    Cond,
+    While,
+    Do,
+    For,
+    In,
+    With,
+    Try,
+    Return,
+    Defer,
+    Break,
+    Continue,
+    Fallthrough,
+    Unreachable,
+    Variant,
+    Extern,
+    Static,
+    Is,
+    As,
+    Not,
+    And,
+    Or,
+    Xor,
+    True,
+    False,
+    Null,
+    Proc,
+    Var,
+    Val,
+    Enum,
+    Struct,
+    Union,
+    Init,
+    Type,
+    Typeof,
+    NoReturn,
+    Bool,
+    Void,
+    I8,
+    I16,
+    I32,
+    I64,
+    Int,
+    F32,
+    F64,
+    CChar,
+    CChar8T,
+    CChar16T,
+    CChar32T,
+    CWCharT,
+    CShort,
+    CInt,
+    CLong,
+    CLongLong,
+    CLongDouble,
+    CBool,
+    CSizeT,
+    StringKw,
+
+    /// Punctuation.
+    Semicolon,
+    Colon,
+    ColonColon,
+    Comma,
+    LParen,
+    RParen,
+    LBrack,
+    RBrack,
+    LBrace,
+    RBrace,
+    Ellipsis,
+    Dot,
+    LArrow,
+    RArrow,
+    Question,
+
+    /// Operators.
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    Caret,
+    Ampersand,
+    VBar,
+    Tilde,
+    Bang,
+    Assign,
+    DotDot,
+    DotDotLess,
+    DotDotEq,
+    MinusMinus,
+    PlusPlus,
+    StarStar,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    EqEq,
+    Neq,
+    PlusEq,
+    MinusEq,
+    StarEq,
+    SlashEq,
+    PercentEq,
+    AmpersandEq,
+    VBarEq,
+    ShiftLeft,
+    ShiftRight,
+    ShiftRightLogical,
+    ShiftLeftEq,
+    ShiftRightEq,
+    ShiftRightLogicalEq,
+    StarStarEq,
+};
+
+/// A token.
+export struct Token {
+    /// The type of the token.
+    Tk type = Invalid;
+
+    /// Token text.
+    string text;
+
+    /// Number.
+    int integer;
+
+    /// Source location.
+    Location location;
+
+    /// Whether this token was produced by a backslash escape.
+    bool artificial = false;
+};
+
+proc Next (with Lexer&) {
+    with tok;
+    with Tk;
+
+    /// Tokens are not artificial by default.
+    artificial = false;
+
+    /// Pop lookahead tokens if we’re not looking ahead.
+    if not looking_ahead and not lookahead_tokens.empty {
+        tok = lookahead_tokens.pop_front;
+        return;
+    }
+
+    /// Pop empty macro expansions off the expansion stack.
+    while not macro_expansion_stack.empty
+        if macro_expansion_stack.back.done
+            macro_expansion_stack.pop;
+
+    /// Insert tokens from macro expansion.
+    if not macro_expansion_stack.empty {
+        tok = ++macro_expansion_stack.back;
+
+        /// If this token is another macro definition, handle it.
+        if type == Identifier and text == 'macro' then LexMacroDefinition;
+        return;
+    }
+
+    /// Skip whitespace.
+    SkipWhitespace;
+
+    /// Keep returning EOF if we're at EOF.
+    if At 0 {
+        type = Eof;
+        return;
+    }
+
+    /// Reset the token. We set the token type to 'invalid' here so that,
+    /// if we encounter an error, we can just issue a diagnostic and return
+    /// without setting the token type. The parser will then stop because
+    /// it encounters an invalid token.
+    artificial = false;
+    type = Invalid;
+    location.pos = CurrOffs;
+
+    /// Consume current character if it matches.
+    macro cmatch
+        #control:expr {
+            /// :rep1(<tokens>) collects 1 or more occurrences of <tokens>
+            /// into a pack. :sep(<tokens>, <separator>) collects 1 or more
+            /// occurrences of <tokens> separated by <separator>. Here, the
+            /// second `,` indicates that <separator> is `,`.
+            #clauses:rep1(#cases:sep1(#case:expr,,) : #body:expr )
+            else : #base:expr
+        }
+    expands quote {
+        /// `for enum` is how you write `enumerate()` in Source. The `i`
+        /// variable is a constant and cannot be assigned to.
+        static for enum i, var rep in #clauses {
+            static if i == 0 then quote if else quote elif;
+
+            /// `rep.cases` pack is not expanded, and thus automatically
+            /// inserted w/ commas inbetween the elements.
+            quote { Consume #rep.cases { #rep.body } }
+        }
+
+        else { #base:expr }
+    } endmacro
+
+    /// Lex the token.
+    val l = CurrLoc;
+    val c = lastc;
+    type = cmatch {
+        ';': Semicolon;
+        ',': Comma;
+        '?': Question;
+        '(': LParen;
+        ')': RParen;
+        '[': LBrack;
+        ']': RBrack;
+        '{': LBrace;
+        '}': RBrace;
+        '^': Caret;
+        '~': Tilde;
+
+        '\': return LexEscapedId;
+        '"', "'": return LexString c;
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9': return LexNumber;
+
+        ':': cmatch { ':': ColonColon;  else Colon; }
+        '%': cmatch { '=': PercentEq;   else: Percent; }
+        '&': cmatch { '=': AmpersandEq; else: Ampersand; }
+        '|': cmatch { '=': VBarEq;      else: VBar; }
+        '!': cmatch { '=': Neq;         else: Bang; }
+        '=': cmatch { '=': EqEq;        else: Assign; }
+
+        '+': cmatch {
+            '+': PlusPlus;
+            '=': PlusEq;
+            else: Plus;
+        }
+
+        '-': cmatch {
+            '>': RArrow;
+            '-': MinusMinus;
+            '=': MinusEq;
+            else: Minus;
+        }
+
+
+        '*': cmatch {
+            '=': StarEq;
+            '*': cmatch {
+                '=': StarStarEq;
+                else: StarStar;
+            }
+            else: Star;
+        }
+
+        '/': cmatch {
+            '=': SlashEq;
+            '/': {
+                SkipLine;
+                return Next;
+            }
+            else: Slash;
+        }
+
+        '.': cmatch {
+             '.': cmatch {
+                '.': Ellipsis;
+                '<': DotDotLess;
+                '=': DotDotEq;
+                else: DotDot;
+            }
+            else: Dot;
+        }
+
+        '<': cmatch {
+            '=': Le;
+            '-': LArrow;
+            '<': cmatch {
+                '=': ShiftLeftEq;
+                else: ShiftLeft;
+            }
+            else: Lt;
+        }
+
+        '>': cmatch {
+            '=': Ge;
+            '>': cmatch {
+                '=': ShiftRightEq;
+                '>': cmatch {
+                    '=': ShiftRightLogicalEq;
+                    else: ShiftRightLogical;
+                }
+                else: ShiftRight;
+            }
+            else: Gt;
+        }
+
+        /// Syntax of this token is `#<identifier>` or `#<number>`.
+        '#': {
+            Next;
+
+            /// Validate name.
+            if type == Identifier or type == Integer {
+                if type == Integer text = string integer;
+                location = l, tok.location;
+            } else {
+                Error CurrLoc, "Expected identifier or integer after '#'";
+            }
+
+            /// Check if this token is even allowed here.
+            if not in_macro_definition then
+                Error location, 'Unexpected macro parameter outside of macro definition';
+
+            /// Either way, the token type is macro parameter.
+            MacroParameter;
+        }
+
+        else:
+            if IsStart lastc {
+                LexIdentifier;
+                Identifier;
+            } else {
+                Error CurrLoc << 1, "Unexpected <U+${lastc:X}> character in program";
+                NextChar;
+                Invalid;
+            }
+    }
+
+    /// Set the end of the token.
+    location.len = (curr - f.data - location.pos - 1) as i16;
+    if curr == end and lastc == 0 then location.len++;
+}
