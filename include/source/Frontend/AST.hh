@@ -1,8 +1,11 @@
 #ifndef SOURCE_INCLUDE_FRONTEND_AST_HH
 #define SOURCE_INCLUDE_FRONTEND_AST_HH
 
-#include <core.hh>
-#include <frontend/lexer.hh>
+#include <source/Core.hh>
+#include <source/Frontend/Lexer.hh>
+#include <source/Support/Result.hh>
+
+namespace src {
 
 class Expr;
 class Type;
@@ -77,6 +80,8 @@ public:
         /// Untyped expressions.
         EK_ForExpr,
         EK_ForInExpr,
+        EK_ForInfinite,
+        EK_ForCStyle,
         EK_WhileExpr,
         EK_RepeatUntilExpr,
         EK_RepeatExpr,
@@ -292,30 +297,67 @@ public:
 
 /// Ranged for-in loop.
 class ForInExpr : public Expr {
-    /// The loop body.
-    Expr* _body;
+    /// The loop variable (optional).
+    property_r(Expr*, var);
 
-    /// The loop variable.
-    Expr* _var;
+    /// The enumerator variable (also optional).
+    property_r(Expr*, enum_var);
 
     /// The loop range.
-    Expr* _range;
+    property_r(Expr*, range);
+
+    /// The loop body.
+    property_r(Expr*, body);
 
 public:
-    ForInExpr(Expr* var, Expr* range, Expr* body, Location loc = {})
-        : Expr(EK_ForInExpr, loc), _body(body), _var(var), _range(range) {}
-
-    /// Get the loop body.
-    auto body() const -> Expr* { return _body; }
-
-    /// Get the loop variable.
-    auto var() const -> Expr* { return _var; }
-
-    /// Get the loop range.
-    auto range() const -> Expr* { return _range; }
+    ForInExpr(Expr* var, Expr* enum_var, Expr* range, Expr* body, Location loc = {})
+        : Expr(EK_ForInExpr, loc),
+          var_field(var),
+          enum_var_field(enum_var),
+          range_field(range),
+          body_field(body) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ForInExpr; }
+};
+
+/// Infinite loop.
+class ForInfiniteExpr : public Expr {
+    /// The loop body.
+    property_r(Expr*, body);
+
+public:
+    ForInfiniteExpr(Expr* body, Location loc = {})
+        : Expr(EK_ForInfinite, loc), body_field(body) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_ForInfinite; }
+};
+
+/// C-style for loop.
+class ForCStyleExpr: public Expr {
+    /// The loop init.
+    property_r(Expr*, init);
+
+    /// The loop condition.
+    property_r(Expr*, cond);
+
+    /// The loop increment.
+    property_r(Expr*, inc);
+
+    /// The loop body.
+    property_r(Expr*, body);
+
+public:
+    ForCStyleExpr(Expr* init, Expr* cond, Expr* inc, Expr* body, Location loc = {})
+        : Expr(EK_ForCStyle, loc),
+            init_field(init),
+            cond_field(cond),
+            inc_field(inc),
+            body_field(body) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_ForCStyle; }
 };
 
 /// While loop.
@@ -467,7 +509,7 @@ class AssertExpr : public Expr {
     bool _is_static;
 
 public:
-    AssertExpr(Expr* cond, Expr* msg, bool is_static = false)
+    AssertExpr(Expr* cond, Expr* msg, bool is_static)
         : Expr(EK_AssertExpr, cond->location), _cond(cond), _msg(msg), _is_static(is_static) {}
 
     /// Get the assertion condition.
@@ -568,7 +610,6 @@ protected:
     TypedExpr(Expr::Kind k, Expr* type, Location loc = {}) : Expr(k, loc), type_field(type) {}
 
 public:
-
     /// RTTI.
     static bool classof(const Expr* e) {
         return e->kind >= EK_InvokeExpr and e->kind <= EK_EnumeratorDecl;
@@ -659,29 +700,20 @@ public:
 /// Case of a match expression.
 class CaseExpr : public Expr {
     /// Controlling expression.
-    Expr* _control;
+    property_r(Expr*, control);
 
     /// Body.
-    Expr* _body;
+    property_r(Expr*, body);
 
     /// Whether the case is allowed to fall through.
-    bool _fallthrough;
+    property_r(bool, fallthrough);
 
 public:
     CaseExpr(Expr* control, Expr* body, bool fallthrough, Location loc = {})
         : Expr(EK_CaseExpr, loc),
-          _control(control),
-          _body(body),
-          _fallthrough(fallthrough) {}
-
-    /// Get the controlling expression.
-    auto control() const -> Expr* { return _control; }
-
-    /// Get the body.
-    auto body() const -> Expr* { return _body; }
-
-    /// Get whether the case is allowed to fall through.
-    auto fallthrough() const -> bool { return _fallthrough; }
+          control_field(control),
+          body_field(body),
+          fallthrough_field(fallthrough) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_CaseExpr; }
@@ -691,6 +723,7 @@ public:
 class MatchExpr : public TypedExpr {
 public:
     enum struct Kind {
+        Unknown,       ///< Not yet determined.
         Boolean,       ///< No controlling expr. First expr that is true is taken.
         Operator,      ///< Controlling expr is compared to each case using an operator.
         Variant,       ///< Match over variant clauses.
@@ -718,12 +751,19 @@ private:
 
 public:
     MatchExpr(
-        Kind kind,
-        Tk op,
         Expr* control,
+        Tk op,
         SmallVector<CaseExpr*> cases,
-        CaseExpr* default_
-    );
+        CaseExpr* default_,
+        bool is_static,
+        Location loc
+    ) : TypedExpr(EK_MatchExpr, detail::UnknownTy, loc),
+        _kind(Kind::Unknown),
+        _control(control),
+        _cases(std::move(cases)),
+        _default(default_),
+        _op(op),
+        _op_loc(loc) {}
 
     /// Get the match cases.
     auto cases() const -> const SmallVector<CaseExpr*>& { return _cases; }
@@ -756,10 +796,12 @@ class BlockExpr : public TypedExpr {
     property_r(bool, is_implicit);
 
 public:
-    BlockExpr(ExprList body, bool implicit);
+    BlockExpr(ExprList body, bool implicit, Location loc) : TypedExpr(EK_BlockExpr, detail::UnknownTy, loc),
+                                                            exprs_field(std::move(body)),
+                                                            is_implicit_field(implicit) {}
 
     /// Add an expression to the block.
-    void add(Expr* e) { exprs_field.push_back(e); }
+    void add(Expr* e) { exprs.push_back(e); }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_BlockExpr; }
@@ -781,7 +823,11 @@ class NameRefExpr : public TypedExpr {
     property_rw(u32, chain_distance);
 
 public:
-    NameRefExpr(std::string name, Scope* scope);
+    NameRefExpr(std::string name, Scope* scope, Location loc)
+        : TypedExpr(EK_NameRefExpr, detail::UnknownTy, loc),
+          name_field(std::move(name)),
+          _scope(scope),
+          chain_distance_field(0) {}
 
     /// Get the location of the referenced declaration.
     auto decl_location() const -> Location;
@@ -1058,8 +1104,8 @@ class StringLiteralExpr : public TypedExpr {
     u32 _index;
 
 public:
-    StringLiteralExpr(u32 index)
-        : TypedExpr(EK_StringLiteralExpr, detail::StringLiteralTy), _index(index) {}
+    StringLiteralExpr(u32 index, Location loc)
+        : TypedExpr(EK_StringLiteralExpr, detail::StringLiteralTy, loc), _index(index) {}
 
     /// Get the string literal index.
     auto index() const -> u32 { return _index; }
@@ -1089,8 +1135,8 @@ class IntegerLiteralExpr : public TypedExpr {
     i64 _value;
 
 public:
-    IntegerLiteralExpr(i64 value, Expr* type = detail::UnknownTy)
-        : TypedExpr(EK_IntegerLiteralExpr, type), _value(value) {}
+    IntegerLiteralExpr(i64 value, Location loc, Expr* type = detail::UnknownTy)
+        : TypedExpr(EK_IntegerLiteralExpr, type, loc), _value(value) {}
 
     /// Get the value.
     auto value() const -> i64 { return _value; }
@@ -1192,6 +1238,9 @@ class FunctionDecl : public ObjectDecl {
     /// LLVM function.
     llvm::Function* _llvm_func = nullptr;
 
+    /// Declarations to be emitted at the beginning of the function.
+    property_r(DeclContext, decl_context);
+
 public:
     FunctionDecl(
         std::string name,
@@ -1240,16 +1289,33 @@ class VarDecl : public ObjectDecl {
     /// after.
     Expr* _init;
 
-public:
     VarDecl(
         std::string name,
         FunctionDecl* owner,
         Expr* type,
         Linkage linkage = Linkage::Internal,
         Mangling mangling = Mangling::Source
-    ) : ObjectDecl(EK_VarDecl, std::move(name), type, linkage, mangling),
-        _owner(owner),
-        _init(nullptr) {}
+    );
+
+public:
+    /// Create a variable declaration and add it to a scope.
+    ///
+    /// \param name The name of the variable. If empty, it won’t be added to the scope.
+    /// \param scope The scope to add the variable to. May be null if the name is empty.
+    /// \param owner The function that owns this declaration.
+    /// \param type The type of the variable.
+    /// \param linkage The linkage of the variable.
+    /// \param mangling The mangling scheme to use for the variable.
+    /// \return A result containing the variable declaration, or an error if
+    ///     there already is a variable with the same name in the scope.
+    static auto Create(
+        std::string name,
+        Scope *scope,
+        FunctionDecl* owner,
+        Expr* type,
+        Linkage linkage,
+        Mangling mangling
+    ) -> Result<Decl*>;
 
     /// Get the initialiser.
     auto init() const -> Expr* { return _init; }
@@ -1855,18 +1921,22 @@ public:
 /// ===========================================================================
 class Scope {
     /// The parent scope.
-    Scope* parent = nullptr;
+    property_r(Scope*, parent);
 
     /// The module this scope belongs to.
-    Module* module = nullptr;
+    property_r(Module*, module);
 
     /// Symbols in this scope.
-    StringMap<Expr*> symbol_table;
+    property_r(StringMap<Expr*>, symbol_table);
 
     /// Whether this scope is a function scope.
-    bool is_function = false;
+    property_r(bool, is_function);
+
 
 public:
+    /// Get the nearest parent scope that is a function scope.
+    readonly_decl(Scope*, enclosing_function_scope);
+
     Scope(const Scope& other) = delete;
     Scope& operator=(const Scope& other) = delete;
 
@@ -1874,26 +1944,17 @@ public:
     explicit Scope(Scope* parent, Module* mod);
 
     /// Declare a symbol in this scope.
-    void Declare(std::string name, Expr* value);
-
-    /// Get the nearest parent scope that is a function scope.
-    auto EnclosingFunctionScope() -> Scope*;
-
-    /// Check whether this scope is a function scope.
-    auto IsFunctionScope() const -> bool { return is_function; }
-
-    /// Get the parent scope.
-    auto Parent() const -> Scope* { return parent; }
+    auto declare(std::string name, Expr* value) -> Result<Expr*>;
 
     /// Mark this scope as a function scope. This cannot be undone.
-    void SetFunctionScope() {
+    void set_function_scope() {
         Assert(not is_function, "Scope already marked as function scope");
-        is_function = true;
+        is_function_field = true;
     }
 
     /// Visit each symbol with the given name.
     template <typename Func>
-    void Visit(const std::string& name, Func f, bool this_scope_only) {
+    void visit(const std::string& name, Func f, bool this_scope_only) {
         for (auto& [_, expr] : symbol_table) {
             if (auto bundle = cast<ExprBundle>(expr)) {
                 for (auto e : *bundle)
@@ -1903,8 +1964,8 @@ public:
             }
         }
 
-        if (parent and not this_scope_only) parent->Visit(name, f, false);
+        if (parent and not this_scope_only) parent->visit(name, f, false);
     }
 };
-
+} // namespace src
 #endif // SOURCE_INCLUDE_FRONTEND_AST_HH

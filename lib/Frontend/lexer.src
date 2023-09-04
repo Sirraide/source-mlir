@@ -1,3 +1,34 @@
+/// IDEA:
+/// Unified sum-product type.
+///
+/// `dynamic` makes this and its variant clauses equivalent to
+/// a ‘class hierarchy’, except that it cannot be extended at
+/// runtime. By adding variant clauses and no void variant clause,
+/// a dynamic variant is implicitly ‘abstract’.
+dynamic struct Expr {
+    Location loc;
+    property Type type; /// Implemented as accessors.
+    proc print; /// Function.
+
+    /// `variant IDENTIFIER {` is *conceptually* short for
+    /// `variant struct IDENTIFIER {`. There is no such thing
+    /// as a ‘variant type’. There are only struct types that
+    /// have variant clauses.
+    variant Binary {
+        Tk op;
+        property Expr^ left();
+        property Expr^ right();
+    }
+}
+
+/// USE `::` for scope access, and remove it as an operator. Use something like `inspect(x).size`
+/// for the latter or sth like that.
+
+/// Idea: Lex all tokens beforehand to make lookahead a no-op and allow lookbehind.
+
+
+
+
 module lexer;
 
 export enum Tk {
@@ -259,7 +290,6 @@ proc Next (with Lexer&) {
             '=': MinusEq;
             else: Minus;
         }
-
 
         '*': cmatch {
             '=': StarEq;

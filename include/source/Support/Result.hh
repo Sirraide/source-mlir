@@ -1,8 +1,10 @@
 #ifndef SOURCE_INCLUDE_RESULT_HH
 #define SOURCE_INCLUDE_RESULT_HH
 
-#include <core.hh>
+#include <source/Core.hh>
 #include <variant>
+
+namespace src {
 
 /// Result type that can hold either a value or a diagnostic.
 ///
@@ -10,7 +12,7 @@
 /// issued in the destructor, as it usually would be.
 template <typename Type, bool allow_construction_from_nullptr = not std::is_pointer_v<Type>>
 requires (not std::is_reference_v<Type>)
-class Result {
+class [[nodiscard]] Result {
 public:
     using TypeArg = Type;
     using ValueType = std::conditional_t<std::is_void_v<Type>, std::monostate, Type>;
@@ -92,7 +94,7 @@ public:
 
     /// Get the diagnostic.
     ///
-    /// This returns a && to simplify the `return res.diag()` pattern.
+    /// This returns a && to simplify the `return res.diag` pattern.
     readonly(Diag&&, diag, return std::move(std::get<Diag>(data)));
 
     /// Check if the result holds a diagnostic.
@@ -192,4 +194,5 @@ auto operator->*(ClassType& p, auto member_function) {
     };
 }
 
+}
 #endif // SOURCE_INCLUDE_RESULT_HH

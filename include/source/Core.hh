@@ -2,12 +2,18 @@
 #define SOURCE_INCLUDE_CONTEXT_HH
 
 #include <llvm/MC/TargetRegistry.h>
-#include <utils.hh>
+#include <mlir/IR/BuiltinDialect.h>
+#include <mlir/IR/MLIRContext.h>
+#include <source/Support/StringTable.hh>
+#include <source/Support/Utils.hh>
+
+namespace src {
 
 class Context;
 class Module;
 class Decl;
 class FunctionDecl;
+class Expr;
 
 /// A file in the context.
 class File {
@@ -175,9 +181,7 @@ struct Location {
 
     constexpr Location() = default;
     constexpr Location(u32 pos, u16 len, u16 file_id)
-        : pos(pos)
-        , len(len)
-        , file_id(file_id) {}
+        : pos(pos), len(len), file_id(file_id) {}
 
     /// Create a new location that spans two locations.
     constexpr Location(Location a, Location b) {
@@ -188,7 +192,7 @@ struct Location {
     }
 
     /// Shift a source location to the left.
-    [[nodiscard]] constexpr auto operator<<(isz amount) const -> Location{
+    [[nodiscard]] constexpr auto operator<<(isz amount) const -> Location {
         Location l = *this;
         l.pos = u32(pos - u32(amount));
         return l;
@@ -244,7 +248,6 @@ struct Location {
     [[nodiscard]] bool seekable(const Context* ctx) const;
 };
 
-
 /// Reference to an imported module.
 struct ImportedModuleRef {
     /// The actual name of the module for linkage purposes.
@@ -289,11 +292,16 @@ class Module {
     /// Top-level module function.
     property_r(FunctionDecl*, top_level_func);
 
+    /// Module string table.
+    property_r(StringTable, strtab);
+
+    /// Static assertions that are not part of a template go here.
+    property_r(decltype(SmallVector<Expr*, 32>{}), static_assertions);
+
 public:
     /// An empty name means this isn’t a logical module.
     explicit Module(Context* ctx, std::string name, Location module_decl_location = {});
 };
-
 
 /// A diagnostic. The diagnostic is issued when the destructor is called.
 struct Diag {
@@ -324,10 +332,7 @@ public:
     static constexpr u8 FatalExitCode = 18;
 
     Diag(Diag&& other)
-        : ctx(other.ctx)
-        , kind(other.kind)
-        , where(other.where)
-        , msg(std::move(other.msg)) {
+        : ctx(other.ctx), kind(other.kind), where(other.where), msg(std::move(other.msg)) {
         other.kind = Kind::None;
     }
 
@@ -343,10 +348,7 @@ public:
 
     /// Create an empty diagnostic.
     explicit Diag()
-        : ctx(nullptr)
-        , kind(Kind::None)
-        , where()
-        , msg() {}
+        : ctx(nullptr), kind(Kind::None), where(), msg() {}
 
     /// Disallow copying.
     Diag(const Diag&) = delete;
@@ -357,17 +359,11 @@ public:
 
     /// Issue a diagnostic.
     Diag(const Context* ctx, Kind kind, Location where, std::string msg)
-        : ctx(ctx)
-        , kind(kind)
-        , where(where)
-        , msg(std::move(msg)) {}
+        : ctx(ctx), kind(kind), where(where), msg(std::move(msg)) {}
 
     /// Issue a diagnostic with no location.
     Diag(Kind _kind, std::string&& msg)
-        : ctx(nullptr)
-        , kind(_kind)
-        , where()
-        , msg(std::move(msg)) {}
+        : ctx(nullptr), kind(_kind), where(), msg(std::move(msg)) {}
 
     /// Issue a diagnostic with a format string and arguments.
     template <typename... Args>
@@ -472,5 +468,7 @@ public:
         std::terminate(); /// Should never be reached.
     }
 };
+
+} // namespace src
 
 #endif // SOURCE_INCLUDE_CONTEXT_HH

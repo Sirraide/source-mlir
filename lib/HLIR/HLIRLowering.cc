@@ -8,7 +8,7 @@
 #include <mlir/Conversion/LLVMCommon/TypeConverter.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
 #include <mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h>
-#include <utils.hh>
+#include <Utils.hh>
 
 using namespace mlir;
 namespace {

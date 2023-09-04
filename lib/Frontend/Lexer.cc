@@ -1,8 +1,9 @@
-#include <frontend/lexer.hh>
+#include <source/Frontend/Lexer.hh>
 
 /// ===========================================================================
 ///  Lexer — Helpers and Data.
 /// ===========================================================================
+namespace src {
 namespace {
 /// Check if a character is allowed at the start of an identifier.
 constexpr bool IsStart(char c) {
@@ -88,13 +89,12 @@ const StringMap<Tk> keywords = {
     {"__c_bool", Tk::CBool},
 };
 } // namespace
-
+} // namespace src
 /// ========================================================================
 ///  Main lexer implementation.
 /// ========================================================================
-Lexer::Lexer(Context* ctx, File& f)
-    : ctx{ctx}
-    , f{f} {
+src::Lexer::Lexer(Context* ctx, File& f)
+    : ctx{ctx}, f{f} {
     /// Init state.
     tok.location.file_id = u16(f.file_id());
     curr = f.data();
@@ -118,10 +118,10 @@ Lexer::Lexer(Context* ctx, File& f)
     Next();
 }
 
-auto Lexer::CurrLoc() const -> Location { return {CurrOffs(), 1, u16(f.file_id())}; }
-auto Lexer::CurrOffs() const -> u32 { return u32(curr - f.data()) - 1; }
+auto src::Lexer::CurrLoc() const -> Location { return {CurrOffs(), 1, u16(f.file_id())}; }
+auto src::Lexer::CurrOffs() const -> u32 { return u32(curr - f.data()) - 1; }
 
-auto Lexer::LookAhead(usz n) -> Token& {
+auto src::Lexer::LookAhead(usz n) -> Token& {
     if (n == 0) return tok;
 
     /// If we already have enough tokens, just return the nth token.
@@ -141,7 +141,7 @@ auto Lexer::LookAhead(usz n) -> Token& {
     return lookahead_tokens[idx];
 }
 
-void Lexer::Next() {
+void src::Lexer::Next() {
     /// Tokens are not artificial by default.
     tok.artificial = false;
 
@@ -483,7 +483,7 @@ void Lexer::Next() {
     if (curr == end and not lastc) tok.location.len++;
 }
 
-void Lexer::NextChar() {
+void src::Lexer::NextChar() {
     if (curr == end) {
         lastc = 0;
         return;
@@ -511,15 +511,15 @@ void Lexer::NextChar() {
     }
 }
 
-void Lexer::SkipLine() {
+void src::Lexer::SkipLine() {
     while (lastc != '\n' && lastc != 0) NextChar();
 }
 
-void Lexer::SkipWhitespace() {
+void src::Lexer::SkipWhitespace() {
     while (std::isspace(lastc)) NextChar();
 }
 
-void Lexer::LexIdentifier() {
+void src::Lexer::LexIdentifier() {
     tok.type = Tk::Identifier;
     tok.text.clear();
     do {
@@ -547,15 +547,9 @@ void Lexer::LexIdentifier() {
 
     /// Handle pragmas.
     if (tok.type == Tk::Pragma and not pragma_handler()) tok.type = Tk::Invalid;
-
-    /// Handle static assertions.
-    if (tok.type == Tk::Static) {
-        auto& l = LookAhead(1);
-        if (l.type == Tk::Assert and not static_assert_handler()) tok.type = Tk::Invalid;
-    }
 }
 
-void Lexer::LexNumber() {
+void src::Lexer::LexNumber() {
     /// Helper function that actually parses a number.
     auto lex_number_impl = [this](bool pred(char), usz conv(char), usz base) {
         /// Need at least one digit.
@@ -663,7 +657,7 @@ void Lexer::LexNumber() {
     );
 }
 
-void Lexer::LexString(char delim) {
+void src::Lexer::LexString(char delim) {
     /// Yeet the delimiter.
     tok.text.clear();
     NextChar();
@@ -722,7 +716,7 @@ void Lexer::LexString(char delim) {
     tok.type = Tk::StringLiteral;
 }
 
-void Lexer::LexEscapedId() {
+void src::Lexer::LexEscapedId() {
     /// Yeet backslash.
     tempset raw_mode = true;
     auto start = tok.location;
@@ -763,7 +757,7 @@ void Lexer::LexEscapedId() {
 /// ========================================================================
 ///  Macros.
 /// ========================================================================
-auto Lexer::AllocateMacroDefinition(
+auto src::Lexer::AllocateMacroDefinition(
     std::string name,
     Location location,
     SmallVector<Token>&& expansion
@@ -776,7 +770,7 @@ auto Lexer::AllocateMacroDefinition(
 }
 
 /// <macro-definition> ::= MACRO <identifier> <tokens> EXPANDS <tokens> ENDMACRO
-void Lexer::LexMacroDefinition() {
+void src::Lexer::LexMacroDefinition() {
     tempset raw_mode = true;
     tempset in_macro_definition = true;
     Next(); /// Yeet 'macro'.
@@ -864,7 +858,7 @@ endmacro:
     Next();
 }
 
-void Lexer::LexMacroExpansion(Lexer::Macro* m) {
+void src::Lexer::LexMacroExpansion(Lexer::Macro* m) {
     StringMap<Token> args;
     auto loc = tok.location;
 
@@ -914,7 +908,7 @@ void Lexer::LexMacroExpansion(Lexer::Macro* m) {
     Next();
 }
 
-auto Lexer::MacroExpansion::operator++() -> Token {
+auto src::Lexer::MacroExpansion::operator++() -> Token {
     Token ret;
     Assert(not done());
 

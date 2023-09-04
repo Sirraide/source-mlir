@@ -34,6 +34,8 @@
 #include <utility>
 #include <vector>
 
+namespace src {
+
 using namespace std::literals;
 
 namespace fs = std::filesystem;
@@ -88,7 +90,7 @@ using f64 = double;
 ///     auto file = std::fopen(...);
 ///     defer { if (file) std::fclose(file); };
 /// \endcode
-#define defer auto CAT(_defer_, __COUNTER__) = ::detail::DeferStage1{}->*[&]
+#define defer auto CAT(_defer_, __COUNTER__) = ::src::detail::DeferStage1{}->*[&]
 
 /// \brief Temporarily set a variable to a value.
 ///
@@ -98,7 +100,7 @@ using f64 = double;
 ///     tempset x = 1;
 ///     /// x is reset to `0` at end of scope.
 /// \endcode
-#define tempset auto CAT(_tempset_, __COUNTER__) = ::detail::TempsetStage1{}->*
+#define tempset auto CAT(_tempset_, __COUNTER__) = ::src::detail::TempsetStage1{}->*
 
 #define readonly(type, name, code) \
     type _##name() { code; }       \
@@ -129,7 +131,7 @@ private:
 
 // clang-format off
 #define Assert(cond, ...) (cond ? void(0) :                    \
-    ::detail::AssertFail(                                      \
+    ::src::detail::AssertFail(                                 \
         fmt::format(                                           \
             "Assertion failed: \"" #cond "\" in {} at line {}" \
             __VA_OPT__(".\nMessage: {}"), __FILE__, __LINE__   \
@@ -139,7 +141,7 @@ private:
 )
 
 #define Unreachable(...)                                       \
-    ::detail::AssertFail(                                      \
+    ::src::detail::AssertFail(                                 \
         fmt::format(                                           \
             "Unreachable code reached in {} at line {}"        \
             __VA_OPT__(".\nMessage: {}"), __FILE__, __LINE__   \
@@ -282,4 +284,7 @@ void ReplaceAll(
     std::string_view to
 );
 } // namespace utils
+
+} // namespace src
+
 #endif // SOURCE_MLIR_UTILS_HH

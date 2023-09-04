@@ -1,4 +1,4 @@
-#include <core.hh>
+#include <Core.hh>
 #include <hlir/HLIRDialect.hh>
 #include <hlir/HLIRLowering.hh>
 #include <llvm/Support/PrettyStackTrace.h>

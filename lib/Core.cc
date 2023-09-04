@@ -1,9 +1,9 @@
-#include <core.hh>
 #include <llvm/Support/Unicode.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
 #include <mlir/InitAllDialects.h>
 #include <random>
+#include <source/Core.hh>
 #include <thread>
 
 #ifndef _WIN32
@@ -21,14 +21,14 @@
 /// ===========================================================================
 ///  Context
 /// ===========================================================================
-Context::~Context() = default;
+src::Context::~Context() = default;
 
-Context::Context(const llvm::Target* tgt)
+src::Context::Context(const llvm::Target* tgt)
     : tgt(tgt) {
     Initialise();
 }
 
-Context::Context() {
+src::Context::Context() {
     Initialise();
 
     /// Get native target.
@@ -40,21 +40,21 @@ Context::Context() {
     tgt = target;
 }
 
-auto Context::get_or_load_file(fs::path path) -> File& {
+auto src::Context::get_or_load_file(fs::path path) -> File& {
     auto f = rgs::find_if(owned_files, [&](const auto& e) { return e->path() == path; });
     if (f != owned_files.end()) return **f;
 
     /// Load the file.
-    auto contents = File::LoadFileData(path);
+    auto contents = src::File::LoadFileData(path);
     return MakeFile(std::move(path), std::move(contents));
 }
 
-void Context::Initialise() {
+void src::Context::Initialise() {
     mlir::registerAllDialects(mlir_ctx);
     mlir_ctx.loadDialect<hlir::HLIRDialect>();
 }
 
-auto Context::MakeFile(fs::path name, std::vector<char>&& contents) -> File& {
+auto src::Context::MakeFile(fs::path name, std::vector<char>&& contents) -> File& {
     /// Create the file.
     auto fptr = new File(*this, std::move(name), std::move(contents));
     fptr->id = u32(owned_files.size());
@@ -66,7 +66,7 @@ auto Context::MakeFile(fs::path name, std::vector<char>&& contents) -> File& {
 /// ===========================================================================
 ///  File
 /// ===========================================================================
-auto File::TempPath(std::string_view extension) -> fs::path {
+auto src::File::TempPath(std::string_view extension) -> fs::path {
     std::mt19937 rd(std::random_device{}());
 
     /// Get the temporary directory.
@@ -107,7 +107,7 @@ auto File::TempPath(std::string_view extension) -> fs::path {
     return f;
 }
 
-bool File::Write(void* data, usz size, const fs::path& file) {
+bool src::File::Write(void* data, usz size, const fs::path& file) {
     auto f = std::fopen(file.string().c_str(), "wb");
     if (not f) return false;
     defer { std::fclose(f); };
@@ -121,17 +121,15 @@ bool File::Write(void* data, usz size, const fs::path& file) {
     return true;
 }
 
-void File::WriteOrDie(void* data, usz size, const fs::path& file) {
-    if (not File::Write(data, size, file))
+void src::File::WriteOrDie(void* data, usz size, const fs::path& file) {
+    if (not src::File::Write(data, size, file))
         Diag::Fatal("Failed to write to file '{}': {}", file.string(), std::strerror(errno));
 }
 
-File::File(Context& ctx, fs::path name, std::vector<char>&& contents)
-    : ctx(ctx)
-    , file_path(std::move(name))
-    , contents(std::move(contents)) {}
+src::File::File(Context& ctx, fs::path name, std::vector<char>&& contents)
+    : ctx(ctx), file_path(std::move(name)), contents(std::move(contents)) {}
 
-auto File::LoadFileData(const fs::path& path) -> std::vector<char> {
+auto src::File::LoadFileData(const fs::path& path) -> std::vector<char> {
 #ifdef __linux__
     /// Open the file.
     int fd = open(path.c_str(), O_RDONLY);
@@ -186,7 +184,7 @@ auto File::LoadFileData(const fs::path& path) -> std::vector<char> {
 /// ===========================================================================
 ///  Location
 /// ===========================================================================
-bool Location::seekable(const Context* ctx) const {
+bool src::Location::seekable(const Context* ctx) const {
     auto& files = ctx->files();
     if (file_id >= files.size()) return false;
     const auto* f = files[file_id].get();
@@ -194,7 +192,7 @@ bool Location::seekable(const Context* ctx) const {
 }
 
 /// Seek to a source location. The location must be valid.
-auto Location::seek(const Context* ctx) const -> LocInfo {
+auto src::Location::seek(const Context* ctx) const -> LocInfo {
     LocInfo info{};
 
     /// Get the file that the location is in.
@@ -229,7 +227,7 @@ auto Location::seek(const Context* ctx) const -> LocInfo {
 
 /// TODO: Lexer should create map that counts where in a file the lines start so
 /// we can do binary search on that instead of iterating over the entire file.
-auto Location::seek_line_column(const Context* ctx) const -> LocInfoShort {
+auto src::Location::seek_line_column(const Context* ctx) const -> LocInfoShort {
     LocInfoShort info{};
 
     /// Get the file that the location is in.
@@ -259,8 +257,8 @@ auto Location::seek_line_column(const Context* ctx) const -> LocInfoShort {
 /// ===========================================================================
 namespace {
 /// Get the colour of a diagnostic.
-static constexpr auto Colour(Diag::Kind kind) {
-    using Kind = Diag::Kind;
+static constexpr auto Colour(src::Diag::Kind kind) {
+    using Kind = src::Diag::Kind;
     switch (kind) {
         case Kind::ICError: return fmt::fg(fmt::terminal_color::magenta) | fmt::emphasis::bold;
         case Kind::Warning: return fmt::fg(fmt::terminal_color::yellow) | fmt::emphasis::bold;
@@ -276,8 +274,8 @@ static constexpr auto Colour(Diag::Kind kind) {
 }
 
 /// Get the name of a diagnostic.
-static constexpr std::string_view Name(Diag::Kind kind) {
-    using Kind = Diag::Kind;
+static constexpr std::string_view Name(src::Diag::Kind kind) {
+    using Kind = src::Diag::Kind;
     switch (kind) {
         case Kind::ICError: return "Internal Compiler Error";
         case Kind::FError: return "Fatal Error";
@@ -297,7 +295,7 @@ void PrintBacktrace() {
 
     /// Convert to strings.
     std::vector<std::string> trace_strs;
-    trace_strs.reserve(usz(n));
+    trace_strs.reserve(src::usz(n));
     for (int i = 0; i < n; i++) trace_strs.emplace_back(fmt::format("{:p}", trace[i]));
 
     /// Symboliser path.
@@ -309,7 +307,7 @@ void PrintBacktrace() {
         "{} {} -e {} -s -p -C -i --color --output-style=GNU | awk '{{ print \"#\" NR, $0 }}'",
         sym,
         fmt::join(trace_strs, " "),
-        fs::canonical("/proc/self/exe").native()
+        src::fs::canonical("/proc/self/exe").native()
     );
     std::system(cmd.c_str());
 }
@@ -321,11 +319,11 @@ void PrintBacktrace() {
 } // namespace
 
 /// Abort due to assertion failure.
-[[noreturn]] void detail::AssertFail(std::string&& msg) {
+[[noreturn]] void src::detail::AssertFail(std::string&& msg) {
     Diag::ICE("{}", std::move(msg));
 }
 
-void Diag::HandleFatalErrors() {
+void src::Diag::HandleFatalErrors() {
     /// Abort on ICE.
     if (kind == Kind::ICError) {
         PrintBacktrace();
@@ -337,16 +335,16 @@ void Diag::HandleFatalErrors() {
 }
 
 /// Print a diagnostic with no (valid) location info.
-void Diag::PrintDiagWithoutLocation() {
+void src::Diag::PrintDiagWithoutLocation() {
     /// Print the message.
     fmt::print(stderr, Colour(kind), "{}: ", Name(kind));
     fmt::print(stderr, "{}\n", msg);
     HandleFatalErrors();
 }
 
-Diag::~Diag() { print(); }
+src::Diag::~Diag() { print(); }
 
-void Diag::print() {
+void src::Diag::print() {
     using fmt::fg;
     using enum fmt::emphasis;
     using enum fmt::terminal_color;
@@ -432,7 +430,7 @@ void Diag::print() {
 /// ===========================================================================
 ///  Utils
 /// ===========================================================================
-void utils::ReplaceAll(
+void src::utils::ReplaceAll(
     std::string& str,
     std::string_view from,
     std::string_view to
@@ -442,6 +440,7 @@ void utils::ReplaceAll(
         str.replace(i, from.length(), to);
 }
 
-auto utils::NumberWidth(usz number, usz base) -> usz {
+auto src::utils::NumberWidth(usz number, usz base) -> usz {
     return number == 0 ? 1 : usz(std::log(number) / std::log(base) + 1);
 }
+

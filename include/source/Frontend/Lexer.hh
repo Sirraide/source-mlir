@@ -1,7 +1,9 @@
 #ifndef SOURCE_INCLUDE_FRONTEND_LEXER_HH
 #define SOURCE_INCLUDE_FRONTEND_LEXER_HH
 
-#include <core.hh>
+#include <source/Core.hh>
+
+namespace src {
 
 /// ===========================================================================
 ///  Tokens.
@@ -174,17 +176,6 @@ struct Token {
 /// Stringify a token type.
 auto Spelling(Tk t) -> std::string_view;
 
-/// Token formatter.
-template <>
-struct fmt::formatter<Token> {
-    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
-
-    template <typename FormatContext>
-    auto format(const Token& val, FormatContext& ctx) const -> decltype(ctx.out()) {
-        return format_to(ctx.out(), "{}", Spelling(val.type));
-    }
-};
-
 /// A lexer that reads a source file and provides tokens from it.
 class Lexer {
     struct Macro {
@@ -201,9 +192,7 @@ class Lexer {
 
     public:
         MacroExpansion(Lexer& l, Macro& m, StringMap<Token> args, Location loc)
-            : m(&m)
-            , it(m.expansion.begin())
-            , bound_parameters(std::move(args)) {}
+            : m(&m), it(m.expansion.begin()), bound_parameters(std::move(args)) {}
 
         /// Check if the macro is done expanding.
         bool done() const { return it == m->expansion.end(); }
@@ -238,9 +227,6 @@ private:
     /// Pragma handler.
     std::function<bool()> pragma_handler;
 
-    /// Static assert handler.
-    std::function<bool()> static_assert_handler;
-
     /// Macro definitions.
     std::deque<Macro> macro_definitions;
     StringMap<Macro*> macro_definitions_by_name;
@@ -269,10 +255,10 @@ public:
     Lexer& operator=(const Lexer&) = delete;
     Lexer& operator=(Lexer&&) = delete;
 
-protected:
     auto CurrLoc() const -> Location;
     auto CurrOffs() const -> u32;
 
+protected:
     /// Look ahead in the token list.
     ///
     /// Lookahead tokens are 1-based. LookAhead(0) returns the
@@ -311,5 +297,19 @@ private:
     void SkipLine();
     void SkipWhitespace();
 };
+
+} // namespace src
+
+/// Token formatter.
+template <>
+struct fmt::formatter<src::Token> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+
+    template <typename FormatContext>
+    auto format(const src::Token& val, FormatContext& ctx) const -> decltype(ctx.out()) {
+        return format_to(ctx.out(), "{}", Spelling(val.type));
+    }
+};
+
 
 #endif // SOURCE_INCLUDE_FRONTEND_LEXER_HH

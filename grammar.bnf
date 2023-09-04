@@ -44,11 +44,10 @@
           | <identifier>
           | <type> ///< Yes, I’m fully aware that this looks like insanity.
 
-<expr-for>            ::= [ STATIC ] FOR <decl-base> { "," <decl-base> } IN <expr> <delim-expr>
-<expr-for-enum>       ::= [ STATIC ] FOR ENUM <identifier> { "," <decl-base> } IN <expr> <delim-expr>
-<expr-while>          ::= WHILE <exprs> [ <delim-expr> ]
+<expr-for>            ::= [ STATIC ] FOR ( <for-infinite> | <for-each> | <for-cstyle> | <for-in> | <for-enum-in> )
+<expr-while>          ::= WHILE <expr> <delim-expr>
 <expr-if>             ::= [ STATIC ] IF <expr> <delim-expr> { ELIF <expr> <delim-expr> } [ ELSE <expr> ]
-<expr-match>          ::= MATCH [ <expr> <binary> ] "{" { <expr> <delim-expr> } [ ELSE <delim-expr> ] "}"
+<expr-match>          ::= [ STATIC ] MATCH <match-control> "{" { <match-case> } [ ELSE <delim-expr> ] "}"
 <expr-asm>            ::= ASM "{" { <asm-instruction> } "}" | ASM <asm-instruction>
 <expr-assert>         ::= [ STATIC ] ASSERT <expr> [ "," <expr> ]
 <expr-return>         ::= RETURN [ <expr> ]
@@ -87,8 +86,17 @@
 <delim-expr>          ::= [ <delim> ] <expr>
 <delim>               ::= DO | THEN | ":"
 
-<asm-instruction> ::= TOKEN [ <operand> { "," <operand> } ]
-<operand> ::= INTEGER
+<for-infinite> ::= DO <expr> | <expr-block>
+<for-each>     ::= <expr> <delim-expr>
+<for-cstyle>   ::= [ <expr> ] ";" [ <expr> ] ";" [ <expr> ] <delim-expr>
+<for-in>       ::= <decl-base> { "," <decl-base> } IN <expr> <delim-expr>
+<for-enum-in>  ::= ENUM <identifier> [ "," <decl-base> ] IN <expr> <delim-expr>
+
+<match-control> ::= [ <expr> [ <binary> ] ]
+<match-case>    ::= <expr> <delim-expr>
+
+<asm-instruction> ::= [ <identifier> ":" ] <identifier> <asm-operands> NEWLINE
+<asm-operands> ::= [ <expr> ] { "," <expr> }
 <prefix> ::= "^" | "&" | "#" | "-" | "++" | "--"
 <postfix> ::= "++" | "--"
 <binary> ::= "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "and" | "or" | "&" | "|" | "<<" | ">>" | "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="

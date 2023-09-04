@@ -255,13 +255,13 @@ target_link_libraries(options INTERFACE
 ## ============================================================================
 ##  Tablegen.
 ## ============================================================================
-file(GLOB_RECURSE hlir_lib_sources "${PROJECT_SOURCE_DIR}/lib/hlir/*.cc")
-add_subdirectory(include/hlir)
+file(GLOB_RECURSE hlir_lib_sources "${PROJECT_SOURCE_DIR}/lib/HLIR/*.cc")
+add_subdirectory(include/source/HLIR)
 add_mlir_dialect_library(MLIRSourceHLIR
     ${hlir_lib_sources}
 
     ADDITIONAL_HEADER_DIRS
-    ${PROJECT_SOURCE_DIR}/include/hlir
+    ${PROJECT_SOURCE_DIR}/include/source/HLIR
 
     DEPENDS
     MLIRHLIROpsIncGen
@@ -304,8 +304,8 @@ endif()
 add_llvm_executable(srcc ${sources})
 target_link_libraries(srcc PRIVATE options)
 target_precompile_headers(srcc PRIVATE
-    include/utils.hh
-    include/hlir/HLIRDialect.hh
+    include/source/Support/Utils.hh
+    include/source/HLIR/HLIRDialect.hh
 )
 #llvm_update_compile_flags(srcc)
 #mlir_check_all_link_libraries(srcc)
