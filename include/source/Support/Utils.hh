@@ -110,13 +110,13 @@ using f64 = double;
     type _##name();               \
     __declspec(property(get = _##name)) type name
 
-#define property_r(type, name)                                    \
-private:                                                          \
-    type name##_field{};                                          \
-public:                                                           \
-    decltype(auto) _##name() const { return (name##_field); }     \
-    decltype(auto) _##name() { return (name##_field); }           \
-    __declspec(property(get = _##name, put = _##name)) type name; \
+#define property_r(type, name)                                \
+private:                                                      \
+    type name##_field{};                                      \
+public:                                                       \
+    decltype(auto) _##name() const { return (name##_field); } \
+    decltype(auto) _##name() { return (name##_field); }       \
+    __declspec(property(get = _##name)) type name;            \
 private:
 
 #define property_rw(type, name)                                   \

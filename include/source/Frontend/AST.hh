@@ -78,7 +78,6 @@ public:
         EK_Type,
 
         /// Untyped expressions.
-        EK_ForExpr,
         EK_ForInExpr,
         EK_ForInfinite,
         EK_ForCStyle,
@@ -113,6 +112,7 @@ public:
         EK_NullLiteralExpr,
         EK_IntegerLiteralExpr,
         EK_CastExpr,
+        EK_TryExpr,
 
         /// Object Declarations.
         EK_FunctionDecl,
@@ -261,40 +261,6 @@ public:
 /// ===========================================================================
 ///  Untyped Expressions
 /// ===========================================================================
-/// C-style [var, cond, inc] for loop.
-class ForExpr : public Expr {
-    /// The loop body.
-    Expr* _body;
-
-    /// The loop condition.
-    Expr* _cond;
-
-    /// The loop increment.
-    Expr* _inc;
-
-    /// The loop variable.
-    Expr* _var;
-
-public:
-    ForExpr(Expr* var, Expr* body, Expr* cond, Expr* inc)
-        : Expr(EK_ForExpr), _body(body), _cond(cond), _inc(inc), _var(var) {}
-
-    /// Get the loop body.
-    auto body() const -> Expr* { return _body; }
-
-    /// Get the loop condition.
-    auto cond() const -> Expr* { return _cond; }
-
-    /// Get the loop increment.
-    auto inc() const -> Expr* { return _inc; }
-
-    /// Get the loop variable.
-    auto var() const -> Expr* { return _var; }
-
-    /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == EK_ForExpr; }
-};
-
 /// Ranged for-in loop.
 class ForInExpr : public Expr {
     /// The loop variable (optional).
@@ -309,13 +275,17 @@ class ForInExpr : public Expr {
     /// The loop body.
     property_r(Expr*, body);
 
+    /// Whether this is a static for loop.
+    property_r(bool, is_static);
+
 public:
-    ForInExpr(Expr* var, Expr* enum_var, Expr* range, Expr* body, Location loc = {})
+    ForInExpr(Expr* var, Expr* enum_var, Expr* range, Expr* body, bool is_static, Location loc = {})
         : Expr(EK_ForInExpr, loc),
           var_field(var),
           enum_var_field(enum_var),
           range_field(range),
-          body_field(body) {}
+          body_field(body),
+          is_static_field(is_static) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ForInExpr; }
@@ -326,16 +296,19 @@ class ForInfiniteExpr : public Expr {
     /// The loop body.
     property_r(Expr*, body);
 
+    /// Whether this is a static for loop.
+    property_r(bool, is_static);
+
 public:
-    ForInfiniteExpr(Expr* body, Location loc = {})
-        : Expr(EK_ForInfinite, loc), body_field(body) {}
+    ForInfiniteExpr(Expr* body, bool is_static, Location loc = {})
+        : Expr(EK_ForInfinite, loc), body_field(body), is_static_field(is_static) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ForInfinite; }
 };
 
 /// C-style for loop.
-class ForCStyleExpr: public Expr {
+class ForCStyleExpr : public Expr {
     /// The loop init.
     property_r(Expr*, init);
 
@@ -348,13 +321,17 @@ class ForCStyleExpr: public Expr {
     /// The loop body.
     property_r(Expr*, body);
 
+    /// Whether this is a static for loop.
+    property_r(bool, is_static);
+
 public:
-    ForCStyleExpr(Expr* init, Expr* cond, Expr* inc, Expr* body, Location loc = {})
+    ForCStyleExpr(Expr* init, Expr* cond, Expr* inc, Expr* body, bool is_static, Location loc = {})
         : Expr(EK_ForCStyle, loc),
-            init_field(init),
-            cond_field(cond),
-            inc_field(inc),
-            body_field(body) {}
+          init_field(init),
+          cond_field(cond),
+          inc_field(inc),
+          body_field(body),
+          is_static_field(is_static) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ForCStyle; }
@@ -540,32 +517,26 @@ public:
 /// ```
 class WithExpr : public Expr {
     /// The controlling expression.
-    Expr* _expr;
+    property_r(Expr*, expr);
 
     /// The body, if any.
-    Expr* _body;
+    property_r(Expr*, body);
 
     /// Associated scope.
-    Scope* _scope;
+    ///
+    /// If this is scoped, the body’s scope, otherwise,
+    /// the parent scope containing the with expression.
+    property_r(Scope*, scope);
 
 public:
-    WithExpr(Expr* expr, Expr* body, Scope* scope)
-        : Expr(EK_WithExpr), _expr(expr), _body(body), _scope(scope) {}
-
-    /// Get the body, if any.
-    auto body() const -> Expr* { return _body; }
-
-    /// Get the controlling expression.
-    auto expr() const -> Expr* { return _expr; }
+    WithExpr(Expr* expr, Expr* body, Scope* scope, Location loc = {})
+        : Expr(EK_WithExpr, loc),
+          expr_field(expr),
+          body_field(body),
+          scope_field(scope) {}
 
     /// Get whether this is a scoped with expression.
-    bool is_scoped() const { return _body != nullptr; }
-
-    /// Get the associated scope.
-    ///
-    /// \return If this is scoped, the body’s scope, otherwise,
-    /// the parent scope containing the with expression.
-    auto scope() const -> Scope* { return _scope; }
+    bool is_scoped() const { return body != nullptr; }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_WithExpr; }
@@ -1049,6 +1020,19 @@ public:
     static bool classof(const Expr* e) { return e->kind == EK_CastExpr; }
 };
 
+/// Try expression.
+class TryExpr : public TypedExpr {
+    /// The operand.
+    property_r(Expr*, operand);
+
+public:
+    TryExpr(Expr* operand, Location loc = {})
+        : TypedExpr(EK_TryExpr, detail::UnknownTy, loc), operand_field(operand) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_TryExpr; }
+};
+
 /// Tuple literal.
 class TupleLiteralExpr : public TypedExpr {
     /// The tuple elements.
@@ -1310,7 +1294,7 @@ public:
     ///     there already is a variable with the same name in the scope.
     static auto Create(
         std::string name,
-        Scope *scope,
+        Scope* scope,
         FunctionDecl* owner,
         Expr* type,
         Linkage linkage,

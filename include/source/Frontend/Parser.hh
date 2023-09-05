@@ -32,28 +32,33 @@ public:
 private:
     class ScopeRAII {
         Parser& p;
-        Scope* sc;
+        property_r(Scope*, scope);
 
-        void Delete() {
-            if (sc) p.scope_stack.pop_back();
-        }
 
     public:
-        ScopeRAII(Parser* p) : p(*p), sc(new Scope(p.curr_scope, p.mod)) { p.scope_stack.push_back(sc); }
-        ~ScopeRAII() { Delete(); }
+        ScopeRAII(Parser* parser)
+            : p(*parser),
+              scope_field(new Scope(p.curr_scope, p.mod)) { p.scope_stack.push_back(scope); }
+
+        ~ScopeRAII() { pop(); }
 
         ScopeRAII(const ScopeRAII&) = delete;
         ScopeRAII& operator=(const ScopeRAII&) = delete;
 
-        ScopeRAII(ScopeRAII&& o) : p(o.p), sc(std::exchange(o.sc, nullptr)) {}
+        ScopeRAII(ScopeRAII&& o) : p(o.p), scope_field(std::exchange(o.scope, nullptr)) {}
         ScopeRAII& operator=(ScopeRAII&& o) {
             if (this == std::addressof(o)) return *this;
-            Delete();
-            sc = std::exchange(o.sc, nullptr);
+            pop();
+            scope_field = std::exchange(o.scope, nullptr);
             return *this;
         }
 
-        void release() { sc = nullptr; }
+        void pop() {
+            if (scope) p.scope_stack.pop_back();
+            release();
+        }
+
+        void release() { scope_field = nullptr; }
     };
 
     static constexpr int NullPrecedence = 0;
@@ -67,8 +72,8 @@ private:
     auto ParseAssertExpr(bool is_static) -> Result<AssertExpr*>;
     auto ParseBlockExpr() -> Result<BlockExpr*>;
     auto ParseDeclBase() -> Result<Decl*>;
-    auto ParseDelimExpr() -> Result<Expr*>;
     auto ParseExpr(int operator_precedence = NullPrecedence) -> Result<Expr*>;
+    auto ParseExprInNewScope() -> Result<Expr*>;
     void ParseExpressions(ExprList& into);
     void ParseFile();
     auto ParseForExpr(bool is_static) -> Result<Expr*>;
@@ -77,7 +82,7 @@ private:
     auto ParseMatchExpr(bool is_static) -> Result<MatchExpr*>;
     void ParsePreamble();
     auto ParseWhileExpr() -> Result<WhileExpr*>;
-
+    auto ParseWithExpr() -> Result<WithExpr*>;
 
     /// Check if we’re at the start of an expression.
     bool AtStartOfExpression();

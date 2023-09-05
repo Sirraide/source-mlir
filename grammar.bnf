@@ -15,7 +15,6 @@
 <expr>  ::= <decl>
           | <expr-assert>
           | <expr-for>
-          | <expr-for-enum>
           | <expr-while>
           | <expr-if>
           | <expr-match>
@@ -41,13 +40,14 @@
           | <expr-unreachable>
           | <expr-break>
           | <expr-continue>
+          | <expr-try>
           | <identifier>
           | <type> ///< Yes, I’m fully aware that this looks like insanity.
 
 <expr-for>            ::= [ STATIC ] FOR ( <for-infinite> | <for-each> | <for-cstyle> | <for-in> | <for-enum-in> )
-<expr-while>          ::= WHILE <expr> <delim-expr>
-<expr-if>             ::= [ STATIC ] IF <expr> <delim-expr> { ELIF <expr> <delim-expr> } [ ELSE <expr> ]
-<expr-match>          ::= [ STATIC ] MATCH <match-control> "{" { <match-case> } [ ELSE <delim-expr> ] "}"
+<expr-while>          ::= WHILE <expr> [ DO ] <expr>
+<expr-if>             ::= [ STATIC ] IF <expr> [ THEN ] <expr> { ELIF <expr> [ THEN ] <expr> } [ ELSE <expr> ]
+<expr-match>          ::= [ STATIC ] MATCH <match-control> "{" { <match-case> } [ ELSE [ ":" ] <expr> ] "}"
 <expr-asm>            ::= ASM "{" { <asm-instruction> } "}" | ASM <asm-instruction>
 <expr-assert>         ::= [ STATIC ] ASSERT <expr> [ "," <expr> ]
 <expr-return>         ::= RETURN [ <expr> ]
@@ -66,11 +66,12 @@
 <expr-property>       ::= <expr> "::" <identifier>
 <expr-cast>           ::= <expr> "as" <type>
 <expr-terse-proc>     ::= "->" <expr>
-<expr-with>           ::= "with" <expr> [ <delim-expr> ]
+<expr-with>           ::= "with" <expr> [ DO ] [ <expr> ]
 <expr-primary>        ::= NUMBER | STRING | TRUE | FALSE | NULL
 <expr-unreachable>    ::= UNREACHABLE
 <expr-break>          ::= BREAK [ <expr> ]
 <expr-continue>       ::= CONTINUE [ <expr> ]
+<expr-try>            ::= TRY <expr>
 
 <proc-unqual-sig>     ::= PROC <identifier> <proc-sig-rest>
 <proc-named-sig>      ::= PROC { <type-qual> } <identifier> <proc-sig-rest>
@@ -83,17 +84,14 @@
 
 <proc-body>           ::= <expr-block> | "=" <expr>
 
-<delim-expr>          ::= [ <delim> ] <expr>
-<delim>               ::= DO | THEN | ":"
-
 <for-infinite> ::= DO <expr> | <expr-block>
-<for-each>     ::= <expr> <delim-expr>
-<for-cstyle>   ::= [ <expr> ] ";" [ <expr> ] ";" [ <expr> ] <delim-expr>
-<for-in>       ::= <decl-base> { "," <decl-base> } IN <expr> <delim-expr>
-<for-enum-in>  ::= ENUM <identifier> [ "," <decl-base> ] IN <expr> <delim-expr>
+<for-each>     ::= <expr> [ DO ] <expr>
+<for-cstyle>   ::= [ <expr> ] ";" [ <expr> ] ";" [ <expr> ] [ DO ] <expr>
+<for-in>       ::= <decl-base> IN <expr> [ DO ] <expr>
+<for-enum-in>  ::= ENUM <identifier> [ "," <decl-base> ] IN <expr> [ DO ] <expr>
 
 <match-control> ::= [ <expr> [ <binary> ] ]
-<match-case>    ::= <expr> <delim-expr>
+<match-case>    ::= <expr> [ ":" ] <expr>
 
 <asm-instruction> ::= [ <identifier> ":" ] <identifier> <asm-operands> NEWLINE
 <asm-operands> ::= [ <expr> ] { "," <expr> }

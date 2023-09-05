@@ -131,13 +131,13 @@ void src::Parser::ParseExpressions(ExprList& into) {
 
     /// Block expression.
     if (At(Tk::LBrace)) {
-        ParseBlockExpr() >>= Add;
+        std::ignore = ParseBlockExpr() >>= Add;
         Consume(Tk::Semicolon);
     }
 
     /// Expression + semicolon.
     else {
-        ParseExpr() >>= Add;
+        std::ignore = ParseExpr() >>= Add;
         if (not Consume(Tk::Semicolon)) {
             Error("Expected ';' after expression");
             Synchronise();
@@ -296,8 +296,17 @@ auto src::Parser::ParseExprImpl(int operator_precedence) -> Result<Expr*> {
         case Tk::Match: lhs = ParseMatchExpr(false); break;
         case Tk::While: lhs = ParseWhileExpr(); break;
         case Tk::For: lhs = ParseForExpr(false); break;
-        case Tk::With: break;
-        case Tk::Try: break;
+        case Tk::With: lhs = ParseWithExpr(); break;
+
+        /// <expr-try> ::= TRY <expr>
+        case Tk::Try: {
+            auto loc = curr_loc;
+            Next();
+            auto op = ParseExpr();
+            if (IsError(op)) return Diag();
+            lhs = new (mod) TryExpr(*op, loc);
+        } break;
+
         case Tk::Return: break;
         case Tk::Defer: break;
         case Tk::Break: break;
@@ -365,26 +374,37 @@ auto src::Parser::ParseExprImpl(int operator_precedence) -> Result<Expr*> {
     );
 }
 
+auto src::Parser::ParseExprInNewScope() -> Result<Expr*> {
+    ScopeRAII sc{this};
+    return ParseExpr();
+}
+
 /// <expr-for>     ::= [ STATIC ] FOR ( <for-infinite> | <for-each> | <for-cstyle> | <for-in> | <for-enum-in> )
 /// <for-infinite> ::= DO <expr> | <expr-block>
-/// <for-each>     ::= <expr> <delim-expr>
-/// <for-cstyle>   ::= [ <expr> ] ";" [ <expr> ] ";" [ <expr> ] <delim-expr>
-/// <for-in>       ::= <decl-base> IN <expr> <delim-expr>
-/// <for-enum-in>  ::= ENUM <identifier> [ "," <decl-base> ] IN <expr> <delim-expr>
+/// <for-each>     ::= <expr> [ DO ] <expr>
+/// <for-cstyle>   ::= [ <expr> ] ";" [ <expr> ] ";" [ <expr> ] [ DO ] <expr>
+/// <for-in>       ::= <decl-base> IN <expr> [ DO ] <expr>
+/// <for-enum-in>  ::= ENUM <identifier> [ "," <decl-base> ] IN <expr> [ DO ] <expr>
 auto src::Parser::ParseForExpr(bool is_static) -> Result<Expr*> {
     auto for_loc = curr_loc;
     Assert(Consume(Tk::For), "ParseForExpr() called without 'for'");
     ScopeRAII sc{this};
 
+    /// Parse optional 'do', followed by an expression.
+    const auto ParseDoExpr = [&] -> Result<Expr*> {
+        Consume(Tk::Do);
+        return ParseExpr();
+    };
+
     /// Parse a C-style for loop.
-    const auto ParseForCStyle = [&] (Result<Expr*> init) -> Result<Expr*> {
+    const auto ParseForCStyle = [&](Result<Expr*> init) -> Result<Expr*> {
         if (not Consume(Tk::Semicolon)) Error("Expected ';' after first clause of c-style for loop");
         auto cond = At(Tk::Semicolon) ? Result<Expr*>::Null() : ParseExpr();
         if (not Consume(Tk::Semicolon)) Error("Expected ';' after condition of c-style for loop");
         auto step = AtStartOfExpression() ? ParseExpr() : Result<Expr*>::Null();
-        auto body = ParseDelimExpr();
+        auto body = ParseDoExpr();
         if (IsError(init, cond, step, body)) return Diag();
-        return new (mod) ForCStyleExpr(*init, *cond, *step, *body, for_loc);
+        return new (mod) ForCStyleExpr(*init, *cond, *step, *body, is_static, for_loc);
     };
 
     /// Parse a for-in loop.
@@ -406,7 +426,7 @@ auto src::Parser::ParseForExpr(bool is_static) -> Result<Expr*> {
         /// Parse 'in' keyword, range, and body.
         if (not Consume(Tk::In)) Error("Expected 'in' after enumerator in for-in loop");
         auto range = ParseExpr();
-        auto body = ParseDelimExpr();
+        auto body = ParseDoExpr();
 
         /// Create the expression.
         if (IsError(decl, enum_decl, range, body)) return Diag();
@@ -415,6 +435,7 @@ auto src::Parser::ParseForExpr(bool is_static) -> Result<Expr*> {
             *enum_decl,
             *range,
             *body,
+            is_static,
             for_loc
         );
     };
@@ -438,7 +459,7 @@ auto src::Parser::ParseForExpr(bool is_static) -> Result<Expr*> {
     if (Consume(Tk::Do) or At(Tk::LBrace)) {
         auto body = ParseExpr();
         if (IsError(body)) return Diag();
-        return new (mod) ForInfiniteExpr(*body, for_loc);
+        return new (mod) ForInfiniteExpr(*body, is_static, for_loc);
     }
 
     /// Maybe case 3: for-cstyle.
@@ -454,12 +475,12 @@ auto src::Parser::ParseForExpr(bool is_static) -> Result<Expr*> {
     if (At(Tk::In)) return ParseForIn("", std::move(control));
 
     /// Case 5: for-each.
-    auto body = ParseDelimExpr();
+    auto body = ParseDoExpr();
     if (IsError(control, body)) return Diag();
-    return new (mod) ForInExpr(nullptr, nullptr, *control, *body, for_loc);
+    return new (mod) ForInExpr(nullptr, nullptr, *control, *body, is_static, for_loc);
 }
 
-/// <expr-if> ::= [ STATIC ] IF <expr> <delim-expr> { ELIF <expr> <delim-expr> } [ ELSE <expr> ]
+/// <expr-if> ::= [ STATIC ] IF <expr> [ THEN ] <expr> { ELIF <expr> [ THEN ] <expr> } [ ELSE <expr> ]
 auto src::Parser::ParseIfExpr(bool is_static) -> Result<IfExpr*> {
     auto if_loc = curr_loc;
     Assert(
@@ -468,10 +489,17 @@ auto src::Parser::ParseIfExpr(bool is_static) -> Result<IfExpr*> {
     );
 
     /// Parse condition, body, and else clause.
+    ScopeRAII sc{this};
     auto cond = ParseExpr();
-    auto body = ParseDelimExpr();
-    auto elif = At(Tk::Elif) ? ParseIfExpr(false) : Consume(Tk::Else) ? ParseExpr()
-                                                                      : Result<Expr*>::Null();
+    auto body = (Consume(Tk::Then), ParseExpr());
+
+    /// Else clause is not in the same scope.
+    sc.pop();
+    auto elif = At(Tk::Elif)      ? ParseIfExpr(false)
+              : Consume(Tk::Else) ? ParseExprInNewScope()
+                                  : Result<Expr*>::Null();
+
+    /// Create the expression.
     if (IsError(cond, body, elif)) return Diag();
     return new (mod) IfExpr(*cond, *body, *elif, is_static, if_loc);
 }
@@ -483,9 +511,9 @@ auto src::Parser::ParseInlineAsm() -> Result<Expr*> {
     Diag::ICE("TODO: Implement parsing of inline assembly");
 }
 
-/// <expr-match>    ::= [ STATIC ] MATCH <match-control> "{" { <match-case> } [ ELSE <delim-expr> ] "}"
+/// <expr-match>    ::= [ STATIC ] MATCH <match-control> "{" { <match-case> } [ ELSE [ ":" ] <expr> ] "}"
 /// <match-control> ::= [ <expr> [ <binary> ] ]
-/// <match-case>    ::= <expr> <delim-expr>
+/// <match-case>    ::= <expr> [ ":" ] <expr>
 auto src::Parser::ParseMatchExpr(bool is_static) -> Result<MatchExpr*> {
     auto loc = curr_loc;
     Assert(Consume(Tk::Match), "ParseMatchExpr() called without 'match'");
@@ -505,15 +533,16 @@ auto src::Parser::ParseMatchExpr(bool is_static) -> Result<MatchExpr*> {
     SmallVector<CaseExpr*> cases;
     if (not Consume(Tk::LBrace)) Error("Expected '{{' at start of match body");
     while (not At(Tk::LBrace, Tk::Eof, Tk::Else)) {
+        ScopeRAII sc{this};
         auto expr = ParseExpr();
-        auto body = ParseDelimExpr();
+        auto body = (Consume(Tk::Colon), ParseExpr());
         auto fallthrough = Consume(Tk::Fallthrough);
         if (IsError(expr, body)) return Diag(); /// Stop to avoid infinite loop.
         cases.push_back(new (mod) CaseExpr(*expr, *body, fallthrough, expr->location));
     }
 
     /// Parse else clause, if any.
-    auto else_body = Consume(Tk::Else) ? ParseDelimExpr() : Result<Expr*>::Null();
+    auto else_body = Consume(Tk::Else) ? (Consume(Tk::Colon), ParseExprInNewScope()) : Result<Expr*>::Null();
     if (not Consume(Tk::RBrace)) Error("Expected '}}' at end of match body");
 
     /// Create the expression.
@@ -528,14 +557,37 @@ auto src::Parser::ParseMatchExpr(bool is_static) -> Result<MatchExpr*> {
     );
 }
 
-/// <expr-while> ::= WHILE <expr> <delim-expr>
+/// <expr-while> ::= WHILE <expr> [ DO ] <expr>
 auto src::Parser::ParseWhileExpr() -> Result<WhileExpr*> {
     auto loc = curr_loc;
     Assert(Consume(Tk::While), "ParseWhileExpr() called without 'while'");
 
     /// Parse condition and body.
+    ScopeRAII sc{this};
     auto cond = ParseExpr();
-    auto body = ParseDelimExpr();
+    auto body = (Consume(Tk::Do), ParseExpr());
     if (IsError(cond, body)) return Diag();
     return new (mod) WhileExpr(*cond, *body, loc);
+}
+
+/// <expr-with> ::= "with" <expr> [ DO ] [ <expr> ]
+auto src::Parser::ParseWithExpr() -> Result<WithExpr*> {
+    auto loc = curr_loc;
+    Assert(Consume(Tk::With), "ParseWithExpr() called without 'with'");
+
+    /// Parse the controlling expression.
+    auto expr = ParseExpr();
+
+    /// A with expression may have a body.
+    Scope* sc = curr_scope;
+    auto body = Result<Expr*>::Null();
+    if (Consume(Tk::Do) or AtStartOfExpression()) {
+        ScopeRAII ra{this};
+        sc = ra.scope;
+        body = ParseExpr();
+    }
+
+    /// Create the expression.
+    if (IsError(expr, body)) return Diag();
+    return new (mod) WithExpr(*expr, *body, sc, loc);
 }
