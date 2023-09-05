@@ -12,7 +12,7 @@ constexpr bool IsStart(char c) {
 
 /// Check if a character is allowed in an identifier.
 constexpr bool IsContinue(char c) {
-    return IsStart(c) or isdigit(c);
+    return IsStart(c) or isdigit(c) or c == '?' or c == '!';
 }
 
 constexpr bool IsBinary(char c) { return c == '0' or c == '1'; }
@@ -50,6 +50,7 @@ const StringMap<Tk> keywords = {
     {"static", Tk::Static},
     {"is", Tk::Is},
     {"as", Tk::As},
+    {"as!", Tk::AsBang},
     {"not", Tk::Not},
     {"and", Tk::And},
     {"or", Tk::Or},
@@ -86,7 +87,6 @@ const StringMap<Tk> keywords = {
     {"__c_char16", Tk::CChar16T},
     {"__c_char32", Tk::CChar32T},
     {"__c_size_t", Tk::CSizeT},
-    {"__c_bool", Tk::CBool},
 };
 } // namespace
 } // namespace src

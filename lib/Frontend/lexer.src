@@ -229,26 +229,26 @@ proc Next (with Lexer&) {
 
     /// Consume current character if it matches.
     macro cmatch
-        #control:expr {
+        {
             /// :rep1(<tokens>) collects 1 or more occurrences of <tokens>
             /// into a pack. :sep(<tokens>, <separator>) collects 1 or more
             /// occurrences of <tokens> separated by <separator>. Here, the
             /// second `,` indicates that <separator> is `,`.
-            #clauses:rep1(#cases:sep1(#case:expr,,) : #body:expr )
-            else : #base:expr
+            #clauses:rep1(#cases:sep1(#case:expr,,) : #body:expr #:repn(;))
+            else : #base:expr #:repn(;)
         }
     expands quote {
         /// `for enum` is how you write `enumerate()` in Source. The `i`
         /// variable is a constant and cannot be assigned to.
-        static for enum i, var rep in #clauses {
+        static for enum i, var clause in #clauses {
             static if i == 0 then quote if else quote elif;
 
-            /// `rep.cases` pack is not expanded, and thus automatically
+            /// `clause.cases` pack is not expanded, and thus automatically
             /// inserted w/ commas inbetween the elements.
-            quote { Consume #rep.cases { #rep.body } }
+            quote { Consume clause.cases { clause.body } }
         }
 
-        else { #base:expr }
+        else { #base ; }
     } endmacro
 
     /// Lex the token.

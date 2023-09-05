@@ -74,6 +74,7 @@ public:
         /// Special expressions.
         EK_Root,
         EK_ExprBundle,
+        EK_StaticExpr,
         EK_DeclGroup,
         EK_Type,
 
@@ -95,6 +96,7 @@ public:
         EK_AsmExpr,
 
         /// Typed Expressions.
+        EK_ParenExpr,
         EK_InvokeExpr,
         EK_IfExpr,
         EK_MatchExpr,
@@ -106,11 +108,13 @@ public:
         EK_UnaryExpr,
         EK_BinaryExpr,
         EK_VectorReduceExpr,
-        EK_TupleLiteralExpr,
         EK_ClosureExpr,
+        EK_TupleLiteralExpr,
+        EK_ArrayLiteralExpr,
         EK_StringLiteralExpr,
         EK_NullLiteralExpr,
         EK_IntegerLiteralExpr,
+        EK_BuiltinLiteralExpr,
         EK_CastExpr,
         EK_TryExpr,
 
@@ -258,6 +262,39 @@ public:
     static bool classof(const Expr* e) { return e->kind == EK_ExprBundle; }
 };
 
+/// Expression to be evaluated during sema that generates expressions.
+///
+/// This is used to represent constructs that are introduced by the
+/// `static` keyword, such as `static if` and `static for`.
+///
+/// A `static if` selects between two expressions, and loops such as
+/// `static for` generate a list of expressions; these expressions are
+/// treated like a block expressions, except for when they’re in the
+/// body of another block expression, a `match` expression, and a few
+/// other places where they are spliced into the surrounding context.
+///
+/// A static expression may generate no expressions at all, which is
+/// the case e.g. for a loop whose condition is always false, as well
+/// as for `static assert` expressions.
+///
+/// If the type of a static expression is queried, it will return the
+/// type of the last generated expression, just like a block expression,
+/// or `void` if no expressions were generated.
+class StaticExpr : public Expr {
+    /// The expression to evaluate.
+    property_r(Expr*, expr);
+
+    /// Generated or selected expressions.
+    property_r(ExprList, selected_exprs);
+
+public:
+    StaticExpr(Expr* expr, Location loc)
+        : Expr(EK_StaticExpr), expr_field(expr) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_StaticExpr; }
+};
+
 /// ===========================================================================
 ///  Untyped Expressions
 /// ===========================================================================
@@ -275,17 +312,13 @@ class ForInExpr : public Expr {
     /// The loop body.
     property_r(Expr*, body);
 
-    /// Whether this is a static for loop.
-    property_r(bool, is_static);
-
 public:
-    ForInExpr(Expr* var, Expr* enum_var, Expr* range, Expr* body, bool is_static, Location loc = {})
+    ForInExpr(Expr* var, Expr* enum_var, Expr* range, Expr* body, Location loc = {})
         : Expr(EK_ForInExpr, loc),
           var_field(var),
           enum_var_field(enum_var),
           range_field(range),
-          body_field(body),
-          is_static_field(is_static) {}
+          body_field(body) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ForInExpr; }
@@ -296,12 +329,9 @@ class ForInfiniteExpr : public Expr {
     /// The loop body.
     property_r(Expr*, body);
 
-    /// Whether this is a static for loop.
-    property_r(bool, is_static);
-
 public:
-    ForInfiniteExpr(Expr* body, bool is_static, Location loc = {})
-        : Expr(EK_ForInfinite, loc), body_field(body), is_static_field(is_static) {}
+    ForInfiniteExpr(Expr* body, Location loc = {})
+        : Expr(EK_ForInfinite, loc), body_field(body) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ForInfinite; }
@@ -321,17 +351,13 @@ class ForCStyleExpr : public Expr {
     /// The loop body.
     property_r(Expr*, body);
 
-    /// Whether this is a static for loop.
-    property_r(bool, is_static);
-
 public:
-    ForCStyleExpr(Expr* init, Expr* cond, Expr* inc, Expr* body, bool is_static, Location loc = {})
+    ForCStyleExpr(Expr* init, Expr* cond, Expr* inc, Expr* body, Location loc = {})
         : Expr(EK_ForCStyle, loc),
           init_field(init),
           cond_field(cond),
           inc_field(inc),
-          body_field(body),
-          is_static_field(is_static) {}
+          body_field(body) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ForCStyle; }
@@ -418,13 +444,11 @@ public:
 /// Return expression.
 class ReturnExpr : public Expr {
     /// The expression to return, if any.
-    Expr* _expr;
+    property_r(Expr*, expr);
 
 public:
-    ReturnExpr(Expr* expr) : Expr(EK_ReturnExpr), _expr(expr) {}
-
-    /// Get the expression to return, if any.
-    auto value() const -> Expr* { return _expr; }
+    ReturnExpr(Expr* expr, Location loc)
+        : Expr(EK_ReturnExpr, loc), expr_field(expr) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ReturnExpr; }
@@ -433,13 +457,11 @@ public:
 /// Deferred expression.
 class DeferExpr : public Expr {
     /// The expression to defer.
-    Expr* _expr;
+    property_r(Expr*, expr);
 
 public:
-    DeferExpr(Expr* expr) : Expr(EK_DeferExpr), _expr(expr) {}
-
-    /// Get the expression to defer.
-    auto expr() const -> Expr* { return _expr; }
+    DeferExpr(Expr* expr, Location loc)
+        : Expr(EK_DeferExpr, loc), expr_field(expr) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_DeferExpr; }
@@ -448,25 +470,16 @@ public:
 /// Break or continue expression.
 class BreakContinueExpr : public Expr {
     /// The target label, if any.
-    Expr* _label;
-    std::string _label_name;
-    bool _is_break;
+    property_r(Expr*, label);
+    property_r(std::string, label_name);
+    property_r(bool, is_break);
+    readonly(bool, is_continue, return not is_break);
 
 public:
-    BreakContinueExpr(std::string label, bool is_break)
-        : Expr(EK_BreakContinueExpr), _label_name(std::move(label)), _is_break(is_break) {}
-
-    /// Get whether this is a break expression.
-    bool is_break() const { return _is_break; }
-
-    /// Get whether this is a continue expression.
-    bool is_continue() const { return not _is_break; }
-
-    /// Get the target label, if any.
-    auto label() const -> Expr* { return _label; }
-
-    /// Get the target label name, if any.
-    auto label_name() const -> const std::string& { return _label_name; }
+    BreakContinueExpr(std::string label, bool is_break, Location loc)
+        : Expr(EK_BreakContinueExpr, loc),
+          label_name_field(std::move(label)),
+          is_break_field(is_break) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_BreakContinueExpr; }
@@ -482,18 +495,12 @@ class AssertExpr : public Expr {
     /// The assertion message.
     Expr* _msg;
 
-    /// True if this is a static assertion.
-    bool _is_static;
-
 public:
-    AssertExpr(Expr* cond, Expr* msg, bool is_static)
-        : Expr(EK_AssertExpr, cond->location), _cond(cond), _msg(msg), _is_static(is_static) {}
+    AssertExpr(Expr* cond, Expr* msg)
+        : Expr(EK_AssertExpr, cond->location), _cond(cond), _msg(msg) {}
 
     /// Get the assertion condition.
     auto cond() const -> Expr* { return _cond; }
-
-    /// Get whether this is a static assertion.
-    bool is_static() const { return _is_static; }
 
     /// Get the assertion message.
     auto msg() const -> Expr* { return _msg; }
@@ -545,7 +552,7 @@ public:
 /// Unreachable expression.
 class UnreachableExpr : public Expr {
 public:
-    UnreachableExpr() : Expr(EK_UnreachableExpr) {}
+    UnreachableExpr(Location loc) : Expr(EK_UnreachableExpr, loc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_UnreachableExpr; }
@@ -587,6 +594,19 @@ public:
     }
 };
 
+/// Expression surrounded by parens.
+class ParenExpr : public TypedExpr {
+    /// The expression inside the parens.
+    property_r(Expr*, expr);
+
+public:
+    ParenExpr(Expr* expr, Location loc)
+        : TypedExpr(EK_ParenExpr, detail::UnknownTy, loc), expr_field(expr) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_ParenExpr; }
+};
+
 /// Invoke Expression.
 ///
 /// This is user for anything that syntactically looks like function
@@ -595,41 +615,42 @@ public:
 /// and declarations before Sema.
 class InvokeExpr : public TypedExpr {
     /// The invoked expression.
-    Expr* _invokee;
+    property_r(Expr*, invokee);
 
     /// The arguments.
-    ExprList _args;
+    property_r(ExprList, args);
 
     /// Any assignment after an invoke expression is bound to
     /// the expression for easy access to constructor parameters
     /// etc.
-    Expr* _assignment{};
+    property_r(Expr*, assignment);
+
+    /// Whether this invocation uses parentheses.
+    property_r(bool, has_parens);
 
 public:
-    InvokeExpr(Expr* invokee, ExprList args);
+    InvokeExpr(
+        Expr* invokee,
+        ExprList args,
+        bool has_parens,
+        Location loc,
+        Expr* assignment = nullptr
+    ) : TypedExpr(EK_InvokeExpr, detail::UnknownTy, loc),
+        invokee_field(invokee),
+        args_field(std::move(args)),
+        assignment_field(assignment),
+        has_parens_field(has_parens) {}
 
     /// Add an argument.
-    void add_arg(Expr* e) { _args.push_back(e); }
-
-    /// Get the arguments.
-    auto args() const -> const ExprList& { return _args; }
-
-    /// Get assignment.
-    auto assignment() const -> Expr* { return _assignment; }
-
-    /// Set assignment.
-    auto assignment(Expr* e) -> void { _assignment = e; }
+    void add_arg(Expr* e) { args.push_back(e); }
 
     /// Get an iterator to the first argument.
-    auto begin() const -> decltype(_args.begin()) { return _args.begin(); }
-    auto begin() -> decltype(_args.begin()) { return _args.begin(); }
+    auto begin() const { return args.begin(); }
+    auto begin() { return args.begin(); }
 
     /// Get an iterator to the last argument.
-    auto end() const -> decltype(_args.end()) { return _args.end(); }
-    auto end() -> decltype(_args.end()) { return _args.end(); }
-
-    /// Get the invoked expression.
-    auto invokee() const -> Expr* { return _invokee; }
+    auto end() const { return args.end(); }
+    auto end() { return args.end(); }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_InvokeExpr; }
@@ -650,7 +671,7 @@ class IfExpr : public TypedExpr {
     bool _is_static;
 
 public:
-    IfExpr(Expr* cond, Expr* then, Expr* else_, bool is_static, Location loc = {});
+    IfExpr(Expr* cond, Expr* then, Expr* else_, Location loc = {});
 
     /// Get the condition.
     auto cond() const -> Expr* { return _cond; }
@@ -726,7 +747,6 @@ public:
         Tk op,
         SmallVector<CaseExpr*> cases,
         CaseExpr* default_,
-        bool is_static,
         Location loc
     ) : TypedExpr(EK_MatchExpr, detail::UnknownTy, loc),
         _kind(Kind::Unknown),
@@ -778,13 +798,15 @@ public:
     static bool classof(const Expr* e) { return e->kind == EK_BlockExpr; }
 };
 
-/// An name that refers to some declaration.
+/// A (qualified) name that refers to some declaration.
+///
+/// This is also used for
 class NameRefExpr : public TypedExpr {
     /// The name.
     property_r(std::string, name);
 
     /// The scope in which the name will be looked up.
-    Scope* _scope;
+    property_r(Scope*, scope);
 
     /// The declaration this refers to.
     property_r(Decl*, decl);
@@ -793,21 +815,20 @@ class NameRefExpr : public TypedExpr {
     /// only relevant for local variables.
     property_rw(u32, chain_distance);
 
+    /// Whether this is a local lookup (i.e. whether there is a
+    /// leading '.').
+    property_r(bool, is_local);
+
 public:
-    NameRefExpr(std::string name, Scope* scope, Location loc)
+    /// Get the location of the referenced declaration.
+    readonly_decl(Location, decl_location);
+
+    NameRefExpr(std::string name, Scope* scope, bool is_local, Location loc)
         : TypedExpr(EK_NameRefExpr, detail::UnknownTy, loc),
           name_field(std::move(name)),
-          _scope(scope),
-          chain_distance_field(0) {}
-
-    /// Get the location of the referenced declaration.
-    auto decl_location() const -> Location;
-
-    /// Get the scope.
-    auto scope() const -> Scope* { return _scope; }
-
-    /// Get the type of the referenced declaration.
-    auto type() const -> Type*;
+          scope_field(scope),
+          chain_distance_field(0),
+          is_local_field(is_local) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_NameRefExpr; }
@@ -829,39 +850,25 @@ public:
 
 private:
     /// The kind of member access.
-    Kind _kind;
+    property_r(Kind, kind);
 
     /// The base expression.
-    Expr* _base;
+    property_r(Expr*, base);
 
     /// The member that is accessed, or, if this is improper member access,
     /// i.e. it is actually a type etc., the type etc. this refers to.
-    Expr* _member;
+    property_r(Expr*, member);
 
     /// The member name.
-    std::string _name;
+    property_r(std::string, name);
 
 public:
-    MemberAccessExpr(
-        Expr* base,
-        std::string name,
-        Expr* type = detail::UnknownTy
-    );
-
-    /// Get the base expression.
-    auto base() const -> Expr* { return _base; }
-
-    /// Get the kind of member access.
-    auto kind() const -> Kind { return _kind; }
-
-    /// Set the member access kind.
-    void kind(Kind k) { _kind = k; }
-
-    /// Get the member expression.
-    auto member() const -> Expr* { return _member; }
-
-    /// Get the member name.
-    auto name() const -> const std::string& { return _name; }
+    MemberAccessExpr(Expr* base, std::string name, Location loc)
+        : TypedExpr(EK_MemberAccessExpr, detail::UnknownTy, loc),
+          kind_field(Kind::Unknown),
+          base_field(base),
+          member_field(nullptr),
+          name_field(std::move(name)) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_MemberAccessExpr; }
@@ -872,19 +879,16 @@ public:
 /// This is used to access metaproperties of declarations, e.g. `A::B`.
 class MetapropAccessExpr : public TypedExpr {
     /// The base expression.
-    Expr* _base;
+    property_r(Expr*, base);
 
     /// The metaproperty name.
-    std::string _name;
+    property_r(std::string, name);
 
 public:
-    MetapropAccessExpr(Expr* base, std::string name, Expr* type = detail::UnknownTy);
-
-    /// Get the base expression.
-    auto base() const -> Expr* { return _base; }
-
-    /// Get the metaproperty name.
-    auto name() const -> const std::string& { return _name; }
+    MetapropAccessExpr(Expr* base, std::string name, Location loc)
+        : TypedExpr(EK_MetapropAccessExpr, detail::UnknownTy, loc),
+          base_field(base),
+          name_field(std::move(name)) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_MetapropAccessExpr; }
@@ -915,29 +919,23 @@ public:
 /// due to ambiguities in the grammar.
 class UnaryExpr : public TypedExpr {
     /// The operand.
-    Expr* _operand;
+    property_r(Expr*, operand);
 
     /// The operator.
-    Tk _op;
+    property_r(Tk, op);
 
     /// Whether this is a postfix expression.
-    const bool _postfix;
+    property_r(const bool, is_postfix);
+
+    /// Whether this is a prefix expression.
+    readonly(bool, is_prefix, return not is_postfix);
 
 public:
-    UnaryExpr(Expr* operand, Tk op, bool is_postfix)
-        : TypedExpr(EK_UnaryExpr, detail::UnknownTy),
-          _operand(operand),
-          _op(op),
-          _postfix(is_postfix) {}
-
-    /// Whether this is a postfix expression.
-    auto is_postfix() const -> bool { return _postfix; }
-
-    /// Get the operand.
-    auto operand() const -> Expr* { return _operand; }
-
-    /// Get the operator.
-    auto op() const -> Tk { return _op; }
+    UnaryExpr(Tk op, Expr* operand, bool is_postfix, Location loc = {})
+        : TypedExpr(EK_UnaryExpr, detail::UnknownTy, loc),
+          operand_field(operand),
+          op_field(op),
+          is_postfix_field(is_postfix) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_UnaryExpr; }
@@ -1002,19 +1000,29 @@ public:
     static bool classof(const Expr* e) { return e->kind == EK_VectorReduceExpr; }
 };
 
+/// Kind of a cast expression.
+enum struct CastKind {
+    Soft,
+    Hard,
+    Implicit,
+    LValueToRValue,
+};
+
 /// Cast expression.
 ///
 /// The type to cast to is the type of the expression.
 class CastExpr : public TypedExpr {
     /// The operand.
-    Expr* _operand;
+    property_r(Expr*, operand);
+
+    /// What kind of cast this is.
+    property_r(CastKind, cast_kind);
 
 public:
-    CastExpr(Expr* operand, Expr* type)
-        : TypedExpr(EK_CastExpr, type), _operand(operand) {}
-
-    /// Get the operand.
-    auto operand() const -> Expr* { return _operand; }
+    CastExpr(Expr* operand, Expr* type, CastKind k, Location loc)
+        : TypedExpr(EK_CastExpr, type, loc),
+          operand_field(operand),
+          cast_kind_field(k) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_CastExpr; }
@@ -1036,20 +1044,32 @@ public:
 /// Tuple literal.
 class TupleLiteralExpr : public TypedExpr {
     /// The tuple elements.
-    ExprList _elements;
+    property_r(ExprList, elements);
 
 public:
-    TupleLiteralExpr(ExprList elems)
-        : TypedExpr(EK_TupleLiteralExpr, detail::UnknownTy), _elements(std::move(elems)) {}
+    TupleLiteralExpr(ExprList elems, Location loc)
+        : TypedExpr(EK_TupleLiteralExpr, detail::UnknownTy, loc),
+          elements_field(std::move(elems)) {}
 
     /// Build a tuple type from the element values.
     auto build_tuple_type(Context* ctx) const -> Type*;
 
-    /// Get the tuple elements.
-    auto elements() const -> const ExprList& { return _elements; }
-
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_TupleLiteralExpr; }
+};
+
+/// Array literal.
+class ArrayLiteralExpr : public TypedExpr {
+    /// The array elements.
+    property_r(ExprList, elements);
+
+public:
+    ArrayLiteralExpr(ExprList elems, Location loc)
+        : TypedExpr(EK_ArrayLiteralExpr, detail::UnknownTy, loc),
+          elements_field(std::move(elems)) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_ArrayLiteralExpr; }
 };
 
 /// Closure expression.
@@ -1112,8 +1132,7 @@ public:
 
 /// Integer literal.
 ///
-/// This is also used for booleans, with 0 representing false
-/// and 1 representing true.
+/// This is NOT used for booleans.
 class IntegerLiteralExpr : public TypedExpr {
     /// The value.
     i64 _value;
@@ -1127,6 +1146,19 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_IntegerLiteralExpr; }
+};
+
+/// Special literals (true, false, null).
+class BuiltinLiteralExpr : public TypedExpr {
+    /// The literal kind.
+    property_r(Tk, kind);
+
+public:
+    BuiltinLiteralExpr(Tk kind, Location loc, Expr* type = detail::UnknownTy)
+        : TypedExpr(EK_BuiltinLiteralExpr, type, loc), kind_field(kind) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_BuiltinLiteralExpr; }
 };
 
 /// ===========================================================================
@@ -1273,6 +1305,8 @@ class VarDecl : public ObjectDecl {
     /// after.
     Expr* _init;
 
+
+public:
     VarDecl(
         std::string name,
         FunctionDecl* owner,
@@ -1280,26 +1314,6 @@ class VarDecl : public ObjectDecl {
         Linkage linkage = Linkage::Internal,
         Mangling mangling = Mangling::Source
     );
-
-public:
-    /// Create a variable declaration and add it to a scope.
-    ///
-    /// \param name The name of the variable. If empty, it won’t be added to the scope.
-    /// \param scope The scope to add the variable to. May be null if the name is empty.
-    /// \param owner The function that owns this declaration.
-    /// \param type The type of the variable.
-    /// \param linkage The linkage of the variable.
-    /// \param mangling The mangling scheme to use for the variable.
-    /// \return A result containing the variable declaration, or an error if
-    ///     there already is a variable with the same name in the scope.
-    static auto Create(
-        std::string name,
-        Scope* scope,
-        FunctionDecl* owner,
-        Expr* type,
-        Linkage linkage,
-        Mangling mangling
-    ) -> Result<Decl*>;
 
     /// Get the initialiser.
     auto init() const -> Expr* { return _init; }
@@ -1421,22 +1435,22 @@ protected:
 
 public:
     /// Builtin types.
-    static Type* UnknownTy;
-    static Type* VoidTy;
+    static Type* Unknown;
+    static Type* Void;
     static Type* TypeTy;
-    static Type* TemplateTy;
-    static Type* NoreturnTy;
-    static Type* IntTy;
+    static Type* Template;
+    static Type* NoReturn;
+    static Type* Int;
 
     /// Cached because we need it them the time.
-    static Type* VoidPtrTy;
-    static Type* VoidRefTy;
-    static Type* StringLiteralTy;
-    static Type* BoolTy;
-    static Type* I8Ty;
-    static Type* I16Ty;
-    static Type* I32Ty;
-    static Type* I64Ty;
+    static Type* VoidPtr;
+    static Type* VoidRef;
+    static Type* StringLiteral;
+    static Type* Bool;
+    static Type* I8;
+    static Type* I16;
+    static Type* I32;
+    static Type* I64;
 
     /// FFI types.
     static Type* FFIBool;
@@ -1492,7 +1506,7 @@ public:
 /// as well as in mangled names, and conversions between FFI types and
 /// other integer types are only allowed if they are guaranteed to be
 /// safe by the standard.
-class FFIType : Type {
+class FFIType : public Type {
     friend void Type::Initialise();
 
     /// No-one should ever have to create these.
@@ -1879,7 +1893,7 @@ public:
 };
 
 /// Enumeration type.
-class EnumType : NamedType {
+class EnumType : public NamedType {
     /// Underlying integetr type.
     Type* _underlying_type;
 

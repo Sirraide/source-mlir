@@ -41,15 +41,18 @@
           | <expr-break>
           | <expr-continue>
           | <expr-try>
-          | <identifier>
+          | <expr-static>
+          | <expr-name-ref>
           | <type> ///< Yes, I’m fully aware that this looks like insanity.
 
-<expr-for>            ::= [ STATIC ] FOR ( <for-infinite> | <for-each> | <for-cstyle> | <for-in> | <for-enum-in> )
+
+<expr-static>         ::= STATIC ( <expr-for> | <expr-while> | <expr-if> | <expr-match> | <expr-assert> )
+<expr-for>            ::= FOR ( <for-infinite> | <for-each> | <for-cstyle> | <for-in> | <for-enum-in> )
 <expr-while>          ::= WHILE <expr> [ DO ] <expr>
-<expr-if>             ::= [ STATIC ] IF <expr> [ THEN ] <expr> { ELIF <expr> [ THEN ] <expr> } [ ELSE <expr> ]
-<expr-match>          ::= [ STATIC ] MATCH <match-control> "{" { <match-case> } [ ELSE [ ":" ] <expr> ] "}"
+<expr-if>             ::= IF <expr> [ THEN ] <expr> { ELIF <expr> [ THEN ] <expr> } [ ELSE <expr> ]
+<expr-match>          ::= MATCH <match-control> "{" { <match-case> } [ ELSE [ ":" ] <expr> ] "}"
 <expr-asm>            ::= ASM "{" { <asm-instruction> } "}" | ASM <asm-instruction>
-<expr-assert>         ::= [ STATIC ] ASSERT <expr> [ "," <expr> ]
+<expr-assert>         ::= ASSERT <expr> [ "," <expr> ]
 <expr-return>         ::= RETURN [ <expr> ]
 <expr-defer>          ::= DEFER <expr>
 <expr-proc-def>       ::= <proc-unqual-sig> <proc-body>
@@ -58,20 +61,21 @@
 <expr-invoke>         ::= <expr> "(" [ <expr> { "," <expr> } [ "," ] ] ")"
 <expr-subs>           ::= <expr> "[" <expr> "]"
 <expr-reduce>         ::= <expr> "[" ( "+" | "*" | "&" | "|" | "xor" | ">" | "<" ) "]"
-<expr-tuple>          ::= "(" <expr> { "," <expr> }+ [ "," ] ")"
+<expr-tuple>          ::= "(" <expr> { "," <expr> } [ "," ] ")"
 <expr-binary>         ::= <expr> <binary> <expr>
 <expr-prefix>         ::= <prefix> <expr>
 <expr-postfix>        ::= <expr> <postfix>
 <expr-member>         ::= <expr> "." <identifier>
 <expr-property>       ::= <expr> "::" <identifier>
 <expr-cast>           ::= <expr> "as" <type>
-<expr-terse-proc>     ::= "->" <expr>
+<expr-terse-proc>     ::= [ <expr> { "," <expr> } ] "->" <expr>
 <expr-with>           ::= "with" <expr> [ DO ] [ <expr> ]
 <expr-primary>        ::= NUMBER | STRING | TRUE | FALSE | NULL
 <expr-unreachable>    ::= UNREACHABLE
-<expr-break>          ::= BREAK [ <expr> ]
-<expr-continue>       ::= CONTINUE [ <expr> ]
+<expr-break>          ::= BREAK [ <identifier> ]
+<expr-continue>       ::= CONTINUE [ <identifier> ]
 <expr-try>            ::= TRY <expr>
+<expr-name-ref>       ::= [ "." ] <identifier>
 
 <proc-unqual-sig>     ::= PROC <identifier> <proc-sig-rest>
 <proc-named-sig>      ::= PROC { <type-qual> } <identifier> <proc-sig-rest>

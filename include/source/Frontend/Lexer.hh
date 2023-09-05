@@ -45,6 +45,7 @@ enum struct Tk {
     Static,
     Is,
     As,
+    AsBang,
     Not,
     And,
     Or,
@@ -80,7 +81,6 @@ enum struct Tk {
     CLong,
     CLongLong,
     CLongDouble,
-    CBool,
     CSizeT,
     StringKw,
 

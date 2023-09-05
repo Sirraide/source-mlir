@@ -19,6 +19,18 @@ auto src::Parser::Parse(Context* ctx, File& f) -> std::unique_ptr<Module> {
 namespace src {
 namespace {
 constexpr int BinaryOrPostfixPrecedence(Tk t) {
+    switch (t) {
+        default: return 0;
+    }
+}
+
+inline constexpr int UnaryOperatorPrecedence = 1'000;
+inline constexpr int InvokePrecedence = BinaryOrPostfixPrecedence(Tk::LParen);
+
+constexpr bool RightAssociative(Tk t) {
+    switch (t) {
+        default: return false;
+    }
 }
 
 constexpr bool MayStartAnExpression(Tk k) {
@@ -72,7 +84,6 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::CLong:
         case Tk::CLongLong:
         case Tk::CLongDouble:
-        case Tk::CBool:
         case Tk::CSizeT:
         case Tk::StringKw:
         case Tk::LParen:
@@ -101,15 +112,15 @@ bool src::Parser::AtStartOfExpression() { return MayStartAnExpression(tok.type);
 /// ===========================================================================
 ///  Main Parser Implementation
 /// ===========================================================================
-/// <expr-assert> ::= [ STATIC ] ASSERT <expr> [ "," <expr> ]
-auto src::Parser::ParseAssertExpr(bool is_static) -> Result<AssertExpr*> {
+/// <expr-assert> ::= ASSERT <expr> [ "," <expr> ]
+auto src::Parser::ParseAssertExpr() -> Result<AssertExpr*> {
     Assert(Consume(Tk::Assert), "ParseAssertExpr() called without 'assert'");
 
     /// Parse condition and message, if any.
     auto cond = ParseExpr();
     auto mess = Consume(Tk::Comma) ? ParseExpr() : Result<Expr*>::Null();
     if (IsError(cond, mess)) return Diag();
-    return new (mod) AssertExpr(*cond, *mess, is_static);
+    return new (mod) AssertExpr(*cond, *mess);
 }
 
 /// <expr-block> ::= "{" <exprs> "}"
@@ -251,8 +262,14 @@ auto src::Parser::ParseExpr(int current_precedence) -> Result<Expr*> {
 }
 
 template <bool parsing_control_expr_of_match>
-auto src::Parser::ParseExprImpl(int operator_precedence) -> Result<Expr*> {
-    auto start_token = tok.type;
+auto src::Parser::ParseExprImpl(int curr_prec) -> Result<Expr*> {
+    /// See below.
+    const auto start_token = tok.type;
+
+    /// Synchronise on the next closing parenthesis.
+    const auto SyncRParen = [this] { while (not At(Tk::Eof, Tk::RBrack)) Next(); };
+
+    /// Parse the LHS of the expression.
     auto lhs = Result<Expr*>::Null();
     switch (tok.type) {
         default:
@@ -263,7 +280,6 @@ auto src::Parser::ParseExprImpl(int operator_precedence) -> Result<Expr*> {
             Unreachable();
 
         case Tk::Module:
-        case Tk::Export:
         case Tk::Import:
             return Error("'{}' is not allowed here", tok.spelling);
 
@@ -277,7 +293,7 @@ auto src::Parser::ParseExprImpl(int operator_precedence) -> Result<Expr*> {
         /// postfix operator, so we’ll handle all of that in the big
         /// operator parsing loop below.
         case Tk::Identifier:
-            lhs = new (mod) NameRefExpr(tok.text, curr_scope, curr_loc);
+            lhs = new (mod) NameRefExpr(tok.text, curr_scope, false, curr_loc);
             Next();
             break;
 
@@ -288,78 +304,229 @@ auto src::Parser::ParseExprImpl(int operator_precedence) -> Result<Expr*> {
 
         case Tk::StringLiteral:
             lhs = new (mod) StringLiteralExpr(mod->strtab.intern(tok.text), curr_loc);
+            Next();
             break;
 
-        case Tk::Assert: lhs = ParseAssertExpr(false); break;
+        case Tk::True:
+        case Tk::False:
+        case Tk::Null:
+            lhs = new (mod) BuiltinLiteralExpr(tok.type, curr_loc);
+            Next();
+            break;
+
+        case Tk::Unreachable:
+            lhs = new (mod) UnreachableExpr(curr_loc);
+            Next();
+            break;
+
+        case Tk::Assert: lhs = ParseAssertExpr(); break;
         case Tk::Asm: lhs = ParseInlineAsm(); break;
-        case Tk::If: lhs = ParseIfExpr(false); break;
-        case Tk::Match: lhs = ParseMatchExpr(false); break;
+        case Tk::If: lhs = ParseIfExpr(); break;
+        case Tk::Match: lhs = ParseMatchExpr(); break;
         case Tk::While: lhs = ParseWhileExpr(); break;
-        case Tk::For: lhs = ParseForExpr(false); break;
+        case Tk::For: lhs = ParseForExpr(); break;
         case Tk::With: lhs = ParseWithExpr(); break;
 
         /// <expr-try> ::= TRY <expr>
         case Tk::Try: {
             auto loc = curr_loc;
             Next();
-            auto op = ParseExpr();
+            auto op = ParseExprImpl<parsing_control_expr_of_match>(0);
             if (IsError(op)) return Diag();
-            lhs = new (mod) TryExpr(*op, loc);
+            lhs = new (mod) TryExpr(*op, {loc, op->location});
         } break;
 
-        case Tk::Return: break;
-        case Tk::Defer: break;
-        case Tk::Break: break;
-        case Tk::Continue: break;
-        case Tk::Unreachable: break;
-        case Tk::Extern: break;
-        case Tk::Static: break;
-        case Tk::Not: break;
-        case Tk::True: break;
-        case Tk::False: break;
-        case Tk::Null: break;
-        case Tk::Proc: break;
-        case Tk::Var: break;
-        case Tk::Val: break;
-        case Tk::Enum: break;
-        case Tk::Struct: break;
-        case Tk::Type: break;
-        case Tk::Typeof: break;
-        case Tk::NoReturn: break;
-        case Tk::Bool: break;
-        case Tk::Void: break;
-        case Tk::I8: break;
-        case Tk::I16: break;
-        case Tk::I32: break;
-        case Tk::I64: break;
-        case Tk::Int: break;
-        case Tk::F32: break;
-        case Tk::F64: break;
-        case Tk::CChar: break;
-        case Tk::CChar8T: break;
-        case Tk::CChar16T: break;
-        case Tk::CChar32T: break;
-        case Tk::CWCharT: break;
-        case Tk::CShort: break;
-        case Tk::CInt: break;
-        case Tk::CLong: break;
-        case Tk::CLongLong: break;
-        case Tk::CLongDouble: break;
-        case Tk::CBool: break;
-        case Tk::CSizeT: break;
-        case Tk::StringKw: break;
-        case Tk::LParen: break;
-        case Tk::LBrack: break;
-        case Tk::LBrace: break;
-        case Tk::Dot: break;
-        case Tk::LArrow: break;
-        case Tk::Plus: break;
-        case Tk::Minus: break;
-        case Tk::Caret: break;
-        case Tk::Ampersand: break;
-        case Tk::Tilde: break;
-        case Tk::MinusMinus: break;
-        case Tk::PlusPlus: break;
+        /// RETURN [ <expr> ]
+        case Tk::Return: {
+            auto loc = curr_loc;
+            Next();
+            lhs = AtStartOfExpression() ? ParseExpr() : Result<Expr*>::Null();
+            if (IsError(lhs)) return Diag();
+            lhs = new (mod) ReturnExpr(*lhs, *lhs ? Location{loc, lhs->location} : loc);
+        } break;
+
+        /// DEFER <expr>
+        case Tk::Defer: {
+            auto loc = curr_loc;
+            Next();
+            lhs = ParseExpr();
+            if (IsError(lhs)) return Diag();
+            lhs = new (mod) DeferExpr(*lhs, {loc, lhs->location});
+        } break;
+
+        case Tk::Break:
+        case Tk::Continue: {
+            const auto is_break = At(Tk::Break);
+            std::string label;
+            auto loc = curr_loc;
+            Next();
+            if (At(Tk::Identifier)) {
+                label = tok.text;
+                loc = {loc, curr_loc};
+                Next();
+            }
+
+            lhs = new (mod) BreakContinueExpr(std::move(label), is_break, loc);
+        } break;
+
+        case Tk::Export:
+        case Tk::Extern: {
+            const auto location = curr_loc;
+            const bool is_exported = Consume(Tk::Export);
+            const bool is_external = Consume(Tk::Extern);
+            auto type = ParseType();
+            if (IsError(type)) return Diag();
+            lhs = ParseDecl(is_exported, is_external, location, *type);
+        } break;
+
+        case Tk::Static: {
+            auto loc = curr_loc;
+            Next();
+            auto expr = ParseExpr();
+            if (IsError(expr)) return Diag();
+            lhs = new (mod) StaticExpr(*expr, {loc, expr->location});
+        } break;
+
+        case Tk::Var:
+        case Tk::Val:
+        case Tk::NoReturn:
+        case Tk::Type:
+        case Tk::Typeof:
+        case Tk::Bool:
+        case Tk::Void:
+        case Tk::I8:
+        case Tk::I16:
+        case Tk::I32:
+        case Tk::I64:
+        case Tk::Int:
+        case Tk::F32:
+        case Tk::F64:
+        case Tk::CChar:
+        case Tk::CChar8T:
+        case Tk::CChar16T:
+        case Tk::CChar32T:
+        case Tk::CWCharT:
+        case Tk::CShort:
+        case Tk::CInt:
+        case Tk::CLong:
+        case Tk::CLongLong:
+        case Tk::CLongDouble:
+        case Tk::CSizeT:
+        case Tk::StringKw: {
+            auto ty = ParseType();
+            if (IsError(ty)) return Diag();
+            lhs = ParseTypeExpr(*ty);
+        } break;
+
+        case Tk::Not:
+        case Tk::Caret:
+        case Tk::Ampersand:
+        case Tk::Plus:
+        case Tk::Minus:
+        case Tk::Tilde:
+        case Tk::MinusMinus:
+        case Tk::PlusPlus: {
+            auto loc = curr_loc;
+            auto op = tok.type;
+            Next();
+            auto operand = ParseExprImpl<parsing_control_expr_of_match>(UnaryOperatorPrecedence);
+            if (IsError(operand)) return Diag();
+            lhs = new (mod) UnaryExpr(op, *operand, false, {loc, operand->location});
+        } break;
+
+        /// Paren expr or tuple.
+        case Tk::LParen: {
+            auto start = curr_loc;
+            auto expr = (Next(), ParseExpr());
+            if (IsError(expr)) {
+                SyncRParen();
+                return Diag();
+            }
+
+            /// If there is a comma, then this is a tuple.
+            if (Consume(Tk::Comma)) {
+                ExprList exprs{*expr};
+
+                while (not At(Tk::Eof, Tk::RParen)) {
+                    auto e = ParseExpr();
+                    if (not IsError(e)) exprs.push_back(*e);
+                    if (not Consume(Tk::Comma)) break;
+                }
+
+                if (not Consume(Tk::RParen)) {
+                    Error("Expected ')' at end of tuple");
+                    SyncRParen();
+                }
+
+                lhs = new (mod) TupleLiteralExpr(std::move(exprs), {start, curr_loc});
+                break;
+            }
+
+            /// Otherwise, this is a paren expression.
+            if (not Consume(Tk::RParen)) {
+                Error("Expected ')' ");
+                SyncRParen();
+            }
+
+            lhs = new (mod) ParenExpr(*expr, {start, curr_loc});
+        } break;
+
+        /// Array literal.
+        case Tk::LBrack: {
+            auto start = curr_loc;
+
+            /// Parse the literal elements.
+            ExprList exprs;
+            while (not At(Tk::Eof, Tk::RBrack)) {
+                auto e = ParseExpr();
+                if (not IsError(e)) exprs.push_back(*e);
+                if (not Consume(Tk::Comma)) break;
+            }
+
+            /// Consume the closing bracket.
+            if (not Consume(Tk::RBrack)) {
+                Error("Expected ']' at end of array literal");
+                SyncRParen();
+            }
+
+            lhs = new (mod) ArrayLiteralExpr(std::move(exprs), {start, curr_loc});
+        } break;
+
+        case Tk::Dot: {
+            auto loc = curr_loc;
+            Next();
+
+            std::string name;
+            if (At(Tk::Identifier)) {
+                name = tok.text;
+                loc = {loc, curr_loc};
+                Next();
+            } else {
+                Error("Expected identifier after '.'");
+            }
+
+            lhs = new (mod) NameRefExpr(std::move(name), curr_scope, true, loc);
+        } break;
+
+        case Tk::Enum:
+            lhs = ParseEnumDecl();
+            break;
+
+        case Tk::Struct:
+            lhs = ParseStructDecl();
+            break;
+
+        case Tk::Proc:
+            lhs = ParseProcExpr();
+            break;
+
+        case Tk::LArrow:
+            lhs = ParseTerseProcExpr({});
+            break;
+
+        case Tk::LBrace:
+            lhs = ParseBlockExpr();
+            break;
     }
 
     /// Stop here if there was an error.
@@ -372,6 +539,164 @@ auto src::Parser::ParseExprImpl(int operator_precedence) -> Result<Expr*> {
         "Add {} to MayStartAnExpression()",
         Spelling(start_token)
     );
+
+    /// Parse anything that looks like a binary operator or
+    /// postfix operator.
+    for (;;) {
+        /// Parse an invoke expression without parens.
+        const auto ParseNakedInvokeExpr = [&] {
+            ExprList args;
+            do {
+                auto arg = ParseExpr(InvokePrecedence);
+                if (not IsError(arg)) args.push_back(*arg);
+            } while (Consume(Tk::Comma));
+
+            /// An assignment expression after a naked invocation is bound to it
+            /// in case it turns out to be a declaration.
+            auto init = Result<Expr*>::Null();
+            if (Consume(Tk::Assign)) {
+                auto expr = ParseExpr();
+                if (IsError(init)) return Diag();
+            }
+
+            lhs = new (mod) InvokeExpr(*lhs, std::move(args), false, {lhs->location, curr_loc}, *init);
+        };
+
+        /// Some operators need special parsing.
+        switch (tok.type) {
+            default: break;
+
+            /// If the token is an identifier, then this is an invoke expression,
+            /// which means that this is either a declaration, a function call, a
+            /// struct literal, or a template instantiation.
+            case Tk::Identifier: {
+                lhs = ParseNakedInvokeExpr();
+                continue;
+            }
+
+            /// An invoke expression that uses parens cannot be a declaration.
+            case Tk::LParen: {
+                Next();
+                ExprList args;
+                while (not At(Tk::Eof, Tk::RParen)) {
+                    auto arg = ParseExpr(InvokePrecedence);
+                    if (not IsError(arg)) args.push_back(*arg);
+                    if (not Consume(Tk::Comma)) break;
+                }
+
+                if (not Consume(Tk::RParen)) {
+                    Error("Expected ')' at end of function call");
+                    SyncRParen();
+                }
+
+                lhs = new (mod) InvokeExpr(*lhs, std::move(args), true, {lhs->location, curr_loc});
+                continue;
+            }
+
+            /// Member or metaproperty access.
+            case Tk::Dot:
+            case Tk::ColonColon: {
+                auto op = tok.type;
+                auto loc = curr_loc;
+                Next();
+
+                std::string name;
+                if (At(Tk::Identifier)) {
+                    name = tok.text;
+                    loc = {loc, curr_loc};
+                    Next();
+                } else {
+                    Error("Expected identifier after '{}'", Spelling(op));
+                }
+
+                lhs = op == Tk::Dot
+                        ? cast<Expr>(new (mod) MemberAccessExpr(*lhs, std::move(name), loc))
+                        : cast<Expr>(new (mod) MetapropAccessExpr(*lhs, std::move(name), loc));
+                continue;
+            }
+
+            /// Cast.
+            case Tk::As:
+            case Tk::AsBang: {
+                auto kind = tok.type == Tk::As ? CastKind::Soft : CastKind::Hard;
+                auto loc = curr_loc;
+                Next();
+
+                auto type = ParseType();
+                if (IsError(type)) return Diag();
+                lhs = new (mod) CastExpr(*lhs, *type, kind, {loc, type->location});
+                continue;
+            }
+
+            /// An identifier followed by a comma can only be part of
+            /// the argument list of a terse proc.
+            case Tk::Comma: {
+                auto loc = curr_loc;
+                auto nr = dyn_cast<NameRefExpr>(*lhs);
+                if (not nr or nr->is_local) {
+                    Error("Unexpected ','");
+                    Next();
+                    continue;
+                }
+
+                /// Print a help note explaining why we’re even parsing this this way.
+                auto HelpNote = [&] {
+                    Diag::Note(
+                        ctx,
+                        loc,
+                        "Parsing terse proc because of the ',' here. Did you accidentally put a comma here?"
+                    );
+                };
+
+                /// Parse a comma separated list of identifiers.
+                SmallVector<std::string> args;
+                args.push_back(nr->name);
+                while (Consume(Tk::Comma)) {
+                    if (not At(Tk::Identifier)) {
+                        Error("Expected identifier after ',' while parsing terse proc arguments.");
+                        HelpNote();
+
+                        /// Stop parsing this to avoid more confusing errors.
+                        return Diag();
+                    }
+
+                    args.push_back(tok.text);
+                    Next();
+                }
+
+                /// The next token must be an arrow.
+                if (not At(Tk::RArrow)) {
+                    Error("Expected '->' after argument list of terse proc");
+                    HelpNote();
+                    return Diag();
+                }
+
+                /// Parse the rest of the terse proc.
+                lhs = ParseTerseProcExpr(std::move(args), lhs->location);
+                continue;
+            }
+
+            /// Terse proc with one argument.
+            case Tk::RArrow: {
+                auto nr = dyn_cast<NameRefExpr>(*lhs);
+                if (not nr or nr->is_local) {
+                    Error("Unexpected '->'");
+                    Next();
+                    continue;
+                }
+
+                lhs = ParseTerseProcExpr({nr->name}, lhs->location);
+            }
+
+            /// TODO: Handling of type quals.
+        }
+
+        /// Check the precedence of the current token.
+        const int prec = BinaryOrPostfixPrecedence(tok.type);
+        if (not(prec > curr_prec or (prec == curr_prec and RightAssociative(tok.type)))) break;
+
+        /// TODO: Parse binary operators.
+    }
 }
 
 auto src::Parser::ParseExprInNewScope() -> Result<Expr*> {
@@ -379,13 +704,13 @@ auto src::Parser::ParseExprInNewScope() -> Result<Expr*> {
     return ParseExpr();
 }
 
-/// <expr-for>     ::= [ STATIC ] FOR ( <for-infinite> | <for-each> | <for-cstyle> | <for-in> | <for-enum-in> )
+/// <expr-for>     ::= FOR ( <for-infinite> | <for-each> | <for-cstyle> | <for-in> | <for-enum-in> )
 /// <for-infinite> ::= DO <expr> | <expr-block>
 /// <for-each>     ::= <expr> [ DO ] <expr>
 /// <for-cstyle>   ::= [ <expr> ] ";" [ <expr> ] ";" [ <expr> ] [ DO ] <expr>
 /// <for-in>       ::= <decl-base> IN <expr> [ DO ] <expr>
 /// <for-enum-in>  ::= ENUM <identifier> [ "," <decl-base> ] IN <expr> [ DO ] <expr>
-auto src::Parser::ParseForExpr(bool is_static) -> Result<Expr*> {
+auto src::Parser::ParseForExpr() -> Result<Expr*> {
     auto for_loc = curr_loc;
     Assert(Consume(Tk::For), "ParseForExpr() called without 'for'");
     ScopeRAII sc{this};
@@ -404,7 +729,7 @@ auto src::Parser::ParseForExpr(bool is_static) -> Result<Expr*> {
         auto step = AtStartOfExpression() ? ParseExpr() : Result<Expr*>::Null();
         auto body = ParseDoExpr();
         if (IsError(init, cond, step, body)) return Diag();
-        return new (mod) ForCStyleExpr(*init, *cond, *step, *body, is_static, for_loc);
+        return new (mod) ForCStyleExpr(*init, *cond, *step, *body, for_loc);
     };
 
     /// Parse a for-in loop.
@@ -413,9 +738,8 @@ auto src::Parser::ParseForExpr(bool is_static) -> Result<Expr*> {
         bool has_enum = not enum_name.empty();
         auto enum_decl = Result<Expr*>::Null();
         if (has_enum) {
-            enum_decl = VarDecl::Create(
+            enum_decl = new (mod) VarDecl(
                 std::move(enum_name),
-                curr_scope,
                 curr_func,
                 nullptr,
                 Linkage::Local,
@@ -435,7 +759,6 @@ auto src::Parser::ParseForExpr(bool is_static) -> Result<Expr*> {
             *enum_decl,
             *range,
             *body,
-            is_static,
             for_loc
         );
     };
@@ -459,7 +782,7 @@ auto src::Parser::ParseForExpr(bool is_static) -> Result<Expr*> {
     if (Consume(Tk::Do) or At(Tk::LBrace)) {
         auto body = ParseExpr();
         if (IsError(body)) return Diag();
-        return new (mod) ForInfiniteExpr(*body, is_static, for_loc);
+        return new (mod) ForInfiniteExpr(*body, for_loc);
     }
 
     /// Maybe case 3: for-cstyle.
@@ -477,11 +800,11 @@ auto src::Parser::ParseForExpr(bool is_static) -> Result<Expr*> {
     /// Case 5: for-each.
     auto body = ParseDoExpr();
     if (IsError(control, body)) return Diag();
-    return new (mod) ForInExpr(nullptr, nullptr, *control, *body, is_static, for_loc);
+    return new (mod) ForInExpr(nullptr, nullptr, *control, *body, for_loc);
 }
 
-/// <expr-if> ::= [ STATIC ] IF <expr> [ THEN ] <expr> { ELIF <expr> [ THEN ] <expr> } [ ELSE <expr> ]
-auto src::Parser::ParseIfExpr(bool is_static) -> Result<IfExpr*> {
+/// <expr-if> ::= IF <expr> [ THEN ] <expr> { ELIF <expr> [ THEN ] <expr> } [ ELSE <expr> ]
+auto src::Parser::ParseIfExpr() -> Result<IfExpr*> {
     auto if_loc = curr_loc;
     Assert(
         Consume(Tk::If) or Consume(Tk::Elif),
@@ -495,13 +818,13 @@ auto src::Parser::ParseIfExpr(bool is_static) -> Result<IfExpr*> {
 
     /// Else clause is not in the same scope.
     sc.pop();
-    auto elif = At(Tk::Elif)      ? ParseIfExpr(false)
+    auto elif = At(Tk::Elif)      ? ParseIfExpr()
               : Consume(Tk::Else) ? ParseExprInNewScope()
                                   : Result<Expr*>::Null();
 
     /// Create the expression.
     if (IsError(cond, body, elif)) return Diag();
-    return new (mod) IfExpr(*cond, *body, *elif, is_static, if_loc);
+    return new (mod) IfExpr(*cond, *body, *elif, if_loc);
 }
 
 /// <expr-asm> ::= ASM "{" { <asm-instruction> } "}" | ASM <asm-instruction>
@@ -511,10 +834,10 @@ auto src::Parser::ParseInlineAsm() -> Result<Expr*> {
     Diag::ICE("TODO: Implement parsing of inline assembly");
 }
 
-/// <expr-match>    ::= [ STATIC ] MATCH <match-control> "{" { <match-case> } [ ELSE [ ":" ] <expr> ] "}"
+/// <expr-match>    ::= MATCH <match-control> "{" { <match-case> } [ ELSE [ ":" ] <expr> ] "}"
 /// <match-control> ::= [ <expr> [ <binary> ] ]
 /// <match-case>    ::= <expr> [ ":" ] <expr>
-auto src::Parser::ParseMatchExpr(bool is_static) -> Result<MatchExpr*> {
+auto src::Parser::ParseMatchExpr() -> Result<MatchExpr*> {
     auto loc = curr_loc;
     Assert(Consume(Tk::Match), "ParseMatchExpr() called without 'match'");
 
@@ -552,7 +875,6 @@ auto src::Parser::ParseMatchExpr(bool is_static) -> Result<MatchExpr*> {
         op,
         std::move(cases),
         else_body ? new (mod) CaseExpr(nullptr, *else_body, false, else_body->location) : nullptr,
-        is_static,
         loc
     );
 }

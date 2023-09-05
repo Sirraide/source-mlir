@@ -66,21 +66,28 @@ private:
     explicit Parser(Context* ctx, File& f);
 
     template <bool parsing_control_expr_of_match>
-    auto ParseExprImpl(int operator_precedence) -> Result<Expr*>;
+    auto ParseExprImpl(int curr_prec) -> Result<Expr*>;
 
     /// Parser functions.
-    auto ParseAssertExpr(bool is_static) -> Result<AssertExpr*>;
+    auto ParseAssertExpr() -> Result<AssertExpr*>;
     auto ParseBlockExpr() -> Result<BlockExpr*>;
+    auto ParseDecl(bool is_exported, bool is_extern, Location start_loc, Type* type) -> Result<Decl*>;
     auto ParseDeclBase() -> Result<Decl*>;
+    auto ParseEnumDecl() -> Result<EnumType*>;
     auto ParseExpr(int operator_precedence = NullPrecedence) -> Result<Expr*>;
     auto ParseExprInNewScope() -> Result<Expr*>;
     void ParseExpressions(ExprList& into);
     void ParseFile();
-    auto ParseForExpr(bool is_static) -> Result<Expr*>;
-    auto ParseIfExpr(bool is_static) -> Result<IfExpr*>;
+    auto ParseForExpr() -> Result<Expr*>;
+    auto ParseIfExpr() -> Result<IfExpr*>;
     auto ParseInlineAsm() -> Result<Expr*>;
-    auto ParseMatchExpr(bool is_static) -> Result<MatchExpr*>;
+    auto ParseMatchExpr() -> Result<MatchExpr*>;
     void ParsePreamble();
+    auto ParseProcExpr() -> Result<Expr*>;
+    auto ParseStructDecl() -> Result<Type*>;
+    auto ParseTerseProcExpr(SmallVector<std::string> argument_names, Location start_loc) -> Result<Expr*>;
+    auto ParseType() -> Result<Type*>;
+    auto ParseTypeExpr(Type* type) -> Result<Expr*>;
     auto ParseWhileExpr() -> Result<WhileExpr*>;
     auto ParseWithExpr() -> Result<WithExpr*>;
 
