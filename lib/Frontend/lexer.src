@@ -21,11 +21,15 @@ dynamic struct Expr {
     }
 }
 
-/// USE `::` for scope access, and remove it as an operator. Use something like `inspect(x).size`
-/// for the latter or sth like that.
+/// USE `::` for scope access, and remove it as an operator. Use e.g. `int.size` to get the size of an int.
 
 /// Idea: Lex all tokens beforehand to make lookahead a no-op and allow lookbehind.
 
+/// Idea: Use concepts/traits/whatever to constrain template params, but allow writing e.g. ‘any’ and
+/// have the compiler generate a concept declaration in the error message.
+
+/// A type is trivially relocatable, iff none of its fields store the `this` pointer, and none of its fields’
+/// initialisers take the `this` pointer, except by `nocapture`.
 
 
 

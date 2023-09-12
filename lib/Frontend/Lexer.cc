@@ -12,7 +12,7 @@ constexpr bool IsStart(char c) {
 
 /// Check if a character is allowed in an identifier.
 constexpr bool IsContinue(char c) {
-    return IsStart(c) or isdigit(c) or c == '?' or c == '!';
+    return IsStart(c) or isdigit(c) or c == '!';
 }
 
 constexpr bool IsBinary(char c) { return c == '0' or c == '1'; }
@@ -141,7 +141,13 @@ auto src::Lexer::LookAhead(usz n) -> Token& {
     return lookahead_tokens[idx];
 }
 
-void src::Lexer::Next() {
+auto src::Lexer::Next() -> Location {
+    auto loc = tok.location;
+    NextImpl();
+    return loc;
+}
+
+void src::Lexer::NextImpl() {
     /// Tokens are not artificial by default.
     tok.artificial = false;
 

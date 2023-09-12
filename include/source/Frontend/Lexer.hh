@@ -130,8 +130,6 @@ enum struct Tk {
     StarEq,
     SlashEq,
     PercentEq,
-    AmpersandEq,
-    VBarEq,
     ShiftLeft,
     ShiftRight,
     ShiftRightLogical,
@@ -266,7 +264,9 @@ protected:
     auto LookAhead(usz n) -> Token&;
 
     /// Read the next token.
-    void Next();
+    ///
+    /// \return The location of the previous token.
+    auto Next() -> Location;
 
     /// Read the next character.
     void NextChar();
@@ -285,6 +285,7 @@ private:
         return Diag::Error(ctx, l, fmt, std::forward<arguments>(args)...);
     }
 
+    void NextImpl();
     void LexEscapedId();
     void LexIdentifier();
     void LexMacroDefinition();

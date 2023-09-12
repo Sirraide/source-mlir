@@ -146,14 +146,14 @@ public:
     ///
     /// Note that if e.g. \c ParseExpr in this example is a member function, then
     /// this won’t work because you need to bind it to the \c this pointer first,
-    /// but you can use the `LCC_BIND` macro for that. See also the definition of
+    /// but you can use the `SRC_BIND` macro for that. See also the definition of
     /// that macro for more information.
     ///
     /// \param cb A callable that takes in a \c ValueType& and returns a \c Result.
     /// \return A diagnostic if this holds a diagnostic, and the result of invoking
     ///     \c cb with the value otherwise.
     template <typename Callable>
-    auto operator>>=(Callable&& cb) -> make_result_t<std::invoke_result_t<Callable, ValueType&>> {
+    auto operator>>(Callable&& cb) -> make_result_t<std::invoke_result_t<Callable, ValueType&>> {
         using ResultType = make_result_t<std::invoke_result_t<Callable, ValueType&>>;
         if (is_diag) return diag;
         if constexpr (std::is_void_v<typename ResultType::TypeArg>) return ResultType{};
@@ -179,13 +179,13 @@ bool IsError(Result<ValueTypes>&... results) {
 ///
 /// See the documentation for \c Result::operator>>= for more information.
 ///
-/// It is recommended to put `#define bind LCC_BIND` at the top of any
+/// It is recommended to put `#define bind SRC_BIND` at the top of any
 /// implementation files to reduce visual clutter. However, do NOT put that
 /// in header files because `bind` is too common of a word and could easily
 /// break something.
 ///
 /// Cute trick for monad binding.
-#define LCC_BIND *this->*&
+#define SRC_BIND *this->*&
 template <typename ClassType>
 requires std::is_class_v<ClassType>
 auto operator->*(ClassType& p, auto member_function) {

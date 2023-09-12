@@ -30,10 +30,12 @@ public:
     static auto Parse(Context* ctx, File& f) -> std::unique_ptr<Module>;
 
 private:
+    friend class MatchedDelimiterTracker;
+
+    /// RAII wrapper that pushes and pops a scope.
     class ScopeRAII {
         Parser& p;
         property_r(Scope*, scope);
-
 
     public:
         ScopeRAII(Parser* parser)
@@ -61,12 +63,71 @@ private:
         void release() { scope_field = nullptr; }
     };
 
+    /// Helper that skips a balanced set of delimiters.
+    class MatchedDelimiterTracker {
+        Parser& P;
+        int parens{};
+        int bracks{};
+        int braces{};
+
+        int skip_until(int lookahead_index) {
+            while (parens or bracks or braces) {
+                /// Stop at EOF.
+                auto& tok = P.LookAhead(usz(lookahead_index++));
+                if (P.Is(tok, Tk::Eof)) return lookahead_index;
+
+                /// Handle parens/brackets/braces.
+                switch (tok.type) {
+                    case Tk::RParen: parens = std::max(0, parens - 1); break;
+                    case Tk::RBrack: bracks = std::max(0, bracks - 1); break;
+                    case Tk::RBrace: braces = std::max(0, braces - 1); break;
+                    case Tk::LParen: parens++; break;
+                    case Tk::LBrack: bracks++; break;
+                    case Tk::LBrace: braces++; break;
+                    default: break;
+                }
+            }
+
+            /// Return index of first token after the matching delimiter.
+            return lookahead_index;
+        }
+
+    public:
+        MatchedDelimiterTracker(Parser* P) : P(*P) {}
+
+        /// Skip to the next matching '}'. Returns the index of the
+        /// first token after the matching delimiter.
+        int skip_braces(int lookahead_index) {
+            braces++;
+            return skip_until(lookahead_index);
+        }
+
+        /// Skip to the next matching ']'. Returns the index of the
+        /// first token after the matching delimiter.
+        int skip_bracks(int lookahead_index) {
+            bracks++;
+            return skip_until(lookahead_index);
+        }
+
+        /// Skip to the next matching ')'. Returns the index of the
+        /// first token after the matching delimiter.
+        int skip_parens(int lookahead_index) {
+            parens++;
+            return skip_until(lookahead_index);
+        }
+    };
+
+    struct Signature {
+        Expr* sig_type;
+        std::string name;
+        SmallVector<ParamDecl*> param_decls;
+        Location loc;
+        bool nomangle : 1;
+    };
+
     static constexpr int NullPrecedence = 0;
 
     explicit Parser(Context* ctx, File& f);
-
-    template <bool parsing_control_expr_of_match>
-    auto ParseExprImpl(int curr_prec) -> Result<Expr*>;
 
     /// Parser functions.
     auto ParseAssertExpr() -> Result<AssertExpr*>;
@@ -83,11 +144,12 @@ private:
     auto ParseInlineAsm() -> Result<Expr*>;
     auto ParseMatchExpr() -> Result<MatchExpr*>;
     void ParsePreamble();
+    auto ParseProcSignature() -> Result<Signature>;
     auto ParseProcExpr() -> Result<Expr*>;
     auto ParseStructDecl() -> Result<Type*>;
     auto ParseTerseProcExpr(SmallVector<std::string> argument_names, Location start_loc) -> Result<Expr*>;
-    auto ParseType() -> Result<Type*>;
-    auto ParseTypeExpr(Type* type) -> Result<Expr*>;
+    auto ParseType(Expr* base_type = nullptr) -> Result<Type*>;
+
     auto ParseWhileExpr() -> Result<WhileExpr*>;
     auto ParseWithExpr() -> Result<WithExpr*>;
 
@@ -95,9 +157,10 @@ private:
     bool AtStartOfExpression();
 
     /// Parser primitives.
-    bool At(std::same_as<Tk> auto... tks) { return ((tok.type == tks) or ...); }
-    bool Consume(Tk t) {
-        if (At(t)) {
+    bool Is(const Token& t, std::same_as<Tk> auto... tks) { return ((t.type == tks) or ...); }
+    bool At(std::same_as<Tk> auto... tks) { return Is(tok, tks...); }
+    bool Consume(std::same_as<Tk> auto... tks) {
+        if (At(tks...)) {
             Next();
             return true;
         }

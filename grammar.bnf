@@ -32,7 +32,7 @@
           | <expr-prefix>
           | <expr-postfix>
           | <expr-member>
-          | <expr-property>
+          | <expr-scope-access>
           | <expr-cast>
           | <expr-terse-proc>
           | <expr-with>
@@ -50,7 +50,7 @@
 <expr-for>            ::= FOR ( <for-infinite> | <for-each> | <for-cstyle> | <for-in> | <for-enum-in> )
 <expr-while>          ::= WHILE <expr> [ DO ] <expr>
 <expr-if>             ::= IF <expr> [ THEN ] <expr> { ELIF <expr> [ THEN ] <expr> } [ ELSE <expr> ]
-<expr-match>          ::= MATCH <match-control> "{" { <match-case> } [ ELSE [ ":" ] <expr> ] "}"
+<expr-match>          ::= MATCH // TODO
 <expr-asm>            ::= ASM "{" { <asm-instruction> } "}" | ASM <asm-instruction>
 <expr-assert>         ::= ASSERT <expr> [ "," <expr> ]
 <expr-return>         ::= RETURN [ <expr> ]
@@ -60,13 +60,13 @@
 <expr-paren>          ::= "(" <expr> ")"
 <expr-invoke>         ::= <expr> "(" [ <expr> { "," <expr> } [ "," ] ] ")"
 <expr-subs>           ::= <expr> "[" <expr> "]"
-<expr-reduce>         ::= <expr> "[" ( "+" | "*" | "&" | "|" | "xor" | ">" | "<" ) "]"
+<expr-reduce>         ::= <expr> "[" ( "+" | "*" | "and" | "or" | "xor" | ">" | "<" ) "]"
 <expr-tuple>          ::= "(" <expr> { "," <expr> } [ "," ] ")"
 <expr-binary>         ::= <expr> <binary> <expr>
 <expr-prefix>         ::= <prefix> <expr>
 <expr-postfix>        ::= <expr> <postfix>
 <expr-member>         ::= <expr> "." <identifier>
-<expr-property>       ::= <expr> "::" <identifier>
+<expr-scope-access>   ::= <identifier> [ "::" <identifier> ]
 <expr-cast>           ::= <expr> "as" <type>
 <expr-terse-proc>     ::= [ <expr> { "," <expr> } ] "->" <expr>
 <expr-with>           ::= "with" <expr> [ DO ] [ <expr> ]
@@ -82,10 +82,10 @@
 <proc-anon-sig>       ::= PROC { <type-qual> } <proc-sig-rest>
 <proc-sig-rest>       ::=  [ <param-list> ] [ <proc-attrs> ] [ <proc-return> ]
 <param-list>          ::= "(" <parameter> { "," <parameter> } [ "," ] ")"
-<parameter>           ::= <decl-base> [ "=" <expr> ] | <proc-named-sig> | <proc-anon-sig>
+<parameter>           ::= <param-decl> | <proc-named-sig> | <proc-anon-sig>
+<param-decl>          ::= [ STATIC ] [ WITH ] <type> [ <identifier> ] [ "=" <expr> ]
 <proc-attrs>          ::= "variadic" | "nomangle"
-<proc-return>         ::= "->" ( <type> | UNREACHABLE )
-
+<proc-return>         ::= "->" <type>
 <proc-body>           ::= <expr-block> | "=" <expr>
 
 <for-infinite> ::= DO <expr> | <expr-block>
@@ -101,7 +101,7 @@
 <asm-operands> ::= [ <expr> ] { "," <expr> }
 <prefix> ::= "^" | "&" | "#" | "-" | "++" | "--"
 <postfix> ::= "++" | "--"
-<binary> ::= "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "and" | "or" | "&" | "|" | "<<" | ">>" | "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
+<binary> ::= "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "and" | "or" | "<<" | ">>" | "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
 <identifier> ::= IDENTIFIER | "__id" "(" TOKEN  { TOKEN } ")"
 
 /// ==========================================================================
@@ -140,6 +140,7 @@
                     | <type-vector>
                     | <type-typeof>
                     | <type-templ-inst>
+                    | <type-alternate>
                     | <proc-anon-sig>
                     | <struct-named>
                     | <struct-anon>
@@ -152,9 +153,10 @@
 <type-tuple>      ::= "(" <type> { "," <type> }+ ")"
 <type-range>      ::= <type> ".." <type>
 <type-typeof>     ::= "typeof" <expr>
-<type-templ-inst> ::= <identifier> "(" [ <expr> { "," <expr> } [ "," ] ] ")" ///< Very similar to <expr-invoke>
-<type-prim>       ::= I8 | I16 | I32 | I64 | ISZ | U8 | U16 | U32 | U64 | USZ | F32 | F64 | BOOL | STRING | VOID | TYPE | VAR | NORETURN
-<type-qual>       ::= "^" | "&" | "[]" | "[" <expr> "]"
+<type-alternate>  ::= <type> "|" <type>
+<type-templ-inst> ::= <expr-invoke>
+<type-prim>       ::= I8 | I16 | I32 | I64 | INT | F32 | F64 | BOOL | STRING | VOID | TYPE | VAR | NORETURN
+<type-qual>       ::= "^" | "&" | "?" | "[]" | "[" <expr> "]"
 <type-vector>     ::= <type-prim> "<" <expr> ">"
 
 /// ==========================================================================

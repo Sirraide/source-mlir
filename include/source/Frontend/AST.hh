@@ -103,7 +103,7 @@ public:
         EK_BlockExpr,
         EK_NameRefExpr,
         EK_MemberAccessExpr,
-        EK_MetapropAccessExpr,
+        EK_ScopeAccessExpr,
         EK_ParamRefExpr,
         EK_UnaryExpr,
         EK_BinaryExpr,
@@ -139,8 +139,9 @@ public:
         /// Other types.
         EK_BuiltinType,
         EK_FFIType,
-        EK_PointerType,
+        EK_ScopedPointerType,
         EK_ReferenceType,
+        EK_OptionalType,
         EK_SliceType,
         EK_InclusiveRangeType,
         EK_ExclusiveRangeType,
@@ -181,6 +182,7 @@ public:
 
     /// Creating an Expr requires a Module.
     /// Note: This is implemented in module.cc.
+    /// TODO: Use __builtin_operator_new(): https://clang.llvm.org/docs/LanguageExtensions.html#builtin-operator-new-and-builtin-operator-delete
     void* operator new(size_t, Module*);
 
     /// Evaluate this expression.
@@ -874,24 +876,20 @@ public:
     static bool classof(const Expr* e) { return e->kind == EK_MemberAccessExpr; }
 };
 
-/// Metaproperty access expression.
+/// Scope access expression.
 ///
-/// This is used to access metaproperties of declarations, e.g. `A::B`.
-class MetapropAccessExpr : public TypedExpr {
-    /// The base expression.
-    property_r(Expr*, base);
-
-    /// The metaproperty name.
-    property_r(std::string, name);
+/// E.g. `A::B::C`.
+class ScopeAccessExpr : public TypedExpr {
+    /// The name sequence.
+    property_r(SmallVector<std::string>, name_list);
 
 public:
-    MetapropAccessExpr(Expr* base, std::string name, Location loc)
-        : TypedExpr(EK_MetapropAccessExpr, detail::UnknownTy, loc),
-          base_field(base),
-          name_field(std::move(name)) {}
+    ScopeAccessExpr(SmallVector<std::string> name_list, Location loc)
+        : TypedExpr(EK_ScopeAccessExpr, detail::UnknownTy, loc),
+          name_list_field(std::move(name_list)) {}
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == EK_MetapropAccessExpr; }
+    static bool classof(const Expr* e) { return e->kind == EK_ScopeAccessExpr; }
 };
 
 /// Reference to a parameter value.
@@ -947,32 +945,23 @@ public:
 /// due to ambiguities in the grammar.
 class BinaryExpr : public TypedExpr {
     /// The left operand.
-    Expr* _left;
+    property_r(Expr*, lhs);
 
     /// The right operand.
-    Expr* _right;
+    property_r(Expr*, rhs);
 
     /// The operator.
-    Tk _op;
+    property_r(Tk, op);
 
 public:
-    BinaryExpr(Expr* left, Expr* right, Tk op)
-        : TypedExpr(EK_BinaryExpr, detail::UnknownTy),
-          _left(left),
-          _right(right),
-          _op(op) {}
+    BinaryExpr(Tk op, Expr* left, Expr* right, Location loc)
+        : TypedExpr(EK_BinaryExpr, detail::UnknownTy, loc),
+          lhs_field(left),
+          rhs_field(right),
+          op_field(op) {}
 
     /// Whether this is an assignment or compound assigment expression.
     bool is_assignment() const;
-
-    /// Get the left operand.
-    auto lhs() const -> Expr* { return _left; }
-
-    /// Get the right operand.
-    auto rhs() const -> Expr* { return _right; }
-
-    /// Get the operator.
-    auto op() const -> Tk { return _op; }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_BinaryExpr; }
@@ -981,20 +970,16 @@ public:
 /// Vector reduction operation.
 class VectorReduceExpr : public TypedExpr {
     /// The reduction operation.
-    Tk _op;
+    property_r(Tk, op);
 
     /// The operand.
-    Expr* _operand;
+    property_r(Expr*, operand);
 
 public:
-    VectorReduceExpr(Tk op, Expr* operand)
-        : TypedExpr(EK_VectorReduceExpr, detail::UnknownTy), _op(op), _operand(operand) {}
-
-    /// Get the reduction operation.
-    auto op() const -> Tk { return _op; }
-
-    /// Get the operand.
-    auto operand() const -> Expr* { return _operand; }
+    VectorReduceExpr(Tk op, Expr* operand, Location loc)
+        : TypedExpr(EK_VectorReduceExpr, detail::UnknownTy, loc),
+          op_field(op),
+          operand_field(operand) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_VectorReduceExpr; }
@@ -1170,8 +1155,8 @@ class Decl : public TypedExpr {
     std::string _name;
 
 protected:
-    Decl(Expr::Kind k, std::string name, Expr* type)
-        : TypedExpr(k, type), _name(std::move(name)) {}
+    Decl(Expr::Kind k, std::string name, Expr* type, Location loc = {})
+        : TypedExpr(k, type, loc), _name(std::move(name)) {}
 
 public:
     /// Get the name of this declaration.
@@ -1345,12 +1330,12 @@ class ParamDecl : public Decl {
 
 public:
     ParamDecl(
-        Expr::Kind k,
         std::string name,
         Expr* type,
         bool is_static,
-        bool is_with
-    ) : Decl(k, std::move(name), type),
+        bool is_with,
+        Location loc = {}
+    ) : Decl(EK_ParamDecl, std::move(name), type, loc),
         _static(is_static),
         _with(is_with),
         _default(nullptr) {}
@@ -1520,32 +1505,41 @@ public:
 /// Base class for types that only have a single element type.
 class SingleElementTypeBase : public Type {
     /// The element type.
-    Type* _elem_type;
+    Expr* _elem_type;
 
 protected:
-    SingleElementTypeBase(Kind k, Type* elem_type) : Type(k), _elem_type(elem_type) {}
+    SingleElementTypeBase(Kind k, Expr* elem_type) : Type(k), _elem_type(elem_type) {}
 
 public:
     /// Get the element type.
-    auto elem() const -> Type* { return _elem_type; }
+    auto elem() const -> Expr* { return _elem_type; }
 };
 
-/// Pointer type.
-class PointerType : public SingleElementTypeBase {
+/// Scoped pointer type.
+class ScopedPointerType : public SingleElementTypeBase {
 public:
-    PointerType(Type* elem_type) : SingleElementTypeBase(EK_PointerType, elem_type) {}
+    ScopedPointerType(Expr* elem_type) : SingleElementTypeBase(EK_ScopedPointerType, elem_type) {}
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == EK_PointerType; }
+    static bool classof(const Expr* e) { return e->kind == EK_ScopedPointerType; }
 };
 
 /// Reference type.
 class ReferenceType : public SingleElementTypeBase {
 public:
-    ReferenceType(Type* elem_type) : SingleElementTypeBase(EK_ReferenceType, elem_type) {}
+    ReferenceType(Expr* elem_type) : SingleElementTypeBase(EK_ReferenceType, elem_type) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ReferenceType; }
+};
+
+/// Optional type.
+class OptionalType : public SingleElementTypeBase {
+public:
+    OptionalType(Expr* elem_type) : SingleElementTypeBase(EK_OptionalType, elem_type) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_OptionalType; }
 };
 
 /// Slice type.
@@ -1609,14 +1603,12 @@ public:
 /// Array type.
 class ArrayType : public SingleElementTypeBase {
     /// The dimension of the array.
-    Expr* _dim;
+    property_r(Expr*, dim);
 
 public:
-    ArrayType(Type* elem_type, Expr* size)
-        : SingleElementTypeBase(EK_ArrayType, elem_type), _dim(size) {}
-
-    /// Get the dimension.
-    auto dim() const -> Expr* { return _dim; }
+    ArrayType(Expr* elem_type, Expr* size)
+        : SingleElementTypeBase(EK_ArrayType, elem_type),
+            dim_field(size) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ArrayType; }
@@ -1673,10 +1665,10 @@ public:
 /// Function type.
 class FunctionType : public Type {
     /// The return type.
-    Type* _return_type;
+    Expr* _return_type;
 
     /// The parameter types.
-    SmallVector<Type*> _params;
+    SmallVector<Expr*> _params;
 
     /// The calling convention.
     CallingConv _calling_conv;
@@ -1688,9 +1680,10 @@ class FunctionType : public Type {
     bool _has_static_chain : 1;
 
 public:
+    /// TODO: Add `noundef` to all parameters when lowering to LLVM IR.
     FunctionType(
-        SmallVector<Type*> params,
-        Type* return_type,
+        SmallVector<Expr*> params,
+        Expr* return_type,
         CallingConv calling_conv,
         bool variadic,
         bool has_static_chain
