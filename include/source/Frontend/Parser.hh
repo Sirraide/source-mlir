@@ -132,8 +132,7 @@ private:
     /// Parser functions.
     auto ParseAssertExpr() -> Result<AssertExpr*>;
     auto ParseBlockExpr() -> Result<BlockExpr*>;
-    auto ParseDecl(bool is_exported, bool is_extern, Location start_loc, Type* type) -> Result<Decl*>;
-    auto ParseDeclBase() -> Result<Decl*>;
+    auto ParseDecl(bool is_extern, Location start_loc) -> Result<Expr*>;
     auto ParseEnumDecl() -> Result<EnumType*>;
     auto ParseExpr(int operator_precedence = NullPrecedence) -> Result<Expr*>;
     auto ParseExprInNewScope() -> Result<Expr*>;
@@ -143,15 +142,25 @@ private:
     auto ParseIfExpr() -> Result<IfExpr*>;
     auto ParseInlineAsm() -> Result<Expr*>;
     auto ParseMatchExpr() -> Result<MatchExpr*>;
+    auto ParseParamDeclList(SmallVectorImpl<ParamDecl*>& decls, SmallVectorImpl<Expr*>* param_types, bool in_struct_template) -> Location;
     void ParsePreamble();
+    auto ParseProcBody(bool is_extern, Signature sig) -> Result<Expr*>;
+    auto ParseProcExpr(bool is_extern) -> Result<Expr*>;
     auto ParseProcSignature() -> Result<Signature>;
-    auto ParseProcExpr() -> Result<Expr*>;
-    auto ParseStructDecl() -> Result<Type*>;
+    auto ParseStructDecl() -> Result<Expr*>;
     auto ParseTerseProcExpr(SmallVector<std::string> argument_names, Location start_loc) -> Result<Expr*>;
-    auto ParseType(Expr* base_type = nullptr) -> Result<Type*>;
-
+    auto ParseType(Expr* base_type = nullptr) -> Result<Expr*>;
     auto ParseWhileExpr() -> Result<WhileExpr*>;
     auto ParseWithExpr() -> Result<WithExpr*>;
+
+    /// Parse a struct body. The caller is responsible for
+    /// pushing a new scope before calling this.
+    void ParseStructBody(
+        bool dynamic,
+        SmallVectorImpl<MemberDecl*>& members,
+        SmallVectorImpl<FunctionDecl*>& member_functions,
+        SmallVectorImpl<VariantClauseDecl*>& variants
+    );
 
     /// Check if we’re at the start of an expression.
     bool AtStartOfExpression();

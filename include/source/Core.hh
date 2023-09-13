@@ -14,6 +14,7 @@ class Module;
 class Decl;
 class FunctionDecl;
 class Expr;
+class Scope;
 
 /// A file in the context.
 class File {
@@ -287,7 +288,7 @@ class Module {
     property_r(SmallVector<ImportedModuleRef>, imports);
 
     /// Exported declarations.
-    property_r(decltype(StringMap<SmallVector<Decl*, 1>>{}), exports);
+    property_r(decltype(StringMap<SmallVector<Expr*, 1>>{}), exports);
 
     /// Top-level module function.
     property_r(FunctionDecl*, top_level_func);
@@ -295,12 +296,21 @@ class Module {
     /// Module string table.
     property_r(StringTable, strtab);
 
+    /// Scopes in this module.
+    property_r(SmallVector<Scope*>, scopes);
+
+    /// Functions that are part of this module.
+    property_r(SmallVector<FunctionDecl*>, functions);
+
     /// Static assertions that are not part of a template go here.
     property_r(decltype(SmallVector<Expr*, 32>{}), static_assertions);
 
 public:
     /// An empty name means this isn’t a logical module.
     explicit Module(Context* ctx, std::string name, Location module_decl_location = {});
+
+    /// Add a function to this module.
+    void add_function(FunctionDecl* func);
 };
 
 /// A diagnostic. The diagnostic is issued when the destructor is called.

@@ -2,6 +2,7 @@
 #include <source/Frontend/AST.hh>
 #include <source/Frontend/Parser.hh>
 
+#define nop()
 #define bind SRC_BIND Parser::
 
 /// ===========================================================================
@@ -235,19 +236,118 @@ auto src::Parser::ParseBlockExpr() -> Result<BlockExpr*> {
     if (not Consume(Tk::RBrace)) return Error("Expected '}}' at end of block");
     return new (mod) BlockExpr(std::move(exprs), false, brace_loc);
 }
-/*
+
 /// <decl>             ::= [ EXPORT ] [ EXTERN ] <decl-unqualified>
 /// <decl-unqualified> ::= <decl-multi> | <decl-base> | <proc-unqual-sig> | <proc-named-sig>
 /// <decl-multi>       ::= <decl-base> { "," <identifier> } [ "=" <expr> ]
 /// <decl-base>        ::= <type> <identifier> [ <var-attrs> ]
 /// <var-attrs>        ::= "nomangle"
-auto src::Parser::ParseDecl(
-    bool is_exported,
-    bool is_extern,
-    Location start_loc,
-    Type* type
-) -> Result<Decl*> {
-}*/
+auto src::Parser::ParseDecl(bool is_extern, Location loc) -> Result<Expr*> {
+    auto type = Result<Expr*>::Null();
+
+    /// The declaration type may contain a signature.
+    if (At(Tk::Proc)) {
+        auto sig = ParseProcSignature();
+        if (sig.is_diag) return sig.diag;
+        if (isa<FunctionType>((*sig).sig_type)) return ParseProcBody(is_extern, std::move(*sig));
+        type = (*sig).sig_type;
+    }
+
+    /// Otherwise, parse the type.
+    else { type = ParseType(); }
+
+    /// Parse the name.
+    if (not At(Tk::Identifier)) return Error("Expected identifier after type");
+    std::string name = tok.text;
+    loc = {loc, Next()};
+
+    /// Helper to parse attributes.
+    const auto ParseAttr = [&](std::string_view name, bool& flag) {
+        if (tok.text == name) {
+            if (flag) Diag::Warning(ctx, curr_loc, "Duplicated '{}' attribute ignored", name);
+            loc = {loc, Next()};
+            return flag = true;
+        }
+
+        return false;
+    };
+
+    /// Parse the attributes.
+    bool nomangle{};
+    while (At(Tk::Identifier) and ( // clang-format off
+        ParseAttr("nomangle", nomangle)
+    )); // clang-format on
+
+    /// Parse the initialiser if there is one.
+    auto init = Result<Expr*>::Null();
+    if (Consume(Tk::Assign)) init = ParseExpr();
+
+    /// Determine linkage.
+    Linkage linkage;
+    if (curr_func == mod->top_level_func) linkage = is_extern ? Linkage::Imported : Linkage::Internal;
+    else linkage = Linkage::Local;
+
+    /// TODO: `static` on a decl to make it a static variable. Top-level
+    ///       variables should not be static by default.
+    /// Create the decl.
+    if (IsError(type, init)) return Diag();
+    return new (mod) VarDecl(
+        std::move(name),
+        curr_func,
+        *type,
+        *init,
+        linkage,
+        nomangle ? Mangling::None : Mangling::Source,
+        loc
+    );
+}
+
+/// <enum-named> ::= [ EXPORT ] ENUM <identifier> [ ":" <type> ] <enum-rest>
+/// <enum-anon>  ::= ENUM [ ":" <type> ] <enum-rest>
+/// <enum-rest>  ::= "{" [ <enumerator> { "," <enumerator>  } ] "}"
+/// <enumerator> ::= <identifier> [ "=" <expr> ]
+auto src::Parser::ParseEnumDecl() -> Result<EnumType*> {
+    auto loc = curr_loc;
+
+    /// Name is optional.
+    std::string name;
+    if (At(Tk::Identifier)) {
+        name = tok.text;
+        Next();
+    }
+
+    /// Parse the type.
+    Expr* type = Type::Unknown;
+    if (Consume(Tk::Colon)) {
+        auto res = ParseType();
+        if (res.is_value) type = *res;
+    }
+
+    /// Parse enumerators.
+    if (not Consume(Tk::LBrace)) return Error("Expected '{{' after enum");
+    SmallVector<EnumeratorDecl*> enumerators;
+    while (not At(Tk::RBrace, Tk::Eof)) {
+        /// Name is required.
+        if (not At(Tk::Identifier)) return Error("Expected identifier");
+        auto enumerator_name = tok.text;
+        auto enumerator_loc = Next();
+
+        /// Value is optional.
+        Expr* value = nullptr;
+        if (Consume(Tk::Assign)) {
+            auto val = ParseExpr();
+            if (val.is_value) value = *val;
+        }
+
+        /// Add the numerator.
+        enumerators.push_back(new (mod) EnumeratorDecl(std::move(enumerator_name), value, enumerator_loc));
+        if (not Consume(Tk::Comma)) break;
+    }
+
+    /// Create the enum.
+    if (not Consume(Tk::RBrace)) return Error("Expected '}}' at end of enum");
+    return new (mod) EnumType(mod, std::move(name), std::move(enumerators), type, loc);
+}
 
 auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
     /// See below.
@@ -357,9 +457,22 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             const auto location = curr_loc;
             const bool is_exported = Consume(Tk::Export);
             const bool is_external = Consume(Tk::Extern);
-            auto type = ParseType();
-            if (IsError(type)) return Diag();
-            lhs = ParseDecl(is_exported, is_external, location, *type);
+            auto Export = [&](Expr* e) {
+                if (is_exported) {
+                    if (auto decl = dyn_cast<ObjectDecl>(e)) {
+                        decl->linkage = decl->linkage == Linkage::Imported
+                                          ? Linkage::Reexported
+                                          : Linkage::Exported;
+                    } else if (isa<StructType, EnumType>(e)) {
+                        auto& ex = mod->exports[cast<NamedType>(e)->name];
+                        ex.push_back(e);
+                    } else {
+                        Error(e->location, "Cannot export this");
+                    }
+                }
+                return e;
+            };
+            lhs = ParseDecl(is_external, location) >> Export;
         } break;
 
         case Tk::Static: {
@@ -490,15 +603,16 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             break;
 
         case Tk::Struct:
+        case Tk::Dynamic:
             lhs = ParseStructDecl();
             break;
 
         case Tk::Proc:
-            lhs = ParseProcExpr();
+            lhs = ParseProcExpr(false);
             break;
 
         case Tk::LArrow:
-            lhs = ParseTerseProcExpr({});
+            lhs = ParseTerseProcExpr({}, curr_loc);
             break;
 
         case Tk::LBrace:
@@ -795,15 +909,16 @@ void src::Parser::ParseFile() {
     static_assertions = &mod->static_assertions;
 
     /// Parse expressions.
-    while (not At(Tk::Eof)) ParseExpressions(mod->top_level_func->body->exprs);
+    auto& exprs = cast<BlockExpr>(mod->top_level_func->body)->exprs;
+    while (not At(Tk::Eof)) ParseExpressions(exprs);
 }
 
 /// <expr-for>     ::= FOR ( <for-infinite> | <for-each> | <for-cstyle> | <for-in> | <for-enum-in> )
 /// <for-infinite> ::= DO <expr> | <expr-block>
 /// <for-each>     ::= <expr> [ DO ] <expr>
 /// <for-cstyle>   ::= [ <expr> ] ";" [ <expr> ] ";" [ <expr> ] [ DO ] <expr>
-/// <for-in>       ::= <decl-base> IN <expr> [ DO ] <expr>
-/// <for-enum-in>  ::= ENUM <identifier> [ "," <decl-base> ] IN <expr> [ DO ] <expr>
+/// <for-in>       ::= <decl> IN <expr> [ DO ] <expr>
+/// <for-enum-in>  ::= ENUM <identifier> [ "," <decl> ] IN <expr> [ DO ] <expr>
 auto src::Parser::ParseForExpr() -> Result<Expr*> {
     auto for_loc = curr_loc;
     Assert(Consume(Tk::For), "ParseForExpr() called without 'for'");
@@ -835,6 +950,7 @@ auto src::Parser::ParseForExpr() -> Result<Expr*> {
             enum_decl = new (mod) VarDecl(
                 std::move(enum_name),
                 curr_func,
+                nullptr,
                 nullptr,
                 Linkage::Local,
                 Mangling::Source
@@ -868,7 +984,7 @@ auto src::Parser::ParseForExpr() -> Result<Expr*> {
 
         /// Decl is optional.
         auto control = Result<Expr*>::Null();
-        if (Consume(Tk::Comma)) control = ParseDeclBase();
+        if (Consume(Tk::Comma)) control = ParseDecl(false, curr_loc);
         return ParseForIn(std::move(enum_name), std::move(control));
     }
 
@@ -930,6 +1046,90 @@ auto src::Parser::ParseInlineAsm() -> Result<Expr*> {
 
 auto src::Parser::ParseMatchExpr() -> Result<MatchExpr*> {
     Assert(false, "TODO: figure out the syntax for this");
+}
+
+auto src::Parser::ParseParamDeclList(
+    SmallVectorImpl<src::ParamDecl*>& params,
+    SmallVectorImpl<src::Expr*>* param_types,
+    bool in_struct_template
+) -> Location {
+    auto loc = curr_loc;
+    Assert(Consume(Tk::LParen));
+
+    /// '()' is valid, if redundant.
+    if (At(Tk::RParen)) {
+        loc = {loc, Next()};
+        Diag::Warning(ctx, loc, "Empty parameter list '()' is redundant");
+        return loc;
+    }
+
+    /// Parse parameter list.
+    do {
+        Expr* type{};
+        std::string param_name{};
+        Location param_loc = curr_loc;
+
+        /// Parse optional static and with keywords.
+        bool is_static = Consume(Tk::Static);
+        bool is_with = Consume(Tk::With);
+        if (in_struct_template) {
+            if (is_static) Diag::Warning(
+                ctx,
+                curr_loc,
+                "'static' has no effect here as struct template parameters are already implicitly static"
+            );
+        }
+
+        /// Parse nested signature.
+        if (At(Tk::Proc)) {
+            auto sig = ParseProcSignature();
+            if (IsError(sig)) continue;
+            type = (*sig).sig_type;
+
+            /// If the signature does not contain a name, then we can
+            /// also put the name after it.
+            if (At(Tk::Identifier)) {
+                if ((*sig).name.empty()) param_name = tok.text;
+                else Error("Parameter cannot have two names; did you forget a comma here?");
+                Next();
+            } else {
+                param_name = (*sig).name;
+            }
+
+            param_loc = {param_loc, (*sig).loc};
+        }
+
+        /// Parse type and name.
+        else {
+            auto ty = ParseType();
+            if (IsError(ty)) continue;
+            type = *ty;
+            if (At(Tk::Identifier)) {
+                param_name = tok.text;
+                param_loc = {param_loc, Next()};
+            } else {
+                param_loc = {param_loc, type->location};
+            }
+        }
+
+        /// TODO: Parse default parameter value.
+
+        /// Create the param decl.
+        loc = {loc, param_loc};
+        if (param_types) param_types->push_back(type);
+        params.push_back(new (mod) ParamDecl(
+            std::move(param_name),
+            type,
+            is_static or in_struct_template,
+            is_with,
+            param_loc
+        ));
+    } while (Consume(Tk::Comma));
+
+    /// Yeet RParen.
+    loc = {loc, curr_loc};
+    if (not Consume(Tk::RParen)) Error("Expected ')' after parameter list");
+    return loc;
 }
 
 /// <preamble>    ::= [ <module-decl> ] { <import> }
@@ -1017,6 +1217,62 @@ void src::Parser::ParsePreamble() {
     }
 }
 
+auto src::Parser::ParseProcBody(bool is_extern, src::Parser::Signature sig) -> Result<Expr*> {
+    /// Create the function declaration.
+    const auto scope_index = mod->scopes.size();
+    tempset curr_func = new (mod) FunctionDecl(
+        std::move(sig.name),
+        sig.sig_type,
+        mod,
+        curr_func,
+        std::move(sig.param_decls),
+        is_extern ? Linkage::Imported : Linkage::Internal,
+        sig.nomangle ? Mangling::None : Mangling::Source,
+        sig.loc
+    );
+
+    /// Parse the body, if any.
+    if (is_extern) {
+        if (At(Tk::Assign, Tk::LBrace)) return Error("External function cannot have a body");
+    } else {
+        auto body = Result<Expr*>::Null();
+        if (Consume(Tk::Assign)) body = ParseExprInNewScope();
+        else if (At(Tk::LBrace)) body = ParseBlockExpr();
+        else return Error("Expected '=' or '{{' after function signature");
+        if (IsError(body)) return Diag();
+        curr_func->body = *body;
+    }
+
+    curr_func->scope = mod->scopes[scope_index];
+    return curr_func;
+}
+
+/// This is only invoked by the expression parser and thus need
+/// not parse a full expression.
+///
+/// <expr-proc-def> ::= <proc-unqual-sig> <proc-body>
+/// <expr-lambda>   ::= <proc-anon-sig> <proc-body>
+/// <proc-body>     ::= <expr-block> | "=" <expr>
+auto src::Parser::ParseProcExpr(bool is_extern) -> Result<Expr*> {
+    auto sig_result = ParseProcSignature();
+    if (IsError(sig_result)) return Diag();
+    Signature& sig = *sig_result;
+
+    /// If the type of the signature is a function type,
+    /// then this is a function declaration.
+    if (isa<FunctionType>(sig.sig_type)) return ParseProcBody(is_extern, std::move(sig));
+
+    /// Nomangle has no effect if this is not a function decl.
+    if (sig.nomangle) Diag::Warning(
+        ctx,
+        sig.loc,
+        "Attribute 'nomangle' of function type ignored outside of function declaration"
+    );
+
+    /// Otherwise, return just the function type.
+    return sig.sig_type;
+}
+
 /// <proc-unqual-sig> ::= PROC <identifier> <proc-sig-rest>
 /// <proc-named-sig>  ::= PROC { <type-qual> } <identifier> <proc-sig-rest>
 /// <proc-anon-sig>   ::= PROC { <type-qual> } <proc-sig-rest>
@@ -1059,62 +1315,7 @@ auto src::Parser::ParseProcSignature() -> Result<Signature> {
     /// Parse parameter list.
     SmallVector<ParamDecl*> params;
     SmallVector<Expr*> param_types;
-    if (Consume(Tk::LParen) and not Consume(Tk::RParen)) {
-        do {
-            Expr* type{};
-            std::string param_name{};
-            Location param_loc = curr_loc;
-
-            /// Parse optional static and with keywords.
-            bool is_static = Consume(Tk::Static);
-            bool is_with = Consume(Tk::With);
-
-            /// Parse nested signature.
-            if (At(Tk::Proc)) {
-                auto sig = ParseProcSignature();
-                if (IsError(sig)) return Diag();
-                type = (*sig).sig_type;
-
-                /// If the signature does not contain a name, then we can
-                /// also put the name after it.
-                if (At(Tk::Identifier)) {
-                    if ((*sig).name.empty()) param_name = tok.text;
-                    else Error("Parameter cannot have two names; did you forget a comma here?");
-                    Next();
-                } else {
-                    param_name = (*sig).name;
-                }
-
-                param_loc = {param_loc, (*sig).loc};
-            }
-
-            /// Parse type and name.
-            else {
-                auto ty = ParseType();
-                if (IsError(ty)) return Diag();
-                type = *ty;
-                if (At(Tk::Identifier)) {
-                    param_name = tok.text;
-                    param_loc = {param_loc, Next()};
-                } else {
-                    param_loc = {param_loc, type->location};
-                }
-            }
-
-            /// TODO: Parse default parameter value.
-
-            /// Create the param decl.
-            loc = {loc, param_loc};
-            param_types.push_back(type);
-            params.push_back(new (mod) ParamDecl(
-                std::move(param_name),
-                type,
-                is_static,
-                is_with,
-                param_loc
-            ));
-        } while (Consume(Tk::Comma));
-    }
+    if (At(Tk::LParen)) loc = {loc, ParseParamDeclList(params, &param_types, false)};
 
     /// Helper to handle an attribute.
     const auto ParseAttr = [&](std::string_view name, bool& flag) {
@@ -1173,6 +1374,171 @@ auto src::Parser::ParseProcSignature() -> Result<Signature> {
         loc,
         nomangle,
     };
+}
+
+/// <struct-body>     ::= "{" { ( <decl> | <variant-clause> ) ";" } "}" | ";"
+/// <variant-clause>  ::= <variant-inline> | <variant-named> | <variant-void>
+/// <variant-inline>  ::= [ DYNAMIC ] VARIANT <identifier> <struct-body>
+/// <variant-named>   ::= [ DYNAMIC ] VARIANT <identifier> <type> ";"
+/// <variant-void>    ::= [ DYNAMIC ] VARIANT VOID
+void src::Parser::ParseStructBody(
+    bool dynamic,
+    SmallVectorImpl<src::MemberDecl*>& members,
+    SmallVectorImpl<FunctionDecl*>& member_functions,
+    SmallVectorImpl<src::VariantClauseDecl*>& variants
+) {
+    Assert(Consume(Tk::LBrace));
+    while (not At(Tk::RBrace, Tk::Eof)) {
+        if (Consume(Tk::Semicolon)) continue;
+        auto member_loc = curr_loc;
+
+        /// Variant clause.
+        if (const auto dyn_clause = Consume(Tk::Dynamic); dyn_clause or At(Tk::Variant)) {
+            std::string clause_name;
+            Expr* type = Type::Void;
+
+            /// Dynamic is redundant if the entire variant is redundant.
+            if (dyn_clause and dynamic) Diag::Warning(
+                ctx,
+                curr_loc,
+                "'dynamic' is redundant here as the struct itself is already dynamic."
+            );
+
+            /// Make sure we don’t have 'dynamic' w/o 'variant'
+            if (not Consume(Tk::Variant)) Error(member_loc, "Expected 'variant' after 'dynamic'");
+
+            /// Parse clause name and type.
+            if (At(Tk::Void)) {
+                member_loc = {member_loc, Next()};
+            } else if (At(Tk::Identifier)) {
+                clause_name = tok.text;
+                member_loc = {member_loc, Next()};
+
+                /// Type may be inline struct body or explicit type.
+                if (At(Tk::LBrace)) {
+                    ScopeRAII sc{this};
+                    RecordType::MemberDecls clause_members;
+                    SmallVector<FunctionDecl*> clause_member_functions;
+                    SmallVector<src::VariantClauseDecl*> clause_variants;
+                    ParseStructBody(dynamic, clause_members, clause_member_functions, clause_variants);
+                    type = new (mod) StructType(
+                        mod,
+                        "",
+                        sc.scope,
+                        std::move(clause_members),
+                        std::move(clause_member_functions),
+                        std::move(clause_variants),
+                        false,
+                        member_loc
+                    );
+                } else {
+                    auto res = ParseType();
+                    if (IsError(res)) {
+                        Synchronise();
+                        continue;
+                    }
+                    type = *res;
+                }
+            } else {
+                Error("Expected 'void' or identifier after 'variant'");
+                Synchronise();
+                continue;
+            }
+
+            /// Create the variant clause.
+            variants.push_back(new (mod) VariantClauseDecl(
+                std::move(clause_name),
+                type,
+                dyn_clause or dynamic,
+                member_loc
+            ));
+        }
+
+        /// Regular decl.
+        else {
+            auto decl = ParseDecl(false, member_loc);
+            if (IsError(decl)) {
+                Synchronise();
+                continue;
+            }
+
+            /// Keep functions as they are. We’ll fix them later in Sema.
+            if (auto func = dyn_cast<FunctionDecl>(*decl)) member_functions.push_back(func);
+
+            /// Rewrite variable declarations to member decls.
+            else if (auto var = dyn_cast<VarDecl>(*decl)) {
+                members.push_back(new (mod) MemberDecl(
+                    std::move(var->name),
+                    var->type
+                ));
+            }
+        }
+    }
+}
+/// <struct-named>    ::= [ EXPORT ] [ DYNAMIC ] STRUCT <identifier> <struct-rest>
+/// <struct-anon>     ::= [ DYNAMIC ] STRUCT <struct-rest>
+/// <struct-opaque>   ::= [ EXPORT ] STRUCT <identifier> OPAQUE
+/// <struct-rest>     ::= [ <param-list> /* template */ ] <struct-body>
+auto src::Parser::ParseStructDecl() -> Result<Expr*> {
+    /// Structs may be dynamic; this means that every variant
+    /// is a dynamic variant.
+    const auto dynamic_loc = curr_loc;
+    const bool dynamic = Consume(Tk::Dynamic);
+    const auto struct_loc = curr_loc;
+    Assert(Consume(Tk::Struct), "ParseStructDecl() called without 'struct'");
+
+    /// Parse name, if any.
+    std::string name;
+    if (At(Tk::Identifier)) {
+        name = tok.text;
+        Next();
+    }
+
+    /// Struct may be an opaque type.
+    if (At(Tk::Identifier) and tok.text == "opaque") {
+        if (dynamic) Error(dynamic_loc, "Opaque struct cannot be marked 'dynamic'");
+        Next();
+        return new (mod) OpaqueType(mod, std::move(name), struct_loc);
+    }
+
+    /// Parse template parameter list.
+    ScopeRAII sc{this};
+    RecordType::MemberDecls members;
+    SmallVector<FunctionDecl*> member_functions;
+    SmallVector<VariantClauseDecl*> variants;
+    SmallVector<ParamDecl*> template_params;
+    ParseParamDeclList(template_params, nullptr, true);
+
+    /// Parse the body if there is one. ';' means this is an empty struct;
+    /// any other token is an error.
+    if (At(Tk::Semicolon)) nop();
+    else if (At(Tk::LBrace)) ParseStructBody(dynamic, members, member_functions, variants);
+    else Error("Expected 'opaque', ';', or '{{' in struct declaration");
+
+    /// If we have template parameters, create a template.
+    if (not template_params.empty()) return new (mod) StructTemplate(
+        mod,
+        std::move(name),
+        sc.scope,
+        std::move(members),
+        std::move(member_functions),
+        std::move(variants),
+        std::move(template_params),
+        false,
+        struct_loc
+    );
+
+    /// Otherwise, create a struct.
+    else return new (mod) StructType(
+        mod,
+        std::move(name),
+        sc.scope,
+        std::move(members),
+        std::move(member_functions),
+        std::move(variants),
+        false,
+        struct_loc
+    );
 }
 
 /// <expr-while> ::= WHILE <expr> [ DO ] <expr>

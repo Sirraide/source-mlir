@@ -21,6 +21,7 @@
           | <expr-return>
           | <expr-defer>
           | <expr-proc-def>
+          | <expr-lambda>
           | <expr-asm>
           | <expr-block>
           | <expr-paren>
@@ -55,7 +56,10 @@
 <expr-assert>         ::= ASSERT <expr> [ "," <expr> ]
 <expr-return>         ::= RETURN [ <expr> ]
 <expr-defer>          ::= DEFER <expr>
+<expr-try>            ::= TRY <expr>
+<expr-catch>          ::= <expr> CATCH <identifier> <expr> /// TODO
 <expr-proc-def>       ::= <proc-unqual-sig> <proc-body>
+<expr-lambda>         ::= <proc-anon-sig> <proc-body>
 <expr-block>          ::= "{" <exprs> "}"
 <expr-paren>          ::= "(" <expr> ")"
 <expr-invoke>         ::= <expr> "(" [ <expr> { "," <expr> } [ "," ] ] ")"
@@ -74,7 +78,6 @@
 <expr-unreachable>    ::= UNREACHABLE
 <expr-break>          ::= BREAK [ <identifier> ]
 <expr-continue>       ::= CONTINUE [ <identifier> ]
-<expr-try>            ::= TRY <expr>
 <expr-name-ref>       ::= [ "." ] <identifier>
 
 <proc-unqual-sig>     ::= PROC <identifier> <proc-sig-rest>
@@ -91,8 +94,8 @@
 <for-infinite> ::= DO <expr> | <expr-block>
 <for-each>     ::= <expr> [ DO ] <expr>
 <for-cstyle>   ::= [ <expr> ] ";" [ <expr> ] ";" [ <expr> ] [ DO ] <expr>
-<for-in>       ::= <decl-base> IN <expr> [ DO ] <expr>
-<for-enum-in>  ::= ENUM <identifier> [ "," <decl-base> ] IN <expr> [ DO ] <expr>
+<for-in>       ::= <decl> IN <expr> [ DO ] <expr>
+<for-enum-in>  ::= ENUM <identifier> [ "," <decl> ] IN <expr> [ DO ] <expr>
 
 <match-control> ::= [ <expr> [ <binary> ] ]
 <match-case>    ::= <expr> [ ":" ] <expr>
@@ -121,14 +124,15 @@
 <enum-rest>       ::= "{" [ <enumerator> { "," <enumerator>  } ] "}"
 <enumerator>      ::= <identifier> [ "=" <expr> ]
 
-<struct-named>    ::= [ EXPORT ] STRUCT <identifier> <struct-rest>
-<struct-anon>     ::= STRUCT <struct-rest>
+<struct-named>    ::= [ EXPORT ] [ DYNAMIC ] STRUCT <identifier> <struct-rest>
+<struct-anon>     ::= [ DYNAMIC ] STRUCT <struct-rest>
 <struct-opaque>   ::= [ EXPORT ] STRUCT <identifier> OPAQUE
 <struct-rest>     ::= [ <param-list> /* template */ ] <struct-body>
-<struct-body>     ::= "{" { ( <decl-base> | <variant-clause> | <init-block> ) ";" } "}"
-
-<variant-clause>  ::= VARIANT <identifier> <struct-body>
-<init-block>      ::= init "(" <param-list> ")" <proc-body>
+<struct-body>     ::= "{" { ( <decl> | <variant-clause> ) ";" } "}" | ";"
+<variant-clause>  ::= <variant-inline> | <variant-named> | <variant-void>
+<variant-inline>  ::= [ DYNAMIC ] VARIANT <identifier> <struct-body>
+<variant-named>   ::= [ DYNAMIC ] VARIANT <identifier> ";"
+<variant-void>    ::= [ DYNAMIC ] VARIANT VOID
 
 /// ==========================================================================
 ///  Types.

@@ -125,6 +125,7 @@ public:
         /// Declarations.
         EK_ParamDecl,
         EK_MemberDecl,
+        EK_VariantClauseDecl,
         EK_EnumeratorDecl,
 
         /// Named types.
@@ -1152,16 +1153,13 @@ public:
 /// Base class for declarations.
 class Decl : public TypedExpr {
     /// Every declaration has a name.
-    std::string _name;
+    property_r(std::string, name);
 
 protected:
     Decl(Expr::Kind k, std::string name, Expr* type, Location loc = {})
-        : TypedExpr(k, type, loc), _name(std::move(name)) {}
+        : TypedExpr(k, type, loc), name_field(std::move(name)) {}
 
 public:
-    /// Get the name of this declaration.
-    auto name() const -> const std::string& { return _name; }
-
     /// RTTI.
     static bool classof(const Expr* e) {
         return e->kind >= EK_FunctionDecl and e->kind <= EK_EnumeratorDecl;
@@ -1174,10 +1172,10 @@ class ObjectDecl : public Decl {
     std::string _mangled_name;
 
     /// Linkage of this declaration.
-    Linkage _linkage;
+    property_rw(Linkage, linkage);
 
     /// Mangling scheme of this declaration.
-    Mangling _mangling;
+    property_r(Mangling, mangling);
 
 protected:
     ObjectDecl(
@@ -1185,20 +1183,21 @@ protected:
         std::string name,
         Expr* type,
         Linkage linkage = Linkage::Internal,
-        Mangling mangling = Mangling::Source
-    ) : Decl(k, std::move(name), type),
-        _linkage(linkage),
-        _mangling(mangling) {}
+        Mangling mangling = Mangling::Source,
+        Location loc = {}
+    ) : Decl(k, std::move(name), type, loc),
+        linkage_field(linkage),
+        mangling_field(mangling) {}
 
 public:
     /// Check if this declaration is a definition.
     auto is_definition() const -> bool { return not is_imported(); }
 
     /// Check if this declaration is exported.
-    auto is_exported() const -> bool { return _linkage == Linkage::Exported or _linkage == Linkage::Reexported; }
+    auto is_exported() const -> bool { return linkage == Linkage::Exported or linkage == Linkage::Reexported; }
 
     /// Check if this declaration is imported.
-    auto is_imported() const -> bool { return _linkage == Linkage::Imported or _linkage == Linkage::Reexported; }
+    auto is_imported() const -> bool { return linkage == Linkage::Imported or linkage == Linkage::Reexported; }
 
     /// Get the mangled name.
     auto mangled_name(Context& ctx) const -> const std::string&;
@@ -1211,22 +1210,22 @@ public:
 /// Function declaration.
 class FunctionDecl : public ObjectDecl {
     /// Module that owns this function.
-    Module* _mod;
+    property_r(Module*, module);
 
     /// The parent function. Null if this is the top-level function.
-    FunctionDecl* _parent;
+    property_r(FunctionDecl*, parent);
 
     /// The body of the function.
-    property_rw(BlockExpr*, body);
+    property_rw(Expr*, body);
 
     /// The main scope of this function.
-    property_r(Scope*, scope);
+    property_rw(Scope*, scope);
 
     /// Parameter declarations.
-    SmallVector<ParamDecl*> _params;
+    property_r(SmallVector<ParamDecl*>, params);
 
     /// Local variable declarations.
-    SmallVector<VarDecl*> _locals;
+    property_r(SmallVector<VarDecl*>, locals);
 
     /// If the local variables are packed into a block for static
     /// chain passing, the type of that block.
@@ -1237,10 +1236,7 @@ class FunctionDecl : public ObjectDecl {
     u32 _parent_chain_index = InvalidIndex;
 
     /// LLVM function.
-    llvm::Function* _llvm_func = nullptr;
-
-    /// Declarations to be emitted at the beginning of the function.
-    property_r(DeclContext, decl_context);
+    property_r(llvm::Function*, llvm);
 
 public:
     FunctionDecl(
@@ -1248,33 +1244,26 @@ public:
         Expr* type,
         Module* mod,
         FunctionDecl* parent,
-        Scope* function_scope,
+        SmallVector<ParamDecl*> param_decls,
         Linkage linkage = Linkage::Internal,
-        Mangling mangling = Mangling::Source
-    );
+        Mangling mangling = Mangling::Source,
+        Location loc = {}
+    ) : ObjectDecl(EK_FunctionDecl, std::move(name), type, linkage, mangling, loc),
+        module_field(mod),
+        parent_field(parent),
+        body_field(body),
+        params_field(std::move(param_decls)),
+        _vars_block_type(nullptr) {
+        mod->add_function(this);
+    }
 
     static inline constexpr u32 InvalidIndex = -1u;
 
-    /// Get the LLVM function.
-    auto llvm() const -> llvm::Function* { return _llvm_func; }
-
-    /// Get any local variable declarations in this function.
-    auto locals() const -> const SmallVector<VarDecl*>& { return _locals; }
-
-    /// Get the module that owns this function.
-    auto module() const -> Module* { return _mod; }
-
-    /// Get the parameter declarations.
-    auto params() const -> const SmallVector<ParamDecl*>& { return _params; }
-
-    /// Get the parent function.
-    auto parent() const -> Expr* { return _parent; }
+    /// Add a local variable to this function.
+    void add_variable(VarDecl* v) { locals.push_back(v); }
 
     /// Get a reference to this function.
     auto ref() const -> NameRefExpr*;
-
-    /// Get the variable block type.
-    auto vars_block_type() const -> Type* { return _vars_block_type; }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_FunctionDecl; }
@@ -1283,34 +1272,29 @@ public:
 /// Local or global variable declaration.
 class VarDecl : public ObjectDecl {
     /// Function that owns this declaration.
-    FunctionDecl* _owner;
+    property_r(FunctionDecl*, owner);
 
     /// Initialiser. If the type of this variable has constructors, these
     /// are the constructor arguments before Sema, and the constructor call
     /// after.
-    Expr* _init;
+    property_r(Expr*, init);
 
-
+    /// Get the module that owns this declaration.
+    readonly(Module*, module, return owner->module);
 public:
     VarDecl(
         std::string name,
         FunctionDecl* owner,
         Expr* type,
-        Linkage linkage = Linkage::Internal,
-        Mangling mangling = Mangling::Source
-    );
-
-    /// Get the initialiser.
-    auto init() const -> Expr* { return _init; }
-
-    /// Set the initialiser.
-    auto init(Expr* e) -> void { _init = e; }
-
-    /// Get the module that owns this declaration.
-    auto module() const -> Module* { return _owner->module(); }
-
-    /// Get the function that owns this declaration.
-    auto owner() const -> FunctionDecl* { return _owner; }
+        Expr* init,
+        Linkage linkage,
+        Mangling mangling,
+        Location loc = {}
+    ) : ObjectDecl(EK_VarDecl, std::move(name), type, linkage, mangling, loc),
+        owner_field(owner),
+        init_field(init) {
+        owner->add_variable(this);
+    }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_VarDecl; }
@@ -1359,14 +1343,19 @@ public:
 /// Struct member declaration.
 class MemberDecl : public Decl {
 private:
-    u32 _offset{};            ///< Offset of the member, in bits; used by `offsetof`.
-    u32 _index{InvalidIndex}; ///< Index of the member. Members may be non-consecutive due to padding.
+    /// Offset of the member, in bits; used by `offsetof`.
+    property_rw(u32, offset);
+
+    /// Index of the member. Members may be non-consecutive due to padding.
+    property_rw(u32, index);
+
+    /// Check if this member is padding.
+    readonly(bool, is_padding, return index == PaddingIndex);
 
 public:
-    MemberDecl(std::string name, Expr* type, u32 offset, u32 index)
+    MemberDecl(std::string name, Expr* type)
         : Decl(EK_MemberDecl, std::move(name), type),
-          _offset(offset),
-          _index(index) {}
+        index_field(InvalidIndex){}
 
     friend class RecordType;
 
@@ -1376,33 +1365,41 @@ public:
     /// The index of an invalid member.
     static inline constexpr u32 InvalidIndex = -1u;
 
-    /// Get the index of this member.
-    auto index() const -> u32 { return _index; }
-
-    /// Check if this member is padding.
-    auto is_padding() const -> bool { return _index == PaddingIndex; }
-
-    /// Get the offset of this member, in bits.
-    auto offset() const -> u32 { return _offset; }
-
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_MemberDecl; }
+};
+
+/// Struct variant clause decl.
+///
+/// The type of a variant clause is void, iff
+/// that clause is the void variant clause.
+class VariantClauseDecl : public Decl {
+    /// Index of the variant clause.
+    property_r(u32, index);
+
+    /// Whether this variant is dynamic.
+    property_r(bool, dynamic);
+
+public:
+    VariantClauseDecl(std::string name, Expr* type, bool dynamic, Location loc)
+        : Decl(EK_VariantClauseDecl, std::move(name), type, loc),
+          dynamic_field(dynamic) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_VariantClauseDecl; }
 };
 
 /// Enumeration member declaration.
 class EnumeratorDecl : public Decl {
     /// The value of this enumerator.
-    Expr* _init;
+    property_r(Expr*, init);
 
 public:
-    EnumeratorDecl(std::string name, Expr* type, Expr* init)
-        : Decl(EK_EnumeratorDecl, std::move(name), type), _init(init) {}
-
-    /// Get the initialiser of this enumerator.
-    auto initialiser() const -> Expr* { return _init; }
+    EnumeratorDecl(std::string name, Expr* init, Location loc)
+        : Decl(EK_EnumeratorDecl, std::move(name), detail::UnknownTy, loc) {}
 
     /// Get the value of this enumerator.
-    auto value() const -> i64;
+    readonly_decl(i64, value);
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_EnumeratorDecl; }
@@ -1416,7 +1413,7 @@ class Type : public Expr {
     static Type BuiltinTypes[18];
 
 protected:
-    Type(Kind k) : Expr(k) {}
+    Type(Kind k, Location loc = {}) : Expr(k, loc) {}
 
 public:
     /// Builtin types.
@@ -1608,7 +1605,7 @@ class ArrayType : public SingleElementTypeBase {
 public:
     ArrayType(Expr* elem_type, Expr* size)
         : SingleElementTypeBase(EK_ArrayType, elem_type),
-            dim_field(size) {}
+          dim_field(size) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ArrayType; }
@@ -1716,31 +1713,25 @@ public:
 /// Base class for types that have a name.
 class NamedType : public Type {
     /// The module this type belongs to.
-    Module* _module;
+    property_r(Module*, module);
 
     /// The name of the type.
-    std::string _name;
+    property_r(std::string, name);
 
     /// The mangled name of this type is cached here.
     ///
     /// Note: If imported from a C header, the name should be mangled
     /// as if declared in the `.C` module.
-    std::string _mangled_name;
+    std::string mangled_name_cached{};
+    readonly_decl(std::string, mangled_name);
 
 protected:
-    NamedType(Kind k, Module* module, std::string name)
-        : Type(k), _module(module), _name(std::move(name)) {}
+    NamedType(Kind k, Module* module, std::string name, Location loc = {})
+        : Type(k, loc),
+          module_field(module),
+          name_field(std::move(name)) {}
 
 public:
-    /// Get the mangled name of the type.
-    auto mangled_name() const -> const std::string& { return _mangled_name; }
-
-    /// Get the module this type belongs to.
-    auto module() const -> Module* { return _module; }
-
-    /// Get the name of the type.
-    auto name() const -> const std::string& { return _name; }
-
     /// RTTI.
     static bool classof(const Expr* e) {
         return e->kind >= EK_EnumType and e->kind <= EK_StructTemplate;
@@ -1750,8 +1741,8 @@ public:
 /// Opaque type.
 class OpaqueType : public NamedType {
 public:
-    OpaqueType(Module* module, std::string name)
-        : NamedType(EK_OpaqueType, module, std::move(name)) {}
+    OpaqueType(Module* module, std::string name, Location loc)
+        : NamedType(EK_OpaqueType, module, std::move(name), loc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_OpaqueType; }
@@ -1759,49 +1750,51 @@ public:
 
 /// Base class for types that have members.
 class RecordType : public NamedType {
+public:
+    using MemberDecls = SmallVector<MemberDecl*, 4>;
+
+private:
+    static bool IsPadding(MemberDecl* m) { return not m->is_padding(); }
+
 protected:
-    /// The members of this record.
-    SmallVector<MemberDecl*, 4> _members;
+    /// The member variables of this record.
+    property_r(MemberDecls, members_and_padding);
 
     /// The size of this record, in bits.
-    u32 _size;
+    property_rw(u32, size);
 
     /// The alignment of this record, in bits.
-    u32 _align;
-
-    RecordType(Kind k, Module* module, std::string name)
-        : NamedType(k, module, std::move(name)), _size(0), _align(0) {}
-
-public:
-    /// Add a member to this record.
-    void add_member(MemberDecl* member) {
-        _members.push_back(member);
-        _type_checked = false;
-    }
-
-    /// Get the alignment of this record, in bits.
-    auto align() const -> u32 { return _align; }
+    property_rw(u32, align);
 
     /// Get the size of this record in bits.
-    auto bits() const -> u32 { return _size; }
+    readonly(u32, bits, return size);
 
     /// Get the the minimum number of bytes required to store this record.
-    auto bytes() const -> u32 { return utils::AlignTo<u32>(_align, 8) / 8; }
+    readonly(u32, bytes, return utils::AlignTo<u32>(align, 8) / 8);
 
     /// Get all members of this record that aren’t padding.
-    auto members() const {
-        return std::views::filter(_members, [](const auto& m) { return not m->is_padding(); });
-    }
+    readonly(
+        decltype(std::views::filter(members_and_padding, IsPadding)),
+        members,
+        return std::views::filter(members_and_padding, IsPadding)
+    );
 
-    /// Get all members of this record, including padding members.
-    auto members_and_padding() const -> const auto& { return _members; }
+public:
+    RecordType(
+        Kind k,
+        Module* module,
+        std::string name,
+        MemberDecls members,
+        Location loc = {}
+    ) : NamedType(k, module, std::move(name), loc),
+        members_and_padding_field(std::move(members)) {}
 };
 
 /// Tuple type.
 class TupleType : public RecordType {
 public:
-    TupleType(Module* module, std::string name)
-        : RecordType(EK_TupleType, module, std::move(name)) {}
+    TupleType(Module* module, RecordType::MemberDecls members, std::string name)
+        : RecordType(EK_TupleType, module, std::move(name), std::move(members)) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_TupleType; }
@@ -1812,43 +1805,58 @@ class StructType : public RecordType {
     /// Our parent struct.
     ///
     /// If this is an instance of a template, then this is the parent
-    /// template; otherwise, if this is a variant clause, then this is
-    /// the parent struct; otherwise, this is null.
-    StructType* _parent = nullptr;
+    /// template; otherwise, this is null.
+    property_rw(StructType*, parent);
 
-    /// The scope this struct was declared in.
-    Scope* _scope = nullptr;
+    /// The scope of the struct body.
+    property_rw(Scope*, scope);
 
     /// The variants of this struct.
-    SmallVector<StructType*> _variants;
+    property_r(SmallVector<VariantClauseDecl*>, variants);
+
+    /// The member functions of this record.
+    property_r(SmallVector<FunctionDecl*>, member_functions);
 
     /// Initialiser functions for this struct.
-    SmallVector<FunctionDecl*> _inits;
+    property_r(SmallVector<FunctionDecl*>, inits);
 
     /// Default initialiser.
-    FunctionDecl* _default_init = nullptr;
+    property_r(FunctionDecl*, default_init);
 
     /// Type of the variant storage for this type.
-    Type* _variant_storage_type;
+    property_rw(Type*, variant_storage_type);
 
     /// Type of the variant index for this type.
-    Type* _variant_index_type;
+    property_rw(Type*, variant_index_type);
 
     /// Field index of the variant index.
-    u32 _variant_index_field = 0;
+    property_rw(u32, variant_index_field);
 
     /// Field index of the variant storage.
-    u32 _variant_storage_field = 0;
+    property_rw(u32, variant_storage_field);
 
     /// Whether this is a packed struct.
-    bool _packed : 1 = false;
+    property_rw(bool, packed);
 
     /// Whether this type has a void variant.
-    bool _has_void_variant : 1 = false;
+    readonly_decl(bool, has_void_variant);
 
 public:
-    StructType(Module* module, std::string name)
-        : RecordType(EK_StructType, module, std::move(name)) {}
+    StructType(
+        Module* module,
+        std::string name,
+        Scope* scope,
+        RecordType::MemberDecls members,
+        SmallVector<FunctionDecl*> member_functions,
+        SmallVector<VariantClauseDecl*> variants,
+        bool packed,
+        Location loc = {}
+    ) : RecordType(EK_StructType, module, std::move(name), std::move(members), loc),
+        parent_field(nullptr),
+        scope_field(scope),
+        variants_field(std::move(variants)),
+        member_functions_field(std::move(member_functions)),
+        packed_field(packed) {}
 
     /// RTTI.
     static bool classof(const Expr* e) {
@@ -1869,14 +1877,24 @@ public:
 
 private:
     /// The template parameters.
-    SmallVector<ParamDecl> template_params;
+    property_r(SmallVector<ParamDecl*>, template_params);
 
     /// The instances of this template.
-    SmallVector<Instance> instances;
+    property_r(SmallVector<Instance>, instances);
 
 public:
-    StructTemplate(Module* module, std::string name)
-        : StructType(module, std::move(name)) {}
+    StructTemplate(
+        Module* module,
+        std::string name,
+        Scope* scope,
+        RecordType::MemberDecls members,
+        SmallVector<FunctionDecl*> member_functions,
+        SmallVector<VariantClauseDecl*> variants,
+        SmallVector<ParamDecl*> template_params,
+        bool packed,
+        Location loc = {}
+    ) : StructType(module, std::move(name), scope, std::move(members), std::move(member_functions), std::move(variants), packed, loc),
+        template_params_field(std::move(template_params)) {}
 
     /// Instantiate this template with the given arguments.
     auto instantiate(SmallVector<EvalResult> args) -> StructType*;
@@ -1888,20 +1906,21 @@ public:
 /// Enumeration type.
 class EnumType : public NamedType {
     /// Underlying integetr type.
-    Type* _underlying_type;
+    property_r(Expr*, underlying_type);
 
     /// The enumerators that are part of this enumeration.
-    SmallVector<EnumeratorDecl*> _enumerators;
+    property_r(SmallVector<EnumeratorDecl*>, enumerators);
 
 public:
-    EnumType(Module* module, std::string name)
-        : NamedType(EK_EnumType, module, std::move(name)) {}
-
-    /// Get the enumerators that are part of this enumeration.
-    auto enumerators() const -> const auto& { return _enumerators; }
-
-    /// Get the underlying integer type.
-    auto underlying_type() const -> Type* { return _underlying_type; }
+    EnumType(
+        Module* module,
+        std::string name,
+        SmallVector<EnumeratorDecl*> enumerators,
+        Expr* type,
+        Location loc = {}
+    ) : NamedType(EK_EnumType, module, std::move(name), loc),
+        underlying_type_field(type),
+        enumerators_field(std::move(enumerators)) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_EnumType; }

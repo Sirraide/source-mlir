@@ -31,7 +31,7 @@ dynamic struct Expr {
 /// A type is trivially relocatable, iff none of its fields store the `this` pointer, and none of its fields’
 /// initialisers take the `this` pointer, except by `nocapture`.
 
-
+/// Also allow deproceduring types (=constructors), e.g. `int` can be a default-constructed int.
 
 module lexer;
 

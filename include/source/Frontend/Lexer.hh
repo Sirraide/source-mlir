@@ -57,6 +57,7 @@ enum struct Tk {
     Var,
     Val,
     Enum,
+    Dynamic,
     Struct,
     Init,
     Type,

@@ -63,6 +63,7 @@ const StringMap<Tk> keywords = {
     {"val", Tk::Val},
     {"enum", Tk::Enum},
     {"struct", Tk::Struct},
+    {"dynamic", Tk::Dynamic},
     {"init", Tk::Init},
     {"type", Tk::Type},
     {"typeof", Tk::Typeof},
