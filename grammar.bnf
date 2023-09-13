@@ -140,11 +140,12 @@
 <type>            ::= <type-prim>
                     | <type-qualified>
                     | <type-tuple>
-                    | <type-range>
                     | <type-vector>
                     | <type-typeof>
                     | <type-templ-inst>
                     | <type-alternate>
+                    | <type-variable>
+                    | <type-value>
                     | <proc-anon-sig>
                     | <struct-named>
                     | <struct-anon>
@@ -155,13 +156,14 @@
                     | "(" <type> ")"
 <type-qualified>  ::= <type> { <type-qual> }
 <type-tuple>      ::= "(" <type> { "," <type> }+ ")"
-<type-range>      ::= <type> ".." <type>
 <type-typeof>     ::= "typeof" <expr>
 <type-alternate>  ::= <type> "|" <type>
 <type-templ-inst> ::= <expr-invoke>
-<type-prim>       ::= I8 | I16 | I32 | I64 | INT | F32 | F64 | BOOL | STRING | VOID | TYPE | VAR | NORETURN
+<type-variable>   ::= VAR [ <type> ]
+<type-value>      ::= VAL [ <type> ]
+<type-prim>       ::= INTEGER_TYPE | INT | F32 | F64 | BOOL | STRING | VOID | TYPE | NORETURN
 <type-qual>       ::= "^" | "&" | "?" | "[]" | "[" <expr> "]"
-<type-vector>     ::= <type-prim> "<" <expr> ">"
+<type-vector>     ::= <type> "<" <expr> ">" /// Only parseable if the type starts w/ a keyword, but that is fine.
 
 /// ==========================================================================
 ///  Miscellany.

@@ -161,11 +161,8 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::NoReturn:
         case Tk::Bool:
         case Tk::Void:
-        case Tk::I8:
-        case Tk::I16:
-        case Tk::I32:
-        case Tk::I64:
         case Tk::Int:
+        case Tk::IntegerType:
         case Tk::F32:
         case Tk::F64:
         case Tk::CChar:
@@ -179,7 +176,6 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::CLongLong:
         case Tk::CLongDouble:
         case Tk::CSizeT:
-        case Tk::StringKw:
         case Tk::LParen:
         case Tk::LBrack:
         case Tk::LBrace:
@@ -254,7 +250,7 @@ auto src::Parser::ParseDecl(bool is_extern, Location loc) -> Result<Expr*> {
     }
 
     /// Otherwise, parse the type.
-    else { type = ParseType(); }
+    else { type = ParseType(nullptr, true); }
 
     /// Parse the name.
     if (not At(Tk::Identifier)) return Error("Expected identifier after type");
@@ -319,7 +315,7 @@ auto src::Parser::ParseEnumDecl() -> Result<EnumType*> {
     /// Parse the type.
     Expr* type = Type::Unknown;
     if (Consume(Tk::Colon)) {
-        auto res = ParseType();
+        auto res = ParseType(nullptr, false);
         if (res.is_value) type = *res;
     }
 
@@ -489,11 +485,8 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::Typeof:
         case Tk::Bool:
         case Tk::Void:
-        case Tk::I8:
-        case Tk::I16:
-        case Tk::I32:
-        case Tk::I64:
         case Tk::Int:
+        case Tk::IntegerType:
         case Tk::F32:
         case Tk::F64:
         case Tk::CChar:
@@ -507,8 +500,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::CLongLong:
         case Tk::CLongDouble:
         case Tk::CSizeT:
-        case Tk::StringKw:
-            lhs = ParseType();
+            lhs = ParseType(nullptr, false);
             break;
 
         case Tk::Not:
@@ -711,7 +703,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 auto kind = tok.type == Tk::As ? CastKind::Soft : CastKind::Hard;
                 auto loc = Next();
 
-                auto type = ParseType();
+                auto type = ParseType(nullptr, false);
                 if (IsError(type)) return Diag();
                 lhs = new (mod) CastExpr(*lhs, *type, kind, {loc, type->location});
                 continue;
@@ -845,7 +837,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             case Tk::DotDot:
             case Tk::Caret:
             parse_type:
-                lhs = ParseType(*lhs);
+                lhs = ParseType(*lhs, false);
                 continue;
         }
 
@@ -1101,7 +1093,7 @@ auto src::Parser::ParseParamDeclList(
 
         /// Parse type and name.
         else {
-            auto ty = ParseType();
+            auto ty = ParseType(nullptr, true);
             if (IsError(ty)) continue;
             type = *ty;
             if (At(Tk::Identifier)) {
@@ -1338,7 +1330,7 @@ auto src::Parser::ParseProcSignature() -> Result<Signature> {
     /// Parse return type.
     auto ret = Result<Expr*>::Null();
     if (Consume(Tk::RArrow)) {
-        ret = ParseType();
+        ret = ParseType(nullptr, false);
         if (IsError(ret)) return Diag();
         loc = {loc, ret->location};
     }
@@ -1432,7 +1424,7 @@ void src::Parser::ParseStructBody(
                         member_loc
                     );
                 } else {
-                    auto res = ParseType();
+                    auto res = ParseType(nullptr, false);
                     if (IsError(res)) {
                         Synchronise();
                         continue;
@@ -1539,6 +1531,191 @@ auto src::Parser::ParseStructDecl() -> Result<Expr*> {
         false,
         struct_loc
     );
+}
+
+/// Parse a type.
+///
+/// \param base_type If not null, this type will be taken
+///        as the base type for the new type.
+/// \param in_decl If true, a single identifier not followed
+///        by something that is undoubtedly part of a type as
+///        the first template argument will not be parsed as
+///        part of a template instantiation, and the base type
+///        is returned instead.
+///
+///        This is necessary to prevent e.g. `foo a` from being
+///        parsed as a template instantiation (but e.g. `foo a&`
+///        will still be parsed as one). This is used in contexts
+///        that expect an identifier after the type.
+/// \return The type, or an error.
+auto src::Parser::ParseType(Expr* base_type, bool in_decl) -> Result<Expr*> {
+    /// True if we should stop parsing because we already
+    /// have a complete base type.
+    const auto HaveCompleteBaseType = [&] {
+        return base_type and base_type != Type::Unknown and base_type != Type::UnknownValue;
+    };
+
+    /// Implements builtin type cases.
+    const auto HandleBuiltinType = [&](Expr* builtin) {
+        /// We already have a base type. Wrap the builtin type
+        /// if this is 'var' or 'val', and stop parsing otherwise.
+        if (base_type) {
+            if (base_type == Type::Unknown) base_type = new (mod) VariableType(builtin, Next());
+            else if (base_type == Type::UnknownValue) base_type = new (mod) ValueType(builtin, Next());
+            else return true;
+            return false;
+        }
+
+        /// We don’t have a type yet.
+        Next();
+        base_type = builtin;
+        return false;
+    };
+
+    /// Wrap a new base type with 'val' or 'var', or set it as
+    /// the new base type.
+    const auto SetBaseType = [&](Expr* new_type) {
+        if (base_type == Type::Unknown) base_type = new (mod) VariableType(new_type, Next());
+        else if (base_type == Type::UnknownValue) base_type = new (mod) ValueType(new_type, Next());
+        else base_type = new_type;
+    };
+
+    for (;;) {
+        switch (tok.type) { // clang-format off
+            /// Builtin types.
+            case Tk::NoReturn: if (HandleBuiltinType(BuiltinType::NoReturn)) goto done_parsing_base_type; break;
+            case Tk::Type: if (HandleBuiltinType(BuiltinType::TypeTy)) goto done_parsing_base_type; break;
+            case Tk::Bool: if (HandleBuiltinType(BuiltinType::Bool)) goto done_parsing_base_type; break;
+            case Tk::Void: if (HandleBuiltinType(BuiltinType::Void)) goto done_parsing_base_type; break;
+            case Tk::Int: if (HandleBuiltinType(BuiltinType::Int)) goto done_parsing_base_type; break;
+            case Tk::F32: if (HandleBuiltinType(BuiltinType::F32)) goto done_parsing_base_type; break;
+            case Tk::F64: if (HandleBuiltinType(BuiltinType::F64)) goto done_parsing_base_type; break;
+            case Tk::CChar: if (HandleBuiltinType(BuiltinType::FFIChar)) goto done_parsing_base_type; break;
+            case Tk::CChar8T: if (HandleBuiltinType(BuiltinType::FFIChar8)) goto done_parsing_base_type; break;
+            case Tk::CChar16T: if (HandleBuiltinType(BuiltinType::FFIChar16)) goto done_parsing_base_type; break;
+            case Tk::CChar32T: if (HandleBuiltinType(BuiltinType::FFIChar32)) goto done_parsing_base_type; break;
+            case Tk::CWCharT: if (HandleBuiltinType(BuiltinType::FFIWChar)) goto done_parsing_base_type; break;
+            case Tk::CShort: if (HandleBuiltinType(BuiltinType::FFIShort)) goto done_parsing_base_type; break;
+            case Tk::CInt: if (HandleBuiltinType(BuiltinType::FFIInt)) goto done_parsing_base_type; break;
+            case Tk::CLong: if (HandleBuiltinType(BuiltinType::FFILong)) goto done_parsing_base_type; break;
+            case Tk::CLongLong: if (HandleBuiltinType(BuiltinType::FFILongLong)) goto done_parsing_base_type; break;
+            case Tk::CLongDouble: if (HandleBuiltinType(BuiltinType::FFILongDouble)) goto done_parsing_base_type; break;
+            case Tk::CSizeT: if (HandleBuiltinType(BuiltinType::FFISize)) goto done_parsing_base_type; break;
+            case Tk::Var: if (HandleBuiltinType(Type::Unknown)) goto done_parsing_base_type; break;
+            case Tk::Val: if (HandleBuiltinType(Type::UnknownValue)) goto done_parsing_base_type; break; // clang-format on
+
+            /// Integer type.
+            case Tk::IntegerType: {
+                if (HaveCompleteBaseType()) goto done_parsing_base_type;
+                SetBaseType(new (mod) IntegerType(tok.integer, Next()));
+            } break;
+
+            /// Struct type.
+            case Tk::Struct: {
+                if (HaveCompleteBaseType()) goto done_parsing_base_type;
+                auto res = ParseStructDecl() >> SetBaseType;
+                if (res.is_diag) return Diag();
+            } break;
+
+            /// Enum type.
+            case Tk::Enum: {
+                if (HaveCompleteBaseType()) goto done_parsing_base_type;
+                auto res = ParseEnumDecl() >> SetBaseType;
+                if (res.is_diag) return Diag();
+            } break;
+
+            /// Scoped pointer type.
+            case Tk::Caret: {
+                if (not base_type) Error("Expected type"), base_type = Type::Unknown;
+                base_type = new (mod) ScopedPointerType(base_type, Next());
+            } break;
+
+            /// Reference type.
+            case Tk::Ampersand: {
+                if (not base_type) Error("Expected type"), base_type = Type::Unknown;
+                base_type = new (mod) ReferenceType(base_type, Next());
+            } break;
+
+            /// Optional type.
+            case Tk::Question: {
+                if (not base_type) Error("Expected type"), base_type = Type::Unknown;
+                base_type = new (mod) OptionalType(base_type, Next());
+            } break;
+
+            /// Slice or array type.
+            case Tk::LBrack: {
+                if (not base_type) Error("Expected type"), base_type = Type::Unknown;
+                Next();
+                if (Consume(Tk::RBrack)) base_type = new (mod) SliceType(base_type);
+                else {
+                    auto dim = ParseExpr();
+                    if (IsError(dim)) return Diag();
+                    if (not Consume(Tk::RBrack)) Error("Expected ']' after array dimension");
+                    base_type = new (mod) ArrayType(base_type, *dim);
+                }
+            } break;
+
+            /// Vector type.
+            case Tk::Lt: {
+                if (not base_type) Error("Expected type"), base_type = Type::Unknown;
+                Next();
+                auto dim = ParseExpr();
+                if (IsError(dim)) return Diag();
+                if (not Consume(Tk::Gt)) {
+                    Error("Expected '>' after vector dimension");
+
+                    /// I don’t want to deal w/ splitting and merging tokens if we
+                    /// encounter degenerate cases such as `i8<4>=i8<4>`, so:
+                    if (At(Tk::Ge, Tk::ShiftRight, Tk::ShiftRightLogical, Tk::ShiftRightEq, Tk::ShiftRightLogicalEq))
+                        Diag::Note(ctx, curr_loc, "Try inserting a space after the closing '>' to fix this");
+                }
+                base_type = new (mod) VectorType(base_type, *dim);
+            } break;
+
+            /// Typeof type.
+            case Tk::Typeof: {
+                if (HaveCompleteBaseType()) goto done_parsing_base_type;
+                auto loc = Next();
+                ScopeRAII sc{this}; /// Prevent var decls from leaking out of the typeof.
+                auto expr = ParseExpr(PrefixOperatorPrecedence);
+                if (IsError(expr)) return Diag();
+                SetBaseType(new (mod) TypeofType(*expr, {loc, expr->location}));
+            } break;
+
+            /// Alternative type.
+            case Tk::VBar: {
+                if (not base_type) Error("Expected type"), base_type = Type::Unknown;
+
+                /// Parse alternatives.
+                SmallVector<Expr*> alternatives;
+                alternatives.push_back(base_type);
+                while (Consume(Tk::VBar)) {
+                    auto alt = ParseType(nullptr, in_decl);
+                    if (IsError(alt)) continue;
+                    alternatives.push_back(*alt);
+                }
+
+                base_type = new (mod) AlternativeType(std::move(alternatives));
+            } break;
+        }
+    }
+
+done_parsing_base_type:
+    /// We have parsed everything that could conceivably constitute
+    /// a single type, but now we still have to take care of template
+    /// instantiations, e.g. `foo int&`. Note that would cause
+    /// us to parse a significant portion of declarations as invoke
+    /// expressions, which is undesirable in situations such as when
+    /// parsing struct members, which is why it is possible to disable
+    /// this behaviour in the special case of us encountering an identifier
+    /// not followed by something that unquestionably makes it a type as
+    /// the first template parameter.
+    if (
+        in_decl and
+        At(Tk::Identifier) and
+        not Is(LookAhead(1), Tk::VBar, Tk::Ampersand, Tk::Question, Tk::Caret) and
+        not(Is(LookAhead(1), Tk::LBrack) and Is(LookAhead(2), Tk::RBrack))
+    ) return base_type;
 }
 
 /// <expr-while> ::= WHILE <expr> [ DO ] <expr>

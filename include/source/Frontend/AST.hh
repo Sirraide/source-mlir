@@ -139,6 +139,7 @@ public:
 
         /// Other types.
         EK_BuiltinType,
+        EK_AlternativeType,
         EK_FFIType,
         EK_ScopedPointerType,
         EK_ReferenceType,
@@ -147,6 +148,8 @@ public:
         EK_InclusiveRangeType,
         EK_ExclusiveRangeType,
         EK_ClosureType,
+        EK_ValueType,
+        EK_VariableType,
         EK_DeclTypeDecayType,
         EK_TypeofType,
         EK_ArrayType,
@@ -1355,7 +1358,7 @@ private:
 public:
     MemberDecl(std::string name, Expr* type)
         : Decl(EK_MemberDecl, std::move(name), type),
-        index_field(InvalidIndex){}
+          index_field(InvalidIndex) {}
 
     friend class RecordType;
 
@@ -1418,13 +1421,16 @@ protected:
 public:
     /// Builtin types.
     static Type* Unknown;
+    static Type* UnknownValue;
     static Type* Void;
     static Type* TypeTy;
     static Type* Template;
     static Type* NoReturn;
     static Type* Int;
+    static Type* F32;
+    static Type* F64;
 
-    /// Cached because we need it them the time.
+    /// Cached because we need it them all the time.
     static Type* VoidPtr;
     static Type* VoidRef;
     static Type* StringLiteral;
@@ -1435,7 +1441,6 @@ public:
     static Type* I64;
 
     /// FFI types.
-    static Type* FFIBool;
     static Type* FFIChar;
     static Type* FFIChar8;
     static Type* FFIChar16;
@@ -1447,9 +1452,6 @@ public:
     static Type* FFILongLong;
     static Type* FFILongDouble;
     static Type* FFISize;
-    static Type* FFIPtrDiff;
-    static Type* FFIIntPtr;
-    static Type* FFIIntMax;
 
     /// Initialise types.
     static void Initialise();
@@ -1499,13 +1501,30 @@ public:
     static bool classof(const Expr* e) { return e->kind == EK_FFIType; }
 };
 
+/// Alternative type.
+///
+/// Used in type queries and restrictions, e.g. `int is 3 | 4`,
+/// `some_struct is var1 | var2`.
+class AlternativeType: public Type {
+    /// The alternatives.
+    property_r(SmallVector<Expr*>, alternatives);
+
+public:
+    AlternativeType(SmallVector<Expr*> alternatives, Location loc = {})
+        : Type(EK_AlternativeType, loc), alternatives_field(std::move(alternatives)) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_AlternativeType; }
+};
+
 /// Base class for types that only have a single element type.
 class SingleElementTypeBase : public Type {
     /// The element type.
     Expr* _elem_type;
 
 protected:
-    SingleElementTypeBase(Kind k, Expr* elem_type) : Type(k), _elem_type(elem_type) {}
+    SingleElementTypeBase(Kind k, Expr* elem_type, Location loc = {})
+        : Type(k, loc), _elem_type(elem_type) {}
 
 public:
     /// Get the element type.
@@ -1515,7 +1534,7 @@ public:
 /// Scoped pointer type.
 class ScopedPointerType : public SingleElementTypeBase {
 public:
-    ScopedPointerType(Expr* elem_type) : SingleElementTypeBase(EK_ScopedPointerType, elem_type) {}
+    ScopedPointerType(Expr* elem_type, Location loc = {}) : SingleElementTypeBase(EK_ScopedPointerType, elem_type, loc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ScopedPointerType; }
@@ -1524,7 +1543,7 @@ public:
 /// Reference type.
 class ReferenceType : public SingleElementTypeBase {
 public:
-    ReferenceType(Expr* elem_type) : SingleElementTypeBase(EK_ReferenceType, elem_type) {}
+    ReferenceType(Expr* elem_type, Location loc = {}) : SingleElementTypeBase(EK_ReferenceType, elem_type, loc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ReferenceType; }
@@ -1533,7 +1552,7 @@ public:
 /// Optional type.
 class OptionalType : public SingleElementTypeBase {
 public:
-    OptionalType(Expr* elem_type) : SingleElementTypeBase(EK_OptionalType, elem_type) {}
+    OptionalType(Expr* elem_type, Location loc = {}) : SingleElementTypeBase(EK_OptionalType, elem_type, loc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_OptionalType; }
@@ -1542,7 +1561,7 @@ public:
 /// Slice type.
 class SliceType : public SingleElementTypeBase {
 public:
-    SliceType(Type* elem_type) : SingleElementTypeBase(EK_SliceType, elem_type) {}
+    SliceType(Expr* elem_type, Location loc = {}) : SingleElementTypeBase(EK_SliceType, elem_type, loc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_SliceType; }
@@ -1551,7 +1570,7 @@ public:
 /// Inclusive range type.
 class InclusiveRangeType : public SingleElementTypeBase {
 public:
-    InclusiveRangeType(Type* elem_type) : SingleElementTypeBase(EK_InclusiveRangeType, elem_type) {}
+    InclusiveRangeType(Expr* elem_type, Location loc = {}) : SingleElementTypeBase(EK_InclusiveRangeType, elem_type, loc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_InclusiveRangeType; }
@@ -1560,7 +1579,7 @@ public:
 /// Exclusive range type.
 class ExclusiveRangeType : public SingleElementTypeBase {
 public:
-    ExclusiveRangeType(Type* elem_type) : SingleElementTypeBase(EK_ExclusiveRangeType, elem_type) {}
+    ExclusiveRangeType(Expr* elem_type, Location loc = {}) : SingleElementTypeBase(EK_ExclusiveRangeType, elem_type, loc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ExclusiveRangeType; }
@@ -1569,10 +1588,33 @@ public:
 /// Closure type.
 class ClosureType : public SingleElementTypeBase {
 public:
-    ClosureType(Type* elem_type) : SingleElementTypeBase(EK_ClosureType, elem_type) {}
+    ClosureType(Expr* elem_type, Location loc = {}) : SingleElementTypeBase(EK_ClosureType, elem_type, loc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_ClosureType; }
+};
+
+/// Value type.
+///
+/// This more or less corresponds to `const` in C++.
+class ValueType : public SingleElementTypeBase {
+public:
+    ValueType(Expr* elem_type, Location loc = {}) : SingleElementTypeBase(EK_ValueType, elem_type, loc) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_ValueType; }
+};
+
+/// Variable type.
+///
+/// The opposite of a value type. Typically a no-op,
+/// but can be used to remove `val`-ness in casts.
+class VariableType : public SingleElementTypeBase {
+public:
+    VariableType(Expr* elem_type, Location loc = {}) : SingleElementTypeBase(EK_VariableType, elem_type, loc) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == EK_VariableType; }
 };
 
 /// Decltype decay type.
@@ -1582,7 +1624,7 @@ public:
 /// might depend on a `typeof` or other late type information.
 class DecltypeDecayType : public SingleElementTypeBase {
 public:
-    DecltypeDecayType(Type* elem_type) : SingleElementTypeBase(EK_DeclTypeDecayType, elem_type) {}
+    DecltypeDecayType(Expr* elem_type, Location loc = {}) : SingleElementTypeBase(EK_DeclTypeDecayType, elem_type, loc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_DeclTypeDecayType; }
@@ -1591,7 +1633,7 @@ public:
 /// Typeof type.
 class TypeofType : public SingleElementTypeBase {
 public:
-    TypeofType(Type* elem_type) : SingleElementTypeBase(EK_TypeofType, elem_type) {}
+    TypeofType(Expr* expr, Location loc = {}) : SingleElementTypeBase(EK_TypeofType, expr, loc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_TypeofType; }
@@ -1603,8 +1645,8 @@ class ArrayType : public SingleElementTypeBase {
     property_r(Expr*, dim);
 
 public:
-    ArrayType(Expr* elem_type, Expr* size)
-        : SingleElementTypeBase(EK_ArrayType, elem_type),
+    ArrayType(Expr* elem_type, Expr* size, Location loc = {})
+        : SingleElementTypeBase(EK_ArrayType, elem_type, loc),
           dim_field(size) {}
 
     /// RTTI.
@@ -1614,14 +1656,11 @@ public:
 /// Vector type.
 class VectorType : public SingleElementTypeBase {
     /// The dimension of the vector.
-    Expr* _dim;
+    property_r(Expr*, dim);
 
 public:
-    VectorType(Type* elem_type, Expr* size)
-        : SingleElementTypeBase(EK_VectorType, elem_type), _dim(size) {}
-
-    /// Get the dimension.
-    auto dim() const -> Expr* { return _dim; }
+    VectorType(Expr* elem_type, Expr* size, Location loc = {})
+        : SingleElementTypeBase(EK_VectorType, elem_type, loc), dim_field(size) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_VectorType; }
@@ -1630,14 +1669,10 @@ public:
 /// Integer type.
 class IntegerType : public Type {
     /// The size of the integer, in bits.
-    u32 _size;
+    property_r(isz, bits);
 
 public:
-    IntegerType(u32 size)
-        : Type(EK_IntegerType), _size(size) {}
-
-    /// Get the size of the integer, in bits.
-    auto bits() const -> u32 { return _size; }
+    IntegerType(isz size, Location loc = {}) : Type(EK_IntegerType, loc), bits_field(size) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == EK_IntegerType; }
@@ -1649,8 +1684,8 @@ class AlignedType : public SingleElementTypeBase {
     u32 _align;
 
 public:
-    AlignedType(Type* elem_type, u32 align)
-        : SingleElementTypeBase(EK_AlignedType, elem_type), _align(align) {}
+    AlignedType(Type* elem_type, u32 align, Location loc = {})
+        : SingleElementTypeBase(EK_AlignedType, elem_type, loc), _align(align) {}
 
     /// Get the alignment of the typel, in bits.
     auto align() const -> u32 { return _align; }

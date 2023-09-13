@@ -149,7 +149,7 @@ private:
     auto ParseProcSignature() -> Result<Signature>;
     auto ParseStructDecl() -> Result<Expr*>;
     auto ParseTerseProcExpr(SmallVector<std::string> argument_names, Location start_loc) -> Result<Expr*>;
-    auto ParseType(Expr* base_type = nullptr) -> Result<Expr*>;
+    auto ParseType(Expr* base_type, bool in_decl) -> Result<Expr*>;
     auto ParseWhileExpr() -> Result<WhileExpr*>;
     auto ParseWithExpr() -> Result<WithExpr*>;
 

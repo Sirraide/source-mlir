@@ -65,10 +65,7 @@ enum struct Tk {
     NoReturn,
     Bool,
     Void,
-    I8,
-    I16,
-    I32,
-    I64,
+    IntegerType,
     Int,
     F32,
     F64,
@@ -83,7 +80,6 @@ enum struct Tk {
     CLongLong,
     CLongDouble,
     CSizeT,
-    StringKw,
 
     /// Punctuation.
     Semicolon,
