@@ -1,0 +1,12 @@
+/// { "code": 42 }
+
+import sys;
+
+int[4] arr;
+arr[0] = 1;
+arr[1] = 20;
+arr[2] = 19;
+arr[3] = 2;
+
+var code = arr[0] + arr[1] + arr[2] + arr[3];
+sys.exit(code as i8);

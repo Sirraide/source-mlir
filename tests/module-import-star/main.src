@@ -1,0 +1,6 @@
+/// { "code": 42 }
+
+import sys.*;
+import test.*;
+
+exit(exported() as i8);

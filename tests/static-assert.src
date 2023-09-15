@@ -1,0 +1,5 @@
+/// { "error": "Static assertion failed: 1 does not equal 2" }
+
+static assert true;
+static assert 1 == 1, "1 should equal 1";
+static assert 1 == 2, "1 does not equal 2";

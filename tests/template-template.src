@@ -1,0 +1,12 @@
+/// { "skip": true }
+
+struct make_i32 (template t) {
+    t(i32, i32) x;
+}
+
+struct twice (type t, type t) {
+    t x;
+    t y;
+}
+
+sys.exit(make_i32(twice)::x);

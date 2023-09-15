@@ -1,0 +1,5 @@
+/// { "code": 42 }
+
+import sys;
+
+sys.exit((->42)() as i8)

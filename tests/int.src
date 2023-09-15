@@ -1,0 +1,6 @@
+/// { "code": 42 }
+
+import sys;
+
+int x = 42;
+sys.exit(x as i8);

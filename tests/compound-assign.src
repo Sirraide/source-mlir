@@ -1,0 +1,12 @@
+/// { "code" : 5 }
+
+import sys;
+
+var i = 1;
+var j = 2;
+i += 10;
+j *= 2;
+i /= 5;
+j -= 1;
+
+sys.exit((i + j) as i8);

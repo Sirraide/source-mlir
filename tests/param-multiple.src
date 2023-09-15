@@ -1,0 +1,6 @@
+/// { "code": 6, "skip": true }
+
+import sys;
+
+proc sum (i8: a, b, c) -> i8  = a + b + c;
+sys.exit(sum(1, 2, 3));

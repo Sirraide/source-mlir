@@ -1,0 +1,15 @@
+/// { "code": 10 }
+
+import sys;
+import <stdio.h>;
+
+var i = 1;
+var j = 2;
+
+i++;
+j++;
+j++;
+var k = i-- + j--;
+
+printf("i: %llu, j: %llu, k: %llu\n".data, i, j, k);
+sys.exit((k + i + j) as i8);

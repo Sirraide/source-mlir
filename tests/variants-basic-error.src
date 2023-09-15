@@ -1,0 +1,12 @@
+/// { "error": "Cannot access member d of inactive variant foo.baz" }
+
+import sys;
+
+struct foo {
+    int a;
+    variant bar { int b; int c; }
+    variant baz { int d; int e; }
+}
+
+var f = foo (20, foo.bar (10, 12));
+if f is foo.bar then sys.exit((f.a + f.d + f.e) as i8);

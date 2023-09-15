@@ -1,0 +1,11 @@
+/// { "code": 42 }
+
+import sys;
+
+__c_char a = 42;
+__c_short b = a;
+__c_int c = b;
+__c_long d = c;
+__c_longlong e = d;
+
+sys.exit(e as i8);

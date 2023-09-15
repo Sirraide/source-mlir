@@ -1,0 +1,20 @@
+/// { "code": 67, "skip": true }
+
+import sys;
+
+/// Donald Knuth’s famous ‘man or boy test’.
+///
+/// This is a rather complicated test. It showcases:
+///     - Terse procedures + type inference
+///     - Terse procedure parameters
+///     - Multiple declarations in procedure parameters
+///     - Default parameters
+///     - Return type inference of `=` procedures
+///     - Order-independent procedure definitions
+
+sys.exit(-A(10) as i8);
+proc A (int k, ->int: x1 = ->1, x2 = ->-1, x3 = ->-1, x4 = ->1, x5 = ->0) -> int {
+    int m = k;
+    return if k <= 0 then x4() + x5() else B();
+    proc B = A(--m, B, x1, x2, x3, x4);
+}

@@ -1,0 +1,11 @@
+/// { "code": 42 }
+
+import sys;
+
+enum foo : i8 {
+    a,
+    b,
+    c = 41,
+};
+
+sys.exit(foo.a as i8 + foo.b as i8 + foo.c as i8)

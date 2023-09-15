@@ -1,0 +1,12 @@
+/// { "code": 25 }
+
+import sys;
+
+/// _id ( ... ) is used to convert any sequence of tokens into an identifier.
+proc foo {
+    i8 __id 42 = 12;
+    i8 __id(4 2) = 13;
+    sys.exit(__id 42 + __id(4 2));
+}
+
+foo()

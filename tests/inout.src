@@ -1,0 +1,17 @@
+/// { "code" : 84, "skip": true }
+
+import sys;
+
+/// Procedure that accepts an integer parameter and either
+/// overwrites it or returns a new value.
+///
+/// A procedure with `untyped` parameters is not allowed to
+/// declare a return type or return a value.
+proc add42 (inout int x) {
+    x += 42;
+}
+
+int x = 0;
+var y = add42(x);
+add42(out x);
+sys.exit((x + x) as i8);

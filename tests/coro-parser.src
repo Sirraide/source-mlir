@@ -1,0 +1,45 @@
+/// { "skip": true }
+
+/// This file demonstrates the use of coroutines in writing
+/// a resumable parser that splits the input into words and
+/// prints them line by line.
+proc split (i8[] content) resume {
+    /// Current value.
+    u64 v;
+
+    /// Operator.
+    enum {
+        none,
+        plus,
+        minus,
+        div,
+        mod,
+        times,
+    } op = none;
+
+    /// Current state.
+    enum {
+        start,
+        before_number,
+        in_number,
+        after_number,
+        after_operator,
+        in_number_2,       
+    } state = start;
+
+    /// Calculator loop.
+    for i8 c in content do cond state in {
+        start: cond c in {
+            " \t\r\n": break;
+        }
+
+        shift(content);
+        while #content == 0 do yield;
+    }
+}
+
+/// Program main loop.
+loop {
+    string content = read(stdin, 1024)
+    resume calculate(content);
+}

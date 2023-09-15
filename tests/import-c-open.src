@@ -1,0 +1,5 @@
+/// { "output": "Hello from C\n" }
+
+import <stdio.h>;
+
+puts("Hello from C".data);

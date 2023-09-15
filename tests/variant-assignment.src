@@ -1,0 +1,26 @@
+/// { "skip": true }
+struct foo {
+    u64 v;
+
+    variant one {
+        u64 baz;
+        u64 qux;
+    }
+
+    variant two {
+        i32 bar;
+        i32 baz;
+    }
+}
+
+foo (1, one (2, 3))
+bar (2, two (3, 4))
+
+bar.variant = foo.variant;
+
+assert foo.v == 1, "Variant assignment may not change non-variant field"
+assert foo is two, "Variant assignment must change the variant type."
+
+var val = foo as two;
+assert val.bar == 3;
+assert val.baz == 4;

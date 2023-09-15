@@ -1,0 +1,5 @@
+/// { "code": 6 }
+
+import sys;
+
+sys.exit(i32::align + i16::align);

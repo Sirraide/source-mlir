@@ -1,0 +1,22 @@
+/// { "code": 42 }
+
+import sys;
+
+macro repeat_ten_times #1 #2 expands
+    #1 #2
+    #1 #2
+    #1 #2
+    #1 #2
+    #1 #2
+
+    #1 #2
+    #1 #2
+    #1 #2
+    #1 #2
+    #1 #2
+endmacro
+
+sys.exit (
+    2 repeat_ten_times + 4
+)
+

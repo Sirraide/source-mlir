@@ -28,9 +28,6 @@ def HLIR_Dialect : Dialect {
     /// Use default printer/parser for types and attrs.
     //let useDefaultAttributePrinterParser = 1;
     let useDefaultTypePrinterParser = 1;
-
-    /// Required to silence deprecation warnings.
-    let useFoldAPI = kEmitFoldAdaptorFolder;
 }
 
 class HLIR_Op<string mnemonic, list<Trait> traits = []> :

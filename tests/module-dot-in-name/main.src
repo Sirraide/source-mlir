@@ -1,0 +1,6 @@
+/// { "code": 42 }
+
+import sys;
+import test.foo.bar;
+
+sys.exit(test.foo.bar.exported() as i8);

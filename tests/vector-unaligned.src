@@ -1,0 +1,18 @@
+/// { "code": 88 }
+
+import sys;
+
+/// Test that we handle loading from and storing to unaligned
+/// vectors correctly. If we make an error in codegen, this will
+/// crash horribly in debug mode.
+proc foo (int<4>^ vec) {
+    ^vec = 11;
+    ^vec = ^vec * 2;
+}
+
+int<4> vec;
+foo(&vec);
+
+var sum = vec[0] + vec[1] + vec[2] + vec[3];
+sys.exit(sum as i8);
+

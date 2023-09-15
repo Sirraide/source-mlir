@@ -1,0 +1,6 @@
+module stage1;
+
+export int x;
+
+/// This test essentially checks whether this is incorrectly executed more than once.
+x = x + 10;

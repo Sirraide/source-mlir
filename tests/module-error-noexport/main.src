@@ -1,0 +1,6 @@
+/// { "error": "Module 'test' does not export a symbol 'not_exported'" }
+
+import sys;
+import test;
+
+sys.exit(test.not_exported() as i8);

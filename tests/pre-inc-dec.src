@@ -1,0 +1,13 @@
+/// { "code": 8 }
+
+import sys;
+
+var i = 1;
+var j = 2;
+
+++i;
+++j;
+++j;
+var k = --i + --j;
+
+sys.exit((k + i + j) as i8);

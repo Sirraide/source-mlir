@@ -1,0 +1,11 @@
+/// { "error": "No member named 'x' in foo. Note: the left-hand side of '.' here is a type, not a value." }
+
+import sys;
+
+struct foo {
+    i8 x;
+};
+
+/// These somehow compiled before.
+foo.x = 2;
+foo.x + foo.x;

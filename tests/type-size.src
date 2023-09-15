@@ -1,0 +1,5 @@
+/// { "code": 12 }
+
+import sys;
+
+sys.exit(i64::size + i32::size);

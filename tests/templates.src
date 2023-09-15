@@ -1,0 +1,13 @@
+/// { "code": 3 }
+
+import sys;
+
+pair(i8) p;
+p.a = 255;
+p.b = 4;
+sys.exit(p.a + p.b);
+
+struct pair (type t) {
+    t a;
+    t b;
+};

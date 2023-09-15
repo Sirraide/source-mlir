@@ -1,0 +1,12 @@
+/// { "output": "2\n1\n2\n" }
+
+import <stdio.h>;
+
+proc foo (bool ret) {
+    defer puts("2".data);
+    if ret then return;
+    defer puts("1".data);
+}
+
+foo(true);
+foo(false);

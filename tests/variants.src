@@ -1,0 +1,33 @@
+/// { "skip": true }
+extern proc printf (i8^) variadic -> i32;
+
+struct expression {
+    i64 scale;
+
+    variant plus { i64 lhs; i64 rhs; }
+    variant minus { i64 lhs; i64 rhs; }
+    variant negate { i64 operand; }
+}
+
+proc eval (expression& e) -> i64 {
+    val value = cond e is {
+        plus: lhs + rhs;
+        minus: lhs - rhs;
+        negate: -operand;
+    }
+
+    printf("Result: %lli\n".data, value * e.scale);
+}
+
+/// 2 + 4
+expression e1 = 0, plus { 2, 4 };
+
+/// (2 - 4) * 3
+expression e2 = 3, minus { 2, 4 };
+
+/// -2
+expression e3 = 0, negate { 2 };
+
+eval(e1);
+eval(e2);
+eval(e3);

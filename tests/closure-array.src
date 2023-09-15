@@ -1,0 +1,10 @@
+/// { "skip":true, "code": 42 }
+
+import sys;
+
+proc callee -> i8 = 42;
+
+proc[1] foo -> i8;
+foo[0] = callee;
+
+sys.exit(foo[0]())

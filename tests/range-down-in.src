@@ -1,0 +1,6 @@
+/// { "output": "aaaaaaaaaaa\n" }
+
+extern proc putchar (i32) nomangle -> i32;
+
+for int i in 10..=0 do putchar("a"[0]);
+putchar("\n"[0]);

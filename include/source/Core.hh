@@ -12,7 +12,7 @@ namespace src {
 class Context;
 class Module;
 class Decl;
-class FunctionDecl;
+class ProcDecl;
 class Expr;
 class Scope;
 
@@ -291,7 +291,7 @@ class Module {
     property_r(decltype(StringMap<SmallVector<Expr*, 1>>{}), exports);
 
     /// Top-level module function.
-    property_r(FunctionDecl*, top_level_func);
+    property_r(ProcDecl*, top_level_func);
 
     /// Module string table.
     property_r(StringTable, strtab);
@@ -299,18 +299,34 @@ class Module {
     /// Scopes in this module.
     property_r(SmallVector<Scope*>, scopes);
 
+    /// AST nodes in this module.
+    property_r(SmallVector<Expr*>, exprs);
+
     /// Functions that are part of this module.
-    property_r(SmallVector<FunctionDecl*>, functions);
+    property_r(SmallVector<ProcDecl*>, functions);
 
     /// Static assertions that are not part of a template go here.
     property_r(decltype(SmallVector<Expr*, 32>{}), static_assertions);
+
+    /// Module name.
+    property_r(std::string, name);
+
+    /// Location of the module declaration.
+    property_r(Location, module_decl_location);
+
+    /// Whether this is a logical module.
+    readonly(bool, is_logical_module, return not name.empty());
 
 public:
     /// An empty name means this isn’t a logical module.
     explicit Module(Context* ctx, std::string name, Location module_decl_location = {});
 
     /// Add a function to this module.
-    void add_function(FunctionDecl* func);
+    void add_function(ProcDecl* func) { functions.push_back(func); }
+
+    /// Print the AST of the module to stdout. Implemented
+    /// in AST.cc
+    void print_ast() const;
 };
 
 /// A diagnostic. The diagnostic is issued when the destructor is called.

@@ -1,0 +1,20 @@
+/// { "skip": true, "code": 42 }
+
+import sys;
+
+struct pair {
+    i8 a;
+    i8 b;
+}
+
+proc + (pair& a, pair&b) {
+
+
+}
+
+pair a = (11, 22);
+pair b = (8, 1);
+
+var c = a + b;
+
+sys.exit(c.a + c.b);

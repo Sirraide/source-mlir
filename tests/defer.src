@@ -1,0 +1,10 @@
+/// { "output": "1\n2\n" }
+
+import <stdio.h>;
+
+proc foo {
+    defer puts("2".data);
+    puts("1".data);
+}
+
+foo()

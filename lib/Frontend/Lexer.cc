@@ -22,9 +22,7 @@ constexpr bool IsHex(char c) { return (c >= '0' and c <= '9') or (c >= 'a' and c
 
 /// All keywords.
 const StringMap<Tk> keywords = {
-    {"module", Tk::Module},
     {"export", Tk::Export},
-    {"import", Tk::Import},
     {"pragma", Tk::Pragma},
     {"assert", Tk::Assert},
     {"asm", Tk::Asm},
@@ -46,7 +44,6 @@ const StringMap<Tk> keywords = {
     {"fallthrough", Tk::Fallthrough},
     {"unreachable", Tk::Unreachable},
     {"variant", Tk::Variant},
-    {"extern", Tk::Extern},
     {"static", Tk::Static},
     {"is", Tk::Is},
     {"as", Tk::As},
@@ -70,24 +67,19 @@ const StringMap<Tk> keywords = {
     {"noreturn", Tk::NoReturn},
     {"bool", Tk::Bool},
     {"void", Tk::Void},
-    {"i8", Tk::I8},
-    {"i16", Tk::I16},
-    {"i32", Tk::I32},
-    {"i64", Tk::I64},
     {"int", Tk::Int},
     {"f32", Tk::F32},
     {"f64", Tk::F64},
-    {"string", Tk::StringKw},
-    {"__c_char", Tk::CChar},
-    {"__c_short", Tk::CShort},
-    {"__c_int", Tk::CInt},
-    {"__c_long", Tk::CLong},
-    {"__c_longlong", Tk::CLongLong},
-    {"__c_longdouble", Tk::CLongDouble},
-    {"__c_wchar", Tk::CWCharT},
-    {"__c_char16", Tk::CChar16T},
-    {"__c_char32", Tk::CChar32T},
-    {"__c_size_t", Tk::CSizeT},
+    {"__ffi_char", Tk::CChar},
+    {"__ffi_short", Tk::CShort},
+    {"__ffi_int", Tk::CInt},
+    {"__ffi_long", Tk::CLong},
+    {"__ffi_longlong", Tk::CLongLong},
+    {"__ffi_longdouble", Tk::CLongDouble},
+    {"__ffi_wchar", Tk::CWCharT},
+    {"__ffi_char16", Tk::CChar16T},
+    {"__ffi_char32", Tk::CChar32T},
+    {"__ffi_size_t", Tk::CSizeT},
 };
 } // namespace
 } // namespace src
@@ -346,7 +338,8 @@ void src::Lexer::NextImpl() {
                 tok.type = Tk::SlashEq;
             } else if (lastc == '/') {
                 SkipLine();
-                return Next();
+                NextImpl();
+                return;
             } else {
                 tok.type = Tk::Slash;
             }
@@ -369,22 +362,12 @@ void src::Lexer::NextImpl() {
 
         case '&':
             NextChar();
-            if (lastc == '=') {
-                NextChar();
-                tok.type = Tk::AmpersandEq;
-            } else {
-                tok.type = Tk::Ampersand;
-            }
+            tok.type = Tk::Ampersand;
             break;
 
         case '|':
             NextChar();
-            if (lastc == '=') {
-                NextChar();
-                tok.type = Tk::VBarEq;
-            } else {
-                tok.type = Tk::VBar;
-            }
+            tok.type = Tk::VBar;
             break;
 
         case '~':
@@ -534,13 +517,20 @@ void src::Lexer::LexIdentifier() {
         NextChar();
     } while (IsContinue(lastc));
 
+    /// Helper to parse keywords and integer types.
+    const auto LexSpecialToken = [&] {
+        if (auto k = keywords.find(tok.text); k != keywords.end()) tok.type = k->second;
+        else if (tok.text.starts_with("i")) {
+            /// Note: this returns true on error, for some reason.
+            if (not StringRef(tok.text).substr(1).getAsInteger(10, tok.integer))
+                tok.type = Tk::IntegerType;
+        }
+    };
+
     /// In raw mode, special processing is disabled. This is used for
     /// parsing the argument and expansion lists of macros, as well as
     /// for handling __id.
-    if (raw_mode) {
-        if (auto k = keywords.find(tok.text); k != keywords.end()) tok.type = k->second;
-        return;
-    }
+    if (raw_mode) return LexSpecialToken();
 
     /// Handle macro expansions.
     if (auto m = macro_definitions_by_name.find(tok.text); m != macro_definitions_by_name.end())
@@ -549,8 +539,8 @@ void src::Lexer::LexIdentifier() {
     /// Handle macro definitions.
     if (tok.text == "macro") return LexMacroDefinition();
 
-    /// Check for keywords.
-    if (auto k = keywords.find(tok.text); k != keywords.end()) tok.type = k->second;
+    /// Check for keywords and ints.
+    LexSpecialToken();
 
     /// Handle pragmas.
     if (tok.type == Tk::Pragma and not pragma_handler()) tok.type = Tk::Invalid;
@@ -936,4 +926,257 @@ auto src::Lexer::MacroExpansion::operator++() -> Token {
     /// closing a macro definition.
     ret.artificial = false;
     return ret;
+}
+
+auto src::Spelling(Tk t) -> std::string_view {
+    switch (t) {
+        case Tk::Invalid: return "<invalid>";
+        case Tk::Eof: return "<eof>";
+        case Tk::Identifier: return "<identifier>";
+        case Tk::MacroParameter: return "<macro parameter>";
+        case Tk::StringLiteral: return "<string literal>";
+        case Tk::Integer: return "<integer>";
+        case Tk::IntegerType: return "<integer type>";
+        case Tk::Export: return "export";
+        case Tk::Pragma: return "pragma";
+        case Tk::Assert: return "assert";
+        case Tk::Asm: return "asm";
+        case Tk::If: return "if";
+        case Tk::Then: return "then";
+        case Tk::Elif: return "elif";
+        case Tk::Else: return "else";
+        case Tk::Match: return "match";
+        case Tk::While: return "while";
+        case Tk::Do: return "do";
+        case Tk::For: return "for";
+        case Tk::In: return "in";
+        case Tk::With: return "with";
+        case Tk::Try: return "try";
+        case Tk::Return: return "return";
+        case Tk::Defer: return "defer";
+        case Tk::Break: return "break";
+        case Tk::Continue: return "continue";
+        case Tk::Fallthrough: return "fallthrough";
+        case Tk::Unreachable: return "unreachable";
+        case Tk::Variant: return "variant";
+        case Tk::Static: return "static";
+        case Tk::Is: return "is";
+        case Tk::As: return "as";
+        case Tk::AsBang: return "as!";
+        case Tk::Not: return "not";
+        case Tk::And: return "and";
+        case Tk::Or: return "or";
+        case Tk::Xor: return "xor";
+        case Tk::True: return "true";
+        case Tk::False: return "false";
+        case Tk::Null: return "null";
+        case Tk::Proc: return "proc";
+        case Tk::Var: return "var";
+        case Tk::Val: return "val";
+        case Tk::Enum: return "enum";
+        case Tk::Dynamic: return "dynamic";
+        case Tk::Struct: return "struct";
+        case Tk::Init: return "init";
+        case Tk::Type: return "type";
+        case Tk::Typeof: return "typeof";
+        case Tk::NoReturn: return "noreturn";
+        case Tk::Bool: return "bool";
+        case Tk::Void: return "void";
+        case Tk::Int: return "int";
+        case Tk::F32: return "f32";
+        case Tk::F64: return "f64";
+        case Tk::CChar: return "__ffi_char";
+        case Tk::CChar8T: return "__ffi_char8";
+        case Tk::CChar16T: return "__ffi_char16";
+        case Tk::CChar32T: return "__ffi_char32";
+        case Tk::CWCharT: return "__ffi_wchar";
+        case Tk::CShort: return "__ffi_short";
+        case Tk::CInt: return "__ffi_int";
+        case Tk::CLong: return "__ffi_long";
+        case Tk::CLongLong: return "__ffi_longlong";
+        case Tk::CLongDouble: return "__ffi_longdouble";
+        case Tk::CSizeT: return "__ffi_size";
+        case Tk::Semicolon: return ";";
+        case Tk::Colon: return ":";
+        case Tk::ColonColon: return "::";
+        case Tk::Comma: return ",";
+        case Tk::LParen: return "(";
+        case Tk::RParen: return ")";
+        case Tk::LBrack: return "[";
+        case Tk::RBrack: return "]";
+        case Tk::LBrace: return "{";
+        case Tk::RBrace: return "}";
+        case Tk::Ellipsis: return "...";
+        case Tk::Dot: return ".";
+        case Tk::LArrow: return "<-";
+        case Tk::RArrow: return "->";
+        case Tk::Question: return "?";
+        case Tk::Plus: return "+";
+        case Tk::Minus: return "-";
+        case Tk::Star: return "*";
+        case Tk::Slash: return "/";
+        case Tk::Percent: return "%";
+        case Tk::Caret: return "^";
+        case Tk::Ampersand: return "&";
+        case Tk::VBar: return "|";
+        case Tk::Tilde: return "~";
+        case Tk::Bang: return "!";
+        case Tk::Assign: return "=";
+        case Tk::DotDot: return "..";
+        case Tk::DotDotLess: return "..<";
+        case Tk::DotDotEq: return "..=";
+        case Tk::MinusMinus: return "--";
+        case Tk::PlusPlus: return "++";
+        case Tk::StarStar: return "**";
+        case Tk::Lt: return "<";
+        case Tk::Le: return "<=";
+        case Tk::Gt: return ">";
+        case Tk::Ge: return ">=";
+        case Tk::EqEq: return "==";
+        case Tk::Neq: return "!=";
+        case Tk::PlusEq: return "+=";
+        case Tk::MinusEq: return "-=";
+        case Tk::StarEq: return "*=";
+        case Tk::SlashEq: return "/=";
+        case Tk::PercentEq: return "%=";
+        case Tk::ShiftLeft: return "<<";
+        case Tk::ShiftRight: return ">>";
+        case Tk::ShiftRightLogical: return ">>>";
+        case Tk::ShiftLeftEq: return "<<=";
+        case Tk::ShiftRightEq: return ">>=";
+        case Tk::ShiftRightLogicalEq: return ">>>=";
+        case Tk::StarStarEq: return "**=";
+    }
+
+    Unreachable();
+}
+
+bool src::operator==(const Token& a, const Token& b) {
+    if (a.type != b.type) return false;
+    switch (a.type) {
+        case Tk::Identifier:
+        case Tk::MacroParameter:
+        case Tk::StringLiteral:
+            return a.text == b.text;
+
+        case Tk::Integer:
+        case Tk::IntegerType:
+            return a.integer == b.integer;
+
+        /// All these are trivially equal.
+        case Tk::Invalid:
+        case Tk::Eof:
+        case Tk::Export:
+        case Tk::Pragma:
+        case Tk::Assert:
+        case Tk::Asm:
+        case Tk::If:
+        case Tk::Then:
+        case Tk::Elif:
+        case Tk::Else:
+        case Tk::Match:
+        case Tk::While:
+        case Tk::Do:
+        case Tk::For:
+        case Tk::In:
+        case Tk::With:
+        case Tk::Try:
+        case Tk::Return:
+        case Tk::Defer:
+        case Tk::Break:
+        case Tk::Continue:
+        case Tk::Fallthrough:
+        case Tk::Unreachable:
+        case Tk::Variant:
+        case Tk::Static:
+        case Tk::Is:
+        case Tk::As:
+        case Tk::AsBang:
+        case Tk::Not:
+        case Tk::And:
+        case Tk::Or:
+        case Tk::Xor:
+        case Tk::True:
+        case Tk::False:
+        case Tk::Null:
+        case Tk::Proc:
+        case Tk::Var:
+        case Tk::Val:
+        case Tk::Enum:
+        case Tk::Dynamic:
+        case Tk::Struct:
+        case Tk::Init:
+        case Tk::Type:
+        case Tk::Typeof:
+        case Tk::NoReturn:
+        case Tk::Bool:
+        case Tk::Void:
+        case Tk::Int:
+        case Tk::F32:
+        case Tk::F64:
+        case Tk::CChar:
+        case Tk::CChar8T:
+        case Tk::CChar16T:
+        case Tk::CChar32T:
+        case Tk::CWCharT:
+        case Tk::CShort:
+        case Tk::CInt:
+        case Tk::CLong:
+        case Tk::CLongLong:
+        case Tk::CLongDouble:
+        case Tk::CSizeT:
+        case Tk::Semicolon:
+        case Tk::Colon:
+        case Tk::ColonColon:
+        case Tk::Comma:
+        case Tk::LParen:
+        case Tk::RParen:
+        case Tk::LBrack:
+        case Tk::RBrack:
+        case Tk::LBrace:
+        case Tk::RBrace:
+        case Tk::Ellipsis:
+        case Tk::Dot:
+        case Tk::LArrow:
+        case Tk::RArrow:
+        case Tk::Question:
+        case Tk::Plus:
+        case Tk::Minus:
+        case Tk::Star:
+        case Tk::Slash:
+        case Tk::Percent:
+        case Tk::Caret:
+        case Tk::Ampersand:
+        case Tk::VBar:
+        case Tk::Tilde:
+        case Tk::Bang:
+        case Tk::Assign:
+        case Tk::DotDot:
+        case Tk::DotDotLess:
+        case Tk::DotDotEq:
+        case Tk::MinusMinus:
+        case Tk::PlusPlus:
+        case Tk::StarStar:
+        case Tk::Lt:
+        case Tk::Le:
+        case Tk::Gt:
+        case Tk::Ge:
+        case Tk::EqEq:
+        case Tk::Neq:
+        case Tk::PlusEq:
+        case Tk::MinusEq:
+        case Tk::StarEq:
+        case Tk::SlashEq:
+        case Tk::PercentEq:
+        case Tk::ShiftLeft:
+        case Tk::ShiftRight:
+        case Tk::ShiftRightLogical:
+        case Tk::ShiftLeftEq:
+        case Tk::ShiftRightEq:
+        case Tk::ShiftRightLogicalEq:
+        case Tk::StarStarEq:
+            return true;
+    }
+
+    Unreachable();
 }

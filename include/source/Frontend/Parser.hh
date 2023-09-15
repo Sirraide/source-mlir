@@ -1,24 +1,21 @@
-#ifndef SOURCE_INCLUDE_FRONTEND_PARSER_HH
-#define SOURCE_INCLUDE_FRONTEND_PARSER_HH
+#ifndef SOURCE_FRONTEND_PARSER_HH
+#define SOURCE_FRONTEND_PARSER_HH
 
+#include <source/Frontend/AST.hh>
 #include <source/Frontend/Lexer.hh>
 #include <source/Support/Result.hh>
 
 namespace src {
-
 class Parser : Lexer {
-    Module* mod;
+    template <typename T>
+    using SVI = SmallVectorImpl<T>;
+
+    Module* mod{};
     std::unique_ptr<Module> mod_ptr{};
     std::vector<Scope*> scope_stack;
 
     /// Current function.
-    FunctionDecl* curr_func{};
-
-    /// Static assert context.
-    ///
-    /// Static assertions in templates should only be evaluated when the
-    /// template is instantiated, so we store.
-    SmallVectorImpl<Expr*>* static_assertions{};
+    ProcDecl* curr_func{};
 
     readonly(Scope*, global_scope, return scope_stack[0]);
     readonly(Scope*, top_level_scope, return scope_stack[1]);
@@ -27,7 +24,7 @@ class Parser : Lexer {
 
 public:
     /// Parse a file into a module.
-    static auto Parse(Context* ctx, File& f) -> std::unique_ptr<Module>;
+    static auto Parse(Context& ctx, File& f) -> std::unique_ptr<Module>;
 
 private:
     friend class MatchedDelimiterTracker;
@@ -40,7 +37,7 @@ private:
     public:
         ScopeRAII(Parser* parser)
             : p(*parser),
-              scope_field(new Scope(p.curr_scope, p.mod)) { p.scope_stack.push_back(scope); }
+              scope_field(new(p.mod) Scope(p.curr_scope, p.mod)) { p.scope_stack.push_back(scope); }
 
         ~ScopeRAII() { pop(); }
 
@@ -118,56 +115,21 @@ private:
     };
 
     struct Signature {
-        Expr* sig_type;
+        Expr* type;
         std::string name;
         SmallVector<ParamDecl*> param_decls;
-        Location loc;
-        bool nomangle : 1;
+        Location loc{};
+        bool is_extern{};
+        bool is_nomangle{};
     };
 
     static constexpr int NullPrecedence = 0;
 
     explicit Parser(Context* ctx, File& f);
 
-    /// Parser functions.
-    auto ParseAssertExpr() -> Result<AssertExpr*>;
-    auto ParseBlockExpr() -> Result<BlockExpr*>;
-    auto ParseDecl(bool is_extern, Location start_loc) -> Result<Expr*>;
-    auto ParseEnumDecl() -> Result<EnumType*>;
-    auto ParseExpr(int operator_precedence = NullPrecedence) -> Result<Expr*>;
-    auto ParseExprInNewScope() -> Result<Expr*>;
-    void ParseExpressions(ExprList& into);
-    void ParseFile();
-    auto ParseForExpr() -> Result<Expr*>;
-    auto ParseIfExpr() -> Result<IfExpr*>;
-    auto ParseInlineAsm() -> Result<Expr*>;
-    auto ParseMatchExpr() -> Result<MatchExpr*>;
-    auto ParseParamDeclList(SmallVectorImpl<ParamDecl*>& decls, SmallVectorImpl<Expr*>* param_types, bool in_struct_template) -> Location;
-    void ParsePreamble();
-    auto ParseProcBody(bool is_extern, Signature sig) -> Result<Expr*>;
-    auto ParseProcExpr(bool is_extern) -> Result<Expr*>;
-    auto ParseProcSignature() -> Result<Signature>;
-    auto ParseStructDecl() -> Result<Expr*>;
-    auto ParseTerseProcExpr(SmallVector<std::string> argument_names, Location start_loc) -> Result<Expr*>;
-    auto ParseType(Expr* base_type, bool in_decl) -> Result<Expr*>;
-    auto ParseWhileExpr() -> Result<WhileExpr*>;
-    auto ParseWithExpr() -> Result<WithExpr*>;
-
-    /// Parse a struct body. The caller is responsible for
-    /// pushing a new scope before calling this.
-    void ParseStructBody(
-        bool dynamic,
-        SmallVectorImpl<MemberDecl*>& members,
-        SmallVectorImpl<FunctionDecl*>& member_functions,
-        SmallVectorImpl<VariantClauseDecl*>& variants
-    );
-
-    /// Check if we’re at the start of an expression.
-    bool AtStartOfExpression();
-
     /// Parser primitives.
-    bool Is(const Token& t, std::same_as<Tk> auto... tks) { return ((t.type == tks) or ...); }
     bool At(std::same_as<Tk> auto... tks) { return Is(tok, tks...); }
+
     bool Consume(std::same_as<Tk> auto... tks) {
         if (At(tks...)) {
             Next();
@@ -175,6 +137,8 @@ private:
         }
         return false;
     }
+
+    bool Is(const Token& t, std::same_as<Tk> auto... tks) { return ((t.type == tks) or ...); }
 
     /// Issue an error.
     template <typename... Args>
@@ -187,8 +151,24 @@ private:
         return Diag::Error(ctx, curr_loc, fmt, std::forward<Args>(args)...);
     }
 
-    void Synchronise();
+    /// Parser functions.
+    auto ParseBlock() -> Result<BlockExpr*>;
+    auto ParseExpr(int curr_prec = 0) -> Result<Expr*>;
+    auto ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>;
+    void ParseFile();
+    auto ParseParamDeclList(SVI<ParamDecl*>& param_decls, SVI<Expr*>& param_types) -> Location;
+    auto ParseProc() -> Result<Expr*>;
+    auto ParseSignature() -> Signature;
+    auto ParseType() -> Result<Expr*>;
+
+    /// Synchronise in case of errors.
+    void Synchronise(Tk token = Tk::Semicolon, std::same_as<Tk> auto... tks) {
+        while (not At(Tk::Eof, token, tks...)) Next();
+    }
+
+    /// Wrap an expression with a block expression.
+    auto WrapWithBlock(Expr* e) -> BlockExpr*;
 };
 
 } // namespace src
-#endif // SOURCE_INCLUDE_FRONTEND_PARSER_HH
+#endif // SOURCE_FRONTEND_PARSER_HH

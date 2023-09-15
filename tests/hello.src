@@ -1,0 +1,5 @@
+/// { "output": "Hello, world!\n", "skip": true }
+
+import std;
+
+print ("Hello, \{}!\n", "world");

@@ -1,0 +1,17 @@
+/// { "code": 42, "output": "Constructor called.\n" }
+
+import sys.*;
+import <stdio.h>;
+
+struct foo {
+    i8 q;
+
+    init {
+        q = 42;
+        puts("Constructor called.".data);
+    }
+};
+
+
+foo f;
+exit(f.q);

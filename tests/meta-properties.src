@@ -1,0 +1,6 @@
+/// { "code": 16 }
+
+import sys;
+
+i64 a;
+sys.exit(i64::size + typeof(a)::size);

@@ -1,0 +1,10 @@
+/// { "output": "fact(10) = 3628800\n" }
+
+extern proc printf (i8^ fmt) nomangle variadic -> i32;
+
+proc fact (i64 n) -> i64 {
+    if n < 2 then return 1;
+    return n * fact(n - 1);
+}
+
+printf("fact(10) = %lld\n".data, fact(10));

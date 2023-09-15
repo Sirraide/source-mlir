@@ -1,0 +1,16 @@
+/// { "code": 42 }
+
+import sys;
+
+struct foo {
+    i8 x;
+}
+
+proc double (foo& f) = f.x *= 2;
+
+foo f;
+foo& f2 = f;
+f2.x = 21;
+double(f);
+
+sys.exit(f2.x);

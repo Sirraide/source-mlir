@@ -1,9 +1,11 @@
 #include <llvm/Support/Unicode.h>
 #include <llvm/Target/TargetOptions.h>
+#include <llvm/Support/TargetSelect.h>
 #include <llvm/TargetParser/Host.h>
 #include <mlir/InitAllDialects.h>
 #include <random>
 #include <source/Core.hh>
+#include <source/Frontend/AST.hh>
 #include <thread>
 
 #ifndef _WIN32
@@ -31,12 +33,11 @@ src::Context::Context(const llvm::Target* tgt)
 src::Context::Context() {
     Initialise();
 
-    /// Get native target.
     std::string error;
     auto target_triple = llvm::sys::getDefaultTargetTriple();
     llvm::Triple triple{target_triple};
     auto target = llvm::TargetRegistry::lookupTarget(target_triple, error);
-    if (not target) Diag::Fatal("Failed to lookup target '{}': {}\n", target_triple, error);
+    if (not target) Diag::Fatal("Failed to lookup target '{}': {}", target_triple, error);
     tgt = target;
 }
 
@@ -50,6 +51,12 @@ auto src::Context::get_or_load_file(fs::path path) -> File& {
 }
 
 void src::Context::Initialise() {
+    llvm::InitializeNativeTarget();
+    llvm::InitializeAllTargetInfos();
+    llvm::InitializeAllTargets();
+    llvm::InitializeAllTargetMCs();
+    llvm::InitializeAllAsmParsers();
+    llvm::InitializeAllAsmPrinters();
     mlir::registerAllDialects(mlir_ctx);
     mlir_ctx.loadDialect<hlir::HLIRDialect>();
 }
@@ -253,6 +260,25 @@ auto src::Location::seek_line_column(const Context* ctx) const -> LocInfoShort {
 }
 
 /// ===========================================================================
+///  Module
+/// ===========================================================================
+src::Module::Module(Context* ctx, std::string name, Location module_decl_location)
+    : context_field(ctx),
+      name_field(std::move(name)),
+      module_decl_location_field(module_decl_location) {
+    top_level_func_field = new (this) ProcDecl{
+        /// TODO: Move 'main' into runtime.
+        is_logical_module ? fmt::format("_S.static.initialisation.{}", name) : "main",
+        new (this) ProcType({}, BuiltinType::Void(this), {}),
+        {},
+        new (this) BlockExpr{{}, {}},
+        Linkage::Exported,
+        Mangling::None,
+        {},
+    };
+}
+
+/// ===========================================================================
 ///  Diagnostics
 /// ===========================================================================
 namespace {
@@ -331,7 +357,8 @@ void src::Diag::HandleFatalErrors() {
     }
 
     /// Exit on a fatal error.
-    if (kind == Kind::FError) std::exit(FatalExitCode);
+    if (kind == Kind::FError)
+        std::exit(FatalExitCode); /// Separate line so we can put a breakpoint here.
 }
 
 /// Print a diagnostic with no (valid) location info.
@@ -356,7 +383,8 @@ void src::Diag::print() {
     defer { kind = Kind::None; };
 
     /// If the diagnostic is an error, set the error flag.
-    if (kind == Kind::Error and ctx) ctx->set_error();
+    if (kind == Kind::Error and ctx)
+        ctx->set_error(); /// Separate line so we can put a breakpoint here.
 
     /// If there is no context, then there is also no location info.
     if (not ctx) {
@@ -443,4 +471,3 @@ void src::utils::ReplaceAll(
 auto src::utils::NumberWidth(usz number, usz base) -> usz {
     return number == 0 ? 1 : usz(std::log(number) / std::log(base) + 1);
 }
-

@@ -1,0 +1,5 @@
+/// { "code": 42 }
+
+import sys;
+
+sys.exit(if 1 as bool then 42 as i8 else 0 as i8);

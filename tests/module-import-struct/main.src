@@ -1,0 +1,10 @@
+/// { "code": 42 }
+
+import sys;
+import foobar;
+
+foobar.pair p;
+p.first.code = 21;
+p.second.code = 21;
+
+sys.exit((p.first.code + p.second.code) as i8);

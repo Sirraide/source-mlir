@@ -1,0 +1,21 @@
+/// { "skip": true, "code": 42, "output": "Constructor called.\nConstructor called.\n" }
+
+import sys.*;
+import libc.stdio.*;
+
+struct foo {
+    i8 q;
+
+    init {
+        q = 21;
+        puts("Constructor called.".data);
+    }
+};
+
+struct bar {
+    foo a;
+    foo b;
+};
+
+bar b;
+exit(b.a.q + b.b.q);

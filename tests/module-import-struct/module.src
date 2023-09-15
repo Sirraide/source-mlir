@@ -1,0 +1,11 @@
+module foobar;
+
+export struct pair {
+    foo first;
+    foo second;
+};
+
+/// Automatically exported because it’s used in `pair`.
+struct foo {
+    int code;
+}

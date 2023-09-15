@@ -1,0 +1,7 @@
+/// { "error": "Name is ambiguous" }
+
+enum e {
+    foo,
+};
+
+e foo = foo;

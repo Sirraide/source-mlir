@@ -1,0 +1,12 @@
+/// { "error": "Unknown name 'x'" }
+
+import sys;
+
+struct foo {
+    int x;
+    int y;
+};
+
+foo f = (20, 22);
+sys.exit ((x + y) as i8);
+with f;

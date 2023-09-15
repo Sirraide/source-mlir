@@ -1,0 +1,18 @@
+/// { "code": 6 }
+
+import sys;
+
+/// There are several syntaxes for function pointers.
+proc add (
+    proc^ a -> i8,
+    proc^ -> i8 b,
+    (proc -> i8)^ c
+) -> i8 {
+    return a() + b() + c();
+}
+
+proc one -> i8 = 1;
+proc two -> i8 = 2;
+proc three -> i8 = 3;
+
+sys.exit(add(&one, &two, &three));

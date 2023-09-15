@@ -31,15 +31,15 @@
 #include <mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h>
 #include <mlir/Target/LLVMIR/Export.h>
 
-#include <hlir/HLIROpsDialect.h.inc>
+#include <source/HLIR/HLIROpsDialect.h.inc>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 
 #define GET_TYPEDEF_CLASSES
-#include <hlir/HLIROpsTypes.h.inc>
+#include <source/HLIR/HLIROpsTypes.h.inc>
 
 #define GET_OP_CLASSES
-#include <hlir/HLIROps.h.inc>
+#include <source/HLIR/HLIROps.h.inc>
 
 
 // clang-format on

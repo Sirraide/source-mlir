@@ -1,0 +1,8 @@
+/// { "error": "Left-hand side of compound assignment operator must be an lvalue" }
+
+import sys;
+
+proc foo -> i8 = 42 as i8;
+
+static if false then sys.exit(foo())
+else foo() += 42;

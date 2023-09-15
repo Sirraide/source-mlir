@@ -1,0 +1,7 @@
+/// { "code": 1 }
+
+import sys;
+
+int i = -1;
+
+sys.exit((i >>> 63) as i8);

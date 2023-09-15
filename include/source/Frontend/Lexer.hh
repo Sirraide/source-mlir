@@ -17,9 +17,7 @@ enum struct Tk {
     MacroParameter,
 
     /// Keywords.
-    Module,
     Export,
-    Import,
     Pragma,
     Assert,
     Asm,
@@ -41,7 +39,6 @@ enum struct Tk {
     Fallthrough,
     Unreachable,
     Variant,
-    Extern,
     Static,
     Is,
     As,

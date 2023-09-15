@@ -1,0 +1,9 @@
+/// { "code": 42 }
+
+import sys;
+
+proc foo (enum { a = 22 } f1, enum { b = 20 } f2) {
+    sys.exit(f1 as i8 + f2 as i8);
+}
+
+foo (a, b);

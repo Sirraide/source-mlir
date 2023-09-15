@@ -1,0 +1,8 @@
+/// { "error": "Type of initialiser is not convertible to declared type: __c_int vs i32" }
+
+/// C’s `int` type is only guaranteed to be at least 16 bits wide.
+i16 a = 42;
+__c_int aa = a;
+
+i32 b = 42;
+__c_int bb = b;

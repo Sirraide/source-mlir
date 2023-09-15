@@ -1,0 +1,6 @@
+/// { "output": "Hello, world!\n" }
+extern proc puts (i8^) nomangle -> i32;
+
+proc print () { puts ("Hello, world!".data); }
+
+print();

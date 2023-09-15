@@ -1,0 +1,17 @@
+/// { "code": 42 }
+
+import sys;
+
+struct foo {
+    i8 x;
+};
+
+foo f;
+foo& f2 = f;
+
+/// This needs special handling in the parser.
+foo&[1] f3;
+f3[0] = f;
+
+f3[0].x = 42;
+sys.exit(f.x);

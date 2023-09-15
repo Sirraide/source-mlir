@@ -1,0 +1,22 @@
+/// { "code": 42 }
+
+import sys;
+
+struct foo {
+    i8 x;
+};
+
+foo f;
+foo& f2 = f;
+
+i8& x = f.x;
+i8&& xref = x;
+
+/// This eventually needs to become a declaration.
+foo&^ f3 = &f2;
+
+/// This also has & followed by ^, but it’s not a declaration.
+^^xref = ^^xref & ^^xref;
+
+f3.x = 42;
+sys.exit(f.x);

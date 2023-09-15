@@ -1,0 +1,10 @@
+/// { "code": 24 }
+
+import sys;
+
+struct pair (type t) {
+    t a;
+    t b;
+};
+
+sys.exit(pair(i64)::size + pair(i32)::size);

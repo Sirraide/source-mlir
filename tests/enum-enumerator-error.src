@@ -1,0 +1,10 @@
+/// { "error": "Enumerator cannot be accessed before it is defined" }
+
+import sys;
+
+enum foo : i8 {
+    b = a,
+    a = b,
+};
+
+sys.exit(foo.a as i8 + foo.b as i8)

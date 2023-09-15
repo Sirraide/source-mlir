@@ -22,8 +22,7 @@ endif()
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     find_program(MOLD_LINKER "mold")
     if (MOLD_LINKER)
-        add_compile_options(-fuse-ld=mold)
-        add_link_options(-fuse-ld=mold)
+        add_link_options(-fuse-ld=mold -Wl,--color-diagnostics)
     endif()
 endif()
 
@@ -121,11 +120,11 @@ endif()
 ## Debug/Release flags.
 if (NOT MSVC)
     target_compile_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g3 -ggdb3 -rdynamic>
+        $<$<CONFIG:DEBUG>:-O0 -g3 -ggdb3>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
     target_link_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g3 -ggdb3 -rdynamic>
+        $<$<CONFIG:DEBUG>:-O0 -g3 -ggdb3>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
 else()
@@ -185,6 +184,16 @@ endif()
 set(LLVM_DIR "${PROJECT_SOURCE_DIR}/llvm/out/lib/cmake/llvm")
 set(MLIR_DIR "${PROJECT_SOURCE_DIR}/llvm/out/lib/cmake/mlir")
 set(Clang_DIR "${PROJECT_SOURCE_DIR}/llvm/out/lib/cmake/clang")
+
+## Set these or be prepared for horrible linker errors.
+##
+## As of now (LLVM version 17.0.0), AddLLVM.cmake adds `-Wl,-rpath-link,${LLVM_LIBRARY_OUTPUT_INTDIR}`
+## to the linker command line. The problem with this is that, if LLVM_LIBRARY_OUTPUT_INTDIR is not
+## defined, which, by default, it isn’t, you end up with `-Wl,-rpath-link,`, as a result of which the
+## compiler driver just throws an `-rpath-link` with no argument in the middle of the linker command
+## line, which causes whatever file or option after it to be be swallowed.
+set(LLVM_RUNTIME_OUTPUT_INTDIR "${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin")
+set(LLVM_LIBRARY_OUTPUT_INTDIR "${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib${LLVM_LIBDIR_SUFFIX}")
 
 find_package(LLVM REQUIRED CONFIG)
 find_package(MLIR REQUIRED CONFIG)
@@ -295,13 +304,14 @@ target_link_libraries(options INTERFACE
 file(GLOB_RECURSE sources lib/*.cc src/*.cc)
 
 ## As well as everything in ‘include’, if it exists.
-if (EXISTS ${PROJECT_SOURCE_DIR}/include)
+if (EXISTS "${PROJECT_SOURCE_DIR}/include")
     file(GLOB_RECURSE includes include/*.hh)
     list(APPEND sources ${includes})
 endif()
 
 ## Add the executable.
 add_llvm_executable(srcc ${sources})
+set_target_properties(srcc PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}")
 target_link_libraries(srcc PRIVATE options)
 target_precompile_headers(srcc PRIVATE
     include/source/Support/Utils.hh

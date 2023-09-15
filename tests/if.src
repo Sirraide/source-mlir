@@ -1,0 +1,7 @@
+/// { "output": "if 1\nelse 3\n" }
+
+extern proc puts (i8^) nomangle -> i32;
+
+if true then puts("if 1".data);
+if false then puts("if 2".data);
+if false then puts("if 3".data) else puts("else 3".data);

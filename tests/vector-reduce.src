@@ -1,0 +1,10 @@
+/// { "code": 88 }
+
+import sys;
+
+int<4> vec;
+vec = 11;
+vec *= 2;
+
+var sum = vec[+] + vec[*];
+sys.exit((sum - 234256) as i8); /// Note 22**4 = 234256

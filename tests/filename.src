@@ -1,0 +1,4 @@
+/// { "code": 0, "output": "filename.src\n" }
+
+import <stdio.h>;
+puts(__filename__.data);

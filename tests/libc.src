@@ -1,0 +1,5 @@
+/// { "output": "Hello, world!\n" }
+
+import <stdio.h>;
+
+puts("Hello, world!".data);

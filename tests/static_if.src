@@ -1,0 +1,11 @@
+/// { "code": 42 }
+
+import sys;
+
+proc foo -> i8 = 42 as i8;
+
+static if true then sys.exit(foo())
+else {
+    /// Obvious semantic error is discarded with else branch.
+    foo() += 42;
+}

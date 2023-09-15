@@ -1,0 +1,5 @@
+/// { "signal": "SIGTRAP" }
+
+asm {
+    int 3;
+}

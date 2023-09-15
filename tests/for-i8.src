@@ -1,0 +1,4 @@
+/// { "output": "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n" }
+
+extern proc printf (i8^ format) nomangle variadic -> i32;
+for i8 i in (0 as i8)..<(10 as i8) do printf ("%hhu\n".data, i);

@@ -1,0 +1,18 @@
+/// { "code": "44", "skip": true }
+
+proc four (proc^ pointer -> i8, proc closure -> i8) {
+    /// Not deprocedured because it’s assigned to a function pointer variable.
+    proc^ variable -> i8 = pointer;
+
+    /// Not deprocedured because its address is taken explicitly.
+    proc^ explicit_ref -> i8 = &->11 as i8;
+
+    /// Not deprocedured because of type inference.
+    var inferred = pointer;
+
+    /// Deprocedured here.
+    return variable + explicit_ref + inferred + closure;
+}
+
+/// Not deprocedured because it’s passed as proc pointer or closure.
+sys.exit(four(->11 as i8, ->11));

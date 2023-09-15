@@ -1,0 +1,5 @@
+/// { "error": "Function declared with return type i32 must return a value" }
+
+proc foo -> i32 { return; }
+
+foo()

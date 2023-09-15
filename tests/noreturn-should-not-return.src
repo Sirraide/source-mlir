@@ -1,0 +1,5 @@
+/// { "error": "Noreturn function must not return" }
+
+proc foo -> noreturn { return 3; }
+
+foo()

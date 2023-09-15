@@ -1,0 +1,4 @@
+/// { "error": "Type of initialiser is not convertible to declared type: __c_char vs __c_short" }
+
+__c_short a = 42;
+__c_char b = a;

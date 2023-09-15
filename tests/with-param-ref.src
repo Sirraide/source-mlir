@@ -1,0 +1,18 @@
+/// { "code": 42 }
+
+import sys;
+
+struct foo {
+    int x;
+    int y;
+};
+
+foo f;
+
+proc bar (with foo& f) {
+    x = 20;
+    y = 22;
+}
+
+bar (f);
+sys.exit ((f.x + f.y) as i8);

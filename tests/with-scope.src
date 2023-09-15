@@ -1,0 +1,12 @@
+/// { "code": 42 }
+
+import sys;
+
+struct foo {
+    int x;
+    int y;
+};
+
+foo f = (20, 22);
+with f;
+sys.exit ((x + y) as i8);

@@ -1,0 +1,7 @@
+/// { "skip": true, "code": 42 }
+
+import sys;
+
+val int i = 42;
+
+sys.exit(i);

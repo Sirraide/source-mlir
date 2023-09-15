@@ -1,0 +1,5 @@
+/// { "code": 42 }
+
+import sys;
+
+sys.exit((proc() -> i8 = 42)());

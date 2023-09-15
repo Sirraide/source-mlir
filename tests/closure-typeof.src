@@ -1,0 +1,8 @@
+/// { "skip":true, "code": 42 }
+
+import sys;
+
+proc callee -> i8 = 42;
+proc caller (typeof(callee) c) -> i8 = c();
+
+sys.exit(caller(callee))

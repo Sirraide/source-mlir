@@ -1,0 +1,21 @@
+/// { "code": 42 }
+
+import sys;
+
+e (
+    cond 1 == {
+        0: 1;
+        1: 22;
+        else: 1;
+    }
+
+    +
+
+    cond 1 < {
+        0: 1;
+        1: 1;
+        else: 20;
+    }
+);
+
+proc e (int code) = sys.exit(code as i8);

@@ -1,0 +1,15 @@
+/// { "skip": true, "code": 15 }
+
+import sys;
+import libc.stdio.*;
+
+var i = 0;
+var j = 0;
+while j < 10 {
+    i += j;
+    printf("i = %llu, j = %llu\n".data, i, j);
+    if j == 5 then break;
+    j = j + 1;
+}
+
+sys.exit(i as i8);

@@ -1,0 +1,6 @@
+/// { "error": "Unknown name 'bar'" }
+
+import sys;
+
+proc foo (enum bar { a = 22 } f1) { }
+var invalid = bar.a;

@@ -1,0 +1,20 @@
+/// { "code": 42 }
+
+import sys;
+
+proc one() -> i8 {
+    i8 a = 20;
+    return two();
+
+    proc two() -> i8 {
+        i8 b = 20;
+        return three();
+
+        proc three() -> i8 {
+            i8 c = 2;
+            return a + b + c;
+        }
+    }
+}
+
+sys.exit(one());

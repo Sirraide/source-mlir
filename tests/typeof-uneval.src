@@ -1,0 +1,7 @@
+/// { "output": "1\n" }
+
+extern proc printf (i8^) variadic nomangle -> i32;
+
+i8 a = 255;
+typeof(a = 4) b = 2;
+printf("%hhu\n".data, a + b);

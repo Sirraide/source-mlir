@@ -1,0 +1,6 @@
+/// { "output": "infer me!\n" }
+
+extern proc puts (i8^) nomangle -> i32;
+
+var s = "infer me!";
+puts(s.data);

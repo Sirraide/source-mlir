@@ -1,0 +1,16 @@
+/// { "code": 42 }
+
+import sys;
+
+struct foo {
+    int a;
+};
+
+foo[4] arr;
+arr[0].a = 1;
+arr[1].a = 20;
+arr[2].a = 19;
+arr[3].a = 2;
+
+var code = arr[0].a + arr[1].a + arr[2].a + arr[3].a;
+sys.exit(code as i8);

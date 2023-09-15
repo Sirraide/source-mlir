@@ -1,0 +1,8 @@
+/// { "code": 42 }
+
+import sys;
+
+proc foo (int x) -> i8 = 20;
+proc foo (i32 x) -> i8 = 22;
+
+sys.exit(foo(1 as int) + foo(1 as i32));

@@ -1,0 +1,5 @@
+/// { "code": 1 }
+
+import sys;
+
+sys.exit((-9223372036854775808 == i64::min) as i8);

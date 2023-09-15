@@ -1,0 +1,9 @@
+/// { "code": 1 }
+
+import sys;
+
+struct foo { i8 x; };
+
+var eq = foo^::size == foo&&::size;
+
+sys.exit(eq as i8);

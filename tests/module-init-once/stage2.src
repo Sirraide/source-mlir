@@ -1,0 +1,3 @@
+module stage2;
+
+import stage1;

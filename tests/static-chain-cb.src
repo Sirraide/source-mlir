@@ -1,0 +1,23 @@
+/// { "code": 42 }
+
+import sys;
+
+// The first parameter is a closure.
+proc deprocedure_exit (proc () -> i8 cb) = sys.exit(cb());
+
+proc one() {
+    i8 a = 20;
+    two();
+
+    proc two() {
+        i8 b = 20;
+        deprocedure_exit(three);
+
+        proc three() -> i8 {
+            i8 c = 2;
+            return a + b + c;
+        }
+    }
+}
+
+one();

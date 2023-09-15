@@ -1,0 +1,10 @@
+/// { "code": 42 }
+
+import sys;
+
+proc double (i8& x) = ^x *= 2;
+
+i8 x = 21;
+double(x);
+
+sys.exit(x);

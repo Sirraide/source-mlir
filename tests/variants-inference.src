@@ -1,0 +1,12 @@
+/// { "code": 42 }
+
+import sys;
+
+struct foo {
+    int a;
+    variant bar { int b; int c; }
+    variant baz { int d; int e; }
+}
+
+var f = foo (20, bar (10, 12));
+if f is bar then sys.exit((f.a + f.b + f.c) as i8);

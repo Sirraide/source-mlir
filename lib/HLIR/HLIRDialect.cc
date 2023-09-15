@@ -4,26 +4,26 @@
 #include <mlir/IR/Builders.h>
 #include <fmt/format.h>
 
-#include <hlir/HLIRDialect.hh>
-#include <hlir/HLIROpsDialect.cpp.inc>
+#include <source/HLIR/HLIRDialect.hh>
+#include <source/HLIR/HLIROpsDialect.cpp.inc>
 
 #define GET_TYPEDEF_CLASSES
-#include <hlir/HLIROpsTypes.cpp.inc>
+#include <source/HLIR/HLIROpsTypes.cpp.inc>
 
 #define GET_OP_CLASSES
-#include <hlir/HLIROps.cpp.inc>
+#include <source/HLIR/HLIROps.cpp.inc>
 
 // clang-format on
 
 void hlir::HLIRDialect::initialize() {
     addTypes<
 #define GET_TYPEDEF_LIST
-#include <hlir/HLIROpsTypes.cpp.inc>
+#include <source/HLIR/HLIROpsTypes.cpp.inc>
         >();
 
     addOperations<
 #define GET_OP_LIST
-#include <hlir/HLIROps.cpp.inc>
+#include <source/HLIR/HLIROps.cpp.inc>
         >();
 }
 

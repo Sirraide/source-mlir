@@ -1,0 +1,7 @@
+/// { "error": "Expected 2 template arguments, got 1" }
+struct pair (type t, type u) {
+    t a;
+    u b;
+};
+
+pair (i32) p;

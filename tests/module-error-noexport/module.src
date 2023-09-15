@@ -1,0 +1,7 @@
+module test;
+
+/// Exported procedure.
+export proc exported() -> int = 42;
+
+/// Internal procedure.
+proc not_exported() -> int = 43;

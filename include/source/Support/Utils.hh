@@ -256,6 +256,14 @@ constexpr T AlignTo(T value, T align) {
     return value + padding;
 }
 
+/// Used to implement Class::operator new(size_t, T).
+template <typename Class, usz Alignment = alignof(Class)>
+auto AllocateAndRegister(usz sz, auto& owner) -> void* {
+    auto ptr = __builtin_operator_new(sz, std::align_val_t{Alignment});
+    owner.push_back(static_cast<Class*>(ptr));
+    return ptr;
+}
+
 /// Compute the maximum value of an n-bit integer.
 constexpr usz MaxBitValue(usz bits) {
     /// Example for 8 bits:

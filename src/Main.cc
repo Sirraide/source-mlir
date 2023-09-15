@@ -1,11 +1,14 @@
-#include <Core.hh>
-#include <hlir/HLIRDialect.hh>
-#include <hlir/HLIRLowering.hh>
+#include <clopts.hh>
+#include <source/Core.hh>
+#include <source/Frontend/Parser.hh>
+#include <source/Frontend/AST.hh>
+#include <source/HLIR/HLIRDialect.hh>
+#include <source/HLIR/HLIRLowering.hh>
 #include <llvm/Support/PrettyStackTrace.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/Passes.h>
 
-auto get_puts(
+/*auto get_puts(
     mlir::PatternRewriter& rewriter,
     mlir::ModuleOp module,
     mlir::LLVM::LLVMDialect* llvmDialect
@@ -28,15 +31,33 @@ auto get_puts(
         puts_type
     );
     return mlir::SymbolRefAttr::get(ctx, "puts");
-}
+}*/
 
-int main() {
-    llvm::EnablePrettyStackTrace();
+namespace detail {
+using namespace command_line_options;
+using options = clopts< // clang-format off
+    positional<"file", "The file to compile">,
+    help<>
+>; // clang-format on
+}
+using detail::options;
+
+int main(int argc, char** argv) {
+    options::parse(argc, argv);
 
     /// Create context.
-    Context ctx;
+    src::Context ctx;
+    auto& f = ctx.get_or_load_file(*options::get<"file">());
 
-    /// Notes:
+    /// Parse the file. Exit on error since, in that case, the
+    /// parser returns nullptr.
+    auto mod = src::Parser::Parse(ctx, f);
+    if (ctx.has_error()) std::exit(1);
+
+    /// Print the AST of the module.
+    mod->print_ast();
+
+/*    /// Notes:
     /// - ‘freeze’ keyword that makes a value const rather than forcing
     ///   it to be const in the declaration?
     ///
@@ -80,5 +101,5 @@ int main() {
     auto llvm_mod = mlir::translateModuleToLLVMIR(mod, llvm_ctx);
 
     fmt::print("\n=== Module after conversion to LLVM IR ===\n");
-    llvm_mod->dump();
+    llvm_mod->dump();*/
 }

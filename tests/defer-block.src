@@ -1,0 +1,17 @@
+/// { "output": "1\n2\n3\n4\n5\n" }
+
+import <stdio.h>;
+
+proc foo {
+    defer puts("5".data);
+    {
+        defer puts("4".data);
+        {
+            defer puts("2".data);
+            defer puts("1".data);
+        }
+        puts("3".data);
+    }
+}
+
+foo()

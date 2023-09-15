@@ -1,0 +1,5 @@
+/// { "error": "Type of initialiser is not convertible to declared type: int& vs int^" }
+
+int x;
+int^ y = &x;
+int& z = y;

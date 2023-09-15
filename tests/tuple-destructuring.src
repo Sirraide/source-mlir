@@ -1,0 +1,6 @@
+/// { "output": "Hello\nWorld\n" }
+extern proc puts (i8^) nomangle -> i32;
+
+var hello, world = ("Hello".data, "World");
+puts(hello);
+puts(world.data);

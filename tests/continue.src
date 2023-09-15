@@ -1,0 +1,13 @@
+/// { "skip": true, "code": 7 }
+
+import sys;
+import libc.stdio.*;
+
+var i = 0;
+for int j in 0..<5 {
+    if j == 3 then continue;
+    i += j;
+    printf("i = %llu, j = %llu\n".data, i, j);
+}
+
+sys.exit(i as i8);

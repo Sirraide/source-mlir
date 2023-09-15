@@ -1,0 +1,4 @@
+/// { "skip": true }
+
+/// Obviously malformed.
+struct foo { foo f; }

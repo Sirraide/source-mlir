@@ -1,5 +1,5 @@
-#include <hlir/HLIRDialect.hh>
-#include <hlir/HLIRLowering.hh>
+#include <source/HLIR/HLIRDialect.hh>
+#include <source/HLIR/HLIRLowering.hh>
 #include <mlir/Conversion/AffineToStandard/AffineToStandard.h>
 #include <mlir/Conversion/ArithToLLVM/ArithToLLVM.h>
 #include <mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h>
@@ -8,7 +8,7 @@
 #include <mlir/Conversion/LLVMCommon/TypeConverter.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
 #include <mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h>
-#include <Utils.hh>
+#include <source/Support/Utils.hh>
 
 using namespace mlir;
 namespace {
@@ -27,7 +27,7 @@ Value CreateStringLiteral(
 
         auto string_type = LLVM::LLVMArrayType::get(
             IntegerType::get(builder.getContext(), 8),
-            u32(value.size())
+            src::u32(value.size())
         );
 
         op = builder.create<LLVM::GlobalOp>(
@@ -131,7 +131,7 @@ struct HLIRToLLVMLoweringPass
         populateAffineToStdConversionPatterns(patterns);
         populateSCFToControlFlowConversionPatterns(patterns);
         arith::populateArithToLLVMConversionPatterns(tc, patterns);
-        populateMemRefToLLVMConversionPatterns(tc, patterns);
+        populateFinalizeMemRefToLLVMConversionPatterns(tc, patterns);
         cf::populateControlFlowToLLVMConversionPatterns(tc, patterns);
         populateFuncToLLVMConversionPatterns(tc, patterns);
         patterns.add<StringOpLowering, PrintOpLowering>(&getContext());

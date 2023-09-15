@@ -1,0 +1,18 @@
+/// { "output": "e.x = 1, e.y = 2\nf.x = 3, f.y = 4\ng.x = 5, g.y = 6\n" }
+
+extern proc printf (i8^) variadic nomangle -> i32;
+
+struct foo {
+    int x;
+    int y;
+}
+
+proc bar (foo e, foo f, foo g) {
+    printf("e.x = %d, e.y = %d\n".data, e.x, e.y);
+    printf("f.x = %d, f.y = %d\n".data, f.x, f.y);
+    printf("g.x = %d, g.y = %d\n".data, g.x, g.y);
+}
+
+foo a = (1, 2);
+
+bar(a, foo(3, 4), (5, 6));

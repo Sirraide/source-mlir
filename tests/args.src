@@ -1,0 +1,5 @@
+/// { "code": 5 }
+
+import sys;
+
+sys.exit(5 * sys.args().size as i8)
