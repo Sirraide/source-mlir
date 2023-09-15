@@ -41,6 +41,7 @@ public:
         IntType,
         ReferenceType,
         ScopedPointerType,
+        SliceType,
         OptionalType,
         ProcType,
         /// Type [end]
@@ -60,12 +61,46 @@ public:
         ProcDecl,
     };
 
+    class SemaState {
+        enum struct St {
+            NotAnalysed,
+            InProgress,
+            Errored,
+            Ok,
+        };
+
+        St state = St::NotAnalysed;
+
+    public:
+        readonly(bool, analysed, return state == St::Errored or state == St::Ok);
+        readonly(bool, errored, return state == St::Errored);
+        readonly(bool, in_progress, return state == St::InProgress);
+        readonly(bool, ok, return state == St::Ok);
+
+        void set_done() {
+            if (state != St::Errored) state = St::Ok;
+        }
+
+        /// Returns false for convenience.
+        bool set_errored() {
+            state = St::Errored;
+            return false;
+        }
+
+        void set_in_progress() {
+            if (state == St::NotAnalysed) state = St::InProgress;
+        }
+    };
+
 private:
     /// The kind of this expression.
     property_r(const Kind, kind);
 
     /// The location of this expression.
     property_r(Location, location);
+
+    /// State of semantic analysis
+    property_r(SemaState, sema);
 
 public:
     Expr(Kind k, Location loc) : kind_field(k), location_field(loc) {}
@@ -98,12 +133,12 @@ public:
 ///  Typed Expressions
 /// ===========================================================================
 class TypedExpr : public Expr {
-    /// The type of this expression.
-    property_rw(Expr*, type);
-
 public:
+    /// 'type' is already a member of Expr, so don’t use that here.
+    Expr* stored_type;
+
     TypedExpr(Kind k, Expr* type, Location loc)
-        : Expr(k, loc), type_field(type) {}
+        : Expr(k, loc), stored_type(type) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind >= Kind::BlockExpr; }
@@ -127,42 +162,42 @@ public:
 };
 
 class InvokeExpr : public TypedExpr {
-    /// The function being invoked.
-    property_rw(Expr*, callee);
-
     /// The arguments to the function.
     property_r(SmallVector<Expr*>, args);
-
-    /// Initialiser.
-    property_rw(Expr*, init);
 
     /// Whether this is a naked invocation.
     property_r(bool, naked);
 
 public:
+    /// The function being invoked.
+    Expr* callee;
+
+    /// Initialiser.
+    Expr* init;
+
     InvokeExpr(Expr* callee, SmallVector<Expr*> args, bool naked, Expr* init, Location loc)
         : TypedExpr(Kind::InvokeExpr, detail::UnknownType, loc),
-          callee_field(callee),
           args_field(std::move(args)),
-          init_field(init),
-          naked_field(naked) {}
+          naked_field(naked),
+          callee(callee),
+          init(init) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::InvokeExpr; }
 };
 
 class MemberAccessExpr : public TypedExpr {
-    /// The object being accessed.
-    property_rw(Expr*, object);
-
     /// The name of the member being accessed.
     property_r(std::string, member);
 
 public:
+    /// The object being accessed.
+    Expr* object;
+
     MemberAccessExpr(Expr* object, std::string member, Location loc)
         : TypedExpr(Kind::MemberAccessExpr, detail::UnknownType, loc),
-          object_field(object),
-          member_field(std::move(member)) {}
+          member_field(std::move(member)),
+          object(object) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::MemberAccessExpr; }
@@ -172,13 +207,17 @@ class DeclRefExpr : public TypedExpr {
     /// The name of the declaration this refers to.
     property_r(std::string, name);
 
+    /// The scope in which this name was found.
+    property_rw(Scope*, scope);
+
     /// The declaration this refers to.
     property_rw(Expr*, decl);
 
 public:
-    DeclRefExpr(std::string name, Location loc)
+    DeclRefExpr(std::string name, Scope* sc, Location loc)
         : TypedExpr(Kind::DeclRefExpr, detail::UnknownType, loc),
-          name_field(std::move(name)) {}
+          name_field(std::move(name)),
+          scope_field(sc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::DeclRefExpr; }
@@ -300,6 +339,12 @@ public:
     /// Prefer to create new instances of these initially
     /// for better location tracking.
     static BuiltinType* const Void;
+    static BuiltinType* const Unknown;
+
+    /// It is too goddamn easy to forget to dereference at least
+    /// one of the expressions when comparing them w/ operator==,
+    /// so we disallow that altogether.
+    static bool Equal(Expr* a, Expr* b);
 
     /// RTTI.
     static bool classof(const Expr* e) {
@@ -315,6 +360,10 @@ public:
     IntType(isz bits, Location loc)
         : Type(Kind::IntType, loc), bits_field(bits) {}
 
+    static auto Create(Module* mod, isz size, Location loc = {}) -> IntType* {
+        return new (mod) IntType(size, loc);
+    }
+
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::IntType; }
 };
@@ -327,7 +376,9 @@ class BuiltinType : public Type {
 
     /// Create a new builtin type.
     static auto Create(Module* m, BuiltinTypeKind kind, Location loc) -> BuiltinType* {
-        return new (m) BuiltinType(kind, loc);
+        auto bt = new (m) BuiltinType(kind, loc);
+        bt->sema.set_done();
+        return bt;
     }
 
 public:
@@ -398,6 +449,15 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::ScopedPointerType; }
 };
 
+class SliceType : public SingleElementTypeBase {
+public:
+    SliceType(Expr* elem, Location loc)
+        : SingleElementTypeBase(Kind::SliceType, elem, loc) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::SliceType; }
+};
+
 class ProcType : public Type {
     /// The parameter types.
     property_r(SmallVector<Expr*>, param_types);
@@ -449,7 +509,9 @@ public:
         : parent_field{parent}, module_field{mod} {}
 
     /// Declare a symbol in this scope.
-    auto declare(std::string name, Expr* value);
+    void declare(StringRef name, Expr* value) {
+        symbol_table[name].push_back(value);
+    }
 
     /// Mark this scope as a function scope. This cannot be undone.
     void set_function_scope() {
@@ -459,11 +521,10 @@ public:
 
     /// Visit each symbol with the given name.
     template <typename Func>
-    void visit(std::string_view name, Func f, bool this_scope_only) {
+    void visit(StringRef name, bool this_scope_only, Func f) {
         if (auto sym = symbol_table.find(name); sym != symbol_table.end())
-            for (auto& expr : sym->second)
-                std::invoke(f, expr);
-        if (parent and not this_scope_only) parent->visit(name, f, false);
+            std::invoke(f, sym->second);
+        if (parent and not this_scope_only) parent->visit(name, false, f);
     }
 };
 } // namespace src

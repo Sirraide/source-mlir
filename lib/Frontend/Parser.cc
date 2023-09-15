@@ -99,7 +99,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             break;
 
         case Tk::Identifier:
-            lhs = new (mod) DeclRefExpr(tok.text, tok.location);
+            lhs = new (mod) DeclRefExpr(tok.text, curr_scope, tok.location);
             Next();
             break;
 
@@ -290,8 +290,8 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
 
     /// Create the procedure.
     if (IsError(body)) return body;
-    return new (mod) ProcDecl(
-        sig.name,
+    auto proc = new (mod) ProcDecl(
+        std::move(sig.name),
         sig.type,
         std::move(sig.param_decls),
         *body,
@@ -299,6 +299,10 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
         sig.is_nomangle ? Mangling::None : Mangling::Source,
         *body ? Location{sig.loc, body->location} : sig.loc
     );
+
+    /// Add it to the current scope.
+    curr_scope->declare(proc->name, proc);
+    return proc;
 }
 
 /// <proc-signature> ::= [ <proc-args> ] [ <proc-ret> ] { <proc-attrs> }
@@ -380,8 +384,9 @@ auto src::Parser::ParseType() -> Result<Expr*> {
     }
 
     /// Parse qualifiers.
-    while (Consume(Tk::Ampersand)) {
+    while (At(Tk::Ampersand)) {
         base_type = new (mod) ReferenceType(base_type, {base_type->location, curr_loc});
+        Next();
     }
 
     return base_type;

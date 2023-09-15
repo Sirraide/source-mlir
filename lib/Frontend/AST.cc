@@ -7,6 +7,7 @@ src::BuiltinType VoidTypeInstance{src::BuiltinTypeKind::Void, {}};
 } // namespace
 src::Expr* const src::detail::UnknownType = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Void = &VoidTypeInstance;
+src::BuiltinType* const src::Type::Unknown = &UnknownTypeInstance;
 
 /// ===========================================================================
 ///  Expressions
@@ -22,7 +23,7 @@ auto src::Expr::_type() -> Expr* {
         case Kind::StringLiteralExpr:
         case Kind::ParamDecl:
         case Kind::ProcDecl:
-            return cast<TypedExpr>(this)->type;
+            return cast<TypedExpr>(this)->stored_type;
 
         /// Already a type.
         case Kind::BuiltinType:
@@ -32,6 +33,7 @@ auto src::Expr::_type() -> Expr* {
         case Kind::OptionalType:
         case Kind::ProcType:
         case Kind::IntType:
+        case Kind::SliceType:
             return this;
     }
 }
@@ -55,6 +57,7 @@ auto src::Expr::type_str(bool use_colour) const -> std::string {
         case Kind::ReferenceType: WriteSElem("&"); break;
         case Kind::ScopedPointerType: WriteSElem("^"); break;
         case Kind::OptionalType: WriteSElem("?"); break;
+        case Kind::SliceType: WriteSElem("[]"); break;
         case Kind::IntType: out += fmt::format("i{}", cast<IntType>(this)->bits); break;
 
         case Kind::BuiltinType: {
@@ -72,7 +75,7 @@ auto src::Expr::type_str(bool use_colour) const -> std::string {
             }
         } break;
 
-        case Kind::ProcType:  {
+        case Kind::ProcType: {
             auto p = cast<ProcType>(this);
             out += fmt::format("{}proc", C(Red));
 
@@ -105,11 +108,63 @@ auto src::Expr::type_str(bool use_colour) const -> std::string {
         case Kind::StringLiteralExpr:
         case Kind::ParamDecl:
         case Kind::ProcDecl:
-            return cast<TypedExpr>(this)->type->type_str(use_colour);
+            return cast<TypedExpr>(this)->stored_type->type_str(use_colour);
     }
 
     out += C(Reset);
     return out;
+}
+
+bool src::Type::Equal(Expr* a, Expr* b) {
+    /// Non-types are never equal.
+    if (not isa<Type>(a) or not isa<Type>(b)) return false;
+
+    /// Types of different kinds are never equal.
+    if (a->kind != b->kind) return false;
+    switch (a->kind) {
+        case Kind::BuiltinType:
+            return cast<BuiltinType>(a)->builtin_kind == cast<BuiltinType>(b)->builtin_kind;
+
+        case Kind::FFIType:
+            return cast<FFIType>(a)->ffi_kind == cast<FFIType>(b)->ffi_kind;
+
+        case Kind::IntType:
+            return cast<IntType>(a)->bits == cast<IntType>(b)->bits;
+
+        case Kind::ReferenceType:
+        case Kind::ScopedPointerType:
+        case Kind::SliceType:
+        case Kind::OptionalType: {
+            return Type::Equal(
+                cast<SingleElementTypeBase>(a)->elem,
+                cast<SingleElementTypeBase>(b)->elem
+            );
+        }
+
+        case Kind::ProcType: {
+            auto pa = cast<ProcType>(a);
+            auto pb = cast<ProcType>(b);
+
+            if (pa->param_types.size() != pb->param_types.size()) return false;
+            for (auto [p1, p2] : llvm::zip_equal(pa->param_types, pb->param_types))
+                if (not Type::Equal(p1, p2))
+                    return false;
+
+            return Type::Equal(pa->ret_type, pb->ret_type);
+        }
+
+        case Kind::BlockExpr:
+        case Kind::InvokeExpr:
+        case Kind::MemberAccessExpr:
+        case Kind::DeclRefExpr:
+        case Kind::IntegerLiteralExpr:
+        case Kind::StringLiteralExpr:
+        case Kind::ParamDecl:
+        case Kind::ProcDecl:
+            Unreachable();
+    }
+
+    Unreachable();
 }
 
 /// ===========================================================================
@@ -277,6 +332,7 @@ struct ASTPrinter {
             case K::ScopedPointerType:
             case K::OptionalType:
             case K::IntType:
+            case K::SliceType:
                 PrintBasicNode(R"(<type>)", e, e);
                 return;
         }
@@ -307,6 +363,7 @@ struct ASTPrinter {
             case K::ScopedPointerType:
             case K::OptionalType:
             case K::IntType:
+            case K::SliceType:
                 break;
 
             case K::DeclRefExpr: {

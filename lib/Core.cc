@@ -276,6 +276,8 @@ src::Module::Module(Context* ctx, std::string name, Location module_decl_locatio
         Mangling::None,
         {},
     };
+
+    add_function(top_level_func_field);
 }
 
 /// ===========================================================================
