@@ -4,7 +4,7 @@
 #include <source/Support/Utils.hh>
 
 namespace src {
-/// String table that stores interned, null-terminated strings.
+/// String table that stores interned strings that are *not* null-terminated.
 class StringTable {
     SmallVector<std::string, 0> data;
 

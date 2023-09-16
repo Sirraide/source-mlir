@@ -315,7 +315,6 @@ set_target_properties(srcc PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE
 target_link_libraries(srcc PRIVATE options)
 target_precompile_headers(srcc PRIVATE
     include/source/Support/Utils.hh
-    include/source/HLIR/HLIRDialect.hh
 )
 #llvm_update_compile_flags(srcc)
 #mlir_check_all_link_libraries(srcc)

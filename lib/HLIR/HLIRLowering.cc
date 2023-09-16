@@ -77,7 +77,7 @@ struct StringOpLowering : public ConversionPattern {
         return success();
     }
 };
-
+/*
 struct PrintOpLowering : public ConversionPattern {
     explicit PrintOpLowering(MLIRContext* ctx)
         : ConversionPattern(hlir::PrintOp::getOperationName(), 1, ctx) {
@@ -114,7 +114,7 @@ struct PrintOpLowering : public ConversionPattern {
         rewriter.eraseOp(op);
         return success();
     }
-};
+};*/
 
 struct HLIRToLLVMLoweringPass
     : public PassWrapper<HLIRToLLVMLoweringPass, OperationPass<ModuleOp>> {
@@ -134,7 +134,7 @@ struct HLIRToLLVMLoweringPass
         populateFinalizeMemRefToLLVMConversionPatterns(tc, patterns);
         cf::populateControlFlowToLLVMConversionPatterns(tc, patterns);
         populateFuncToLLVMConversionPatterns(tc, patterns);
-        patterns.add<StringOpLowering, PrintOpLowering>(&getContext());
+        patterns.add<StringOpLowering/*, PrintOpLowering*/>(&getContext());
 
         auto module = getOperation();
         if (failed(applyFullConversion(module, target, std::move(patterns))))

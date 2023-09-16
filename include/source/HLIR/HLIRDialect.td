@@ -45,8 +45,21 @@ class HLIR_Type<string name, string type_mnemonic, list<Trait> traits = []> :
     let mnemonic = type_mnemonic;
 }
 
-def HLIR_StringType : HLIR_Type<"String", "string">;
+def HLIR_SliceType : HLIR_Type<"Slice", "slice"> {
+    let parameters = (ins "Type":$elem);
+    let assemblyFormat = "$elem `[` `]`";
+    let builders = [
+        TypeBuilderWithInferredContext<(ins "Type":$elem), [{
+            return $_get(elem.getContext(), elem);
+        }]>
+    ];
+}
 
-def HLIR_Type : AnyTypeOf<[HLIR_StringType]>;
+def HLIR_Type : AnyTypeOf<[
+    Builtin_None,
+    Builtin_Index,
+    Builtin_Integer,
+    HLIR_SliceType,
+]>;
 
 #endif // HLIR_DIALECT_TD

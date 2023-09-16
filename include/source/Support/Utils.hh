@@ -53,6 +53,7 @@ using llvm::SmallVectorImpl;
 using llvm::StringMap;
 using llvm::StringRef;
 using llvm::Twine;
+using llvm::APInt;
 
 using llvm::cast;
 using llvm::dyn_cast;

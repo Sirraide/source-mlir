@@ -6,6 +6,7 @@
 #include <source/Frontend/AST.hh>
 #include <source/Frontend/Parser.hh>
 #include <source/Frontend/Sema.hh>
+#include <source/CG/CodeGen.hh>
 #include <source/HLIR/HLIRDialect.hh>
 #include <source/HLIR/HLIRLowering.hh>
 
@@ -39,6 +40,9 @@ using namespace command_line_options;
 using options = clopts< // clang-format off
     positional<"file", "The file to compile">,
     flag<"--syntax-only", "Skip the semantic analysis step">,
+    flag<"--ast", "Print the AST of the module after parsing">,
+    flag<"--hlir", "Print the HLIR of the module">,
+    flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
     help<>
 >; // clang-format on
 }
@@ -58,14 +62,27 @@ int main(int argc, char** argv) {
 
     /// Print the AST of the module, if requested.
     if (options::get<"--syntax-only">()) {
-        mod->print_ast();
+        if (options::get<"--ast">()) mod->print_ast();
         std::exit(0);
     }
 
     /// Perform semantic analysis.
     src::Sema::Analyse(mod.get());
     if (ctx.has_error()) std::exit(1);
-    mod->print_ast();
+    if (options::get<"--ast">()) {
+        mod->print_ast();
+        std::exit(0);
+    }
+
+    /// Generate HLIR. If this fails, that’s an ICE, so no
+    /// need for error checking here.
+    src::CodeGen::Generate(mod.get());
+    if (options::get<"--hlir">()) {
+        mod->print_hlir(options::get<"--use-generic-assembly-format">());
+        std::exit(0);
+    }
+
+
 
     /*    /// Notes:
         /// - ‘freeze’ keyword that makes a value const rather than forcing

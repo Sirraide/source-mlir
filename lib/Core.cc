@@ -57,8 +57,8 @@ void src::Context::Initialise() {
     llvm::InitializeAllTargetMCs();
     llvm::InitializeAllAsmParsers();
     llvm::InitializeAllAsmPrinters();
-    mlir::registerAllDialects(mlir_ctx);
-    mlir_ctx.loadDialect<hlir::HLIRDialect>();
+    mlir::registerAllDialects(mlir);
+    mlir.loadDialect<hlir::HLIRDialect>();
 }
 
 auto src::Context::MakeFile(fs::path name, std::vector<char>&& contents) -> File& {

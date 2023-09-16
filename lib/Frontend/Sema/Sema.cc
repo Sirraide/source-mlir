@@ -205,6 +205,7 @@ bool src::Sema::Analyse(src::Expr*& e) {
                 }
 
                 /// Otherwise, we’ve found the declaration.
+                Analyse(decls.front());
                 d->decl = decls.front();
             });
 

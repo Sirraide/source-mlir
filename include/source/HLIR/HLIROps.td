@@ -33,31 +33,28 @@ def FuncOp : HLIR_Op<"func", [FunctionOpInterface, IsolatedFromAbove]> {
     let skipDefaultBuilders = 1;
 }
 
-def PrintOp : HLIR_Op<"print"> {
-    let summary = "Print";
-    let arguments = (ins HLIR_Type:$value);
-    let assemblyFormat = "$value attr-dict `:` type($value)";
-    let hasVerifier = 1;
-}
-
 def StringOp : HLIR_Op<"string"> {
     let summary = "String literal";
-    let arguments = (ins StrAttr:$value);
-    let results = (outs HLIR_StringType);
+    let arguments = (ins StrAttr:$value, IndexAttr:$index);
+    let results = (outs HLIR_SliceType:$type);
 
     let builders = [
-        OpBuilder<(ins "::mlir::StringAttr":$value), [{
-            /// Call auto-generated function.
-            build($_builder, $_state, value.getType(), value);
+        OpBuilder<(ins "::mlir::StringAttr":$value, "::mlir::IntegerAttr":$index), [{
+            build($_builder, $_state, value.getType(), value, index);
         }]>,
 
-        OpBuilder<(ins "::llvm::StringRef":$value), [{
-            /// Call auto-generated function.
-            build($_builder, $_state, StringType::get($_builder.getContext()), value);
-        }]>
+        OpBuilder<(ins "::llvm::StringRef":$value, "::llvm::APInt":$index), [{
+            build(
+                $_builder,
+                $_state,
+                hlir::SliceType::get(IntegerType::get($_state.getContext(), 8)),
+                value,
+                index
+            );
+        }]>,
     ];
 
-    let assemblyFormat = "$value attr-dict";
+    let assemblyFormat = "$index `,` $value attr-dict `:` type($type)";
     let hasVerifier = 1;
 }
 

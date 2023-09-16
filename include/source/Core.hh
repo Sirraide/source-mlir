@@ -2,7 +2,10 @@
 #define SOURCE_INCLUDE_CONTEXT_HH
 
 #include <llvm/MC/TargetRegistry.h>
+#include <source/HLIR/HLIRDialect.hh>
+#include <llvm/IR/Module.h>
 #include <mlir/IR/BuiltinDialect.h>
+#include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/MLIRContext.h>
 #include <source/Support/StringTable.hh>
 #include <source/Support/Utils.hh>
@@ -86,8 +89,8 @@ class Context {
     const llvm::Target* tgt;
 
     /// Contexts.
-    mlir::MLIRContext mlir_ctx;
-    llvm::LLVMContext llvm_ctx;
+    property_r(mlir::MLIRContext, mlir);
+    property_r(llvm::LLVMContext, llvm);
 
     /// Modules in the context.
     std::vector<std::unique_ptr<Module>> modules;
@@ -133,12 +136,6 @@ public:
 
     /// Check if the error flag is set.
     [[nodiscard]] bool has_error() const { return error_flag; }
-
-    /// Get LLVM context.
-    [[nodiscard]] auto llvm() -> llvm::LLVMContext& { return llvm_ctx; }
-
-    /// Get MLIR context.
-    [[nodiscard]] auto mlir() -> mlir::MLIRContext& { return mlir_ctx; }
 
     /// Set the error flag.
     ///
@@ -239,6 +236,9 @@ struct Location {
 
     [[nodiscard]] constexpr bool is_valid() const { return len != 0; }
 
+    /// Get this location as an MLIR Location. Implemented in CodeGen.cc.
+    [[nodiscard]] auto mlir(Context* ctx) const -> mlir::Location;
+
     /// Seek to a source location.
     [[nodiscard]] auto seek(const Context* ctx) const -> LocInfo;
 
@@ -277,13 +277,6 @@ struct ImportedModuleRef {
 class Module {
     property_r(Context* const, context);
 
-    /// Associated MLIR module op.
-    mlir::ModuleOp mlir;
-
-    /// Associated LLVM module. This is null for
-    /// imported modules.
-    std::unique_ptr<llvm::Module> llvm;
-
     /// Modules imported by this module.
     property_r(SmallVector<ImportedModuleRef>, imports);
 
@@ -318,6 +311,13 @@ class Module {
     readonly(bool, is_logical_module, return not name.empty());
 
 public:
+    /// Associated MLIR module op.
+    mlir::ModuleOp mlir;
+
+    /// Associated LLVM module. This is null for
+    /// imported modules.
+    std::unique_ptr<llvm::Module> llvm;
+
     /// An empty name means this isn’t a logical module.
     explicit Module(Context* ctx, std::string name, Location module_decl_location = {});
 
@@ -327,6 +327,9 @@ public:
     /// Print the AST of the module to stdout. Implemented
     /// in AST.cc
     void print_ast() const;
+
+    /// Print the HLIR of the module. Implemented in CodeGen.cc.
+    void print_hlir(bool use_generic_assembly_format) const;
 };
 
 /// A diagnostic. The diagnostic is issued when the destructor is called.
