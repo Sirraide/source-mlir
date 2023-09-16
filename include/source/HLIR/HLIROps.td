@@ -55,7 +55,72 @@ def StringOp : HLIR_Op<"string"> {
     ];
 
     let assemblyFormat = "$index `,` $value attr-dict `:` type($type)";
-    let hasVerifier = 1;
+    let hasVerifier = 0;
+}
+
+def SliceDataOp : HLIR_Op<"slice_data"> {
+    let summary = "Get the data pointer of a slice";
+    let arguments = (ins HLIR_SliceType:$operand);
+    let results = (outs HLIR_ReferenceType:$type);
+    let assemblyFormat = "$operand attr-dict `:` type($type) `of` type($operand)";
+    let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins "::mlir::Value":$operand), [{
+            build(
+                $_builder,
+                $_state,
+                ReferenceType::get($_state.getContext(), operand.getType().cast<SliceType>().getElem()),
+                operand
+            );
+        }]>
+    ];
+}
+
+def SliceSizeOp : HLIR_Op<"slice_size"> {
+    let summary = "Get the size of a slice";
+    let arguments = (ins HLIR_SliceType:$operand);
+    let results = (outs Builtin_Index:$type);
+    let assemblyFormat = "$operand attr-dict `:` type($operand)";
+    let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins "::mlir::Value":$operand), [{
+            build(
+                $_builder,
+                $_state,
+                IndexType::get($_state.getContext()),
+                operand
+            );
+        }]>
+    ];
+}
+
+def GlobalRefOp : HLIR_Op<"global_ref"> {
+    let summary = "Get a reference to a global variable";
+    let arguments = (ins SymbolRefAttr:$name);
+    let results = (outs HLIR_ReferenceType:$type);
+    let assemblyFormat = "$name attr-dict `:` type($type)";
+    let hasVerifier = 0;
+}
+
+def LoadOp : HLIR_Op<"load"> {
+    let summary = "Load a value from a reference";
+    let arguments = (ins HLIR_ReferenceType:$operand);
+    let results = (outs HLIR_Type:$type);
+    let assemblyFormat = "$operand attr-dict `:` type($type) `from` type($operand)";
+    let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins "::mlir::Value":$operand), [{
+            build(
+                $_builder,
+                $_state,
+                ReferenceType::get($_state.getContext(), operand.getType().cast<ReferenceType>().getElem()),
+                operand
+            );
+        }]>
+    ];
 }
 
 #endif // HLIR_OPS_TD

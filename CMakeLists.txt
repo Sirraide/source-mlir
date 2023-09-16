@@ -124,7 +124,7 @@ if (NOT MSVC)
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
     target_link_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g3 -ggdb3>
+        $<$<CONFIG:DEBUG>:-O0 -g3 -ggdb3 -Wl,-export_dynamic>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
 else()
@@ -278,7 +278,7 @@ add_mlir_dialect_library(MLIRSourceHLIR
     LINK_LIBS PUBLIC MLIRIR
 )
 
-include_directories("${CMAKE_CURRENT_BINARY_DIR}/include")
+include_directories(SYSTEM "${CMAKE_CURRENT_BINARY_DIR}/include")
 
 
 

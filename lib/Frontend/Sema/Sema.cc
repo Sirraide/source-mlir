@@ -16,6 +16,12 @@ bool src::Sema::Convert(Expr*& e, Expr* type) {
     return Error(e, "Cannot convert from '{}' to '{}'", e->type, type);
 }
 
+void src::Sema::InsertLValueToRValueConversion(src::Expr*& e) {
+    Expr* cast = new (mod) CastExpr(CastKind::LValueToRValue, e, Type::Unknown, e->location);
+    Analyse(cast);
+    e = cast;
+}
+
 bool src::Sema::MakeDeclType(src::Expr*& e) {
     if (not AnalyseAsType(e)) return false;
     if (Type::Equal(e, Type::Void)) return Error(e, "Cannot declare a variable of type 'void'");
@@ -31,6 +37,7 @@ bool src::Sema::MakeDeclType(src::Expr*& e) {
 bool src::Sema::Analyse(src::Expr*& e) {
     /// Don’t analyse the same expression twice.
     if (e->sema.analysed or e->sema.in_progress) return e->sema.ok;
+    if (e->sema.errored) return false;
     e->sema.set_in_progress();
     defer { e->sema.set_done(); };
     switch (e->kind) {
@@ -48,9 +55,12 @@ bool src::Sema::Analyse(src::Expr*& e) {
         /// String literals are u8 slices.
         case Expr::Kind::StringLiteralExpr: {
             auto str = cast<StrLitExpr>(e);
+            auto loc = str->location;
             Expr* u8 = IntType::Create(mod, 8);
             Analyse(u8);
-            str->stored_type = new (mod) SliceType(u8, str->location);
+
+            /// Strings are lvalues.
+            str->stored_type = new (mod) ReferenceType(new (mod) SliceType(u8, loc), loc);
             Analyse(str->stored_type);
         } break;
 
@@ -167,12 +177,27 @@ bool src::Sema::Analyse(src::Expr*& e) {
             }
         } break;
 
+        /// Cast expression.
+        case Expr::Kind::CastExpr: {
+            auto m = cast<CastExpr>(e);
+            Analyse(m->operand);
+            switch (m->cast_kind) {
+                case CastKind::LValueToRValue: {
+                    /// Only inserted by sema.
+                    auto ref = cast<ReferenceType>(m->operand->type);
+                    m->stored_type = ref->elem;
+                } break;
+            }
+        } break;
+
         /// Member access into a type.
         case Expr::Kind::MemberAccessExpr: {
             auto m = cast<MemberAccessExpr>(e);
             if (not Analyse(m->object)) return e->sema.set_errored();
 
-            /// TODO: If the object is a reference type, dereference it.
+            /// If the object is a reference type, dereference it.
+            while (isa<ReferenceType>(m->object->type))
+                InsertLValueToRValueConversion(m->object);
 
             /// A slice type has a `data` and a `size` member.
             if (auto slice = dyn_cast<SliceType>(m->object->type)) {

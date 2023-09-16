@@ -23,6 +23,7 @@ auto src::Expr::_type() -> Expr* {
         case Kind::StringLiteralExpr:
         case Kind::ParamDecl:
         case Kind::ProcDecl:
+        case Kind::CastExpr:
             return cast<TypedExpr>(this)->stored_type;
 
         /// Already a type.
@@ -108,6 +109,7 @@ auto src::Expr::type_str(bool use_colour) const -> std::string {
         case Kind::StringLiteralExpr:
         case Kind::ParamDecl:
         case Kind::ProcDecl:
+        case Kind::CastExpr:
             return cast<TypedExpr>(this)->stored_type->type_str(use_colour);
     }
 
@@ -161,6 +163,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::StringLiteralExpr:
         case Kind::ParamDecl:
         case Kind::ProcDecl:
+        case Kind::CastExpr:
             Unreachable();
     }
 
@@ -316,13 +319,37 @@ struct ASTPrinter {
                 return;
             }
 
+            case K::CastExpr: {
+                auto c = cast<CastExpr>(e);
+                PrintBasicHeader("CastExpr", e);
+                out += C(Red);
+                switch (c->cast_kind) {
+                    case CastKind::LValueToRValue: out += " LValueToRValue"; break;
+                }
+                out += fmt::format(
+                    " {}\n",
+                    c->type_str(use_colour)
+                );
+                return;
+            }
+
             case K::BlockExpr:
                 if (cast<BlockExpr>(e)->implicit) out += fmt::format("{}Implicit ", C(Red));
                 PrintBasicNode("BlockExpr", e, e->type);
                 return;
 
             case K::InvokeExpr: PrintBasicNode("InvokeExpr", e, e->type); return;
-            case K::MemberAccessExpr: PrintBasicNode("MemberAccessExpr", e, e->type); return;
+            case K::MemberAccessExpr: {
+                auto m = cast<MemberAccessExpr>(e);
+                PrintBasicHeader("MemberAccessExpr", e);
+                out += fmt::format(
+                    " {} {}{}\n",
+                    m->type_str(use_colour),
+                    C(Magenta),
+                    m->member
+                );
+                return;
+            }
 
             /// We don’t print types here.
             case K::ProcType:
@@ -389,6 +416,10 @@ struct ASTPrinter {
                 auto m = cast<MemberAccessExpr>(e);
                 PrintChildren(m->object, leading_text);
             } break;
+
+            case K::CastExpr:
+                PrintChildren(cast<CastExpr>(e)->operand, leading_text);
+                break;
         }
     }
 

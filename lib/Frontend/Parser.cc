@@ -291,6 +291,7 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
     /// Create the procedure.
     if (IsError(body)) return body;
     auto proc = new (mod) ProcDecl(
+        mod,
         std::move(sig.name),
         sig.type,
         std::move(sig.param_decls),

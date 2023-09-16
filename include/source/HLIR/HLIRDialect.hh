@@ -7,6 +7,8 @@
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/Dialect/Index/IR/IndexDialect.h>
+#include <mlir/Dialect/Index/IR/IndexOps.h>
 #include <mlir/Interfaces/SideEffectInterfaces.h>
 #include <mlir/IR/Attributes.h>
 #include <mlir/IR/Builders.h>

@@ -64,6 +64,8 @@ private:
         return false;
     }
 
+    void InsertLValueToRValueConversion(Expr*& e);
+
     bool MakeDeclType(Expr*& e);
 
     template <typename T>

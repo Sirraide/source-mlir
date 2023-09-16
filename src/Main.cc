@@ -2,13 +2,13 @@
 #include <llvm/Support/PrettyStackTrace.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/Passes.h>
+#include <source/CG/CodeGen.hh>
+#include <source/CG/HLIRLowering.hh>
 #include <source/Core.hh>
 #include <source/Frontend/AST.hh>
 #include <source/Frontend/Parser.hh>
 #include <source/Frontend/Sema.hh>
-#include <source/CG/CodeGen.hh>
 #include <source/HLIR/HLIRDialect.hh>
-#include <source/HLIR/HLIRLowering.hh>
 
 /*auto get_puts(
     mlir::PatternRewriter& rewriter,
@@ -43,12 +43,14 @@ using options = clopts< // clang-format off
     flag<"--ast", "Print the AST of the module after parsing">,
     flag<"--hlir", "Print the HLIR of the module">,
     flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
+    flag<"--llvm", "Print the LLVM IR of the module">,
     help<>
 >; // clang-format on
 }
 using detail::options;
 
 int main(int argc, char** argv) {
+    llvm::EnablePrettyStackTrace();
     options::parse(argc, argv);
 
     /// Create context.
@@ -77,12 +79,19 @@ int main(int argc, char** argv) {
     /// Generate HLIR. If this fails, that’s an ICE, so no
     /// need for error checking here.
     src::CodeGen::Generate(mod.get());
+    if (ctx.has_error()) std::exit(1);
     if (options::get<"--hlir">()) {
         mod->print_hlir(options::get<"--use-generic-assembly-format">());
         std::exit(0);
     }
 
-
+    /// Lower HLIR to LLVM IR.
+    src::LowerToLLVM(mod.get());
+    if (ctx.has_error()) std::exit(1);
+    if (options::get<"--llvm">()) {
+        mod->print_llvm();
+        std::exit(0);
+    }
 
     /*    /// Notes:
         /// - ‘freeze’ keyword that makes a value const rather than forcing

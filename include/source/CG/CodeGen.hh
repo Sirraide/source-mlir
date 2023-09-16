@@ -2,6 +2,7 @@
 #define SOURCE_CG_CODEGEN_HH
 
 #include <mlir/IR/Builders.h>
+#include <source/HLIR/HLIRDialect.hh>
 #include <source/Core.hh>
 
 namespace src {
@@ -25,6 +26,7 @@ public:
     }
 
 private:
+    void Generate(Expr* expr);
     void GenerateModule();
     void GenerateProcedure(ProcDecl* proc);
 

@@ -1,8 +1,9 @@
+#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/Unicode.h>
 #include <llvm/Target/TargetOptions.h>
-#include <llvm/Support/TargetSelect.h>
 #include <llvm/TargetParser/Host.h>
 #include <mlir/InitAllDialects.h>
+#include <mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h>
 #include <random>
 #include <source/Core.hh>
 #include <source/Frontend/AST.hh>
@@ -58,7 +59,18 @@ void src::Context::Initialise() {
     llvm::InitializeAllAsmParsers();
     llvm::InitializeAllAsmPrinters();
     mlir::registerAllDialects(mlir);
-    mlir.loadDialect<hlir::HLIRDialect>();
+    mlir::registerBuiltinDialectTranslation(mlir);
+    mlir::registerLLVMDialectTranslation(mlir);
+    mlir.loadDialect< // clang-format off
+        hlir::HLIRDialect,
+        mlir::func::FuncDialect,
+        mlir::scf::SCFDialect,
+        mlir::affine::AffineDialect,
+        mlir::LLVM::LLVMDialect,
+        mlir::index::IndexDialect
+    >(); // clang-format on
+    mlir.printOpOnDiagnostic(true);
+    mlir.printStackTraceOnDiagnostic(true);
 }
 
 auto src::Context::MakeFile(fs::path name, std::vector<char>&& contents) -> File& {
@@ -268,6 +280,7 @@ src::Module::Module(Context* ctx, std::string name, Location module_decl_locatio
       module_decl_location_field(module_decl_location) {
     top_level_func_field = new (this) ProcDecl{
         /// TODO: Move 'main' into runtime.
+        this,
         is_logical_module ? fmt::format("_S.static.initialisation.{}", name) : "main",
         new (this) ProcType({}, BuiltinType::Void(this), {}),
         {},
@@ -276,8 +289,6 @@ src::Module::Module(Context* ctx, std::string name, Location module_decl_locatio
         Mangling::None,
         {},
     };
-
-    add_function(top_level_func_field);
 }
 
 /// ===========================================================================

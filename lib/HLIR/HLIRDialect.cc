@@ -70,7 +70,3 @@ void hlir::FuncOp::print(::mlir::OpAsmPrinter& p) {
         getResAttrsAttrName()
     );
 }
-
-auto hlir::StringOp::verify() -> mlir::LogicalResult {
-    return mlir::success(getType().getType().getElem().isInteger(8));
-}

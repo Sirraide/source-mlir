@@ -1,6 +1,7 @@
 #ifndef SOURCE_FRONTEND_AST_HH
 #define SOURCE_FRONTEND_AST_HH
 
+#include <mlir/IR/Value.h>
 #include <source/Core.hh>
 #include <source/Support/Result.hh>
 
@@ -49,6 +50,7 @@ public:
         /// TypedExpr [begin]
         BlockExpr,
         InvokeExpr,
+        CastExpr,
         MemberAccessExpr,
         DeclRefExpr,
         IntegerLiteralExpr,
@@ -102,6 +104,11 @@ private:
     /// State of semantic analysis
     property_r(SemaState, sema);
 
+    /// Whether this expression has already been emitted.
+    property_rw(bool, emitted);
+
+    /// The MLIR value of this expression.
+    property_rw(mlir::Value, mlir);
 public:
     Expr(Kind k, Location loc) : kind_field(k), location_field(loc) {}
 
@@ -132,6 +139,10 @@ public:
 /// ===========================================================================
 ///  Typed Expressions
 /// ===========================================================================
+enum struct CastKind {
+    LValueToRValue,
+};
+
 class TypedExpr : public Expr {
 public:
     /// 'type' is already a member of Expr, so don’t use that here.
@@ -184,6 +195,25 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::InvokeExpr; }
+};
+
+class CastExpr : public TypedExpr {
+    /// The kind of this cast.
+    property_r(CastKind, cast_kind);
+
+public:
+    /// The expression being cast.
+    Expr* operand;
+
+    CastExpr(CastKind kind, Expr* expr, Expr* type, Location loc)
+        : TypedExpr(Kind::CastExpr, type, loc),
+          cast_kind_field(kind),
+          operand(expr) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::CastExpr; }
+
+
 };
 
 class MemberAccessExpr : public TypedExpr {
@@ -272,6 +302,10 @@ class ObjectDecl : public Decl {
     property_r(Mangling, mangling);
 
 public:
+    /// Whether this decl is imported or exported.
+    readonly(bool, imported, return linkage == Linkage::Imported or linkage == Linkage::Reexported);
+    readonly(bool, exported, return linkage == Linkage::Exported or linkage == Linkage::Reexported);
+
     ObjectDecl(Kind k, std::string name, Expr* type, Linkage linkage, Mangling mangling, Location loc)
         : Decl(k, std::move(name), type, loc),
           linkage_field(linkage),
@@ -299,6 +333,7 @@ class ProcDecl : public ObjectDecl {
 
 public:
     ProcDecl(
+        Module* mod,
         std::string name,
         Expr* type,
         SmallVector<ParamDecl*> params,
@@ -308,7 +343,9 @@ public:
         Location loc
     ) : ObjectDecl(Kind::ProcDecl, std::move(name), type, linkage, mangling, loc),
         params_field(std::move(params)),
-        body_field(body) {}
+        body_field(body) {
+        mod->add_function(this);
+    }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ProcDecl; }
