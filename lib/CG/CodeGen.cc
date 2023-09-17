@@ -129,11 +129,15 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::DeclRefExpr: {
-            /// If the operand is a function, create a function constant.
             auto e = cast<DeclRefExpr>(expr);
-            if (auto f = dyn_cast<ProcDecl>(e->decl)) {
-                Generate(e->decl);
-                e->mlir = e->decl->mlir;
+
+            /// If the operand is a function, create a function constant.
+            if (auto p = dyn_cast<ProcDecl>(e->decl)) {
+                e->mlir = builder.create<mlir::func::ConstantOp>(
+                    e->location.mlir(ctx),
+                    Ty(p->type),
+                    mlir::SymbolRefAttr::get(mctx, p->name)
+                );
             } else {
                 Unreachable();
             }
@@ -258,14 +262,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
             );
         } break;
 
-        case Expr::Kind::ProcDecl: {
-            auto e = cast<ProcDecl>(expr);
-            e->mlir = builder.create<mlir::func::ConstantOp>(
-                e->location.mlir(ctx),
-                Ty(e->type),
-                mlir::SymbolRefAttr::get(mctx, e->name)
-            );
-        } break;
+        /// Handled by the code that emits a DeclRefExpr.
+        case Expr::Kind::ProcDecl: break;
 
         case Expr::Kind::IntegerLiteralExpr:
         case Expr::Kind::ParamDecl:
@@ -307,14 +305,14 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
     /// Create the function.
     auto ty = Ty(proc->type);
 
-/*
-    mlir::NamedAttribute attrs[] = {
-        mlir::NamedAttribute{
-            builder.getStringAttr("sym_visibility"),
-            builder.getStringAttr(proc->exported ? "global" : "internal"),
-        },
-    };
-*/
+    /*
+        mlir::NamedAttribute attrs[] = {
+            mlir::NamedAttribute{
+                builder.getStringAttr("sym_visibility"),
+                builder.getStringAttr(proc->exported ? "global" : "internal"),
+            },
+        };
+    */
 
     auto func = builder.create<mlir::func::FuncOp>(
         proc->location.mlir(ctx),
