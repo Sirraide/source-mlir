@@ -331,7 +331,10 @@ public:
     void print_hlir(bool use_generic_assembly_format) const;
 
     /// Print the module as LLVM IR. Implemented in HLIRLowering.cc.
-    void print_llvm() const;
+    void print_llvm();
+
+    /// Execute the module. Implemented in HLIRLowering.cc.
+    int run(int opt_level);
 };
 
 /// A diagnostic. The diagnostic is issued when the destructor is called.

@@ -279,9 +279,8 @@ src::Module::Module(Context* ctx, std::string name, Location module_decl_locatio
       name_field(std::move(name)),
       module_decl_location_field(module_decl_location) {
     top_level_func_field = new (this) ProcDecl{
-        /// TODO: Move 'main' into runtime.
         this,
-        is_logical_module ? fmt::format("_S.static.initialisation.{}", name) : "main",
+        is_logical_module ? fmt::format("_S.static.initialisation.{}", name) : "__src_main",
         new (this) ProcType({}, BuiltinType::Void(this), {}),
         {},
         new (this) BlockExpr{{}, {}},

@@ -41,6 +41,7 @@ using options = clopts< // clang-format off
     flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
     flag<"--debug-llvm", "Debug LLVM lowering process">,
     flag<"--llvm", "Print the LLVM IR of the module">,
+    experimental::short_option<"-O", "Optimisation level (0-3)", values<0, 1, 2, 3>>,
     help<>
 >; // clang-format on
 }
@@ -89,6 +90,9 @@ int main(int argc, char** argv) {
         mod->print_llvm();
         std::exit(0);
     }
+
+    /// Run the code.
+    return mod->run(int(options::get_or<"-O">(0)));
 
     /*    /// Notes:
         /// - ‘freeze’ keyword that makes a value const rather than forcing

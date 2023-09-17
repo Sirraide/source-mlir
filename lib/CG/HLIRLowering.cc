@@ -1,3 +1,6 @@
+#include "mlir/ExecutionEngine/ExecutionEngine.h"
+#include "mlir/ExecutionEngine/OptUtils.h"
+
 #include <mlir/Conversion/AffineToStandard/AffineToStandard.h>
 #include <mlir/Conversion/ArithToLLVM/ArithToLLVM.h>
 #include <mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h>
@@ -344,11 +347,31 @@ void src::LowerToLLVM(Module* mod, bool debug_llvm_lowering) {
     if (debug_llvm_lowering) pm.enableIRPrinting();
     if (mlir::failed(pm.run(mod->mlir)))
         Diag::ICE(mod->context, mod->module_decl_location, "Module lowering failed");
-
-    /// Convert to LLVM IR.
-    mod->llvm = mlir::translateModuleToLLVMIR(mod->mlir, mod->context->llvm);
 }
 
-void src::Module::print_llvm() const {
+void src::Module::print_llvm() {
+    if (not llvm) llvm = mlir::translateModuleToLLVMIR(mlir, context->llvm);
     llvm->print(llvm::outs(), nullptr);
+}
+
+int src::Module::run(int opt_level) {
+    Assert(not is_logical_module, "Module is not executable");
+    Assert(mlir, "Must codegen module before executing");
+
+    /// Create optimiser.
+    auto engine = mlir::ExecutionEngine::create(
+        mlir,
+        {
+            .jitCodeGenOptLevel = llvm::CodeGenOpt::Level(std::clamp(opt_level, 0, 3)),
+        }
+    );
+    Assert(engine, "Failed to create execution engine");
+
+    /// Invoke __src_main.
+    auto result = engine.get()->invokePacked("__src_main");
+    if (result) {
+        Diag::Error(context, {}, "Execution failed: {}", llvm::toString(std::move(result)));
+        return 1;
+    }
+    return 0;
 }

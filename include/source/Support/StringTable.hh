@@ -4,9 +4,9 @@
 #include <source/Support/Utils.hh>
 
 namespace src {
-/// String table that stores interned strings that are *not* null-terminated.
+/// String table that stores interned, null-terminated strings.
 class StringTable {
-    SmallVector<std::string, 0> data;
+    SmallVector<SmallString<32>, 0> data;
 
 public:
     auto begin() const { return data.begin(); }
@@ -14,9 +14,13 @@ public:
 
     /// Intern a string.
     auto intern(StringRef str) -> u32 {
-        auto it = rgs::find_if(data, [&](auto& s) { return s == str; });
+        auto it = rgs::find_if(data, [&](auto& s) {
+            return StringRef(s.data(), s.size() - 1) == str;
+        });
+
         if (it != data.end()) return u32(it - data.begin());
-        auto s = data.emplace_back(str);
+        auto& s = data.emplace_back(str);
+        s.push_back('\0');
         return u32(data.size() - 1);
     }
 

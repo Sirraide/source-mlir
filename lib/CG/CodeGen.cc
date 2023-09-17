@@ -246,7 +246,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// Create an integer holding the string size.
             auto str_size = builder.create<mlir::index::ConstantOp>(
                 str->location.mlir(ctx),
-                mod->strtab[str->index].size()
+                mod->strtab[str->index].size() - 1 /// Exclude null terminator.
             );
 
             /// Create a slice.
@@ -285,9 +285,9 @@ void src::CodeGen::GenerateModule() {
     /// Codegen string literals.
     builder.setInsertionPointToEnd(mod->mlir.getBody());
     for (auto [i, s] : vws::enumerate(mod->strtab)) {
-        auto op = builder.create<hlir::StringOp>(
+        builder.create<hlir::StringOp>(
             builder.getUnknownLoc(),
-            s,
+            StringRef(s.data(), s.size()),
             APInt(64, u64(i))
         );
     }
@@ -307,12 +307,14 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
     /// Create the function.
     auto ty = Ty(proc->type);
 
+/*
     mlir::NamedAttribute attrs[] = {
         mlir::NamedAttribute{
             builder.getStringAttr("sym_visibility"),
             builder.getStringAttr(proc->exported ? "global" : "internal"),
         },
     };
+*/
 
     auto func = builder.create<mlir::func::FuncOp>(
         proc->location.mlir(ctx),
