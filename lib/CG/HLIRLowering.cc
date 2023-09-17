@@ -70,7 +70,7 @@ struct SliceDataOpLowering : public ConversionPattern {
         /// Get the data pointer.
         auto data_ptr = rewriter.create<LLVM::ExtractValueOp>(
             loc,
-            getTypeConverter()->convertType(slice.getType().getType()),
+            getTypeConverter()->convertType(slice.getRes().getType()),
             operands[0],
             ArrayRef<i64>{0}
         );
@@ -98,7 +98,7 @@ struct SliceSizeOpLowering : public ConversionPattern {
         /// Get the size.
         auto size = rewriter.create<LLVM::ExtractValueOp>(
             loc,
-            getTypeConverter()->convertType(slice.getType().getType()),
+            getTypeConverter<LLVMTypeConverter>()->getIndexType(),
             operands[0],
             ArrayRef<i64>{1}
         );
@@ -182,10 +182,10 @@ struct LiteralOpLowering : public ConversionPattern {
         if (isa<hlir::SliceType>(literal.getValue().getType())) {
             /// Create a poison slice and insert the data pointer and size.
             auto ty = getTypeConverter()->convertType(literal.getValue().getType());
-            auto slice = rewriter.create<LLVM::UndefOp>(loc, ty);
-            rewriter.create<LLVM::InsertValueOp>(loc, slice, operands[0], ArrayRef<i64>{0});
-            rewriter.create<LLVM::InsertValueOp>(loc, slice, operands[1], ArrayRef<i64>{1});
-            rewriter.replaceOp(op, slice);
+            auto s0 = rewriter.create<LLVM::UndefOp>(loc, ty);
+            auto s1 = rewriter.create<LLVM::InsertValueOp>(loc, s0, operands[0], ArrayRef<i64>{0});
+            auto s2 = rewriter.create<LLVM::InsertValueOp>(loc, s1, operands[1], ArrayRef<i64>{1});
+            rewriter.replaceOp(op, s2);
             return success();
         }
 
@@ -336,10 +336,12 @@ struct HLIRToLLVMLoweringPass
 };
 } // namespace src
 
-void src::LowerToLLVM(Module* mod) {
+void src::LowerToLLVM(Module* mod, bool debug_llvm_lowering) {
     /// Lower the module.
+    if (debug_llvm_lowering) mod->context->mlir.disableMultithreading();
     mlir::PassManager pm{&mod->context->mlir};
     pm.addPass(std::make_unique<HLIRToLLVMLoweringPass>());
+    if (debug_llvm_lowering) pm.enableIRPrinting();
     if (mlir::failed(pm.run(mod->mlir)))
         Diag::ICE(mod->context, mod->module_decl_location, "Module lowering failed");
 

@@ -39,6 +39,7 @@ using options = clopts< // clang-format off
     flag<"--ast", "Print the AST of the module after parsing">,
     flag<"--hlir", "Print the HLIR of the module">,
     flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
+    flag<"--debug-llvm", "Debug LLVM lowering process">,
     flag<"--llvm", "Print the LLVM IR of the module">,
     help<>
 >; // clang-format on
@@ -82,7 +83,7 @@ int main(int argc, char** argv) {
     }
 
     /// Lower HLIR to LLVM IR.
-    src::LowerToLLVM(mod.get());
+    src::LowerToLLVM(mod.get(), options::get<"--debug-llvm">());
     if (ctx.has_error()) std::exit(1);
     if (options::get<"--llvm">()) {
         mod->print_llvm();

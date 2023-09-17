@@ -45,7 +45,8 @@ class HLIR_Type<string name, string type_mnemonic, list<Trait> traits = []> :
     let mnemonic = type_mnemonic;
 }
 
-def HLIR_SliceType : HLIR_Type<"Slice", "slice"> {
+class HLIR_SingleElementType<string name, string type_mnemonic, list<Trait> traits = []>
+    : HLIR_Type<name, type_mnemonic, traits> {
     let parameters = (ins "Type":$elem);
     let assemblyFormat = "`<` $elem `>`";
     let builders = [
@@ -55,7 +56,10 @@ def HLIR_SliceType : HLIR_Type<"Slice", "slice"> {
     ];
 }
 
-def HLIR_ArrayType : HLIR_Type<"Array", "array"> {
+def HLIR_SliceType : HLIR_SingleElementType<"Slice", "slice">;
+def HLIR_ReferenceType : HLIR_SingleElementType<"Reference", "ref">;
+
+def HLIR_ArrayType : HLIR_SingleElementType<"Array", "array"> {
     let parameters = (ins "Type":$elem, "std::size_t":$size);
     let assemblyFormat = "`<` $elem `[` $size `]` `>`";
     let builders = [
@@ -65,16 +69,6 @@ def HLIR_ArrayType : HLIR_Type<"Array", "array"> {
     ];
 }
 
-def HLIR_ReferenceType : HLIR_Type<"Reference", "ref"> {
-    let parameters = (ins "Type":$elem);
-    let hasCustomAssemblyFormat = 0;
-    let assemblyFormat = "`<` $elem `>`";
-    let builders = [
-        TypeBuilderWithInferredContext<(ins "Type":$elem), [{
-            return $_get(elem.getContext(), elem);
-        }]>
-    ];
-}
 
 def HLIR_Type : AnyTypeOf<[
     Builtin_None,

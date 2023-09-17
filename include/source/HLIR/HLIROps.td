@@ -60,8 +60,8 @@ def StringOp : HLIR_Op<"string"> {
 def SliceDataOp : HLIR_Op<"slice_data"> {
     let summary = "Get the data pointer of a slice";
     let arguments = (ins HLIR_SliceType:$operand);
-    let results = (outs HLIR_ReferenceType:$type);
-    let assemblyFormat = "$operand attr-dict `:` type($type) `of` type($operand)";
+    let results = (outs HLIR_ReferenceType:$res);
+    let assemblyFormat = "$operand attr-dict `:` type($res) `of` type($operand)";
     let hasVerifier = 0;
 
     let builders = [
@@ -79,7 +79,7 @@ def SliceDataOp : HLIR_Op<"slice_data"> {
 def SliceSizeOp : HLIR_Op<"slice_size"> {
     let summary = "Get the size of a slice";
     let arguments = (ins HLIR_SliceType:$operand);
-    let results = (outs Builtin_Index:$type);
+    let results = (outs Builtin_Index:$res);
     let assemblyFormat = "$operand attr-dict `:` type($operand)";
     let hasVerifier = 0;
 
