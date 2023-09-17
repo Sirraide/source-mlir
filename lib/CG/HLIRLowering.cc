@@ -12,7 +12,8 @@
 #include <source/Support/Utils.hh>
 
 using namespace mlir;
-namespace {
+
+namespace src {
 /// Lowering for string literals.
 struct StringOpLowering : public ConversionPattern {
     explicit StringOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
@@ -34,7 +35,7 @@ struct StringOpLowering : public ConversionPattern {
 
         auto string_type = LLVM::LLVMArrayType::get(
             IntegerType::get(getContext(), 8),
-            src::u32(str_op.getValue().size())
+            u32(str_op.getValue().size())
         );
 
         auto global = rewriter.create<LLVM::GlobalOp>(
@@ -47,54 +48,7 @@ struct StringOpLowering : public ConversionPattern {
             0
         );
 
-        /// Create a slice to wrap the string.
-        auto ty = getTypeConverter()->convertType(str_op.getType().getType());
-        auto slice_global = rewriter.create<LLVM::GlobalOp>(
-            loc,
-            ty,
-            true,
-            LLVM::Linkage::Private,
-            fmt::format(".str.{}", str_op.getIndex().getZExtValue()),
-            Attribute{},
-            0
-        );
-
-        slice_global.getInitializerRegion().push_back(new Block);
-        auto& block = slice_global.getInitializerRegion().front();
-        rewriter.setInsertionPointToEnd(&block);
-
-        /// Get string data pointer.
-        Value ptr = rewriter.create<LLVM::AddressOfOp>(loc, global);
-        Value zero = rewriter.create<LLVM::ConstantOp>(
-            loc,
-            getTypeConverter<LLVMTypeConverter>()->getIndexType(),
-            rewriter.getIndexAttr(0)
-        );
-
-        auto data_ptr = rewriter.create<LLVM::GEPOp>(
-            loc,
-            LLVM::LLVMPointerType::get(IntegerType::get(rewriter.getContext(), 8)),
-            ptr,
-            ArrayRef<Value>{zero, zero}
-        );
-
-        /// Get string size.
-        auto size = rewriter.create<LLVM::ConstantOp>(
-            loc,
-            getTypeConverter<LLVMTypeConverter>()->getIndexType(),
-            rewriter.getIndexAttr(src::i64(str_op.getValue().size()))
-        );
-
-        /// Create a poison slice and insert the data pointer and size.
-        auto slice = rewriter.create<LLVM::UndefOp>(loc, ty);
-        rewriter.create<LLVM::InsertValueOp>(loc, slice, data_ptr, ArrayRef<src::i64>{0});
-        rewriter.create<LLVM::InsertValueOp>(loc, slice, size, ArrayRef<src::i64>{1});
-
-        /// Store the slice in the global.
-        rewriter.create<LLVM::ReturnOp>(loc, slice);
-
-        /// Delete the string instruction.
-        op->erase();
+        rewriter.replaceOp(op, global);
         return success();
     }
 };
@@ -118,7 +72,7 @@ struct SliceDataOpLowering : public ConversionPattern {
             loc,
             getTypeConverter()->convertType(slice.getType().getType()),
             operands[0],
-            ArrayRef<src::i64>{0}
+            ArrayRef<i64>{0}
         );
 
         /// Replace the slice data op with the data pointer.
@@ -146,7 +100,7 @@ struct SliceSizeOpLowering : public ConversionPattern {
             loc,
             getTypeConverter()->convertType(slice.getType().getType()),
             operands[0],
-            ArrayRef<src::i64>{1}
+            ArrayRef<i64>{1}
         );
 
         /// Replace the slice size op with the size.
@@ -172,7 +126,7 @@ struct GlobalRefOpLowering : public ConversionPattern {
         /// Get the global pointer.
         auto global_ptr = rewriter.create<LLVM::AddressOfOp>(
             loc,
-            getTypeConverter()->convertType(operands[0].getType()),
+            getTypeConverter()->convertType(global_ref.getRes().getType()),
             global_ref.getName().getLeafReference().getValue()
         );
 
@@ -209,7 +163,66 @@ struct LoadOpLowering : public ConversionPattern {
     }
 };
 
-} // namespace
+/// Lowering for literals.
+struct LiteralOpLowering : public ConversionPattern {
+    explicit LiteralOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::LiteralOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> operands,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto literal = cast<hlir::LiteralOp>(op);
+        auto loc = op->getLoc();
+
+        /// How the literal is lowered depends on the type. Slice
+        /// literals have a data pointer and a size.
+        if (isa<hlir::SliceType>(literal.getValue().getType())) {
+            /// Create a poison slice and insert the data pointer and size.
+            auto ty = getTypeConverter()->convertType(literal.getValue().getType());
+            auto slice = rewriter.create<LLVM::UndefOp>(loc, ty);
+            rewriter.create<LLVM::InsertValueOp>(loc, slice, operands[0], ArrayRef<i64>{0});
+            rewriter.create<LLVM::InsertValueOp>(loc, slice, operands[1], ArrayRef<i64>{1});
+            rewriter.replaceOp(op, slice);
+            return success();
+        }
+
+        /// Invalid literal type.
+        else {
+            return failure();
+        }
+    }
+};
+
+/// Lowering for array decay ops.
+struct ArrayDecayOpLowering : public ConversionPattern {
+    explicit ArrayDecayOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::ArrayDecayOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> operands,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto bitcast = cast<hlir::ArrayDecayOp>(op);
+        auto loc = op->getLoc();
+
+        /// Ref-to-array to ref-to-elem casts are GEPs.
+        auto gep = rewriter.create<LLVM::GEPOp>(
+            loc,
+            getTypeConverter()->convertType(bitcast.getType()),
+            operands[0],
+            ArrayRef{mlir::LLVM::GEPArg(0), mlir::LLVM::GEPArg(0)},
+            true
+        );
+
+        rewriter.replaceOp(op, gep);
+        return success();
+    }
+};
 
 /*
 struct PrintOpLowering : public ConversionPattern {
@@ -250,7 +263,6 @@ struct PrintOpLowering : public ConversionPattern {
     }
 };*/
 
-namespace src {
 struct HLIRToLLVMLoweringPass
     : public PassWrapper<HLIRToLLVMLoweringPass, OperationPass<ModuleOp>> {
     void getDependentDialects(DialectRegistry& registry) const override {
@@ -267,6 +279,7 @@ struct HLIRToLLVMLoweringPass
         /// Convert slice types to structs of ptr + index.
         tc.addConversion([&](hlir::SliceType t) {
             auto elem = tc.convertType(t.getElem());
+            Assert(elem, "Slice type has invalid element type", (t.dump(), 0));
             return LLVM::LLVMStructType::getLiteral(
                 &getContext(),
                 {LLVM::LLVMPointerType::get(elem), tc.getIndexType()}
@@ -275,7 +288,16 @@ struct HLIRToLLVMLoweringPass
 
         /// Convert reference types to ptr.
         tc.addConversion([&](hlir::ReferenceType ref) {
-            return LLVM::LLVMPointerType::get(tc.convertType(ref.getElem()));
+            auto elem = tc.convertType(ref.getElem());
+            Assert(elem, "Reference type has invalid element type", (ref.dump(), 0));
+            return LLVM::LLVMPointerType::get(elem);
+        });
+
+        /// Convert array types to arrays.
+        tc.addConversion([&](hlir::ArrayType arr) {
+            auto elem = tc.convertType(arr.getElem());
+            Assert(elem, "Array type has invalid element type", (arr.dump(), 0));
+            return LLVM::LLVMArrayType::get(elem, unsigned(arr.getSize()));
         });
 
         /// Convert none to void.
@@ -298,7 +320,9 @@ struct HLIRToLLVMLoweringPass
             SliceDataOpLowering,
             SliceSizeOpLowering,
             GlobalRefOpLowering,
-            LoadOpLowering
+            LoadOpLowering,
+            LiteralOpLowering,
+            ArrayDecayOpLowering
         >(&getContext(), tc);
         // clang-format on
 

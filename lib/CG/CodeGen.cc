@@ -187,10 +187,74 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::StringLiteralExpr: {
             auto str = cast<StrLitExpr>(expr);
-            str->mlir = builder.create<hlir::GlobalRefOp>(
+
+            /*
+        /// Create another global variable to store the string.
+        auto i8ptr = LLVM::LLVMPointerType::get(IntegerType::get(rewriter.getContext(), 8));
+        auto global_ptr = rewriter.create<LLVM::GlobalOp>(
+            loc,
+            i8ptr,
+            true,
+            LLVM::Linkage::Private,
+            fmt::format(".str.data.{}", str_op.getIndex().getZExtValue()),
+            Attribute{},
+            0
+        );
+
+        /// Add initialiser region for the global.
+        global_ptr.getInitializerRegion().push_back(new Block);
+        rewriter.setInsertionPointToStart(&global_ptr.getInitializerRegion().front());
+
+        /// Get string data pointer.
+        Value array_addr = rewriter.create<LLVM::AddressOfOp>(loc, global);
+        Value zero = rewriter.create<LLVM::ConstantOp>(
+            loc,
+            getTypeConverter<LLVMTypeConverter>()->getIndexType(),
+            rewriter.getIndexAttr(0)
+        );
+
+        auto data_ptr = rewriter.create<LLVM::GEPOp>(
+            loc,
+            i8ptr,
+            array_addr,
+            ArrayRef<Value>{zero, zero}
+        );
+
+        /// Return the data pointer.
+        rewriter.create<LLVM::ReturnOp>(loc, data_ptr);
+
+        /// Replace the string instruction with the data pointer.
+        rewriter.setInsertionPointAfter(global_ptr);
+        auto ptr = rewriter.create<LLVM::AddressOfOp>(loc, global_ptr);*/
+
+            /// Create a global ref to the string data. This returns
+            /// a reference to an array of chars.
+            auto str_value = mod->strtab[str->index];
+            auto i8 = mlir::IntegerType::get(mctx, 8);
+            auto str_arr = builder.create<hlir::GlobalRefOp>(
                 str->location.mlir(ctx),
-                Ty(str->type),
-                mlir::SymbolRefAttr::get(mctx, fmt::format(".str.{}", str->index))
+                hlir::ReferenceType::get(hlir::ArrayType::get(i8, str_value.size())),
+                mlir::SymbolRefAttr::get(mctx, fmt::format(".str.data.{}", str->index))
+            );
+
+            /// Insert a conversion from i8[size]& to i8&.
+            auto str_ptr = builder.create<hlir::ArrayDecayOp>(
+                str->location.mlir(ctx),
+                str_arr
+            );
+
+            /// Create an integer holding the string size.
+            auto str_size = builder.create<mlir::index::ConstantOp>(
+                str->location.mlir(ctx),
+                mod->strtab[str->index].size()
+            );
+
+            /// Create a slice.
+            str->mlir = builder.create<hlir::LiteralOp>(
+                str->location.mlir(ctx),
+                hlir::SliceType::get(i8),
+                str_ptr,
+                str_size
             );
         } break;
 
@@ -210,6 +274,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
 }
 
 void src::CodeGen::GenerateModule() {
+    mctx->loadDialect<hlir::HLIRDialect>();
+
     /// Initialise MLIR module.
     mod->mlir = mlir::ModuleOp::create(
         mod->module_decl_location.mlir(ctx),

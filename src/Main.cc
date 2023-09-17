@@ -1,14 +1,10 @@
 #include <clopts.hh>
 #include <llvm/Support/PrettyStackTrace.h>
-#include <mlir/Pass/PassManager.h>
-#include <mlir/Transforms/Passes.h>
 #include <source/CG/CodeGen.hh>
 #include <source/CG/HLIRLowering.hh>
 #include <source/Core.hh>
-#include <source/Frontend/AST.hh>
 #include <source/Frontend/Parser.hh>
 #include <source/Frontend/Sema.hh>
-#include <source/HLIR/HLIRDialect.hh>
 
 /*auto get_puts(
     mlir::PatternRewriter& rewriter,

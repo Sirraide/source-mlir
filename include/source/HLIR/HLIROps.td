@@ -36,25 +36,24 @@ def FuncOp : HLIR_Op<"func", [FunctionOpInterface, IsolatedFromAbove]> {
 def StringOp : HLIR_Op<"string"> {
     let summary = "String literal";
     let arguments = (ins StrAttr:$value, IndexAttr:$index);
-    let results = (outs HLIR_SliceType:$type);
 
     let builders = [
         OpBuilder<(ins "::mlir::StringAttr":$value, "::mlir::IntegerAttr":$index), [{
-            build($_builder, $_state, value.getType(), value, index);
+            build($_builder, $_state, {}, value, index);
         }]>,
 
         OpBuilder<(ins "::llvm::StringRef":$value, "::llvm::APInt":$index), [{
             build(
                 $_builder,
                 $_state,
-                hlir::SliceType::get(IntegerType::get($_state.getContext(), 8)),
+                {},
                 value,
                 index
             );
         }]>,
     ];
 
-    let assemblyFormat = "$index `,` $value attr-dict `:` type($type)";
+    let assemblyFormat = "$index `,` $value attr-dict";
     let hasVerifier = 0;
 }
 
@@ -99,8 +98,8 @@ def SliceSizeOp : HLIR_Op<"slice_size"> {
 def GlobalRefOp : HLIR_Op<"global_ref"> {
     let summary = "Get a reference to a global variable";
     let arguments = (ins SymbolRefAttr:$name);
-    let results = (outs HLIR_ReferenceType:$type);
-    let assemblyFormat = "$name attr-dict `:` type($type)";
+    let results = (outs HLIR_ReferenceType:$res);
+    let assemblyFormat = "$name attr-dict `:` type($res)";
     let hasVerifier = 0;
 }
 
@@ -117,6 +116,58 @@ def LoadOp : HLIR_Op<"load"> {
                 $_builder,
                 $_state,
                 ReferenceType::get($_state.getContext(), operand.getType().cast<ReferenceType>().getElem()),
+                operand
+            );
+        }]>
+    ];
+}
+
+def LiteralOp : HLIR_Op<"literal"> {
+    let summary = "Literal value";
+    let arguments = (ins Variadic<HLIR_Type>:$args);
+    let results = (outs HLIR_Type:$value);
+    let assemblyFormat = "`(` $args `)` attr-dict `:` type($args) `,` type($value)";
+    let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::hlir::SliceType":$type,
+            "::mlir::Value":$data,
+            "::mlir::Value":$size
+        ), [{
+            build(
+                $_builder,
+                $_state,
+                type,
+                {data, size}
+            );
+        }]>
+    ];
+}
+
+def ArrayDecayOp : HLIR_Op<"array_decay"> {
+    let summary = "Decay a reference to an array to a reference to its first element";
+    let arguments = (ins HLIR_ReferenceType:$operand);
+    let results = (outs HLIR_ReferenceType:$res);
+    let assemblyFormat = "$operand attr-dict `:` type($operand) `to` type($res)";
+    let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins "::mlir::Value":$operand), [{
+            auto type = ReferenceType::get(
+                $_state.getContext(),
+                operand
+                    .getType()
+                    .cast<ReferenceType>()
+                    .getElem()
+                    .cast<ArrayType>()
+                    .getElem()
+            );
+
+            build(
+                $_builder,
+                $_state,
+                type,
                 operand
             );
         }]>

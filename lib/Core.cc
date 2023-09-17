@@ -19,6 +19,7 @@
 
 #ifdef __linux__
 #    include <execinfo.h>
+#    include <mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h>
 #endif
 
 /// ===========================================================================
@@ -62,7 +63,6 @@ void src::Context::Initialise() {
     mlir::registerBuiltinDialectTranslation(mlir);
     mlir::registerLLVMDialectTranslation(mlir);
     mlir.loadDialect< // clang-format off
-        hlir::HLIRDialect,
         mlir::func::FuncDialect,
         mlir::scf::SCFDialect,
         mlir::affine::AffineDialect,

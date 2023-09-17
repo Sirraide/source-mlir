@@ -2,7 +2,6 @@
 #define SOURCE_INCLUDE_CONTEXT_HH
 
 #include <llvm/MC/TargetRegistry.h>
-#include <source/HLIR/HLIRDialect.hh>
 #include <llvm/IR/Module.h>
 #include <mlir/IR/BuiltinDialect.h>
 #include <mlir/IR/BuiltinOps.h>

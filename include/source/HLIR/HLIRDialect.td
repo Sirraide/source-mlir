@@ -47,7 +47,7 @@ class HLIR_Type<string name, string type_mnemonic, list<Trait> traits = []> :
 
 def HLIR_SliceType : HLIR_Type<"Slice", "slice"> {
     let parameters = (ins "Type":$elem);
-    let assemblyFormat = "$elem";
+    let assemblyFormat = "`<` $elem `>`";
     let builders = [
         TypeBuilderWithInferredContext<(ins "Type":$elem), [{
             return $_get(elem.getContext(), elem);
@@ -55,10 +55,20 @@ def HLIR_SliceType : HLIR_Type<"Slice", "slice"> {
     ];
 }
 
+def HLIR_ArrayType : HLIR_Type<"Array", "array"> {
+    let parameters = (ins "Type":$elem, "std::size_t":$size);
+    let assemblyFormat = "`<` $elem `[` $size `]` `>`";
+    let builders = [
+        TypeBuilderWithInferredContext<(ins "Type":$elem, "std::size_t":$size), [{
+            return $_get(elem.getContext(), elem, size);
+        }]>
+    ];
+}
+
 def HLIR_ReferenceType : HLIR_Type<"Reference", "ref"> {
     let parameters = (ins "Type":$elem);
     let hasCustomAssemblyFormat = 0;
-    let assemblyFormat = "$elem";
+    let assemblyFormat = "`<` $elem `>`";
     let builders = [
         TypeBuilderWithInferredContext<(ins "Type":$elem), [{
             return $_get(elem.getContext(), elem);
@@ -71,6 +81,7 @@ def HLIR_Type : AnyTypeOf<[
     Builtin_Index,
     Builtin_Integer,
     HLIR_SliceType,
+    HLIR_ArrayType,
     HLIR_ReferenceType,
 ]>;
 

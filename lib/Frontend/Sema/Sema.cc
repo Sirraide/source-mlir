@@ -59,8 +59,10 @@ bool src::Sema::Analyse(src::Expr*& e) {
             Expr* u8 = IntType::Create(mod, 8);
             Analyse(u8);
 
-            /// Strings are lvalues.
-            str->stored_type = new (mod) ReferenceType(new (mod) SliceType(u8, loc), loc);
+            /// Unlike in C++, string literals are *not* lvalues; rather a
+            /// new string slice is constructed every time a string literal
+            /// is used.
+            str->stored_type = new (mod) SliceType(u8, loc);
             Analyse(str->stored_type);
         } break;
 

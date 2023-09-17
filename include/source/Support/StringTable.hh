@@ -21,9 +21,9 @@ public:
     }
 
     /// Get the string data at the given index.
-    auto operator[](usz idx) const -> const char* {
+    auto operator[](usz idx) const -> StringRef {
         Assert(idx < data.size());
-        return data[idx].data();
+        return data[idx];
     }
 };
 } // namespace src
