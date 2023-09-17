@@ -2,10 +2,12 @@
 #include <source/Support/Utils.hh>
 
 namespace {
+src::BuiltinType IntTypeInstance{src::BuiltinTypeKind::Int, {}};
 src::BuiltinType UnknownTypeInstance{src::BuiltinTypeKind::Unknown, {}};
 src::BuiltinType VoidTypeInstance{src::BuiltinTypeKind::Void, {}};
 } // namespace
 src::Expr* const src::detail::UnknownType = &UnknownTypeInstance;
+src::BuiltinType* const src::Type::Int = &IntTypeInstance;
 src::BuiltinType* const src::Type::Void = &VoidTypeInstance;
 src::BuiltinType* const src::Type::Unknown = &UnknownTypeInstance;
 

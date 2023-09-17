@@ -164,13 +164,42 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                     if (not IsError(init)) init = *expr;
                 }
 
+                Location loc = {lhs->location, not args.empty() ? args.back()->location : Location{}};
                 lhs = new (mod) InvokeExpr(
                     *lhs,
                     std::move(args),
                     true,
                     *init,
+                    loc
+                );
+                continue;
+            }
+
+            /// Delimited invoke.
+            case Tk::LParen: {
+                /// Yeet '('
+                if (InvokePrecedence < curr_prec) return lhs;
+                Next();
+
+                /// Parse args.
+                SmallVector<Expr*> args;
+                while (not At(Tk::RParen, Tk::Eof)) {
+                    auto arg = ParseExpr(InvokePrecedence);
+                    if (not IsError(arg)) args.push_back(*arg);
+                    if (not Consume(Tk::Comma)) break;
+                }
+
+                /// Create the invoke expression.
+                lhs = new (mod) InvokeExpr(
+                    *lhs,
+                    std::move(args),
+                    false,
+                    {},
                     {lhs->location, curr_loc}
                 );
+
+                /// Yeet ')'
+                if (not Consume(Tk::RParen)) Error("Expected ')'");
                 continue;
             }
 
@@ -179,7 +208,8 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 Next();
                 if (not At(Tk::Identifier)) Error("Expected identifier");
                 lhs = new (mod) MemberAccessExpr(*lhs, tok.text, {lhs->location, Next()});
-            } break;
+                continue;
+            }
         }
 
         /// TODO: Operator parsing.
@@ -204,9 +234,8 @@ auto src::Parser::ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>
             continue;
         }
 
-        /// Add it even if the semicolon is missing.
         into.push_back(*e);
-        if (not Consume(Tk::Semicolon)) Error("Expected ';'");
+        Consume(Tk::Semicolon);
     }
 
     return {};
@@ -368,7 +397,7 @@ auto src::Parser::ParseSignature() -> Signature {
 }
 
 /// <type>           ::= <type-prim> | <type-qualified>
-/// <type-prim>      ::= INTEGER_TYPE
+/// <type-prim>      ::= INTEGER_TYPE | INT
 /// <type-qualified> ::= <type> { <type-qual> }
 /// <type-qual>      ::= "&"
 auto src::Parser::ParseType() -> Result<Expr*> {
@@ -380,6 +409,11 @@ auto src::Parser::ParseType() -> Result<Expr*> {
 
         case Tk::IntegerType:
             base_type = new (mod) IntType(tok.integer, tok.location);
+            Next();
+            break;
+
+        case Tk::Int:
+            base_type = BuiltinType::Int(mod, tok.location);
             Next();
             break;
     }

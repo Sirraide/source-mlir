@@ -3,7 +3,7 @@
 /// ===========================================================================
 ///  Expressions
 /// ===========================================================================
-<exprs> ::= { [ <expr> ]  ";" }
+<exprs> ::= { <expr> | ";" }
 
 <expr> ::= <expr-invoke>
          | <expr-proc>
@@ -38,6 +38,6 @@
 ///  Types
 /// ===========================================================================
 <type>           ::= <type-prim> | <type-qualified>
-<type-prim>      ::= INTEGER_TYPE
+<type-prim>      ::= INTEGER_TYPE | INT
 <type-qualified> ::= <type> { <type-qual> }
 <type-qual>      ::= "&"

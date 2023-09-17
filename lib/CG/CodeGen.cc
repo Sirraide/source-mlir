@@ -192,45 +192,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::StringLiteralExpr: {
             auto str = cast<StrLitExpr>(expr);
 
-            /*
-        /// Create another global variable to store the string.
-        auto i8ptr = LLVM::LLVMPointerType::get(IntegerType::get(rewriter.getContext(), 8));
-        auto global_ptr = rewriter.create<LLVM::GlobalOp>(
-            loc,
-            i8ptr,
-            true,
-            LLVM::Linkage::Private,
-            fmt::format(".str.data.{}", str_op.getIndex().getZExtValue()),
-            Attribute{},
-            0
-        );
-
-        /// Add initialiser region for the global.
-        global_ptr.getInitializerRegion().push_back(new Block);
-        rewriter.setInsertionPointToStart(&global_ptr.getInitializerRegion().front());
-
-        /// Get string data pointer.
-        Value array_addr = rewriter.create<LLVM::AddressOfOp>(loc, global);
-        Value zero = rewriter.create<LLVM::ConstantOp>(
-            loc,
-            getTypeConverter<LLVMTypeConverter>()->getIndexType(),
-            rewriter.getIndexAttr(0)
-        );
-
-        auto data_ptr = rewriter.create<LLVM::GEPOp>(
-            loc,
-            i8ptr,
-            array_addr,
-            ArrayRef<Value>{zero, zero}
-        );
-
-        /// Return the data pointer.
-        rewriter.create<LLVM::ReturnOp>(loc, data_ptr);
-
-        /// Replace the string instruction with the data pointer.
-        rewriter.setInsertionPointAfter(global_ptr);
-        auto ptr = rewriter.create<LLVM::AddressOfOp>(loc, global_ptr);*/
-
             /// Create a global ref to the string data. This returns
             /// a reference to an array of chars.
             auto str_value = mod->strtab[str->index];
@@ -262,10 +223,31 @@ void src::CodeGen::Generate(src::Expr* expr) {
             );
         } break;
 
+        /// Create an integer constant.
+        case Expr::Kind::IntegerLiteralExpr: {
+            auto e = cast<IntLitExpr>(expr);
+
+            /// Explicit-width integer types.
+            if (auto int_ty = dyn_cast<IntType>(e->type)) {
+                e->mlir = builder.create<mlir::arith::ConstantIntOp>(
+                    e->location.mlir(ctx),
+                    e->value,
+                    mlir::IntegerType::get(mctx, unsigned(int_ty->bits))
+                );
+            }
+
+            /// `int` type.
+            else if (Type::Equal(e->type, Type::Int)) {
+                e->mlir = builder.create<mlir::index::ConstantOp>(
+                    e->location.mlir(ctx),
+                    e->value
+                );
+            }
+        } break;
+
         /// Handled by the code that emits a DeclRefExpr.
         case Expr::Kind::ProcDecl: break;
 
-        case Expr::Kind::IntegerLiteralExpr:
         case Expr::Kind::ParamDecl:
             Unreachable();
     }

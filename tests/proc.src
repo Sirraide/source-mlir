@@ -1,6 +1,19 @@
-/// { "output": "Hello, world!\n" }
-extern proc puts (i8^) nomangle -> i32;
+/// RUN: %srcc %s --hlir | FileCheck %s
+proc takes_int (int) extern;
 
-proc print () { puts ("Hello, world!".data); }
+/// CHECK:      func.func @invoke
+proc invoke() {
+    /// CHECK:      index.constant 1
+    /// CHECK-NEXT: call_indirect
+    /// CHECK:      index.constant 2
+    /// CHECK-NEXT: call_indirect
+    takes_int 1;
+    takes_int 2;
 
-print();
+    /// CHECK:      index.constant 3
+    /// CHECK-NEXT: call_indirect
+    /// CHECK:      index.constant 4
+    /// CHECK-NEXT: call_indirect
+    takes_int(3);
+    takes_int(4);
+}

@@ -318,3 +318,7 @@ target_precompile_headers(srcc PRIVATE
 )
 #llvm_update_compile_flags(srcc)
 #mlir_check_all_link_libraries(srcc)
+
+## Tests
+add_subdirectory(tests)
+add_custom_target(check COMMAND lit "${PROJECT_SOURCE_DIR}/tests" -v)

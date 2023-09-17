@@ -1,4 +1,10 @@
-/// { "output": "Hello, world!\n" }
+/// RUN: %srcc %s --hlir | FileCheck %s
 
-proc puts (i8&) extern nomangle -> i32;
+/// CHECK: hlir.string 0, "Hello, world!\00"
+/// CHECK: hlir.global_ref @".str.data.0"
+/// CHECK: hlir.array_decay
+/// CHECK: call_indirect
 puts "Hello, world!".data;
+
+/// CHECK: func.func @puts
+proc puts (i8&) extern nomangle -> i32;

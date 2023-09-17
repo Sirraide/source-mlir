@@ -375,8 +375,9 @@ protected:
 public:
     /// Prefer to create new instances of these initially
     /// for better location tracking.
-    static BuiltinType* const Void;
+    static BuiltinType* const Int;
     static BuiltinType* const Unknown;
+    static BuiltinType* const Void;
 
     /// It is too goddamn easy to forget to dereference at least
     /// one of the expressions when comparing them w/ operator==,

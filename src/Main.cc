@@ -41,7 +41,7 @@ using options = clopts< // clang-format off
     flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
     flag<"--debug-llvm", "Debug LLVM lowering process">,
     flag<"--llvm", "Print the LLVM IR of the module">,
-    experimental::short_option<"-O", "Optimisation level (0-3)", values<0, 1, 2, 3>>,
+    experimental::short_option<"-O", "Optimisation level", values<0, 1, 2, 3>>,
     help<>
 >; // clang-format on
 }
