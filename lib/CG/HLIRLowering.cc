@@ -95,7 +95,6 @@ struct SliceSizeOpLowering : public ConversionPattern {
         ArrayRef<Value> operands,
         ConversionPatternRewriter& rewriter
     ) const -> LogicalResult override {
-        auto slice = cast<hlir::SliceSizeOp>(op);
         auto loc = op->getLoc();
 
         /// Get the size.

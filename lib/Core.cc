@@ -288,6 +288,10 @@ src::Module::Module(Context* ctx, std::string name, Location module_decl_locatio
         Mangling::None,
         {},
     };
+
+    /// Create the global scope. The scope is automatically
+    /// added to our list of scopes by operator new.
+    new (this) Scope{nullptr, this};
 }
 
 /// ===========================================================================

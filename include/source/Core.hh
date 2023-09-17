@@ -306,10 +306,13 @@ class Module {
     /// Location of the module declaration.
     property_r(Location, module_decl_location);
 
+public:
     /// Whether this is a logical module.
     readonly(bool, is_logical_module, return not name.empty());
 
-public:
+    /// Get the global scope of this module.
+    readonly(Scope*, global_scope, return scopes.front());
+
     /// Associated MLIR module op.
     mlir::ModuleOp mlir;
 

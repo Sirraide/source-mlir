@@ -18,6 +18,44 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
         case Tk::LParen:
             return 1'000;
 
+        case Tk::StarStar:
+            return 100;
+
+        case Tk::Star:
+        case Tk::Slash:
+        case Tk::Percent:
+            return 95;
+
+        case Tk::Plus:
+        case Tk::Minus:
+            return 90;
+
+        /// Shifts have higher precedence than logical/bitwise
+        /// operators so e.g.  `a and 1 << 3` works properly.
+        case Tk::ShiftLeft:
+        case Tk::ShiftRight:
+        case Tk::ShiftRightLogical:
+            return 85;
+
+        case Tk::Lt:
+        case Tk::Gt:
+        case Tk::Le:
+        case Tk::Ge:
+            return 80;
+
+        case Tk::EqEq:
+        case Tk::Neq:
+            return 75;
+
+        case Tk::And:
+        case Tk::Or:
+        case Tk::Xor:
+            return 70;
+
+        /// Naked invoke precedence is very low.
+        case Tk::RParen:
+            return 10;
+
         default:
             return -1;
     }
@@ -25,6 +63,9 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
 
 constexpr bool IsRightAssociative(Tk t) {
     switch (t) {
+        case Tk::StarStar:
+            return true;
+
         default:
             return false;
     }
@@ -43,6 +84,8 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Integer:
         case Tk::StringLiteral:
         case Tk::Proc:
+        case Tk::Int:
+        case Tk::IntegerType:
             return true;
 
         default:
@@ -51,6 +94,7 @@ constexpr bool MayStartAnExpression(Tk k) {
 }
 
 constexpr inline int InvokePrecedence = BinaryOrPostfixPrecedence(Tk::LParen);
+constexpr inline int NakedInvokePrecedence = BinaryOrPostfixPrecedence(Tk::RParen);
 
 } // namespace
 } // namespace src
@@ -93,6 +137,11 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
     const auto start_token = tok.type;
     switch (start_token) {
         default: return Error("Expected expression");
+
+        case Tk::IntegerType:
+        case Tk::Int:
+            lhs = ParseType();
+            break;
 
         case Tk::LBrace:
             lhs = ParseBlock();
@@ -144,7 +193,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             default: {
                 if (
                     not MayStartAnExpression(tok.type) or
-                    InvokePrecedence < curr_prec or
+                    NakedInvokePrecedence <= curr_prec or /// Right-associative
                     At(Tk::LBrace) or
                     IsPostfix(tok.type)
                 ) break;
@@ -152,7 +201,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 /// Parse the arguments of the invoke expression.
                 SmallVector<Expr*> args;
                 do {
-                    auto arg = ParseExpr(InvokePrecedence);
+                    auto arg = ParseExpr(NakedInvokePrecedence);
                     if (not IsError(arg)) args.push_back(*arg);
                 } while (Consume(Tk::Comma));
 
@@ -212,8 +261,16 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             }
         }
 
-        /// TODO: Operator parsing.
-        break;
+        /// Check if we should keep parsing.
+        auto prec = BinaryOrPostfixPrecedence(tok.type);
+        if (prec < curr_prec or (prec == curr_prec and not IsRightAssociative(tok.type))) break;
+
+        /// Save operator and parse rhs.
+        auto op = tok.type;
+        Next();
+        auto rhs = ParseExpr(prec);
+        if (IsError(rhs)) return rhs.diag;
+        lhs = new (mod) BinaryExpr(op, *lhs, *rhs, {lhs->location, rhs->location});
     }
 
     /// Done parsing.
@@ -248,7 +305,7 @@ void src::Parser::ParseFile() {
     mod = mod_ptr.get();
 
     /// Set up scopes.
-    scope_stack.emplace_back(new (mod) Scope{nullptr, mod});
+    scope_stack.push_back(mod->global_scope);
     scope_stack.emplace_back(new (mod) Scope{global_scope, mod});
 
     /// Parse expressions.
@@ -355,7 +412,7 @@ auto src::Parser::ParseSignature() -> Signature {
     /// Parse the arguments if there are any. The argument
     /// list may be omitted altogether.
     SmallVector<Expr*> param_types;
-    ParseParamDeclList(sig.param_decls, param_types);
+    if (At(Tk::LParen)) ParseParamDeclList(sig.param_decls, param_types);
 
     /// Helper to parse attributes.
     const auto ParseAttr = [&](std::string_view attr_name, bool& flag) {

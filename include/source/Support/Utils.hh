@@ -141,6 +141,15 @@ private:
     )                                                          \
 )
 
+#define Todo(...)                                              \
+    ::src::detail::AssertFail(                                 \
+        fmt::format(                                           \
+            "TODO reached in {} at line {}"                    \
+            __VA_OPT__(".\nMessage: {}"), __FILE__, __LINE__   \
+            __VA_OPT__(, fmt::format(__VA_ARGS__))             \
+        )                                                      \
+    ) // clang-format on
+
 #define Unreachable(...)                                       \
     ::src::detail::AssertFail(                                 \
         fmt::format(                                           \

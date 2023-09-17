@@ -14,7 +14,7 @@ src::BuiltinType* const src::Type::Unknown = &UnknownTypeInstance;
 /// ===========================================================================
 ///  Expressions
 /// ===========================================================================
-auto src::Expr::_type() -> Expr* {
+auto src::Expr::_type() -> TypeHandle {
     switch (kind) {
         /// Typed exprs.
         case Kind::BlockExpr:
@@ -26,6 +26,8 @@ auto src::Expr::_type() -> Expr* {
         case Kind::ParamDecl:
         case Kind::ProcDecl:
         case Kind::CastExpr:
+        case Kind::BinaryExpr:
+        case Kind::VarDecl:
             return cast<TypedExpr>(this)->stored_type;
 
         /// Already a type.
@@ -44,19 +46,30 @@ auto src::Expr::_type() -> Expr* {
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
-auto src::Expr::type_str(bool use_colour) const -> std::string {
+bool src::Expr::TypeHandle::is_int([[maybe_unused]] bool bool_is_int) {
+    switch (ptr->kind) {
+        default: return false;
+        case Kind::IntType: return true;
+        case Kind::BuiltinType: {
+            auto k = cast<BuiltinType>(this)->builtin_kind;
+            return k == BuiltinTypeKind::Int;
+        }
+    }
+}
+
+auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
     using enum utils::Colour;
     utils::Colours C{use_colour};
     std::string out{C(Cyan)};
 
     /// Helper to write a type that has an element type.
     const auto WriteSElem = [&](std::string_view suffix) {
-        out += cast<SingleElementTypeBase>(this)->elem->type_str(use_colour);
+        out += cast<SingleElementTypeBase>(this)->elem->type.str(use_colour);
         out += C(Red);
         out += suffix;
     };
 
-    switch (kind) {
+    switch (ptr->kind) {
         case Kind::ReferenceType: WriteSElem("&"); break;
         case Kind::ScopedPointerType: WriteSElem("^"); break;
         case Kind::OptionalType: WriteSElem("?"); break;
@@ -85,7 +98,7 @@ auto src::Expr::type_str(bool use_colour) const -> std::string {
             if (not p->param_types.empty()) {
                 out += " (";
                 for (usz i = 0; i < p->param_types.size(); i++) {
-                    out += p->param_types[i]->type_str(use_colour);
+                    out += p->param_types[i]->type.str(use_colour);
                     if (i != p->param_types.size() - 1) out += fmt::format("{}, ", C(Red));
                 }
                 out += C(Red);
@@ -98,7 +111,7 @@ auto src::Expr::type_str(bool use_colour) const -> std::string {
                 cast<BuiltinType>(p->ret_type)->builtin_kind != BuiltinTypeKind::Void
             ) {
                 out += " -> ";
-                out += p->ret_type->type_str(use_colour);
+                out += p->ret_type->type.str(use_colour);
             }
         } break;
 
@@ -112,7 +125,9 @@ auto src::Expr::type_str(bool use_colour) const -> std::string {
         case Kind::ParamDecl:
         case Kind::ProcDecl:
         case Kind::CastExpr:
-            return cast<TypedExpr>(this)->stored_type->type_str(use_colour);
+        case Kind::BinaryExpr:
+        case Kind::VarDecl:
+            return cast<TypedExpr>(this)->stored_type->type.str(use_colour);
     }
 
     out += C(Reset);
@@ -166,6 +181,8 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::ParamDecl:
         case Kind::ProcDecl:
         case Kind::CastExpr:
+        case Kind::BinaryExpr:
+        case Kind::VarDecl:
             Unreachable();
     }
 
@@ -202,13 +219,13 @@ struct ASTPrinter {
     /// Print basic information about an AST node.
     void PrintBasicNode(
         std::string_view node_name,
-        const Expr* node,
-        const Expr* type
+        Expr* node,
+        Expr* type
     ) {
         PrintBasicHeader(node_name, node);
 
         /// Print the type if there is one.
-        if (type) out += fmt::format(" {}", type->type_str(use_colour));
+        if (type) out += fmt::format(" {}", type->type.str(use_colour));
         out += fmt::format("{}\n", C(Reset));
     }
 
@@ -264,7 +281,20 @@ struct ASTPrinter {
                     " {}{} {}\n",
                     C(Green),
                     f->name,
-                    f->type_str(use_colour)
+                    f->type.str(use_colour)
+                );
+                return;
+            }
+
+            case K::VarDecl: {
+                auto v = cast<VarDecl>(e);
+                PrintLinkage(v->linkage);
+                PrintBasicHeader("VarDecl", e);
+                out += fmt::format(
+                    " {}{} {}\n",
+                    C(White),
+                    v->name,
+                    v->type.str(use_colour)
                 );
                 return;
             }
@@ -276,7 +306,7 @@ struct ASTPrinter {
                     " {}{} {}\n",
                     C(Magenta),
                     i->value,
-                    i->type_str(use_colour)
+                    i->type.str(use_colour)
                 );
                 return;
             }
@@ -289,10 +319,10 @@ struct ASTPrinter {
                         " {}\"{}\" {}\n",
                         C(Yellow),
                         mod->strtab[i->index],
-                        i->type_str(use_colour)
+                        i->type.str(use_colour)
                     );
                 } else {
-                    out += fmt::format(" {}\n", i->type_str(use_colour));
+                    out += fmt::format(" {}\n", i->type.str(use_colour));
                 }
                 return;
             }
@@ -304,7 +334,7 @@ struct ASTPrinter {
                     " {}{} {}\n",
                     C(White),
                     n->name,
-                    n->type_str(use_colour)
+                    n->type.str(use_colour)
                 );
                 return;
             }
@@ -316,7 +346,7 @@ struct ASTPrinter {
                     " {}{} {}\n",
                     C(Blue),
                     n->name,
-                    n->type_str(use_colour)
+                    n->type.str(use_colour)
                 );
                 return;
             }
@@ -330,7 +360,7 @@ struct ASTPrinter {
                 }
                 out += fmt::format(
                     " {}\n",
-                    c->type_str(use_colour)
+                    c->type.str(use_colour)
                 );
                 return;
             }
@@ -346,9 +376,21 @@ struct ASTPrinter {
                 PrintBasicHeader("MemberAccessExpr", e);
                 out += fmt::format(
                     " {} {}{}\n",
-                    m->type_str(use_colour),
+                    m->type.str(use_colour),
                     C(Magenta),
                     m->member
+                );
+                return;
+            }
+
+            case K::BinaryExpr: {
+                auto b = cast<BinaryExpr>(e);
+                PrintBasicHeader("BinaryExpr", e);
+                out += fmt::format(
+                    " {}{} {}\n",
+                    C(Red),
+                    Spelling(b->op),
+                    b->type.str(use_colour)
                 );
                 return;
             }
@@ -362,7 +404,7 @@ struct ASTPrinter {
             case K::OptionalType:
             case K::IntType:
             case K::SliceType:
-                PrintBasicNode(R"(<type>)", e, e);
+                PrintBasicNode("Type", e, e);
                 return;
         }
 
@@ -407,17 +449,28 @@ struct ASTPrinter {
                 auto c = cast<InvokeExpr>(e);
                 SmallVector<Expr*, 12> children{c->callee};
                 children.insert(children.end(), c->args.begin(), c->args.end());
+                if (c->init) children.push_back(c->init);
                 PrintChildren(children, leading_text);
             } break;
 
-            case K::BlockExpr:
-                PrintChildren(cast<BlockExpr>(e)->exprs, leading_text);
-                break;
+            case K::VarDecl: {
+                auto v = cast<VarDecl>(e);
+                if (v->init) PrintChildren(v->init, leading_text);
+            } break;
 
             case K::MemberAccessExpr: {
                 auto m = cast<MemberAccessExpr>(e);
                 PrintChildren(m->object, leading_text);
             } break;
+
+            case K::BinaryExpr: {
+                auto b = cast<BinaryExpr>(e);
+                PrintChildren({b->lhs, b->rhs}, leading_text);
+            } break;
+
+            case K::BlockExpr:
+                PrintChildren(cast<BlockExpr>(e)->exprs, leading_text);
+                break;
 
             case K::CastExpr:
                 PrintChildren(cast<CastExpr>(e)->operand, leading_text);

@@ -3,6 +3,7 @@
 
 #include <mlir/IR/Value.h>
 #include <source/Core.hh>
+#include <source/Frontend/Lexer.hh>
 #include <source/Support/Result.hh>
 
 namespace src {
@@ -52,6 +53,7 @@ public:
         InvokeExpr,
         CastExpr,
         MemberAccessExpr,
+        BinaryExpr,
         DeclRefExpr,
         IntegerLiteralExpr,
         StringLiteralExpr,
@@ -61,6 +63,7 @@ public:
 
         /// ObjectDecl [begin]
         ProcDecl,
+        VarDecl,
     };
 
     class SemaState {
@@ -94,6 +97,28 @@ public:
         }
     };
 
+    /// Helper type that makes accessing properties of types easier.
+    class TypeHandle {
+        Expr* ptr;
+
+    public:
+        TypeHandle(Expr* ptr) : ptr(ptr) {}
+        TypeHandle(std::nullptr_t) = delete;
+
+        /// Check if this is any integer type.
+        bool is_int(bool bool_is_int);
+
+        /// Get the size of this type.
+        auto size(Context* ctx) -> isz;
+
+        /// Get a string representation of this type.
+        auto str(bool use_colour) const -> std::string;
+
+        /// Access the underlying type pointer.
+        operator Expr*() const { return ptr; };
+        Expr* operator->() { return ptr; }
+    };
+
 private:
     /// The kind of this expression.
     property_r(const Kind, kind);
@@ -122,15 +147,15 @@ public:
 
     /// Get the type of this expression; returns void if
     /// this expression has no type.
-    readonly_decl(Expr*, type);
+    readonly_decl(TypeHandle, type);
+
+    /// Get this expression as a type handle; this is different
+    /// from `type` which returns a handle to the type of this
+    /// expression.
+    readonly(TypeHandle, as_type, return TypeHandle(this));
 
     /// Print this expression to stdout.
     void print() const;
-
-    /// Get a string representation of this expression
-    /// as a type. If this is not a type, get the string
-    /// representation of the type of this expression.
-    auto type_str(bool use_colour) const -> std::string;
 
     /// RTTI.
     static bool classof(const Expr* e) { return true; }
@@ -212,8 +237,6 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::CastExpr; }
-
-
 };
 
 class MemberAccessExpr : public TypedExpr {
@@ -231,6 +254,29 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::MemberAccessExpr; }
+};
+
+class BinaryExpr : public TypedExpr {
+public:
+    /// The left-hand side of this binary expression.
+    Expr* lhs;
+
+    /// The right-hand side of this binary expression.
+    Expr* rhs;
+
+private:
+    /// The operator of this binary expression.
+    property_r(Tk, op);
+
+public:
+    BinaryExpr(Tk op, Expr* lhs, Expr* rhs, Location loc)
+        : TypedExpr(Kind::BinaryExpr, detail::UnknownType, loc),
+          lhs(lhs),
+          rhs(rhs),
+          op_field(op) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::BinaryExpr; }
 };
 
 class DeclRefExpr : public TypedExpr {
@@ -322,6 +368,26 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ParamDecl; }
+};
+
+class VarDecl : public ObjectDecl {
+public:
+    /// The initialiser.
+    Expr* init;
+
+    VarDecl(
+        Module* mod,
+        std::string name,
+        Expr* type,
+        Expr* init,
+        Linkage linkage,
+        Mangling mangling,
+        Location loc
+    ) : ObjectDecl(Kind::VarDecl, std::move(name), type, linkage, mangling, loc),
+        init(init) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::VarDecl; }
 };
 
 class ProcDecl : public ObjectDecl {
@@ -567,4 +633,14 @@ public:
 };
 } // namespace src
 
+namespace llvm {
+template <>
+struct simplify_type<const src::Expr::TypeHandle> {
+    using SimpleType = src::Expr*;
+
+    static SimpleType getSimplifiedValue(const src::Expr::TypeHandle& Val) {
+        return static_cast<src::Expr*>(Val);
+    }
+};
+} // namespace llvm
 #endif // SOURCE_FRONTEND_AST_HH

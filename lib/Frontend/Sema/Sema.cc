@@ -51,7 +51,6 @@ bool src::Sema::Analyse(src::Expr*& e) {
             cast<IntLitExpr>(e)->stored_type = BuiltinType::Int(mod, e->location);
             break;
 
-
         /// String literals are u8 slices.
         case Expr::Kind::StringLiteralExpr: {
             auto str = cast<StrLitExpr>(e);
@@ -81,7 +80,7 @@ bool src::Sema::Analyse(src::Expr*& e) {
         case Expr::Kind::ScopedPointerType:
         case Expr::Kind::OptionalType:
         case Expr::Kind::SliceType:
-        /// TODO: Type inference and checking that we don’t have e.g. `void[]`.
+            /// TODO: Type inference and checking that we don’t have e.g. `void[]`.
             Analyse(cast<SingleElementTypeBase>(e)->elem);
             break;
 
@@ -168,8 +167,33 @@ bool src::Sema::Analyse(src::Expr*& e) {
                     }
                 }
 
-                /// TODO: Rewrite to var decl.
-                Assert(false, "Sorry, variable declarations are not supported yet");
+                /// Helper to create a var decl.
+                auto MakeVar = [&](Expr* name, Expr* init) -> VarDecl* {
+                    auto dr = cast<DeclRefExpr>(name);
+                    return new (mod) VarDecl(
+                        mod,
+                        dr->name,
+                        invoke->callee,
+                        init,
+                        dr->scope == mod->global_scope
+                            ? Linkage::Internal
+                            : Linkage::Local,
+                        Mangling::Source,
+                        name->location
+                    );
+                };
+
+                /// Rewrite the invocation to a declaration.
+                if (invoke->args.size() == 1) {
+                    e = MakeVar(invoke->args.front(), invoke->init);
+                    return Analyse(e);
+                }
+
+                /// If the invoke expression contains multiple declarations
+                /// rewrite to a VarListDecl expr.
+                else {
+                    Todo();
+                }
             }
 
             /// Otherwise, no idea what this is supposed to be.
@@ -222,7 +246,7 @@ bool src::Sema::Analyse(src::Expr*& e) {
         /// Perform name lookup in scope.
         case Expr::Kind::DeclRefExpr: {
             auto* d = cast<DeclRefExpr>(e);
-            d->scope->visit(d->name, false, [&] (auto&& decls) {
+            d->scope->visit(d->name, false, [&](auto&& decls) {
                 Assert(not decls.empty(), "Ill-formed symbol table entry");
 
                 /// If there are multiple declarations, this is an error.
@@ -251,10 +275,97 @@ bool src::Sema::Analyse(src::Expr*& e) {
         case Expr::Kind::ParamDecl: {
             auto param = cast<ParamDecl>(e);
             if (not AnalyseAsType(param->stored_type) or not MakeDeclType(param->stored_type))
-                e->sema.set_errored();
+                return e->sema.set_errored();
             /// TODO: Check for redeclaration?
         } break;
 
+        /// Variable declaration.
+        case Expr::Kind::VarDecl: {
+            auto var = cast<VarDecl>(e);
+            if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
+
+            /// If the type is unknown, then we must infer it from
+            /// the initialiser.
+            if (Type::Equal(var->stored_type, Type::Unknown)) {
+                if (not var->init) return Error(var, "Type inference requires an initialiser");
+                if (not Analyse(var->init)) return e->sema.set_errored();
+                var->stored_type = var->init->type;
+                if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
+            }
+
+            /// Otherwise, the type of the declaration must be valid, and if there
+            /// is an initialiser, it must be convertible to the type of the variable.
+            else {
+                if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
+                if (var->init) {
+                    /// No need to set the variable itself to errored since we know its type.
+                    if (not Analyse(var->init)) return false;
+                    if (not Convert(var->init, var->stored_type)) {
+                        Error(
+                            var->init,
+                            "Initialiser type '{}' is not convertible to variable type '{}'",
+                            var->init->type,
+                            var->stored_type
+                        );
+                    }
+                }
+            }
+        } break;
+
+        /// Binary operators are complicated.
+        case Expr::Kind::BinaryExpr: {
+            auto b = cast<BinaryExpr>(e);
+            if (not Analyse(b->lhs) or not Analyse(b->rhs))
+                return e->sema.set_errored();
+            switch (b->op) {
+                default: Unreachable("Invalid binary operator");
+
+                /// These operators take two ints and return an int.
+                case Tk::Plus:
+                case Tk::Minus:
+                case Tk::Star:
+                case Tk::StarStar:
+                case Tk::Slash:
+                case Tk::Percent:
+                case Tk::And:
+                case Tk::Or:
+                case Tk::Xor:
+                case Tk::ShiftLeft:
+                case Tk::ShiftRight:
+                case Tk::ShiftRightLogical: {
+                    /// Both types must be integers.
+                    if (
+                        not b->lhs->type.is_int(true) or
+                        not b->rhs->type.is_int(true)
+                    ) return Error( //
+                        b,
+                        "Operands of '{}' must be integers, but got '{}' and '{}'",
+                        Spelling(b->op),
+                        b->lhs->type,
+                        b->rhs->type
+                    );
+
+                    /// The smaller integer is cast to the larger type if they
+                    /// don’t have the same size.
+                    if (not Type::Equal(b->lhs->type, b->rhs->type)) {
+                        auto lsz = b->lhs->type.size(mod->context);
+                        auto rsz = b->rhs->type.size(mod->context);
+                        if (lsz >= rsz) {
+                            if (not Convert(b->rhs, b->lhs->type))
+                                return b->sema.set_errored();
+                        } else {
+                            if (not Convert(b->lhs, b->rhs->type))
+                                return b->sema.set_errored();
+                        }
+                    }
+
+                    /// The result type is that integer type.
+                    b->stored_type = b->lhs->type;
+                }
+
+                /// TODO: Left off here. Implement other operators.
+            }
+        }
     }
 
     /// Can’t check for 'ok' as that may not be set yet.

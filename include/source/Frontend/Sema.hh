@@ -20,6 +20,11 @@ struct make_formattable<T*> {
     using type = std::string;
 };
 
+template <>
+struct make_formattable<Expr::TypeHandle> {
+    using type = std::string;
+};
+
 template <typename T>
 using make_formattable_t = make_formattable<T>::type;
 
@@ -72,7 +77,9 @@ private:
     auto MakeFormattable(T&& t) -> make_formattable_t<T> {
         using Type = std::remove_cvref_t<T>;
         if constexpr (std::is_pointer_v<Type> and std::derived_from<std::remove_pointer_t<Type>, Expr>) {
-            return std::forward<T>(t)->type_str(true);
+            return std::forward<T>(t)->type.str(true);
+        } else if constexpr (std::is_same_v<Type, Expr::TypeHandle>) {
+            return std::forward<T>(t)->str(true);
         } else {
             return std::forward<T>(t);
         }

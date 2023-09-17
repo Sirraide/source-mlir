@@ -80,6 +80,8 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
         case Expr::Kind::ParamDecl:
         case Expr::Kind::ProcDecl:
         case Expr::Kind::CastExpr:
+        case Expr::Kind::BinaryExpr:
+        case Expr::Kind::VarDecl:
             Unreachable();
     }
 
@@ -244,6 +246,14 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 );
             }
         } break;
+
+        case Expr::Kind::VarDecl: {
+            Todo();
+        }
+
+        case Expr::Kind::BinaryExpr: {
+            Todo();
+        }
 
         /// Handled by the code that emits a DeclRefExpr.
         case Expr::Kind::ProcDecl: break;
