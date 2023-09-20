@@ -14,6 +14,15 @@ src::BuiltinType* const src::Type::Unknown = &UnknownTypeInstance;
 /// ===========================================================================
 ///  Expressions
 /// ===========================================================================
+bool src::Expr::_is_lvalue() {
+    if (isa<VarDecl>(this)) return true;
+    if (auto dr = dyn_cast<DeclRefExpr>(this)) {
+        return dr->decl and isa<VarDecl>(dr->decl);
+    }
+    return false;
+}
+
+
 auto src::Expr::_type() -> TypeHandle {
     switch (kind) {
         /// Typed exprs.
@@ -46,6 +55,65 @@ auto src::Expr::_type() -> TypeHandle {
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
+auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
+    switch (ptr->kind) {
+        case Kind::BuiltinType:
+            switch (cast<BuiltinType>(ptr)->builtin_kind) {
+                case BuiltinTypeKind::Unknown: return 8;
+                case BuiltinTypeKind::Void: return 8;
+                case BuiltinTypeKind::Int: return 64; /// FIXME: Use context.
+                case BuiltinTypeKind::Bool: return 8;
+            }
+
+            Unreachable();
+
+        case Kind::FFIType:
+            switch (cast<FFIType>(ptr)->ffi_kind) {
+                case FFITypeKind::CChar: return 8;
+                case FFITypeKind::CInt: return 32; /// FIXME: Use context.
+            }
+
+            Unreachable();
+
+        case Kind::IntType:
+            /// FIXME: Use context.
+            return isz(std::min<usz>(64, std::bit_ceil(usz(cast<IntType>(ptr)->bits))));
+
+        case Kind::ReferenceType:
+            return 64; /// FIXME: Use context.
+
+        case Kind::ScopedPointerType:
+            return 64; /// FIXME: Use context.
+
+        case Kind::SliceType:
+            return 64; /// FIXME: Use context.
+
+        case Kind::OptionalType:
+            Todo();
+
+        /// Invalid.
+        case Kind::ProcType:
+            Unreachable(".align accessed on function type");
+
+        case Kind::DeclRefExpr:
+            Todo();
+
+        case Kind::BlockExpr: break;
+        case Kind::InvokeExpr: break;
+        case Kind::CastExpr: break;
+        case Kind::MemberAccessExpr: break;
+        case Kind::BinaryExpr: break;
+        case Kind::IntegerLiteralExpr: break;
+        case Kind::StringLiteralExpr: break;
+        case Kind::ParamDecl: break;
+        case Kind::ProcDecl: break;
+        case Kind::VarDecl:
+            Unreachable(".align accessed on non-type expression");
+    }
+
+    Unreachable();
+}
+
 bool src::Expr::TypeHandle::is_int(bool bool_is_int) {
     switch (ptr->kind) {
         default: return false;

@@ -1,18 +1,18 @@
 /// RUN: %srcc %s --hlir | FileCheck %s
 proc takes_int (int) extern;
 
-/// CHECK:      func.func @invoke
+/// CHECK:      func.func private @invoke
 proc invoke() {
-    /// CHECK:      index.constant 1
+    /// CHECK:      arith.constant 1
     /// CHECK-NEXT: call_indirect
-    /// CHECK:      index.constant 2
+    /// CHECK:      arith.constant 2
     /// CHECK-NEXT: call_indirect
     takes_int 1;
     takes_int 2;
 
-    /// CHECK:      index.constant 3
+    /// CHECK:      arith.constant 3
     /// CHECK-NEXT: call_indirect
-    /// CHECK:      index.constant 4
+    /// CHECK:      arith.constant 4
     /// CHECK-NEXT: call_indirect
     takes_int(3);
     takes_int(4);

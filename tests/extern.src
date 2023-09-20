@@ -6,5 +6,5 @@
 /// CHECK: call_indirect
 puts "Hello, world!".data;
 
-/// CHECK: func.func @puts
+/// CHECK: func.func private @puts
 proc puts (i8&) extern nomangle -> i32;

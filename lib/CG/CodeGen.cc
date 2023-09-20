@@ -31,7 +31,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
                 using K = BuiltinTypeKind;
                 case K::Unknown: Unreachable();
                 case K::Void: return mlir::NoneType::get(mctx);
-                case K::Int: return mlir::IndexType::get(mctx);
+                case K::Int: return mlir::IntegerType::get(mctx, 64); /// FIXME: Get width from context.
                 case K::Bool: return mlir::IntegerType::get(mctx, 1);
             }
             Unreachable();
@@ -65,7 +65,10 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
             auto ty = cast<ProcType>(type);
             SmallVector<mlir::Type> params;
             for (auto p : ty->param_types) params.push_back(Ty(p));
-            return mlir::FunctionType::get(mctx, params, Ty(ty->ret_type));
+
+            /// To ‘return void’, we have to set no return type at all.
+            if (Type::Equal(ty->ret_type, Type::Void)) return mlir::FunctionType::get(mctx, params, {});
+            else return mlir::FunctionType::get(mctx, params, Ty(ty->ret_type));
         }
 
         case Expr::Kind::ScopedPointerType:
@@ -171,6 +174,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 } else if (e->member == "size") {
                     e->mlir = builder.create<hlir::SliceSizeOp>(
                         e->location.mlir(ctx),
+                        Ty(Type::Int),
                         e->object->mlir
                     );
                 } else {
@@ -209,7 +213,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                         }
 
                         /// Extension.
-                        else if (to_size < from_size) {
+                        else if (from_size < to_size) {
                             /// Since all of our integers are signed, we always use sign
                             /// extension, except that, if we’re extending an i1, we use
                             /// zero-extension, as in case of an i1 with the value 1 (true)
@@ -298,9 +302,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// `int` type.
             else if (Type::Equal(e->type, Type::Int)) {
-                e->mlir = builder.create<mlir::index::ConstantOp>(
+                e->mlir = builder.create<mlir::arith::ConstantOp>(
                     e->location.mlir(ctx),
-                    e->value
+                    Ty(Type::Int),
+                    builder.getI64IntegerAttr(e->value)
                 );
             }
         } break;
@@ -308,7 +313,11 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::VarDecl: {
             /// Currently, we only have local variables.
             auto e = cast<VarDecl>(expr);
-            e->mlir = builder.create<hlir::LocalVarOp>(e->location.mlir(ctx), Ty(e->type));
+            e->mlir = builder.create<hlir::LocalVarOp>(
+                e->location.mlir(ctx),
+                Ty(e->type),
+                e->type.align(ctx) / 8
+            );
 
             /// If there is an initialiser, emit it.
             if (e->init) {
@@ -316,7 +325,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 builder.create<hlir::StoreOp>(
                     e->init->location.mlir(ctx),
                     e->mlir,
-                    e->init->mlir
+                    e->init->mlir,
+                    e->type.align(ctx) / 8
                 );
             }
 
@@ -342,7 +352,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 case Tk::Plus: GenerateBinOp<AddIOp>(b); break;
                 case Tk::Minus: GenerateBinOp<SubIOp>(b); break;
                 case Tk::Star: GenerateBinOp<MulIOp>(b); break;
-                case Tk::StarStar: GenerateBinOp<ExpIOp>(b); break;
+                case Tk::StarStar: GenerateBinOp<mlir::math::IPowIOp>(b); break;
                 case Tk::Slash: GenerateBinOp<DivSIOp>(b); break;
                 case Tk::Percent: GenerateBinOp<RemSIOp>(b); break;
                 case Tk::Xor: GenerateBinOp<XOrIOp>(b); break;
@@ -415,7 +425,7 @@ void src::CodeGen::GenerateModule() {
     }
 
     /// Verify the IR.
-    if (not mlir::succeeded(mod->mlir.verify()))
+    if (not no_verify and not mlir::succeeded(mod->mlir.verify()))
         Diag::ICE(ctx, mod->module_decl_location, "Module verification failed");
 }
 
@@ -423,20 +433,18 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
     /// Create the function.
     auto ty = Ty(proc->type);
 
-    /*
-        mlir::NamedAttribute attrs[] = {
-            mlir::NamedAttribute{
-                builder.getStringAttr("sym_visibility"),
-                builder.getStringAttr(proc->exported ? "global" : "internal"),
-            },
-        };
-    */
+    mlir::NamedAttribute attrs[] = {
+        mlir::NamedAttribute{
+            builder.getStringAttr("sym_visibility"),
+            builder.getStringAttr(proc->exported ? "public" : "private"),
+        },
+    };
 
     auto func = builder.create<mlir::func::FuncOp>(
         proc->location.mlir(ctx),
         proc->name,
-        ty.cast<mlir::FunctionType>()
-        //,        ArrayRef<mlir::NamedAttribute>{attrs}
+        ty.cast<mlir::FunctionType>(),
+        ArrayRef<mlir::NamedAttribute>{attrs}
     );
 
     /// Generate the function body, if there is one.

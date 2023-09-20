@@ -1,14 +1,14 @@
 /// RUN: %srcc %s --hlir | FileCheck %s
-proc i extern -> int;
-proc consume (int) extern;
+proc i extern -> i64;
+proc consume (i64) extern;
 
-int a = i();
-int b = i();
+i64 a = i();
+i64 b = i();
 
 consume a + b;   /// CHECK: arith.addi
 consume a - b;   /// CHECK: arith.subi
 consume a * b;   /// CHECK: arith.muli
-consume a ** b;  /// CHECK: hlir.expi
+consume a ** b;  /// CHECK: math.ipowi
 consume a / b;   /// CHECK: arith.divsi
 consume a % b;   /// CHECK: arith.remsi
 consume a and b; /// CHECK: arith.andi

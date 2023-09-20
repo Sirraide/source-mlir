@@ -82,17 +82,6 @@ def SliceSizeOp : HLIR_Op<"slice_size"> {
     let results = (outs HLIR_Int:$res);
     let assemblyFormat = "$operand attr-dict `:` type($operand)";
     let hasVerifier = 0;
-
-    let builders = [
-        OpBuilder<(ins "::mlir::Value":$operand), [{
-            build(
-                $_builder,
-                $_state,
-                IndexType::get($_state.getContext()),
-                operand
-            );
-        }]>
-    ];
 }
 
 def GlobalRefOp : HLIR_Op<"global_ref"> {
@@ -115,7 +104,7 @@ def LoadOp : HLIR_Op<"load"> {
             build(
                 $_builder,
                 $_state,
-                ReferenceType::get($_state.getContext(), operand.getType().cast<ReferenceType>().getElem()),
+                operand.getType().cast<ReferenceType>().getElem(),
                 operand
             );
         }]>
@@ -124,20 +113,26 @@ def LoadOp : HLIR_Op<"load"> {
 
 def StoreOp : HLIR_Op<"store"> {
     let summary = "Store a value to a reference";
-    let arguments = (ins HLIR_ReferenceType:$operand, HLIR_Type:$value);
-    let assemblyFormat = "$value `:` type($value) `into` $operand `:` type($operand) attr-dict";
+    let arguments = (ins
+        HLIR_ReferenceType:$addr,
+        HLIR_Type:$value,
+        Builtin_IntegerAttr:$alignment
+    );
+    let assemblyFormat = "`into` $addr `:` type($addr) `,` $value `:` type($value) attr-dict";
     let hasVerifier = 0;
 
     let builders = [
         OpBuilder<(ins
-            "::mlir::Value":$operand,
-            "::mlir::Value":$value
+            "::mlir::Value":$addr,
+            "::mlir::Value":$value,
+            "std::int64_t":$alignment
         ), [{
             build(
                 $_builder,
                 $_state,
-                {},
-                {operand, value}
+                addr,
+                value,
+                $_builder.getI64IntegerAttr(alignment)
             );
         }]>
     ];
@@ -215,15 +210,16 @@ def ArrayDecayOp : HLIR_Op<"array_decay"> {
 
 def HLIR_LocalVarOp : HLIR_Op<"local_var"> {
     let summary = "Local variable";
-    let arguments = (ins);
+    let arguments = (ins Builtin_IntegerAttr:$alignment);
     let results = (outs HLIR_ReferenceType:$res);
     let assemblyFormat = "type($res) attr-dict";
     let hasVerifier = 0;
     let skipDefaultBuilders = 1;
 
     let builders = [
-        OpBuilder<(ins "::mlir::Type":$type), [{
+        OpBuilder<(ins "::mlir::Type":$type, "std::int64_t":$alignment), [{
             $_state.addTypes(ReferenceType::get($_state.getContext(), type));
+            $_state.addAttribute("alignment", $_builder.getI64IntegerAttr(alignment));
         }]>
     ];
 }

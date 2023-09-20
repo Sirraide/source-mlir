@@ -41,6 +41,7 @@ using options = clopts< // clang-format off
     flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
     flag<"--debug-llvm", "Debug LLVM lowering process">,
     flag<"--llvm", "Print the LLVM IR of the module">,
+    flag<"--no-verify", "Disable MLIR verification; CAUTION: this may lead to miscompilations">,
     experimental::short_option<"-O", "Optimisation level", values<0, 1, 2, 3>>,
     help<>
 >; // clang-format on
@@ -75,7 +76,7 @@ int main(int argc, char** argv) {
 
     /// Generate HLIR. If this fails, that’s an ICE, so no
     /// need for error checking here.
-    src::CodeGen::Generate(mod.get());
+    src::CodeGen::Generate(mod.get(), options::get<"--no-verify">());
     if (ctx.has_error()) std::exit(1);
     if (options::get<"--hlir">()) {
         mod->print_hlir(options::get<"--use-generic-assembly-format">());
@@ -83,10 +84,10 @@ int main(int argc, char** argv) {
     }
 
     /// Lower HLIR to LLVM IR.
-    src::LowerToLLVM(mod.get(), options::get<"--debug-llvm">());
+    src::LowerToLLVM(mod.get(), options::get<"--debug-llvm">(), options::get<"--no-verify">());
     if (ctx.has_error()) std::exit(1);
     if (options::get<"--llvm">()) {
-        mod->print_llvm();
+        mod->print_llvm(int(options::get_or<"-O">(0)));
         std::exit(0);
     }
 

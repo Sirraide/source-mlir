@@ -2,8 +2,8 @@
 #define SOURCE_CG_CODEGEN_HH
 
 #include <mlir/IR/Builders.h>
-#include <source/HLIR/HLIRDialect.hh>
 #include <source/Core.hh>
+#include <source/HLIR/HLIRDialect.hh>
 
 namespace src {
 class BinaryExpr;
@@ -12,17 +12,19 @@ class CodeGen {
     Context* const ctx;
     mlir::MLIRContext* const mctx;
     mlir::OpBuilder builder;
+    bool no_verify;
 
-    CodeGen(Module* mod)
+    CodeGen(Module* mod, bool no_verify)
         : mod(mod),
           ctx(mod->context),
           mctx(&ctx->mlir),
-          builder(mctx) {}
+          builder(mctx),
+          no_verify(no_verify) {}
 
 public:
-    static void Generate(Module* mod) {
+    static void Generate(Module* mod, bool no_verify) {
         Assert(not mod->context->has_error(), "Refusing to codegen broken module");
-        CodeGen c{mod};
+        CodeGen c{mod, no_verify};
         c.GenerateModule();
     }
 

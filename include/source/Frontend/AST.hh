@@ -105,6 +105,9 @@ public:
         TypeHandle(Expr* ptr) : ptr(ptr) {}
         TypeHandle(std::nullptr_t) = delete;
 
+        /// Get the alignment of this type, in bits.
+        auto align(Context* ctx) -> isz;
+
         /// Check if this is any integer type.
         bool is_int(bool bool_is_int);
 
@@ -152,6 +155,9 @@ public:
     /// from `type` which returns a handle to the type of this
     /// expression.
     readonly(TypeHandle, as_type, return TypeHandle(this));
+
+    /// Check if this is an lvalue.
+    readonly_decl(bool, is_lvalue);
 
     /// Print this expression to stdout.
     void print() const;
@@ -644,42 +650,37 @@ public:
         if (parent and not this_scope_only) parent->visit(name, false, f);
     }
 };
+
+template <typename To, typename From>
+struct THCastImpl {
+    static_assert(std::derived_from<To, src::Expr>);
+    static bool isPossible(const From t) { return To::classof(static_cast<src::Expr*>(t)); }
+    static bool isPossible(const From* t) { return isPossible(*t); }
+    static auto doCast(const From t) -> To* { return static_cast<To*>(static_cast<src::Expr*>(t)); }
+    static auto doCast(const From* t) -> To* { return doCast(*t); }
+    static auto doCastIfPossible(const From* t) -> To* { return doCastIfPossible(*t); }
+    static auto doCastIfPossible(const From t) -> To* {
+        if (not isPossible(t)) return nullptr;
+        return doCast(t);
+    }
+};
 } // namespace src
 
 namespace llvm {
-template <typename T>
-struct CastInfo<T, src::Expr::TypeHandle*> {
-    static_assert(src::utils::always_false<T>, "Do NOT cast typehandle pointers");
-};
 
 template <typename T>
-struct CastInfo<T, const src::Expr::TypeHandle*> {
-    static_assert(src::utils::always_false<T>, "Do NOT cast typehandle pointers");
-};
+struct CastInfo<T, src::Expr::TypeHandle> : src::THCastImpl<T, src::Expr::TypeHandle> {};
+template <typename T>
+struct CastInfo<T, src::Expr::TypeHandle&> : src::THCastImpl<T, src::Expr::TypeHandle&> {};
+template <typename T>
+struct CastInfo<T, const src::Expr::TypeHandle> : src::THCastImpl<T, const src::Expr::TypeHandle> {};
+template <typename T>
+struct CastInfo<T, const src::Expr::TypeHandle&> : src::THCastImpl<T, const src::Expr::TypeHandle&> {};
+template <typename T>
+struct CastInfo<T, src::Expr::TypeHandle*> : src::THCastImpl<T, src::Expr::TypeHandle*> {};
+template <typename T>
+struct CastInfo<T, const src::Expr::TypeHandle*> : src::THCastImpl<T, const src::Expr::TypeHandle*> {};
 
-template <>
-struct simplify_type<const src::Expr::TypeHandle> {
-    using SimpleType = src::Expr*;
-    static SimpleType getSimplifiedValue(src::Expr::TypeHandle Val) {
-        return static_cast<src::Expr*>(Val);
-    }
-};
-
-/// Need to do this because we can’t overload classof, as overriding it
-/// in the derived classes would hide all overloads, which means we would
-/// have to reimplement all of them in the derived classes.
-template <typename To>
-struct isa_impl<To, src::Expr::TypeHandle> {
-    static inline bool doit(src::Expr::TypeHandle Val) {
-        return To::classof(static_cast<src::Expr*>(Val));
-    }
-};
-
-template <typename To>
-[[nodiscard]] inline decltype(auto) cast(src::Expr::TypeHandle Val) {
-    Assert(isa<To>(Val), "cast<Ty>() argument of incompatible type!");
-    return CastInfo<To, src::Expr*>::doCast(static_cast<src::Expr*>(Val));
-}
 } // namespace llvm
 
 #endif // SOURCE_FRONTEND_AST_HH

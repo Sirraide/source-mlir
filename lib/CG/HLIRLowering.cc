@@ -8,6 +8,9 @@
 #include <mlir/Conversion/IndexToLLVM/IndexToLLVM.h>
 #include <mlir/Conversion/LLVMCommon/ConversionTarget.h>
 #include <mlir/Conversion/LLVMCommon/TypeConverter.h>
+#include <mlir/Conversion/MathToFuncs/MathToFuncs.h>
+#include <mlir/Conversion/MathToLibm/MathToLibm.h>
+#include <mlir/Conversion/MathToLLVM/MathToLLVM.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
 #include <mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h>
 #include <source/CG/HLIRLowering.hh>
@@ -165,6 +168,35 @@ struct LoadOpLowering : public ConversionPattern {
     }
 };
 
+/// Lowering for stores.
+struct StoreOpLowering : public ConversionPattern {
+    explicit StoreOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::StoreOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> operands,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto store = cast<hlir::StoreOp>(op);
+        auto loc = op->getLoc();
+        hlir::StoreOpAdaptor adaptor(operands);
+
+        /// Store the value.
+        rewriter.create<LLVM::StoreOp>(
+            loc,
+            adaptor.getValue(),
+            adaptor.getAddr(),
+            store.getAlignment().getValue().getZExtValue()
+        );
+
+        /// Replace the store op with nothing.
+        rewriter.eraseOp(op);
+        return success();
+    }
+};
+
 /// Lowering for literals.
 struct LiteralOpLowering : public ConversionPattern {
     explicit LiteralOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
@@ -226,10 +258,10 @@ struct ArrayDecayOpLowering : public ConversionPattern {
     }
 };
 
-/*
-struct PrintOpLowering : public ConversionPattern {
-    explicit PrintOpLowering(MLIRContext* ctx)
-        : ConversionPattern(hlir::PrintOp::getOperationName(), 1, ctx) {
+/// Lowering for var decls.
+struct LocalVarOpLowering : public ConversionPattern {
+    explicit LocalVarOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::LocalVarOp::getOperationName(), 1, ctx) {
     }
 
     auto matchAndRewrite(
@@ -237,29 +269,65 @@ struct PrintOpLowering : public ConversionPattern {
         ArrayRef<Value> operands,
         ConversionPatternRewriter& rewriter
     ) const -> LogicalResult override {
-        auto puts_type = LLVM::LLVMFunctionType::get(
-            rewriter.getI32Type(),
-            {LLVM::LLVMPointerType::get(rewriter.getI8Type())},
-            false
+        auto loc = op->getLoc();
+        auto var = cast<hlir::LocalVarOp>(op);
+
+        /// We always pass the entire type to the alloca, so
+        /// the ‘array size’ is always 1.
+        auto one = rewriter.create<LLVM::ConstantOp>(
+            loc,
+            getTypeConverter<LLVMTypeConverter>()->getIndexType(),
+            rewriter.getI32IntegerAttr(1)
         );
 
-        LLVM::LLVMFuncOp puts;
-        {
-            OpBuilder::InsertionGuard i{rewriter};
-            rewriter.setInsertionPointToStart(op->getParentOfType<ModuleOp>().getBody());
-            puts = rewriter.create<LLVM::LLVMFuncOp>(
-                op->getLoc(),
-                "puts",
-                puts_type
-            );
-        }
-
-        rewriter.create<LLVM::CallOp>(
-            op->getLoc(),
-            puts,
-            ArrayRef<Value>{operands[0]}
+        /// Create the alloca.
+        auto alloca = rewriter.create<LLVM::AllocaOp>(
+            loc,
+            getTypeConverter()->convertType(var.getType()),
+            one,
+            var.getAlignment().getValue().getZExtValue()
         );
 
+        /// Replace the local var op with the alloca.
+        rewriter.replaceOp(op, alloca);
+        return success();
+    }
+};
+
+/*/// Lowering for `**`.
+struct ExpIOpLowering : public ConversionPattern {
+    explicit ExpIOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::ExpIOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> operands,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto loc = op->getLoc();
+        auto expi = cast<hlir::ExpIOp>(op);
+        auto tc = getTypeConverter<LLVMTypeConverter>();
+        Value left = operands[0], right = operands[1];
+
+        /// Convert index to int because math.ipowi can’t deal with it.
+        left.getType().dump();
+        if (left.getType().isa<IndexType>())
+            left = rewriter.create<index::CastSOp>(loc, tc->getIndexType(), left).getOutput();
+        right.dump();
+        right.getType().dump();
+        if (right.getType().isa<IndexType>())
+            right = rewriter.create<index::CastSOp>(loc, tc->getIndexType(), right).getOutput();
+
+        /// Create the power operation, passing in non-index integers.
+        auto pow = rewriter.create<math::IPowIOp>(
+            loc,
+            left,
+            right
+        );
+
+        /// Replace the expi op with the intrinsic.
+        op->replaceAllUsesWith(pow);
         rewriter.eraseOp(op);
         return success();
     }
@@ -272,13 +340,21 @@ struct HLIRToLLVMLoweringPass
     }
 
     void runOnOperation() final {
-        LLVMConversionTarget target{getContext()};
-        target.addLegalOp<ModuleOp>();
-
-        LLVMTypeConverter tc{&getContext()};
-        RewritePatternSet patterns{&getContext()};
+        /// Nested pass manager for converting math operations. We need to
+        /// perform these conversions early as there is currently no way
+        /// to integrate them into the rest of the conversion pipeline. Also
+        /// perform lowering to llvm intrinsics here to avoid generating
+        /// unnecessary libm calls.
+        OpPassManager opm{"builtin.module"};
+        opm.addPass(createConvertMathToFuncs());
+        opm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
+        if (failed(runPipeline(opm, getOperation())))
+            return signalPassFailure();
 
         /// Convert slice types to structs of ptr + index.
+        LLVMConversionTarget target{getContext()};
+        LLVMTypeConverter tc{&getContext()};
+        RewritePatternSet patterns{&getContext()};
         tc.addConversion([&](hlir::SliceType t) {
             auto elem = tc.convertType(t.getElem());
             Assert(elem, "Slice type has invalid element type", (t.dump(), 0));
@@ -315,6 +391,11 @@ struct HLIRToLLVMLoweringPass
         populateFuncToLLVMConversionPatterns(tc, patterns);
         populateFuncToLLVMFuncOpConversionPattern(tc, patterns);
         index::populateIndexToLLVMConversionPatterns(tc, patterns);
+        populateMathToLLVMConversionPatterns(tc, patterns);
+        populateMathToLibmConversionPatterns(patterns);
+
+        target.addLegalDialect<LLVM::LLVMDialect>();
+        target.addLegalOp<ModuleOp>();
 
         // clang-format off
         patterns.add<
@@ -323,33 +404,41 @@ struct HLIRToLLVMLoweringPass
             SliceSizeOpLowering,
             GlobalRefOpLowering,
             LoadOpLowering,
+            StoreOpLowering,
             LiteralOpLowering,
-            ArrayDecayOpLowering
+            ArrayDecayOpLowering,
+            LocalVarOpLowering
         >(&getContext(), tc);
         // clang-format on
 
         auto module = getOperation();
-        if (failed(applyFullConversion(module, target, std::move(patterns)))) {
-            fmt::print("Error converting module:");
-            module.print(llvm::errs());
-            signalPassFailure();
-        }
+        if (failed(applyFullConversion(module, target, std::move(patterns))))
+            return signalPassFailure();
     }
 };
 } // namespace src
 
-void src::LowerToLLVM(Module* mod, bool debug_llvm_lowering) {
+void src::LowerToLLVM(Module* mod, bool debug_llvm_lowering, bool no_verify) {
     /// Lower the module.
     if (debug_llvm_lowering) mod->context->mlir.disableMultithreading();
     mlir::PassManager pm{&mod->context->mlir};
+    if (no_verify) pm.enableVerifier(false);
     pm.addPass(std::make_unique<HLIRToLLVMLoweringPass>());
     if (debug_llvm_lowering) pm.enableIRPrinting();
     if (mlir::failed(pm.run(mod->mlir)))
         Diag::ICE(mod->context, mod->module_decl_location, "Module lowering failed");
 }
 
-void src::Module::print_llvm() {
-    if (not llvm) llvm = mlir::translateModuleToLLVMIR(mlir, context->llvm);
+void src::Module::print_llvm(int opt_level) {
+    if (not llvm) {
+        llvm = mlir::translateModuleToLLVMIR(mlir, context->llvm);
+
+        /// Optimise the module, if requested.
+        auto xfrm = mlir::makeOptimizingTransformer(unsigned(opt_level), 0, nullptr);
+        if (auto res = xfrm(llvm.get()))
+            Diag::ICE(context, {}, "Failed to optimise Module: {}", llvm::toString(std::move(res)));
+    }
+
     llvm->print(llvm::outs(), nullptr);
 }
 
