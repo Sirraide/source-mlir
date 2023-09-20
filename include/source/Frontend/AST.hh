@@ -296,7 +296,8 @@ public:
     DeclRefExpr(std::string name, Scope* sc, Location loc)
         : TypedExpr(Kind::DeclRefExpr, detail::UnknownType, loc),
           name(std::move(name)),
-          scope(sc) {}
+          scope(sc),
+          decl(nullptr) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::DeclRefExpr; }

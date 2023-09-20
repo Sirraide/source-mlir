@@ -194,9 +194,7 @@ bool src::Sema::Analyse(src::Expr*& e) {
                         dr->name,
                         invoke->callee,
                         init,
-                        dr->scope == mod->global_scope
-                            ? Linkage::Internal
-                            : Linkage::Local,
+                        Linkage::Local,
                         Mangling::Source,
                         name->location
                     );
@@ -282,7 +280,8 @@ bool src::Sema::Analyse(src::Expr*& e) {
 
             /// The type of this is the type of the referenced expression.
             /// TODO: This is an lvalue.
-            d->stored_type = d->decl->type;
+            if (d->decl->sema.errored) d->sema.set_errored();
+            else d->stored_type = d->decl->type;
         } break;
 
         /// Make sure the type is valid.

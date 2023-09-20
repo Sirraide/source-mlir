@@ -2,8 +2,10 @@
 #define HLIR_DIALECT_TD
 
 include "mlir/Interfaces/CallInterfaces.td"
+include "mlir/Interfaces/CastInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/DataLayoutInterfaces.td"
+include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/VectorInterfaces.td"
@@ -71,9 +73,10 @@ def HLIR_ArrayType : HLIR_SingleElementType<"Array", "array"> {
 
 
 def HLIR_Type : AnyTypeOf<[
-    Builtin_None,
-    Builtin_Index,
+    HLIR_Void,
+    HLIR_Int,
     Builtin_Integer,
+    HLIR_Bool,
     HLIR_SliceType,
     HLIR_ArrayType,
     HLIR_ReferenceType,

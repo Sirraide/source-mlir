@@ -120,11 +120,11 @@ endif()
 ## Debug/Release flags.
 if (NOT MSVC)
     target_compile_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g3 -ggdb3>
+        $<$<CONFIG:DEBUG>:-O0 -g -fsanitize=address>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
     target_link_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g3 -ggdb3 -Wl,-export_dynamic>
+        $<$<CONFIG:DEBUG>:-O0 -g -fsanitize=address>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
 else()

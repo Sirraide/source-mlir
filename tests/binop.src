@@ -5,24 +5,24 @@ proc consume (int) extern;
 int a = i();
 int b = i();
 
-consume a + b;   /// CHECK: hlir.add
-consume a - b;   /// CHECK: hlir.sub
-consume a * b;   /// CHECK: hlir.mul
-consume a ** b;  /// CHECK: hlir.exp
-consume a / b;   /// CHECK: hlir.div
-consume a % b;   /// CHECK: hlir.rem
-consume a and b; /// CHECK: hlir.and
-consume a or b;  /// CHECK: hlir.or
-consume a xor b; /// CHECK: hlir.xor
-consume a << b;  /// CHECK: hlir.shl
-consume a >> b;  /// CHECK: hlir.shr
-consume a >>> b; /// CHECK: hlir.sar
-consume a == b;  /// CHECK: hlir.eq
-consume a != b;  /// CHECK: hlir.ne
-consume a < b;   /// CHECK: hlir.lt
-consume a <= b;  /// CHECK: hlir.le
-consume a > b;   /// CHECK: hlir.gt
-consume a >= b;  /// CHECK: hlir.ge
+consume a + b;   /// CHECK: arith.addi
+consume a - b;   /// CHECK: arith.subi
+consume a * b;   /// CHECK: arith.muli
+consume a ** b;  /// CHECK: hlir.expi
+consume a / b;   /// CHECK: arith.divsi
+consume a % b;   /// CHECK: arith.remsi
+consume a and b; /// CHECK: arith.andi
+consume a or b;  /// CHECK: arith.ori
+consume a xor b; /// CHECK: arith.xori
+consume a << b;  /// CHECK: arith.shli
+consume a >> b;  /// CHECK: arith.shrsi
+consume a >>> b; /// CHECK: arith.shrui
+consume a == b;  /// CHECK: arith.cmpi eq
+consume a != b;  /// CHECK: arith.cmpi ne
+consume a < b;   /// CHECK: arith.cmpi slt
+consume a <= b;  /// CHECK: arith.cmpi sle
+consume a > b;   /// CHECK: arith.cmpi sgt
+consume a >= b;  /// CHECK: arith.cmpi sge
 
 
 

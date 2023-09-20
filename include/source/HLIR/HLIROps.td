@@ -79,7 +79,7 @@ def SliceDataOp : HLIR_Op<"slice_data"> {
 def SliceSizeOp : HLIR_Op<"slice_size"> {
     let summary = "Get the size of a slice";
     let arguments = (ins HLIR_SliceType:$operand);
-    let results = (outs Builtin_Index:$res);
+    let results = (outs HLIR_Int:$res);
     let assemblyFormat = "$operand attr-dict `:` type($operand)";
     let hasVerifier = 0;
 
@@ -122,6 +122,27 @@ def LoadOp : HLIR_Op<"load"> {
     ];
 }
 
+def StoreOp : HLIR_Op<"store"> {
+    let summary = "Store a value to a reference";
+    let arguments = (ins HLIR_ReferenceType:$operand, HLIR_Type:$value);
+    let assemblyFormat = "$value `:` type($value) `into` $operand `:` type($operand) attr-dict";
+    let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$operand,
+            "::mlir::Value":$value
+        ), [{
+            build(
+                $_builder,
+                $_state,
+                {},
+                {operand, value}
+            );
+        }]>
+    ];
+}
+
 def LiteralOp : HLIR_Op<"literal"> {
     let summary = "Literal value";
     let arguments = (ins Variadic<HLIR_Type>:$args);
@@ -140,6 +161,24 @@ def LiteralOp : HLIR_Op<"literal"> {
                 $_state,
                 type,
                 {data, size}
+            );
+        }]>
+    ];
+}
+
+def ZeroinitialiserOp : HLIR_Op<"zeroinitialiser"> {
+    let summary = "Zeroinitialiser";
+    let arguments = (ins HLIR_ReferenceType:$operand);
+    let assemblyFormat = "$operand `:` type($operand) attr-dict";
+    let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins "::mlir::Value":$operand), [{
+            build(
+                $_builder,
+                $_state,
+                {},
+                operand
             );
         }]>
     ];
@@ -169,6 +208,48 @@ def ArrayDecayOp : HLIR_Op<"array_decay"> {
                 $_state,
                 type,
                 operand
+            );
+        }]>
+    ];
+}
+
+def HLIR_LocalVarOp : HLIR_Op<"local_var"> {
+    let summary = "Local variable";
+    let arguments = (ins);
+    let results = (outs HLIR_ReferenceType:$res);
+    let assemblyFormat = "type($res) attr-dict";
+    let hasVerifier = 0;
+    let skipDefaultBuilders = 1;
+
+    let builders = [
+        OpBuilder<(ins "::mlir::Type":$type), [{
+            $_state.addTypes(ReferenceType::get($_state.getContext(), type));
+        }]>
+    ];
+}
+
+def ExpIOp : HLIR_Op<
+    "expi", [
+        SameOperandsAndResultType,
+        DeclareOpInterfaceMethods<VectorUnrollOpInterface>,
+        NoMemoryEffect
+    ] # ElementwiseMappable.traits> {
+    let summary = "Exponential function";
+    let arguments = (ins SignlessIntegerLike:$lhs, SignlessIntegerLike:$rhs);
+    let results = (outs SignlessIntegerLike:$res);
+    let hasVerifier = 0;
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($res)";
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$lhs,
+            "::mlir::Value":$rhs
+        ), [{
+            build(
+                $_builder,
+                $_state,
+                lhs.getType(),
+                {lhs, rhs}
             );
         }]>
     ];

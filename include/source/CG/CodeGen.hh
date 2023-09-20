@@ -6,6 +6,7 @@
 #include <source/Core.hh>
 
 namespace src {
+class BinaryExpr;
 class CodeGen {
     Module* const mod;
     Context* const ctx;
@@ -26,6 +27,12 @@ public:
     }
 
 private:
+    template <typename Op>
+    void GenerateBinOp(BinaryExpr* b);
+
+    template <typename Op>
+    void GenerateCmpOp(BinaryExpr*, mlir::arith::CmpIPredicate pred);
+
     void Generate(Expr* expr);
     void GenerateModule();
     void GenerateProcedure(ProcDecl* proc);

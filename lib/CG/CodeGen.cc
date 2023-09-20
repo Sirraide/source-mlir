@@ -141,7 +141,17 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     Ty(p->type),
                     mlir::SymbolRefAttr::get(mctx, p->name)
                 );
-            } else {
+            }
+
+            /// If it is a variable, then this is a variable reference.
+            else if (auto var = dyn_cast<VarDecl>(e->decl)) {
+                /// Variable must have already been emitted. This is
+                /// an lvalue, so no loading happens here.
+                Assert(var->mlir);
+                e->mlir = var->mlir;
+            }
+
+            else {
                 Unreachable();
             }
         } break;
@@ -184,7 +194,50 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 } break;
 
                 case CastKind::Implicit: {
-                    Todo();
+                    /// Integer-to-integer casts.
+                    if (c->operand->type.is_int(true) and c->type.is_int(true)) {
+                        auto from_size = c->operand->type.size(ctx);
+                        auto to_size = c->type.size(ctx);
+
+                        /// Truncation.
+                        if (from_size > to_size) {
+                            c->mlir = builder.create<mlir::arith::TruncIOp>(
+                                c->location.mlir(ctx),
+                                mlir::IntegerType::get(mctx, unsigned(to_size)),
+                                c->operand->mlir
+                            );
+                        }
+
+                        /// Extension.
+                        else if (to_size < from_size) {
+                            /// Since all of our integers are signed, we always use sign
+                            /// extension, except that, if we’re extending an i1, we use
+                            /// zero-extension, as in case of an i1 with the value 1 (true)
+                            /// sign-extension would yield -1 instead of 1.
+                            if (from_size == 1) {
+                                c->mlir = builder.create<mlir::arith::ExtUIOp>(
+                                    c->location.mlir(ctx),
+                                    mlir::IntegerType::get(mctx, unsigned(to_size)),
+                                    c->operand->mlir
+                                );
+                            } else {
+                                c->mlir = builder.create<mlir::arith::ExtSIOp>(
+                                    c->location.mlir(ctx),
+                                    mlir::IntegerType::get(mctx, unsigned(to_size)),
+                                    c->operand->mlir
+                                );
+                            }
+                        }
+
+                        /// No-op.
+                        else {
+                            c->mlir = c->operand->mlir;
+                        }
+                    }
+
+                    else {
+                        Unreachable();
+                    }
                 }
             }
         } break;
@@ -253,12 +306,61 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::VarDecl: {
-            Todo();
-        }
+            /// Currently, we only have local variables.
+            auto e = cast<VarDecl>(expr);
+            e->mlir = builder.create<hlir::LocalVarOp>(e->location.mlir(ctx), Ty(e->type));
+
+            /// If there is an initialiser, emit it.
+            if (e->init) {
+                Generate(e->init);
+                builder.create<hlir::StoreOp>(
+                    e->init->location.mlir(ctx),
+                    e->mlir,
+                    e->init->mlir
+                );
+            }
+
+            /// Otherwise, zero-initialise it.
+            else {
+                builder.create<hlir::ZeroinitialiserOp>(
+                    e->location.mlir(ctx),
+                    e->mlir
+                );
+            }
+        } break;
 
         case Expr::Kind::BinaryExpr: {
-            Todo();
-        }
+            auto b = cast<BinaryExpr>(expr);
+            Generate(b->lhs);
+            Generate(b->rhs);
+
+            /// Emit the binary operations.
+            switch (b->op) {
+                using namespace mlir::arith;
+                using namespace hlir;
+                default: Unreachable("Invalid binary operator: {}", Spelling(b->op));
+                case Tk::Plus: GenerateBinOp<AddIOp>(b); break;
+                case Tk::Minus: GenerateBinOp<SubIOp>(b); break;
+                case Tk::Star: GenerateBinOp<MulIOp>(b); break;
+                case Tk::StarStar: GenerateBinOp<ExpIOp>(b); break;
+                case Tk::Slash: GenerateBinOp<DivSIOp>(b); break;
+                case Tk::Percent: GenerateBinOp<RemSIOp>(b); break;
+                case Tk::Xor: GenerateBinOp<XOrIOp>(b); break;
+                case Tk::ShiftLeft: GenerateBinOp<ShLIOp>(b); break;
+                case Tk::ShiftRight: GenerateBinOp<ShRSIOp>(b); break;
+                case Tk::ShiftRightLogical: GenerateBinOp<ShRUIOp>(b); break;
+                case Tk::EqEq: GenerateCmpOp<CmpIOp>(b, CmpIPredicate::eq); break;
+                case Tk::Neq: GenerateCmpOp<CmpIOp>(b, CmpIPredicate::ne); break;
+                case Tk::Lt: GenerateCmpOp<CmpIOp>(b, CmpIPredicate::slt); break;
+                case Tk::Gt: GenerateCmpOp<CmpIOp>(b, CmpIPredicate::sgt); break;
+                case Tk::Le: GenerateCmpOp<CmpIOp>(b, CmpIPredicate::sle); break;
+                case Tk::Ge: GenerateCmpOp<CmpIOp>(b, CmpIPredicate::sge); break;
+
+                /// TODO: Short-circuiting if operating on bool.
+                case Tk::And: GenerateBinOp<AndIOp>(b); break;
+                case Tk::Or: GenerateBinOp<OrIOp>(b); break;
+            }
+        } break;
 
         /// Handled by the code that emits a DeclRefExpr.
         case Expr::Kind::ProcDecl: break;
@@ -266,6 +368,25 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::ParamDecl:
             Unreachable();
     }
+}
+
+template <typename Op>
+void src::CodeGen::GenerateBinOp(src::BinaryExpr* b) {
+    b->mlir = builder.create<Op>(
+        b->location.mlir(ctx),
+        b->lhs->mlir,
+        b->rhs->mlir
+    );
+}
+
+template <typename Op>
+void src::CodeGen::GenerateCmpOp(BinaryExpr* b, mlir::arith::CmpIPredicate pred) {
+    b->mlir = builder.create<Op>(
+        b->location.mlir(ctx),
+        pred,
+        b->lhs->mlir,
+        b->rhs->mlir
+    );
 }
 
 void src::CodeGen::GenerateModule() {
