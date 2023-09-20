@@ -108,7 +108,7 @@ public:
         /// Check if this is any integer type.
         bool is_int(bool bool_is_int);
 
-        /// Get the size of this type.
+        /// Get the size of this type, in bits.
         auto size(Context* ctx) -> isz;
 
         /// Get a string representation of this type.
@@ -119,23 +119,22 @@ public:
         Expr* operator->() { return ptr; }
     };
 
-private:
     /// The kind of this expression.
-    property_r(const Kind, kind);
+    const Kind kind;
 
     /// The location of this expression.
-    property_r(Location, location);
+    Location location;
 
     /// State of semantic analysis
-    property_r(SemaState, sema);
+    SemaState sema;
 
     /// Whether this expression has already been emitted.
-    property_rw(bool, emitted);
+    bool emitted;
 
     /// The MLIR value of this expression.
-    property_rw(mlir::Value, mlir);
+    mlir::Value mlir;
 public:
-    Expr(Kind k, Location loc) : kind_field(k), location_field(loc) {}
+    Expr(Kind k, Location loc) : kind(k), location(loc) {}
 
     /// Only allow allocating nodes in a module.
     void* operator new(size_t) = delete;
@@ -166,6 +165,7 @@ public:
 /// ===========================================================================
 enum struct CastKind {
     LValueToRValue,
+    Implicit,
 };
 
 class TypedExpr : public Expr {
@@ -181,30 +181,35 @@ public:
 };
 
 class BlockExpr : public TypedExpr {
+public:
     /// The expressions that are part of this block.
-    property_r(SmallVector<Expr*>, exprs);
+    SmallVector<Expr*> exprs;
+
+    /// The scope of this block.
+    Scope* scope;
 
     /// Whether this expression was create implicitly.
-    property_r(bool, implicit);
+    bool implicit;
 
 public:
-    BlockExpr(SmallVector<Expr*> exprs, Location loc, bool implicit = false)
+    BlockExpr(Scope* scope, SmallVector<Expr*> exprs, Location loc, bool implicit = false)
         : TypedExpr(Kind::BlockExpr, detail::UnknownType, loc),
-          exprs_field(std::move(exprs)),
-          implicit_field(implicit) {}
+          exprs(std::move(exprs)),
+          scope(scope),
+          implicit(implicit) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::BlockExpr; }
 };
 
 class InvokeExpr : public TypedExpr {
+public:
     /// The arguments to the function.
-    property_r(SmallVector<Expr*>, args);
+    SmallVector<Expr*> args;
 
     /// Whether this is a naked invocation.
-    property_r(bool, naked);
+    bool naked;
 
-public:
     /// The function being invoked.
     Expr* callee;
 
@@ -213,8 +218,8 @@ public:
 
     InvokeExpr(Expr* callee, SmallVector<Expr*> args, bool naked, Expr* init, Location loc)
         : TypedExpr(Kind::InvokeExpr, detail::UnknownType, loc),
-          args_field(std::move(args)),
-          naked_field(naked),
+          args(std::move(args)),
+          naked(naked),
           callee(callee),
           init(init) {}
 
@@ -223,16 +228,16 @@ public:
 };
 
 class CastExpr : public TypedExpr {
-    /// The kind of this cast.
-    property_r(CastKind, cast_kind);
-
 public:
+    /// The kind of this cast.
+    CastKind cast_kind;
+
     /// The expression being cast.
     Expr* operand;
 
     CastExpr(CastKind kind, Expr* expr, Expr* type, Location loc)
         : TypedExpr(Kind::CastExpr, type, loc),
-          cast_kind_field(kind),
+          cast_kind(kind),
           operand(expr) {}
 
     /// RTTI.
@@ -240,16 +245,16 @@ public:
 };
 
 class MemberAccessExpr : public TypedExpr {
-    /// The name of the member being accessed.
-    property_r(std::string, member);
-
 public:
+    /// The name of the member being accessed.
+    std::string member;
+
     /// The object being accessed.
     Expr* object;
 
     MemberAccessExpr(Expr* object, std::string member, Location loc)
         : TypedExpr(Kind::MemberAccessExpr, detail::UnknownType, loc),
-          member_field(std::move(member)),
+          member(std::move(member)),
           object(object) {}
 
     /// RTTI.
@@ -264,62 +269,60 @@ public:
     /// The right-hand side of this binary expression.
     Expr* rhs;
 
-private:
     /// The operator of this binary expression.
-    property_r(Tk, op);
+    Tk op;
 
-public:
     BinaryExpr(Tk op, Expr* lhs, Expr* rhs, Location loc)
         : TypedExpr(Kind::BinaryExpr, detail::UnknownType, loc),
           lhs(lhs),
           rhs(rhs),
-          op_field(op) {}
+          op(op) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::BinaryExpr; }
 };
 
 class DeclRefExpr : public TypedExpr {
+public:
     /// The name of the declaration this refers to.
-    property_r(std::string, name);
+    std::string name;
 
     /// The scope in which this name was found.
-    property_rw(Scope*, scope);
+    Scope* scope;
 
     /// The declaration this refers to.
-    property_rw(Expr*, decl);
+    Expr* decl;
 
-public:
     DeclRefExpr(std::string name, Scope* sc, Location loc)
         : TypedExpr(Kind::DeclRefExpr, detail::UnknownType, loc),
-          name_field(std::move(name)),
-          scope_field(sc) {}
+          name(std::move(name)),
+          scope(sc) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::DeclRefExpr; }
 };
 
 class IntLitExpr : public TypedExpr {
-    /// The value of this literal.
-    property_r(isz, value);
-
 public:
+    /// The value of this literal.
+    isz value;
+
     IntLitExpr(isz value, Location loc)
         : TypedExpr(Kind::IntegerLiteralExpr, detail::UnknownType, loc),
-          value_field(value) {}
+          value(value) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::IntegerLiteralExpr; }
 };
 
 class StrLitExpr : public TypedExpr {
-    /// The index of this literal in the string table.
-    property_r(u32, index);
-
 public:
+    /// The index of this literal in the string table.
+    u32 index;
+
     StrLitExpr(u32 index, Location loc)
         : TypedExpr(Kind::StringLiteralExpr, detail::UnknownType, loc),
-          index_field(index) {}
+          index(index) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::StringLiteralExpr; }
@@ -329,33 +332,33 @@ public:
 ///  Declarations
 /// ===========================================================================
 class Decl : public TypedExpr {
-    /// The name of this declaration.
-    property_r(std::string, name);
-
 public:
+    /// The name of this declaration.
+    std::string name;
+
     Decl(Kind k, std::string name, Expr* type, Location loc)
-        : TypedExpr(k, type, loc), name_field(std::move(name)) {}
+        : TypedExpr(k, type, loc), name(std::move(name)) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind >= Kind::ParamDecl; }
 };
 
 class ObjectDecl : public Decl {
+public:
     /// Linkage of this object.
-    property_r(Linkage, linkage);
+    Linkage linkage;
 
     /// Mangling scheme.
-    property_r(Mangling, mangling);
+    Mangling mangling;
 
-public:
     /// Whether this decl is imported or exported.
     readonly(bool, imported, return linkage == Linkage::Imported or linkage == Linkage::Reexported);
     readonly(bool, exported, return linkage == Linkage::Exported or linkage == Linkage::Reexported);
 
     ObjectDecl(Kind k, std::string name, Expr* type, Linkage linkage, Mangling mangling, Location loc)
         : Decl(k, std::move(name), type, loc),
-          linkage_field(linkage),
-          mangling_field(mangling) {}
+          linkage(linkage),
+          mangling(mangling) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind >= Kind::ProcDecl; }
@@ -391,13 +394,13 @@ public:
 };
 
 class ProcDecl : public ObjectDecl {
+public:
     /// The function parameter decls.
-    property_r(SmallVector<ParamDecl*>, params);
+    SmallVector<ParamDecl*> params;
 
     /// Body of the function.
-    property_rw(BlockExpr*, body);
+    BlockExpr* body;
 
-public:
     ProcDecl(
         Module* mod,
         std::string name,
@@ -408,8 +411,8 @@ public:
         Mangling mangling,
         Location loc
     ) : ObjectDecl(Kind::ProcDecl, std::move(name), type, linkage, mangling, loc),
-        params_field(std::move(params)),
-        body_field(body) {
+        params(std::move(params)),
+        body(body) {
         mod->add_function(this);
     }
 
@@ -427,6 +430,7 @@ enum struct BuiltinTypeKind {
     Unknown,
     Void,
     Int,
+    Bool,
 };
 
 enum struct FFITypeKind {
@@ -444,6 +448,7 @@ public:
     static BuiltinType* const Int;
     static BuiltinType* const Unknown;
     static BuiltinType* const Void;
+    static BuiltinType* const Bool;
 
     /// It is too goddamn easy to forget to dereference at least
     /// one of the expressions when comparing them w/ operator==,
@@ -457,12 +462,12 @@ public:
 };
 
 class IntType : public Type {
-    /// The size of this integer type, in bits.
-    property_r(isz, bits);
-
 public:
+    /// The size of this integer type, in bits.
+    isz bits;
+
     IntType(isz bits, Location loc)
-        : Type(Kind::IntType, loc), bits_field(bits) {}
+        : Type(Kind::IntType, loc), bits(bits) {}
 
     static auto Create(Module* mod, isz size, Location loc = {}) -> IntType* {
         return new (mod) IntType(size, loc);
@@ -475,9 +480,11 @@ public:
 class BuiltinType : public Type {
     using K = BuiltinTypeKind;
 
+public:
     /// The kind of this builtin type.
-    property_r(const BuiltinTypeKind, builtin_kind);
+    const BuiltinTypeKind builtin_kind;
 
+private:
     /// Create a new builtin type.
     static auto Create(Module* m, BuiltinTypeKind kind, Location loc) -> BuiltinType* {
         auto bt = new (m) BuiltinType(kind, loc);
@@ -487,20 +494,23 @@ class BuiltinType : public Type {
 
 public:
     BuiltinType(BuiltinTypeKind kind, Location loc)
-        : Type(Kind::BuiltinType, loc), builtin_kind_field(kind) {}
+        : Type(Kind::BuiltinType, loc), builtin_kind(kind) {}
 
     static auto Unknown(Module* m, Location loc = {}) -> BuiltinType* { return Create(m, K::Unknown, loc); }
     static auto Void(Module* m, Location loc = {}) -> BuiltinType* { return Create(m, K::Void, loc); }
     static auto Int(Module* m, Location loc = {}) -> BuiltinType* { return Create(m, K::Int, loc); }
+    static auto Bool(Module* m, Location loc = {}) -> BuiltinType* { return Create(m, K::Bool, loc); }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::BuiltinType; }
 };
 
 class FFIType : public Type {
+public:
     /// The kind of this FFI type.
-    property_r(FFITypeKind, ffi_kind);
+    FFITypeKind ffi_kind;
 
+private:
     /// Create a new FFI type.
     static auto Create(Module* m, FFITypeKind kind, Location loc) -> FFIType* {
         return new (m) FFIType(kind, loc);
@@ -508,7 +518,7 @@ class FFIType : public Type {
 
 public:
     FFIType(FFITypeKind kind, Location loc)
-        : Type(Kind::FFIType, loc), ffi_kind_field(kind) {}
+        : Type(Kind::FFIType, loc), ffi_kind(kind) {}
 
     static auto CChar(Module* m, Location loc = {}) -> FFIType* { return Create(m, FFITypeKind::CChar, loc); }
     static auto CInt(Module* m, Location loc = {}) -> FFIType* { return Create(m, FFITypeKind::CInt, loc); }
@@ -518,12 +528,13 @@ public:
 };
 
 class SingleElementTypeBase : public Type {
+public:
     /// The element type.
-    property_r(Expr*, elem);
+    Expr* elem;
 
 protected:
     SingleElementTypeBase(Kind k, Expr* elem, Location loc)
-        : Type(k, loc), elem_field(elem) {}
+        : Type(k, loc), elem(elem) {}
 };
 
 class ReferenceType : public SingleElementTypeBase {
@@ -563,17 +574,17 @@ public:
 };
 
 class ProcType : public Type {
+public:
     /// The parameter types.
-    property_r(SmallVector<Expr*>, param_types);
+    SmallVector<Expr*> param_types;
 
     /// The return type.
-    property_r(Expr*, ret_type);
+    Expr* ret_type;
 
-public:
     ProcType(SmallVector<Expr*> param_types, Expr* ret_type, Location loc)
         : Type(Kind::ProcType, loc),
-          param_types_field(std::move(param_types)),
-          ret_type_field(ret_type) {}
+          param_types(std::move(param_types)),
+          ret_type(ret_type) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ProcType; }
@@ -583,21 +594,21 @@ public:
 ///  Scope
 /// ===========================================================================
 class Scope {
+public:
     using Symbols = StringMap<SmallVector<Expr*, 1>>;
 
     /// The parent scope.
-    property_r(Scope*, parent);
+    Scope* parent;
 
     /// The module this scope belongs to.
-    property_r(Module*, module);
+    Module* module;
 
     /// Symbols in this scope.
-    property_r(Symbols, symbol_table);
+    Symbols symbol_table;
 
     /// Whether this scope is a function scope.
-    property_r(bool, is_function);
+    bool is_function;
 
-public:
     /// Get the nearest parent scope that is a function scope.
     readonly_decl(Scope*, enclosing_function_scope);
 
@@ -610,7 +621,7 @@ public:
 
     /// Create a new scope.
     explicit Scope(Scope* parent, Module* mod)
-        : parent_field{parent}, module_field{mod} {}
+        : parent{parent}, module{mod} {}
 
     /// Declare a symbol in this scope.
     void declare(StringRef name, Expr* value) {
@@ -620,27 +631,54 @@ public:
     /// Mark this scope as a function scope. This cannot be undone.
     void set_function_scope() {
         Assert(not is_function, "Scope already marked as function scope");
-        is_function_field = true;
+        is_function = true;
     }
 
     /// Visit each symbol with the given name.
     template <typename Func>
     void visit(StringRef name, bool this_scope_only, Func f) {
         if (auto sym = symbol_table.find(name); sym != symbol_table.end())
-            std::invoke(f, sym->second);
+            if (std::invoke(f, sym->second) == utils::StopIteration)
+                return;
         if (parent and not this_scope_only) parent->visit(name, false, f);
     }
 };
 } // namespace src
 
 namespace llvm {
+template <typename T>
+struct CastInfo<T, src::Expr::TypeHandle*> {
+    static_assert(src::utils::always_false<T>, "Do NOT cast typehandle pointers");
+};
+
+template <typename T>
+struct CastInfo<T, const src::Expr::TypeHandle*> {
+    static_assert(src::utils::always_false<T>, "Do NOT cast typehandle pointers");
+};
+
 template <>
 struct simplify_type<const src::Expr::TypeHandle> {
     using SimpleType = src::Expr*;
-
-    static SimpleType getSimplifiedValue(const src::Expr::TypeHandle& Val) {
+    static SimpleType getSimplifiedValue(src::Expr::TypeHandle Val) {
         return static_cast<src::Expr*>(Val);
     }
 };
+
+/// Need to do this because we can’t overload classof, as overriding it
+/// in the derived classes would hide all overloads, which means we would
+/// have to reimplement all of them in the derived classes.
+template <typename To>
+struct isa_impl<To, src::Expr::TypeHandle> {
+    static inline bool doit(src::Expr::TypeHandle Val) {
+        return To::classof(static_cast<src::Expr*>(Val));
+    }
+};
+
+template <typename To>
+[[nodiscard]] inline decltype(auto) cast(src::Expr::TypeHandle Val) {
+    Assert(isa<To>(Val), "cast<Ty>() argument of incompatible type!");
+    return CastInfo<To, src::Expr*>::doCast(static_cast<src::Expr*>(Val));
+}
 } // namespace llvm
+
 #endif // SOURCE_FRONTEND_AST_HH

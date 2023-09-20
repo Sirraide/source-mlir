@@ -46,15 +46,74 @@ auto src::Expr::_type() -> TypeHandle {
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
-bool src::Expr::TypeHandle::is_int([[maybe_unused]] bool bool_is_int) {
+bool src::Expr::TypeHandle::is_int(bool bool_is_int) {
     switch (ptr->kind) {
         default: return false;
         case Kind::IntType: return true;
         case Kind::BuiltinType: {
-            auto k = cast<BuiltinType>(this)->builtin_kind;
-            return k == BuiltinTypeKind::Int;
+            auto k = cast<BuiltinType>(ptr)->builtin_kind;
+            if (k == BuiltinTypeKind::Int) return true;
+            return bool_is_int and k == BuiltinTypeKind::Bool;
         }
     }
+}
+
+auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
+    switch (ptr->kind) {
+        case Kind::BuiltinType:
+            switch (cast<BuiltinType>(ptr)->builtin_kind) {
+                case BuiltinTypeKind::Unknown: return 0;
+                case BuiltinTypeKind::Void: return 0;
+                case BuiltinTypeKind::Int: return 64; /// FIXME: Use context.
+                case BuiltinTypeKind::Bool: return 1;
+            }
+
+            Unreachable();
+
+        case Kind::FFIType:
+            switch (cast<FFIType>(ptr)->ffi_kind) {
+                case FFITypeKind::CChar: return 1;
+                case FFITypeKind::CInt: return 32; /// FIXME: Use context.
+            }
+
+            Unreachable();
+
+        case Kind::IntType:
+            return cast<IntType>(ptr)->bits;
+
+        case Kind::ReferenceType:
+            return 64; /// FIXME: Use context.
+
+        case Kind::ScopedPointerType:
+            return 64; /// FIXME: Use context.
+
+        case Kind::SliceType:
+            return 128; /// FIXME: Use context.
+
+        case Kind::OptionalType:
+            Todo();
+
+        /// Invalid.
+        case Kind::ProcType:
+            Unreachable(".size accessed on function type");
+
+        case Kind::DeclRefExpr:
+            Todo();
+
+        case Kind::BlockExpr: break;
+        case Kind::InvokeExpr: break;
+        case Kind::CastExpr: break;
+        case Kind::MemberAccessExpr: break;
+        case Kind::BinaryExpr: break;
+        case Kind::IntegerLiteralExpr: break;
+        case Kind::StringLiteralExpr: break;
+        case Kind::ParamDecl: break;
+        case Kind::ProcDecl: break;
+        case Kind::VarDecl:
+            Unreachable(".size accessed on non-type expression");
+    }
+
+    Unreachable();
 }
 
 auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
@@ -64,7 +123,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
 
     /// Helper to write a type that has an element type.
     const auto WriteSElem = [&](std::string_view suffix) {
-        out += cast<SingleElementTypeBase>(this)->elem->type.str(use_colour);
+        out += cast<SingleElementTypeBase>(ptr)->elem->type.str(use_colour);
         out += C(Red);
         out += suffix;
     };
@@ -74,25 +133,31 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::ScopedPointerType: WriteSElem("^"); break;
         case Kind::OptionalType: WriteSElem("?"); break;
         case Kind::SliceType: WriteSElem("[]"); break;
-        case Kind::IntType: out += fmt::format("i{}", cast<IntType>(this)->bits); break;
+        case Kind::IntType: out += fmt::format("i{}", cast<IntType>(ptr)->bits); break;
 
         case Kind::BuiltinType: {
-            switch (cast<BuiltinType>(this)->builtin_kind) {
-                case BuiltinTypeKind::Unknown: out += "<unknown>"; break;
-                case BuiltinTypeKind::Void: out += "void"; break;
-                case BuiltinTypeKind::Int: out += "int"; break;
+            auto bk = cast<BuiltinType>(ptr)->builtin_kind;
+            switch (bk) {
+                case BuiltinTypeKind::Unknown: out += "<unknown>"; goto done;
+                case BuiltinTypeKind::Void: out += "void"; goto done;
+                case BuiltinTypeKind::Int: out += "int"; goto done;
+                case BuiltinTypeKind::Bool: out += "bool"; goto done;
             }
+
+            out += fmt::format("<invalid builtin type: {}>", int(bk));
         } break;
 
         case Kind::FFIType: {
-            switch (cast<FFIType>(this)->ffi_kind) {
-                case FFITypeKind::CChar: out += "__ffi_char"; break;
-                case FFITypeKind::CInt: out += "__ffi_int"; break;
+            switch (cast<FFIType>(ptr)->ffi_kind) {
+                case FFITypeKind::CChar: out += "__ffi_char"; goto done;
+                case FFITypeKind::CInt: out += "__ffi_int"; goto done;
             }
+
+            out += fmt::format("<invalid ffi type: {}>", int(cast<FFIType>(ptr)->ffi_kind));
         } break;
 
         case Kind::ProcType: {
-            auto p = cast<ProcType>(this);
+            auto p = cast<ProcType>(ptr);
             out += fmt::format("{}proc", C(Red));
 
             if (not p->param_types.empty()) {
@@ -127,9 +192,10 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::CastExpr:
         case Kind::BinaryExpr:
         case Kind::VarDecl:
-            return cast<TypedExpr>(this)->stored_type->type.str(use_colour);
+            return cast<TypedExpr>(ptr)->stored_type->type.str(use_colour);
     }
 
+done:
     out += C(Reset);
     return out;
 }
@@ -357,6 +423,7 @@ struct ASTPrinter {
                 out += C(Red);
                 switch (c->cast_kind) {
                     case CastKind::LValueToRValue: out += " LValueToRValue"; break;
+                    case CastKind::Implicit: out += " Implicit"; break;
                 }
                 out += fmt::format(
                     " {}\n",

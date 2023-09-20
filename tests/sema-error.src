@@ -1,0 +1,6 @@
+/// RUN: %srcc %s --ast |& FileCheck %s
+
+/// Make sure that the error is reported only once in a single expression.
+/// CHECK: Unknown symbol 'a'
+/// CHECK-NOT: Unknown symbol 'b'
+a + b;

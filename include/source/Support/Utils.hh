@@ -35,7 +35,6 @@
 #include <vector>
 
 namespace src {
-
 using namespace std::literals;
 
 namespace fs = std::filesystem;
@@ -43,6 +42,7 @@ namespace chr = std::chrono;
 namespace rgs = std::ranges;
 namespace vws = std::ranges::views;
 
+using llvm::APInt;
 using llvm::ArrayRef;
 using llvm::DenseMap;
 using llvm::DenseSet;
@@ -53,7 +53,6 @@ using llvm::SmallVectorImpl;
 using llvm::StringMap;
 using llvm::StringRef;
 using llvm::Twine;
-using llvm::APInt;
 
 using llvm::cast;
 using llvm::dyn_cast;
@@ -111,25 +110,6 @@ using f64 = double;
     type _##name();               \
     __declspec(property(get = _##name)) type name
 
-#define property_r(type, name)                                \
-private:                                                      \
-    type name##_field{};                                      \
-public:                                                       \
-    decltype(auto) _##name() const { return (name##_field); } \
-    decltype(auto) _##name() { return (name##_field); }       \
-    __declspec(property(get = _##name)) type name;            \
-private:
-
-#define property_rw(type, name)                                   \
-private:                                                          \
-    type name##_field{};                                          \
-public:                                                           \
-    void _##name(type value) { name##_field = std::move(value); } \
-    decltype(auto) _##name() const { return name##_field; }       \
-    decltype(auto) _##name() { return name##_field; }             \
-    __declspec(property(get = _##name, put = _##name)) type name; \
-private:
-
 // clang-format off
 #define Assert(cond, ...) (cond ? void(0) :                    \
     ::src::detail::AssertFail(                                 \
@@ -150,13 +130,14 @@ private:
         )                                                      \
     ) // clang-format on
 
-#define Unreachable(...)                                       \
-    ::src::detail::AssertFail(                                 \
-        fmt::format(                                           \
-            "Unreachable code reached in {} at line {}"        \
-            __VA_OPT__(".\nMessage: {}"), __FILE__, __LINE__   \
-            __VA_OPT__(, fmt::format(__VA_ARGS__))             \
-        )                                                      \
+#define Unreachable(...)                                                              \
+    ::src::detail::AssertFail(                                                        \
+        fmt::format(                                                                  \
+            "Unreachable code reached in {} at line {}" __VA_OPT__(".\nMessage: {}"), \
+            __FILE__,                                                                 \
+            __LINE__                                                                  \
+                __VA_OPT__(, fmt::format(__VA_ARGS__))                                \
+        )                                                                             \
     ) // clang-format on
 
 namespace detail {
@@ -216,6 +197,9 @@ struct TempsetStage1 {
 /// More rarely used functions go here so as to not pollute
 /// the global namespace too much.
 namespace utils {
+template <typename>
+concept always_false = false;
+
 /// ANSI Terminal colours.
 enum struct Colour {
     Reset = 0,
@@ -256,6 +240,13 @@ struct Colours {
         }
         return "";
     }
+};
+
+/// Helper to stop a recursion or iteration in a callback. Unscoped
+/// because it’s already in a namespace.
+enum IterationResult {
+    StopIteration,
+    ContinueIteration,
 };
 
 /// Align a value to a given alignment.

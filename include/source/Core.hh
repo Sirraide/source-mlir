@@ -88,9 +88,11 @@ class Context {
     const llvm::Target* tgt;
 
     /// Contexts.
-    property_r(mlir::MLIRContext, mlir);
-    property_r(llvm::LLVMContext, llvm);
+    public:
+    mlir::MLIRContext mlir;
+    llvm::LLVMContext llvm;
 
+private:
     /// Modules in the context.
     std::vector<std::unique_ptr<Module>> modules;
 
@@ -274,37 +276,38 @@ struct ImportedModuleRef {
 
 /// A Source module.
 class Module {
-    property_r(Context* const, context);
+    public:
+    Context* const context;
 
     /// Modules imported by this module.
-    property_r(SmallVector<ImportedModuleRef>, imports);
+    SmallVector<ImportedModuleRef> imports;
 
     /// Exported declarations.
-    property_r(decltype(StringMap<SmallVector<Expr*, 1>>{}), exports);
+    StringMap<SmallVector<Expr*, 1>> exports;
 
     /// Top-level module function.
-    property_r(ProcDecl*, top_level_func);
+    ProcDecl* top_level_func;
 
     /// Module string table.
-    property_r(StringTable, strtab);
+    StringTable strtab;
 
     /// Scopes in this module.
-    property_r(SmallVector<Scope*>, scopes);
+    SmallVector<Scope*> scopes;
 
     /// AST nodes in this module.
-    property_r(SmallVector<Expr*>, exprs);
+    SmallVector<Expr*> exprs;
 
     /// Functions that are part of this module.
-    property_r(SmallVector<ProcDecl*>, functions);
+    SmallVector<ProcDecl*> functions;
 
     /// Static assertions that are not part of a template go here.
-    property_r(decltype(SmallVector<Expr*, 32>{}), static_assertions);
+    SmallVector<Expr*, 32> static_assertions;
 
     /// Module name.
-    property_r(std::string, name);
+    std::string name;
 
     /// Location of the module declaration.
-    property_r(Location, module_decl_location);
+    Location module_decl_location;
 
 public:
     /// Whether this is a logical module.

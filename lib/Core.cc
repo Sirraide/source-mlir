@@ -275,23 +275,23 @@ auto src::Location::seek_line_column(const Context* ctx) const -> LocInfoShort {
 ///  Module
 /// ===========================================================================
 src::Module::Module(Context* ctx, std::string name, Location module_decl_location)
-    : context_field(ctx),
-      name_field(std::move(name)),
-      module_decl_location_field(module_decl_location) {
-    top_level_func_field = new (this) ProcDecl{
+    : context(ctx),
+      name(std::move(name)),
+      module_decl_location(module_decl_location) {
+    /// Create the global scope. The scope is automatically
+    /// added to our list of scopes by operator new.
+    new (this) Scope{nullptr, this};
+    top_level_func = new (this) ProcDecl{
         this,
         is_logical_module ? fmt::format("_S.static.initialisation.{}", name) : "__src_main",
         new (this) ProcType({}, BuiltinType::Void(this), {}),
         {},
-        new (this) BlockExpr{{}, {}},
+        new (this) BlockExpr{global_scope, {}, {}},
         Linkage::Exported,
         Mangling::None,
         {},
     };
 
-    /// Create the global scope. The scope is automatically
-    /// added to our list of scopes by operator new.
-    new (this) Scope{nullptr, this};
 }
 
 /// ===========================================================================

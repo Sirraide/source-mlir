@@ -32,6 +32,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
                 case K::Unknown: Unreachable();
                 case K::Void: return mlir::NoneType::get(mctx);
                 case K::Int: return mlir::IndexType::get(mctx);
+                case K::Bool: return mlir::IntegerType::get(mctx, 1);
             }
             Unreachable();
         }
@@ -181,6 +182,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
                         c->operand->mlir
                     );
                 } break;
+
+                case CastKind::Implicit: {
+                    Todo();
+                }
             }
         } break;
 

@@ -99,11 +99,6 @@ constexpr inline int NakedInvokePrecedence = BinaryOrPostfixPrecedence(Tk::RPare
 } // namespace
 } // namespace src
 
-auto src::Parser::WrapWithBlock(src::Expr* e) -> BlockExpr* {
-    if (auto block = dyn_cast<BlockExpr>(e)) return block;
-    return new (mod) BlockExpr({e}, e->location, true);
-}
-
 /// ===========================================================================
 ///  Parse Functions
 /// ===========================================================================
@@ -115,13 +110,14 @@ auto src::Parser::Parse(Context& ctx, File& f) -> std::unique_ptr<Module> {
 
 /// <expr-block> ::= "{" { <expr> ";" } "}"
 auto src::Parser::ParseBlock() -> Result<BlockExpr*> {
+    ScopeRAII sc{this};
     auto loc = curr_loc;
     Assert(Consume(Tk::LBrace));
 
     SmallVector<Expr*> exprs;
     if (not ParseExprs(Tk::RBrace, exprs)) return Diag();
 
-    auto block = new (mod) BlockExpr(std::move(exprs), {loc, tok.location});
+    auto block = new (mod) BlockExpr(sc.scope, std::move(exprs), {loc, tok.location});
     if (not Consume(Tk::RBrace)) Error("Expected '}}'");
     return block;
 }
@@ -369,12 +365,15 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
     if (not sig.is_extern) {
         if (Consume(Tk::Assign)) {
             ScopeRAII sc{this};
-            body = ParseExpr() >> bind WrapWithBlock;
+            if (auto res = ParseExpr(); res.is_diag) return Diag();
+            else body = new (mod) BlockExpr(sc.scope, {*res}, {sig.loc, res->location});
         } else if (At(Tk::LBrace)) body = ParseBlock();
         else body = Error("Expected '=' or '{{' at start of procedure body");
     }
 
     /// Create the procedure.
+    ///
+    /// Note: Variable declarations are only added to a scope in Sema.
     if (IsError(body)) return body;
     auto proc = new (mod) ProcDecl(
         mod,

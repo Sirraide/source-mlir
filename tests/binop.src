@@ -14,15 +14,15 @@ consume a % b;   /// CHECK: hlir.rem
 consume a and b; /// CHECK: hlir.and
 consume a or b;  /// CHECK: hlir.or
 consume a xor b; /// CHECK: hlir.xor
+consume a << b;  /// CHECK: hlir.shl
+consume a >> b;  /// CHECK: hlir.shr
+consume a >>> b; /// CHECK: hlir.sar
 consume a == b;  /// CHECK: hlir.eq
 consume a != b;  /// CHECK: hlir.ne
 consume a < b;   /// CHECK: hlir.lt
 consume a <= b;  /// CHECK: hlir.le
 consume a > b;   /// CHECK: hlir.gt
 consume a >= b;  /// CHECK: hlir.ge
-consume a << b;  /// CHECK: hlir.shl
-consume a >> b;  /// CHECK: hlir.shr
-consume a >>> b; /// CHECK: hlir.sar
 
 
 

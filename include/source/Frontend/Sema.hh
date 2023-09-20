@@ -31,6 +31,7 @@ using make_formattable_t = make_formattable<T>::type;
 class Sema {
     Module* mod{};
     ProcDecl* curr_proc{};
+    Scope* curr_scope{};
 
 public:
     /// Use Context::has_error to check for errors.
@@ -51,7 +52,7 @@ private:
     void AnalyseModule();
 
     /// Convert an expression to a type, inserting implicit conversions as needed.
-    bool Convert(Expr*& e, Expr* type);
+    bool Convert(Expr*& e, Expr* to);
 
     /// Returns false for convenience.
     template <typename... Args>
@@ -69,6 +70,7 @@ private:
         return false;
     }
 
+    void InsertImplicitCast(Expr*& e, Expr* to);
     void InsertLValueToRValueConversion(Expr*& e);
 
     bool MakeDeclType(Expr*& e);
@@ -79,7 +81,7 @@ private:
         if constexpr (std::is_pointer_v<Type> and std::derived_from<std::remove_pointer_t<Type>, Expr>) {
             return std::forward<T>(t)->type.str(true);
         } else if constexpr (std::is_same_v<Type, Expr::TypeHandle>) {
-            return std::forward<T>(t)->str(true);
+            return std::forward<T>(t).str(true);
         } else {
             return std::forward<T>(t);
         }

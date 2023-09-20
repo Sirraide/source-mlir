@@ -30,25 +30,24 @@ private:
     friend class MatchedDelimiterTracker;
 
     /// RAII wrapper that pushes and pops a scope.
-    class ScopeRAII {
+    struct ScopeRAII {
         Parser& p;
-        property_r(Scope*, scope);
+        Scope* scope;
 
-    public:
         ScopeRAII(Parser* parser)
             : p(*parser),
-              scope_field(new(p.mod) Scope(p.curr_scope, p.mod)) { p.scope_stack.push_back(scope); }
+              scope(new(p.mod) Scope(p.curr_scope, p.mod)) { p.scope_stack.push_back(scope); }
 
         ~ScopeRAII() { pop(); }
 
         ScopeRAII(const ScopeRAII&) = delete;
         ScopeRAII& operator=(const ScopeRAII&) = delete;
 
-        ScopeRAII(ScopeRAII&& o) : p(o.p), scope_field(std::exchange(o.scope, nullptr)) {}
+        ScopeRAII(ScopeRAII&& o) : p(o.p), scope(std::exchange(o.scope, nullptr)) {}
         ScopeRAII& operator=(ScopeRAII&& o) {
             if (this == std::addressof(o)) return *this;
             pop();
-            scope_field = std::exchange(o.scope, nullptr);
+            scope = std::exchange(o.scope, nullptr);
             return *this;
         }
 
@@ -57,7 +56,7 @@ private:
             release();
         }
 
-        void release() { scope_field = nullptr; }
+        void release() { scope = nullptr; }
     };
 
     /// Helper that skips a balanced set of delimiters.
@@ -165,9 +164,6 @@ private:
     void Synchronise(Tk token = Tk::Semicolon, std::same_as<Tk> auto... tks) {
         while (not At(Tk::Eof, token, tks...)) Next();
     }
-
-    /// Wrap an expression with a block expression.
-    auto WrapWithBlock(Expr* e) -> BlockExpr*;
 };
 
 } // namespace src
