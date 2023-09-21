@@ -84,6 +84,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
         case Expr::Kind::ParamDecl:
         case Expr::Kind::ProcDecl:
         case Expr::Kind::CastExpr:
+        case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::BinaryExpr:
         case Expr::Kind::VarDecl:
             Unreachable();
@@ -196,6 +197,12 @@ void src::CodeGen::Generate(src::Expr* expr) {
                         c->operand->mlir
                     );
                 } break;
+
+                case CastKind::LValueReduction:
+                case CastKind::ImplicitDereference:
+                case CastKind::ReferenceBinding: {
+                    Todo();
+                }
 
                 case CastKind::Implicit: {
                     /// Integer-to-integer casts.
@@ -338,6 +345,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 );
             }
         } break;
+
+        case Expr::Kind::UnaryPrefixExpr: {
+            Todo();
+        }
 
         case Expr::Kind::BinaryExpr: {
             auto b = cast<BinaryExpr>(expr);

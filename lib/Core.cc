@@ -296,6 +296,11 @@ src::Module::Module(Context* ctx, std::string name, Location module_decl_locatio
 
 }
 
+src::Module::~Module() {
+    for (auto sc : scopes) utils::Deallocate(sc);
+    for (auto ex : exprs) utils::Deallocate(ex);
+}
+
 /// ===========================================================================
 ///  Diagnostics
 /// ===========================================================================

@@ -1,0 +1,44 @@
+int i = 1;
+int j = 2;
+
+/// Reference binding.
+int& refi = i;
+int& refj = refi;
+
+/// Equivalent in reference declaration.
+int& refi = i;
+int& refj = refi;
+
+/// Autoderef.
+int copy_i = refi;
+i = refi;
+refi = refj;
+
+/// Rebinding.
+refi => j;
+refi => i;
+refi => refj;
+
+/// Ref-to-ref.
+int&& r2i = refi;
+int&& r2j = refj;
+int&&& r3i = r2i;
+int&&& r3j = r2j;
+
+/// Value reassignment through multiple references.
+r2i = j;
+r3i = j;
+r2j = r3j;
+r3i = r2i;
+r3i = refi;
+r2j = refj;
+
+/// Multi-level rebinding.
+r2i => refj;
+r3j => r2i;
+
+/// Complex rebinding.
+*r2i => i;
+*r3j => refi;
+**r3i => j;
+**r3j => r3i;

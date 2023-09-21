@@ -71,7 +71,9 @@ private:
     }
 
     void InsertImplicitCast(Expr*& e, Expr* to);
-    void InsertLValueToRValueConversion(Expr*& e, bool all_refs_are_lvalues = false);
+    void InsertImplicitDereference(Expr*& e, isz depth);
+    void InsertLValueReduction(Expr*& e);
+    void InsertLValueToRValueConversion(Expr*& e);
 
     bool MakeDeclType(Expr*& e);
 

@@ -325,6 +325,7 @@ public:
 
     /// An empty name means this isn’t a logical module.
     explicit Module(Context* ctx, std::string name, Location module_decl_location = {});
+    ~Module();
 
     /// Add a function to this module.
     void add_function(ProcDecl* func) { functions.push_back(func); }

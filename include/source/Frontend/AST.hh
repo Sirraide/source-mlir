@@ -53,6 +53,7 @@ public:
         InvokeExpr,
         CastExpr,
         MemberAccessExpr,
+        UnaryPrefixExpr,
         BinaryExpr,
         DeclRefExpr,
         IntegerLiteralExpr,
@@ -111,11 +112,17 @@ public:
         /// Check if this is any integer type.
         bool is_int(bool bool_is_int);
 
+        /// Get the number of nested reference levels in this type.
+        readonly_decl(isz, ref_depth);
+
         /// Get the size of this type, in bits.
         auto size(Context* ctx) -> isz;
 
         /// Get a string representation of this type.
         auto str(bool use_colour) const -> std::string;
+
+        /// Strip all references from this type.
+        readonly_decl(TypeHandle, strip_refs);
 
         /// Access the underlying type pointer.
         operator Expr*() const { return ptr; };
@@ -129,22 +136,24 @@ public:
     Location location;
 
     /// State of semantic analysis
-    SemaState sema;
+    SemaState sema{};
 
     /// Whether this expression has already been emitted.
-    bool emitted;
+    bool emitted = false;
+
+    /// Check if this is an lvalue.
+    bool is_lvalue = false;
 
     /// The MLIR value of this expression.
-    mlir::Value mlir;
+    mlir::Value mlir{};
 public:
     Expr(Kind k, Location loc) : kind(k), location(loc) {}
+    virtual ~Expr() = default;
 
     /// Only allow allocating nodes in a module.
     void* operator new(size_t) = delete;
     void* operator new(size_t sz, Module* mod) noexcept {
-        /// We don’t know the alignment of the type, so we assume
-        /// that it’s not larger than max_align_t.
-        return utils::AllocateAndRegister<Expr, alignof(max_align_t)>(sz, mod->exprs);
+        return utils::AllocateAndRegister<Expr>(sz, mod->exprs);
     }
 
     /// Get the type of this expression; returns void if
@@ -155,9 +164,6 @@ public:
     /// from `type` which returns a handle to the type of this
     /// expression.
     readonly(TypeHandle, as_type, return TypeHandle(this));
-
-    /// Check if this is an lvalue.
-    readonly_decl(bool, is_lvalue);
 
     /// Print this expression to stdout.
     void print() const;
@@ -170,8 +176,11 @@ public:
 ///  Typed Expressions
 /// ===========================================================================
 enum struct CastKind {
-    LValueToRValue,
-    Implicit,
+    LValueToRValue,      /// Convert lvalues to rvalues, dereferencing if needed.
+    LValueReduction,     /// Collapse multi-level references to an lvalue.
+    ImplicitDereference, /// Remove a single reference level, yielding an lvalue.
+    ReferenceBinding,    /// Convert an lvalue to a reference.
+    Implicit,            /// Any other implicit conversion.
 };
 
 class TypedExpr : public Expr {
@@ -265,6 +274,23 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::MemberAccessExpr; }
+};
+
+class UnaryPrefixExpr: public TypedExpr {
+public:
+    /// The operand of this unary expression.
+    Expr* operand;
+
+    /// The operator of this unary expression.
+    Tk op;
+
+    UnaryPrefixExpr(Tk op, Expr* operand, Location loc)
+        : TypedExpr(Kind::UnaryPrefixExpr, detail::UnknownType, loc),
+          operand(operand),
+          op(op) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::UnaryPrefixExpr; }
 };
 
 class BinaryExpr : public TypedExpr {

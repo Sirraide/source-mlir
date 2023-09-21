@@ -22,27 +22,96 @@ bool src::Sema::Convert(Expr*& e, Expr* type) {
             InsertImplicitCast(e, type);
             return true;
         }
+
+        /// No other valid integer conversions.
+        return false;
     }
 
-    /// No other conversions are supported yet.
-    return Error(e, "Cannot convert from '{}' to '{}'", from, to);
+    /// Conversions involving references.
+    if (isa<ReferenceType>(from) or isa<ReferenceType>(to)) {
+        /// Base types are equal.
+        if (Type::Equal(from.strip_refs, to.strip_refs)) {
+            auto from_depth = from.ref_depth;
+            auto to_depth = to.ref_depth;
+
+            /// If the depth we’re converting to is one greater than
+            /// the depth of the expression, and the expression is an
+            /// lvalue, then this is reference binding.
+            if (to_depth == from_depth + 1 and e->is_lvalue) {
+                e = new (mod) CastExpr(CastKind::ReferenceBinding, e, type, e->location);
+                Analyse(e);
+                return true;
+            }
+
+            /// If the type we’re converting to is not a reference, then
+            /// this is lvalue to rvalue conversion.
+            if (to_depth == 0) {
+                InsertLValueToRValueConversion(e);
+                return true;
+            }
+
+            /// If the depth of the type we’re converting to is less than
+            /// the depth of the type we’re converting from, then this is
+            /// implicit dereferencing.
+            if (to_depth < from_depth) {
+                InsertImplicitDereference(e, from_depth - to_depth);
+                return true;
+            }
+        }
+    }
+
+    /// No other conversions are supported.
+    return false;
 }
 
-void src::Sema::InsertImplicitCast(src::Expr*& e, src::Expr* to) {
+void src::Sema::InsertImplicitCast(Expr*& e, Expr* to) {
     Expr* cast = new (mod) CastExpr(CastKind::Implicit, e, to, e->location);
     Analyse(cast);
     e = cast;
 }
 
-void src::Sema::InsertLValueToRValueConversion(src::Expr*& e, bool all_refs_are_lvalues) {
-    while (not e->sema.errored and (e->is_lvalue or (all_refs_are_lvalues and isa<ReferenceType>(e->type)))) {
-        Expr* cast = new (mod) CastExpr(CastKind::LValueToRValue, e, Type::Unknown, e->location);
+void src::Sema::InsertImplicitDereference(Expr*& e, isz depth) {
+    for (isz i = depth; i; i--) {
+        e = new (mod) CastExpr(
+            CastKind::ImplicitDereference,
+            e,
+            Type::Unknown,
+            e->location
+        );
+
+        Analyse(e);
+    }
+}
+
+void src::Sema::InsertLValueReduction(Expr*& e) {
+    if (isa<ReferenceType>(e->type)) {
+        Expr* cast = new (mod) CastExpr(
+            CastKind::LValueReduction,
+            e,
+            Type::Unknown,
+            e->location
+        );
+
         Analyse(cast);
         e = cast;
     }
 }
 
-bool src::Sema::MakeDeclType(src::Expr*& e) {
+void src::Sema::InsertLValueToRValueConversion(Expr*& e) {
+    if (not e->sema.errored and e->is_lvalue) {
+        Expr* cast = new (mod) CastExpr(
+            CastKind::LValueToRValue,
+            e,
+            Type::Unknown,
+            e->location
+        );
+
+        Analyse(cast);
+        e = cast;
+    }
+}
+
+bool src::Sema::MakeDeclType(Expr*& e) {
     if (not AnalyseAsType(e)) return false;
     if (Type::Equal(e, Type::Void)) return Error(e, "Cannot declare a variable of type 'void'");
 
@@ -54,7 +123,7 @@ bool src::Sema::MakeDeclType(src::Expr*& e) {
 /// ===========================================================================
 ///  Analysis
 /// ===========================================================================
-bool src::Sema::Analyse(src::Expr*& e) {
+bool src::Sema::Analyse(Expr*& e) {
     /// Don’t analyse the same expression twice.
     if (e->sema.analysed or e->sema.in_progress) return e->sema.ok;
     if (e->sema.errored) return false;
@@ -130,7 +199,10 @@ bool src::Sema::Analyse(src::Expr*& e) {
             long last = std::ssize(b->exprs) - 1;
             for (auto&& [i, expr] : vws::enumerate(b->exprs)) {
                 if (not Analyse(expr) and i == last) e->sema.set_errored();
-                else if (i == last) b->stored_type = expr->type;
+                else if (i == last) {
+                    b->stored_type = expr->type;
+                    b->is_lvalue = expr->is_lvalue;
+                }
             }
         } break;
 
@@ -174,6 +246,7 @@ bool src::Sema::Analyse(src::Expr*& e) {
 
                 /// The type of the expression is the return type of the callee.
                 invoke->stored_type = ptype->ret_type;
+                invoke->is_lvalue = isa<ReferenceType>(ptype->ret_type);
             }
 
             /// Otherwise, if the callee is a type, then this is a declaration.
@@ -227,13 +300,32 @@ bool src::Sema::Analyse(src::Expr*& e) {
             auto m = cast<CastExpr>(e);
             Analyse(m->operand);
             switch (m->cast_kind) {
-                case CastKind::LValueToRValue: {
-                    /// Only inserted by sema.
-                    if (auto ref = dyn_cast<ReferenceType>(m->operand->type)) m->stored_type = ref->elem;
-                    else  m->stored_type = m->operand->type;
-                } break;
+                /// Only inserted by sema. This performs reference
+                /// collapsing, yielding an rvalue.
+                case CastKind::LValueToRValue:
+                    m->stored_type = m->operand->type.strip_refs;
+                    break;
 
-                /// Only generated by sema, so no-ops.
+                /// Only generated by sema. This performs reference
+                /// collapsing, yielding an lvalue.
+                case CastKind::LValueReduction:
+                    m->stored_type = m->operand->type.strip_refs;
+                    m->is_lvalue = true;
+                    break;
+
+                /// Only generated by sema. Dereference a reference
+                /// once, yielding an lvalue.
+                case CastKind::ImplicitDereference:
+                    m->stored_type = cast<ReferenceType>(m->operand->type)->elem;
+                    m->is_lvalue = true;
+                    break;
+
+                case CastKind::ReferenceBinding:
+                    m->stored_type = new (mod) ReferenceType(m->operand->type, m->location);
+                    break;
+
+                /// Only generated by sema, so no-ops. Currently, there
+                /// is no implicit cast that yields an lvalue.
                 case CastKind::Implicit: break;
             }
         } break;
@@ -244,9 +336,14 @@ bool src::Sema::Analyse(src::Expr*& e) {
             if (not Analyse(m->object)) return e->sema.set_errored();
 
             /// Convert the object to an rvalue.
-            InsertLValueToRValueConversion(m->object, true);
+            InsertLValueToRValueConversion(m->object);
 
             /// A slice type has a `data` and a `size` member.
+            ///
+            /// Neither of these are lvalues since slices are
+            /// supposed to be pretty much immutable, and you
+            /// should create a new one rather than changing
+            /// the size or the data pointer.
             if (auto slice = dyn_cast<SliceType>(m->object->type)) {
                 if (m->member == "data") {
                     m->stored_type = new (mod) ReferenceType(slice->elem, m->location);
@@ -280,9 +377,11 @@ bool src::Sema::Analyse(src::Expr*& e) {
             if (not d->decl) return Error(e, "Unknown symbol '{}'", d->name);
 
             /// The type of this is the type of the referenced expression.
-            /// TODO: This is an lvalue.
             if (d->decl->sema.errored) d->sema.set_errored();
-            else d->stored_type = d->decl->type;
+            else {
+                d->stored_type = d->decl->type;
+                d->is_lvalue = isa<VarDecl, ParamDecl>(d->decl);
+            }
         } break;
 
         /// Make sure the type is valid.
@@ -290,6 +389,7 @@ bool src::Sema::Analyse(src::Expr*& e) {
             auto param = cast<ParamDecl>(e);
             if (not AnalyseAsType(param->stored_type) or not MakeDeclType(param->stored_type))
                 return e->sema.set_errored();
+            param->is_lvalue = true;
             /// TODO: Check for redeclaration?
         } break;
 
@@ -308,7 +408,9 @@ bool src::Sema::Analyse(src::Expr*& e) {
             }
 
             /// Otherwise, the type of the declaration must be valid, and if there
-            /// is an initialiser, it must be convertible to the type of the variable.
+            /// is an initialiser, it must be convertible to the type of the variable;
+            /// if the variable is a reference, the initialiser may require dereferencing
+            /// or reference binding.
             else {
                 if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
                 if (var->init) {
@@ -326,7 +428,32 @@ bool src::Sema::Analyse(src::Expr*& e) {
             }
 
             /// Add the variable to the current scope.
-            if (not var->sema.errored) curr_scope->declare(var->name, var);
+            if (not var->sema.errored) {
+                curr_scope->declare(var->name, var);
+                var->is_lvalue = true;
+            }
+        } break;
+
+        /// Unary expressions.
+        case Expr::Kind::UnaryPrefixExpr: {
+            auto u = cast<UnaryPrefixExpr>(e);
+            if (not Analyse(u->operand)) return e->sema.set_errored();
+            switch (u->op) {
+                default: Unreachable("Invalid unary prefix operator");
+
+                /// Explicit dereference.
+                case Tk::Star: {
+                    auto ref = dyn_cast<ReferenceType>(u->operand->type);
+                    if (not ref) return Error(
+                        u,
+                        "Cannot dereference value of non-reference type '{}'",
+                        u->operand->type
+                    );
+
+                    /// The type is the element type of the reference.
+                    u->stored_type = ref->elem;
+                } break;
+            }
         } break;
 
         /// Binary operators are complicated.
@@ -354,9 +481,9 @@ bool src::Sema::Analyse(src::Expr*& e) {
                 case Tk::ShiftLeft:
                 case Tk::ShiftRight:
                 case Tk::ShiftRightLogical: {
-                    /// Operands are rvalues.
-                    InsertLValueToRValueConversion(b->lhs, true);
-                    InsertLValueToRValueConversion(b->rhs, true);
+                    /// Operands are rvalues of non-reference type.
+                    InsertLValueToRValueConversion(b->lhs);
+                    InsertLValueToRValueConversion(b->rhs);
 
                     /// Both types must be integers.
                     if (
@@ -371,17 +498,14 @@ bool src::Sema::Analyse(src::Expr*& e) {
                     );
 
                     /// The smaller integer is cast to the larger type if they
-                    /// don’t have the same size.
+                    /// don’t have the same size. Integer conversions from a
+                    /// smaller to a larger type can never fail, which is why
+                    /// we assert rather than error here.
                     if (not Type::Equal(b->lhs->type, b->rhs->type)) {
                         auto lsz = b->lhs->type.size(mod->context);
                         auto rsz = b->rhs->type.size(mod->context);
-                        if (lsz >= rsz) {
-                            if (not Convert(b->rhs, b->lhs->type))
-                                return b->sema.set_errored();
-                        } else {
-                            if (not Convert(b->lhs, b->rhs->type))
-                                return b->sema.set_errored();
-                        }
+                        if (lsz >= rsz) Assert(Convert(b->rhs, b->lhs->type));
+                        else Assert(Convert(b->lhs, b->rhs->type));
                     }
 
                     /// The result type is that integer type.
@@ -414,6 +538,95 @@ bool src::Sema::Analyse(src::Expr*& e) {
 
                     /// The type of a comparison is bool.
                     b->stored_type = BuiltinType::Bool(mod, b->location);
+                } break;
+
+                /// Value assignment. The LHS has to be an lvalue.
+                case Tk::Assign: {
+                    InsertLValueReduction(b->lhs);
+                    InsertLValueToRValueConversion(b->rhs);
+                    if (not b->lhs->is_lvalue) return Error(
+                        b,
+                        "Left-hand side of `=` must be an lvalue"
+                    );
+
+                    /// The RHS must be convertible to the LHS.
+                    if (not Convert(b->rhs, b->lhs->type)) return Error(
+                        b,
+                        "Cannot assign '{}' to '{}'",
+                        b->rhs->type,
+                        b->lhs->type
+                    );
+
+                    /// The type of the expression is the type of the LHS.
+                    b->stored_type = b->lhs->type;
+                    b->is_lvalue = true;
+                } break;
+
+                /// Reference assignment.
+                ///
+                /// This one is more complicated. The LHS must be a reference,
+                /// and the RHS must either be an lvalue whose type is exactly
+                /// the element type of the LHS, or another reference of the
+                /// same type as the LHS.
+                ///
+                /// If the LHS is a multi-level reference, and the conversion
+                /// fails, a level of indirection is successively removed until
+                /// either no level remains or the conversion succeeds.
+                case Tk::RDblArrow: {
+                    /// Better error message if the LHS isn’t even a reference
+                    /// to begin with.
+                    if (not isa<ReferenceType>(b->lhs->type)) return Error(
+                        b,
+                        "LHS of reference binding must be a reference, but was '{}'",
+                        b->lhs->type
+                    );
+
+                    /// For error reporting *only*.
+                    auto ltype_saved = b->lhs->type;
+                    auto rtype_saved = b->rhs->type;
+
+                    /// If both operands are references, dereference them until
+                    /// they have the same level of indirection.
+                    if (isa<ReferenceType>(b->rhs->type)) {
+                        auto lvl_l = b->lhs->type.ref_depth;
+                        auto lvl_r = b->rhs->type.ref_depth;
+                        if (lvl_l != lvl_r) InsertImplicitDereference(
+                            lvl_l > lvl_r ? b->lhs : b->rhs,
+                            std::abs<isz>(lvl_l - lvl_r)
+                        );
+                    }
+
+                    /// If the references are now of the same type, then the
+                    /// rebinding is now simply an assignment.
+                    if (Type::Equal(b->lhs->type, b->rhs->type))
+                        b->stored_type = b->lhs->type;
+
+                    /// Otherwise, if the RHS is an lvalue whose type is the
+                    /// element type of the LHS, then this is reference binding.
+                    else if (
+                        not isa<ReferenceType>(b->rhs->type) and
+                        Type::Equal(b->rhs->type, cast<ReferenceType>(b->lhs->type)->elem)
+                    ) {
+                        b->rhs = new (mod) CastExpr(
+                            CastKind::ReferenceBinding,
+                            b->rhs,
+                            Type::Unknown,
+                            e->location
+                        );
+
+                        Analyse(b->rhs);
+                        b->stored_type = b->lhs->type;
+                    }
+
+                    /// Otherwise, this is not a valid rebinding operation.
+                    else {
+                        return Error(
+                            b,
+                            "No valid reference binding to '{}' from '{}'",
+                            ltype_saved,
+                            rtype_saved
+                        );
+                    }
                 } break;
             }
         }

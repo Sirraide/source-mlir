@@ -390,6 +390,9 @@ void src::Lexer::NextImpl() {
             if (lastc == '=') {
                 NextChar();
                 tok.type = Tk::EqEq;
+            } else if (lastc == '>') {
+                NextChar();
+                tok.type = Tk::RDblArrow;
             } else {
                 tok.type = Tk::Assign;
             }
@@ -1010,6 +1013,7 @@ auto src::Spelling(Tk t) -> std::string_view {
         case Tk::Dot: return ".";
         case Tk::LArrow: return "<-";
         case Tk::RArrow: return "->";
+        case Tk::RDblArrow: return "=>";
         case Tk::Question: return "?";
         case Tk::Plus: return "+";
         case Tk::Minus: return "-";
@@ -1139,6 +1143,7 @@ bool src::operator==(const Token& a, const Token& b) {
         case Tk::Dot:
         case Tk::LArrow:
         case Tk::RArrow:
+        case Tk::RDblArrow:
         case Tk::Question:
         case Tk::Plus:
         case Tk::Minus:

@@ -259,11 +259,18 @@ constexpr T AlignTo(T value, T align) {
 }
 
 /// Used to implement Class::operator new(size_t, T).
-template <typename Class, usz Alignment = alignof(Class)>
+template <typename Class>
 auto AllocateAndRegister(usz sz, auto& owner) -> void* {
-    auto ptr = __builtin_operator_new(sz, std::align_val_t{Alignment});
+    auto ptr = __builtin_operator_new(sz);
     owner.push_back(static_cast<Class*>(ptr));
     return ptr;
+}
+
+/// Used to delete an object allocated by AllocateAndRegister.
+template <typename Class>
+void Deallocate(Class* ptr) {
+    if (not ptr) return;
+    __builtin_operator_delete(ptr);
 }
 
 /// Compute the maximum value of an n-bit integer.

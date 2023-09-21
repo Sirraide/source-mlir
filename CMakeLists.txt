@@ -81,7 +81,7 @@ endif()
 
 ## Additional flags for GCC.
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(options INTERFACE 
+    target_compile_options(options INTERFACE
         -Wlogical-op      # Duplicate or unintended logical operators.
         -Werror=invalid-memory-model # For atomics.
         -Werror=maybe-uninitialized
@@ -92,8 +92,8 @@ endif()
 
 ## Additional flags for Clang.
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    target_compile_options(options INTERFACE 
-        -Werror=dangling 
+    target_compile_options(options INTERFACE
+        -Werror=dangling
         -Werror=return-stack-address
     )
 endif()
@@ -117,14 +117,20 @@ if (WIN32)
     )
 endif()
 
+## Enable ASAN if requested.
+if (ENABLE_ASAN)
+    target_compile_options(options INTERFACE -fsanitize=address)
+    target_link_options(options INTERFACE -fsanitize=address)
+endif()
+
 ## Debug/Release flags.
 if (NOT MSVC)
     target_compile_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g -fsanitize=address>
+        $<$<CONFIG:DEBUG>:-O0 -g>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
     target_link_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g -fsanitize=address>
+        $<$<CONFIG:DEBUG>:-O0 -g>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
 else()

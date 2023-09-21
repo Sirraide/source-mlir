@@ -33,6 +33,44 @@ dynamic struct Expr {
 
 /// Also allow deproceduring types (=constructors), e.g. `int` can be a default-constructed int.
 
+/// PARAMETERS
+///
+/// A parameter can only have at most one of these intents:
+///
+///   - (none)  = Move: if trivially movable and cheap to copy, pass by value and copy, otherwise
+///               pass by reference. If the parameter type is a reference type, we’re ‘passing a reference
+///               by value’, i.e. just passing by reference.
+///
+///   - `in`    = Pass by value if cheap to copy, otherwise, pass by reference. The object is of
+///               `val` type in either case.
+///
+///   - `out`   = Pass a reference (to potentially uninitialised storage); the callee *must* assign
+///               to an outparameter on all code paths, but not read from it until it has been written
+///               to at least once.
+///
+///   - `inout` = Like `out`, except that its value may be read before it is written.
+///
+///   - `copy`  = Pass by value; the object behaves like a local variable in the callee.
+///
+/// Additional parameter modifiers. These are optional and *precede* the intent. A parameter
+/// can have any number of these, but each one only once:
+///
+///   - `with`   = Equivalent to writing an open `with` declaration at the top of the function.
+///
+///   - `static` = This parameter is a compile-time constant, and all of its occurrences are
+///                replaced with its value at every call site. This has the effect of turning
+///                a function into a template.
+///
+///   - `retain` = Allow capturing the reference that is passed in. This only be used if the
+///                parameter has the `in`, `out`, or `inout` intent. This is a low-level feature;
+///                regular users should prefer passing reference-counted types or scoped pointers
+///                instead. `retain` cannot be combined with `static`.
+///
+/// Local variables, except parameters marked with `retain`, may not be captured, i.e. any reference
+/// to a local variable, as well as any value that may—depending on the control flow—hold a reference
+/// to a local variable may not be stored—except in other local variables—or bound to the a `retain`
+/// parameter of a function. Lastly, such values may not be returned from the function.
+
 module lexer;
 
 export enum Tk {

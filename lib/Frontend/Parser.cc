@@ -18,6 +18,8 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
         case Tk::LParen:
             return 1'000;
 
+        /// Prefix operator precedence: 900.
+
         case Tk::StarStar:
             return 100;
 
@@ -56,6 +58,11 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
         case Tk::RParen:
             return 10;
 
+        /// Assignment has the lowest precedence.
+        case Tk::Assign:
+        case Tk::RDblArrow:
+            return 1;
+
         default:
             return -1;
     }
@@ -64,6 +71,8 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
 constexpr bool IsRightAssociative(Tk t) {
     switch (t) {
         case Tk::StarStar:
+        case Tk::Assign:
+        case Tk::RDblArrow:
             return true;
 
         default:
@@ -86,6 +95,8 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Proc:
         case Tk::Int:
         case Tk::IntegerType:
+        case Tk::Star:
+        case Tk::StarStar:
             return true;
 
         default:
@@ -93,6 +104,7 @@ constexpr bool MayStartAnExpression(Tk k) {
     }
 }
 
+constexpr inline int PrefixPrecedence = 900;
 constexpr inline int InvokePrecedence = BinaryOrPostfixPrecedence(Tk::LParen);
 constexpr inline int NakedInvokePrecedence = BinaryOrPostfixPrecedence(Tk::RParen);
 
@@ -161,6 +173,19 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::Proc:
             lhs = ParseProc();
             break;
+
+        case Tk::Star:
+        case Tk::StarStar: {
+            auto start = Next();
+            auto operand = ParseExpr(PrefixPrecedence);
+            if (IsError(operand)) return operand.diag;
+            if (start_token == Tk::StarStar) {
+                lhs = new (mod) UnaryPrefixExpr(Tk::Star, *operand, {start.contract_right(1), operand->location});
+                lhs = new (mod) UnaryPrefixExpr(Tk::Star, *lhs, {start, operand->location});
+            } else {
+                lhs = new (mod) UnaryPrefixExpr(start_token, *operand, {start, operand->location});
+            }
+        } break;
     }
 
     /// Stop here if there was an error.

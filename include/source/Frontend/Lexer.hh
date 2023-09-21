@@ -93,6 +93,7 @@ enum struct Tk {
     Dot,
     LArrow,
     RArrow,
+    RDblArrow,
     Question,
 
     /// Operators.

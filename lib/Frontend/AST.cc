@@ -14,15 +14,6 @@ src::BuiltinType* const src::Type::Unknown = &UnknownTypeInstance;
 /// ===========================================================================
 ///  Expressions
 /// ===========================================================================
-bool src::Expr::_is_lvalue() {
-    if (isa<VarDecl>(this)) return true;
-    if (auto dr = dyn_cast<DeclRefExpr>(this)) {
-        return dr->decl and isa<VarDecl>(dr->decl);
-    }
-    return false;
-}
-
-
 auto src::Expr::_type() -> TypeHandle {
     switch (kind) {
         /// Typed exprs.
@@ -36,6 +27,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::ProcDecl:
         case Kind::CastExpr:
         case Kind::BinaryExpr:
+        case Kind::UnaryPrefixExpr:
         case Kind::VarDecl:
             return cast<TypedExpr>(this)->stored_type;
 
@@ -98,15 +90,16 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::DeclRefExpr:
             Todo();
 
-        case Kind::BlockExpr: break;
-        case Kind::InvokeExpr: break;
-        case Kind::CastExpr: break;
-        case Kind::MemberAccessExpr: break;
-        case Kind::BinaryExpr: break;
-        case Kind::IntegerLiteralExpr: break;
-        case Kind::StringLiteralExpr: break;
-        case Kind::ParamDecl: break;
-        case Kind::ProcDecl: break;
+        case Kind::BlockExpr:
+        case Kind::InvokeExpr:
+        case Kind::CastExpr:
+        case Kind::MemberAccessExpr:
+        case Kind::UnaryPrefixExpr:
+        case Kind::BinaryExpr:
+        case Kind::IntegerLiteralExpr:
+        case Kind::StringLiteralExpr:
+        case Kind::ParamDecl:
+        case Kind::ProcDecl:
         case Kind::VarDecl:
             Unreachable(".align accessed on non-type expression");
     }
@@ -124,6 +117,16 @@ bool src::Expr::TypeHandle::is_int(bool bool_is_int) {
             return bool_is_int and k == BuiltinTypeKind::Bool;
         }
     }
+}
+
+auto src::Expr::TypeHandle::_ref_depth() -> isz {
+    isz depth = 0;
+    for (
+        auto th = *this;
+        isa<ReferenceType>(th);
+        th = cast<ReferenceType>(th)->elem
+    ) depth++;
+    return depth;
 }
 
 auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
@@ -168,15 +171,16 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::DeclRefExpr:
             Todo();
 
-        case Kind::BlockExpr: break;
-        case Kind::InvokeExpr: break;
-        case Kind::CastExpr: break;
-        case Kind::MemberAccessExpr: break;
-        case Kind::BinaryExpr: break;
-        case Kind::IntegerLiteralExpr: break;
-        case Kind::StringLiteralExpr: break;
-        case Kind::ParamDecl: break;
-        case Kind::ProcDecl: break;
+        case Kind::BlockExpr:
+        case Kind::InvokeExpr:
+        case Kind::CastExpr:
+        case Kind::MemberAccessExpr:
+        case Kind::UnaryPrefixExpr:
+        case Kind::BinaryExpr:
+        case Kind::IntegerLiteralExpr:
+        case Kind::StringLiteralExpr:
+        case Kind::ParamDecl:
+        case Kind::ProcDecl:
         case Kind::VarDecl:
             Unreachable(".size accessed on non-type expression");
     }
@@ -258,6 +262,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::ParamDecl:
         case Kind::ProcDecl:
         case Kind::CastExpr:
+        case Kind::UnaryPrefixExpr:
         case Kind::BinaryExpr:
         case Kind::VarDecl:
             return cast<TypedExpr>(ptr)->stored_type->type.str(use_colour);
@@ -266,6 +271,11 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
 done:
     out += C(Reset);
     return out;
+}
+
+auto src::Expr::TypeHandle::_strip_refs() -> TypeHandle {
+    if (auto r = dyn_cast<ReferenceType>(ptr)) return r->elem->as_type.strip_refs;
+    return *this;
 }
 
 bool src::Type::Equal(Expr* a, Expr* b) {
@@ -315,9 +325,10 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::ParamDecl:
         case Kind::ProcDecl:
         case Kind::CastExpr:
+        case Kind::UnaryPrefixExpr:
         case Kind::BinaryExpr:
         case Kind::VarDecl:
-            Unreachable();
+            Unreachable("Not a type");
     }
 
     Unreachable();
@@ -490,8 +501,11 @@ struct ASTPrinter {
                 PrintBasicHeader("CastExpr", e);
                 out += C(Red);
                 switch (c->cast_kind) {
-                    case CastKind::LValueToRValue: out += " LValueToRValue"; break;
                     case CastKind::Implicit: out += " Implicit"; break;
+                    case CastKind::ImplicitDereference: out += " ImplicitDereference"; break;
+                    case CastKind::LValueReduction: out += " LValueReduction"; break;
+                    case CastKind::LValueToRValue: out += " LValueToRValue"; break;
+                    case CastKind::ReferenceBinding: out += " ReferenceBinding"; break;
                 }
                 out += fmt::format(
                     " {}\n",
@@ -514,6 +528,18 @@ struct ASTPrinter {
                     m->type.str(use_colour),
                     C(Magenta),
                     m->member
+                );
+                return;
+            }
+
+            case K::UnaryPrefixExpr: {
+                auto u = cast<UnaryPrefixExpr>(e);
+                PrintBasicHeader("UnaryPrefixExpr", e);
+                out += fmt::format(
+                    " {}{} {}\n",
+                    C(Red),
+                    Spelling(u->op),
+                    u->type.str(use_colour)
                 );
                 return;
             }
@@ -602,6 +628,10 @@ struct ASTPrinter {
                 auto b = cast<BinaryExpr>(e);
                 PrintChildren({b->lhs, b->rhs}, leading_text);
             } break;
+
+            case K::UnaryPrefixExpr:
+                PrintChildren(cast<UnaryPrefixExpr>(e)->operand, leading_text);
+                break;
 
             case K::BlockExpr:
                 PrintChildren(cast<BlockExpr>(e)->exprs, leading_text);
