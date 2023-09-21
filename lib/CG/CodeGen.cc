@@ -190,19 +190,48 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto c = cast<CastExpr>(expr);
             Generate(c->operand);
             switch (c->cast_kind) {
+                /// This collapses lvalues to rvalues.
                 case CastKind::LValueToRValue: {
+                    c->mlir = c->operand->mlir;
+
+                    /// Already an rvalue.
+                    if (not c->operand->is_lvalue) break;
+
                     /// Load the value.
+                    for (isz i = c->operand->type.ref_depth; i; i--) {
+                        c->mlir = builder.create<hlir::LoadOp>(
+                            c->location.mlir(ctx),
+                            c->mlir
+                        );
+                    }
+                } break;
+
+                /// Reduce references to an lvalue.
+                case CastKind::LValueReduction: {
+                    /// Because we need to produce an lvalue, we need to stop
+                    /// one reference level short of the operand’s type.
+                    const auto depth = c->operand->type.ref_depth;
+                    Assert(depth);
+                    c->mlir = c->operand->mlir;
+                    for (isz i = depth - 1; i; i--) {
+                        c->mlir = builder.create<hlir::LoadOp>(
+                            c->location.mlir(ctx),
+                            c->mlir
+                        );
+                    }
+                } break;
+
+                /// Remove a single reference level, yielding an lvalue.
+                case CastKind::ImplicitDereference: {
                     c->mlir = builder.create<hlir::LoadOp>(
                         c->location.mlir(ctx),
                         c->operand->mlir
                     );
                 } break;
 
-                case CastKind::LValueReduction:
-                case CastKind::ImplicitDereference:
-                case CastKind::ReferenceBinding: {
-                    Todo();
-                }
+                /// Convert an lvalue to a reference. This is logical only
+                /// and a no-op at the codegen level.
+                case CastKind::ReferenceBinding: c->mlir = c->operand->mlir; break;
 
                 case CastKind::Implicit: {
                     /// Integer-to-integer casts.
@@ -347,15 +376,25 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::UnaryPrefixExpr: {
-            Todo();
-        }
+            auto u = cast<UnaryPrefixExpr>(expr);
+            Generate(u->operand);
+            switch (u->op) {
+                default: Unreachable("Invalid unary operator: {}", Spelling(u->op));
+
+                /// Dereference.
+                case Tk::Star: {
+                    u->mlir = builder.create<hlir::LoadOp>(
+                        u->location.mlir(ctx),
+                        u->operand->mlir
+                    );
+                } break;
+            }
+        } break;
 
         case Expr::Kind::BinaryExpr: {
             auto b = cast<BinaryExpr>(expr);
             Generate(b->lhs);
             Generate(b->rhs);
-
-            /// Emit the binary operations.
             switch (b->op) {
                 using namespace mlir::arith;
                 using namespace hlir;
@@ -380,6 +419,20 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 /// TODO: Short-circuiting if operating on bool.
                 case Tk::And: GenerateBinOp<AndIOp>(b); break;
                 case Tk::Or: GenerateBinOp<OrIOp>(b); break;
+
+                /// Assignment and reference binding.
+                case Tk::Assign:
+                case Tk::RDblArrow: {
+                    builder.create<hlir::StoreOp>(
+                        b->location.mlir(ctx),
+                        b->lhs->mlir,
+                        b->rhs->mlir,
+                        b->type.align(ctx) / 8
+                    );
+
+                    /// Yields lhs as lvalue.
+                    b->mlir = b->lhs->mlir;
+                } break;
             }
         } break;
 

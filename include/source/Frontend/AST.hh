@@ -176,7 +176,7 @@ public:
 ///  Typed Expressions
 /// ===========================================================================
 enum struct CastKind {
-    LValueToRValue,      /// Convert lvalues to rvalues, dereferencing if needed.
+    LValueToRValue,      /// Convert lvalues and references to rvalues, dereferencing if needed.
     LValueReduction,     /// Collapse multi-level references to an lvalue.
     ImplicitDereference, /// Remove a single reference level, yielding an lvalue.
     ReferenceBinding,    /// Convert an lvalue to a reference.

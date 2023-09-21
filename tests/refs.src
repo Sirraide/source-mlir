@@ -1,44 +1,136 @@
+/// RUN: %srcc %s --hlir | FileCheck %s
+
+/// CHECK: [[I:%[0-9]+]] = hlir.local_var
+/// CHECK: [[J:%[0-9]+]] = hlir.local_var
 int i = 1;
 int j = 2;
 
-/// Reference binding.
-int& refi = i;
-int& refj = refi;
+/// ======= Reference Binding =======
+/// CHECK: [[R1I:%[0-9]+]] = hlir.local_var
+/// CHECK: hlir.store into [[R1I]] : [[[^%]+]], [[I]]
+int& r1i = i;
 
-/// Equivalent in reference declaration.
-int& refi = i;
-int& refj = refi;
+/// CHECK: [[R1J:%[0-9]+]] = hlir.local_var
+/// CHECK: [[R1I_0:%[0-9]+]] = hlir.load [[R1I]]
+/// CHECK: hlir.store into [[R1J]] : [[[^%]+]], [[R1I_0]]
+int& r1j = r1i;
 
-/// Autoderef.
-int copy_i = refi;
-i = refi;
-refi = refj;
+/// ======= Autodereferencing =======
+/// CHECK: [[COPY_I:%[0-9]+]] = hlir.local_var
+/// CHECK: [[R1I_1:%[0-9]+]] = hlir.load [[R1I]]
+/// CHECK: [[I_1:%[0-9]+]] = hlir.load [[R1I_1]]
+/// CHECK: hlir.store into [[COPY_I]] : [[[^%]+]], [[I_1]]
+int copy_i = r1i;
 
-/// Rebinding.
-refi => j;
-refi => i;
-refi => refj;
+/// CHECK: [[R1I_2:%[0-9]+]] = hlir.load [[R1I]]
+/// CHECK: [[I_2:%[0-9]+]] = hlir.load [[R1I_2]]
+/// CHECK: hlir.store into [[I]] : [[[^%]+]], [[I_2]]
+i = r1i;
 
-/// Ref-to-ref.
-int&& r2i = refi;
-int&& r2j = refj;
+/// CHECK: [[R1I_3:%[0-9]+]] = hlir.load [[R1I]]
+/// CHECK: [[R1J_0:%[0-9]+]] = hlir.load [[R1J]]
+/// CHECK: [[J_0:%[0-9]+]] = hlir.load [[R1J_0]]
+/// CHECK: hlir.store into [[R1I_3]] : [[[^%]+]], [[J_0]]
+r1i = r1j;
+
+/// ===== Trivial Rebinding =====
+/// CHECK: hlir.store into [[R1I]] : [[[^%]+]], [[J]]
+/// CHECK: hlir.store into [[R1I]] : [[[^%]+]], [[I]]
+/// CHECK: [[R1J_1:%[0-9]+]] = hlir.load [[R1J]]
+/// CHECK: hlir.store into [[R1I]] : [[[^%]+]], [[R1J_1]]
+r1i => j;
+r1i => i;
+r1i => r1j;
+
+/// ===== Multi-level Ref Decls =====
+/// CHECK: [[R2I:%[0-9]+]] = hlir.local_var
+/// CHECK: hlir.store into [[R2I]] : [[[^%]+]], [[R1I]]
+int&& r2i = r1i;
+
+/// CHECK: [[R2J:%[0-9]+]] = hlir.local_var
+/// CHECK: hlir.store into [[R2J]] : [[[^%]+]], [[R1J]]
+int&& r2j = r1j;
+
+/// CHECK: [[R3I:%[0-9]+]] = hlir.local_var
+/// CHECK: hlir.store into [[R3I]] : [[[^%]+]], [[R2I]]
 int&&& r3i = r2i;
+
+/// CHECK: [[R3J:%[0-9]+]] = hlir.local_var
+/// CHECK: hlir.store into [[R3J]] : [[[^%]+]], [[R2J]]
 int&&& r3j = r2j;
 
-/// Value reassignment through multiple references.
+/// ===== Multi-level Ref Assignment =====
+/// CHECK: [[R2I_0:%[0-9]+]] = hlir.load [[R2I]]
+/// CHECK: [[R1I_4:%[0-9]+]] = hlir.load [[R2I_0]]
+/// CHECK: [[J_1:%[0-9]+]] = hlir.load [[J]]
+/// CHECK: hlir.store into [[R1I_4]] : [[[^%]+]], [[J_1]]
 r2i = j;
-r3i = j;
-r2j = r3j;
-r3i = r2i;
-r3i = refi;
-r2j = refj;
 
-/// Multi-level rebinding.
-r2i => refj;
+/// CHECK: [[R3I_0:%[0-9]+]] = hlir.load [[R3I]]
+/// CHECK: [[R2I_1:%[0-9]+]] = hlir.load [[R3I_0]]
+/// CHECK: [[R1I_5:%[0-9]+]] = hlir.load [[R2I_1]]
+/// CHECK: [[J_2:%[0-9]+]] = hlir.load [[J]]
+/// CHECK: hlir.store into [[R1I_5]] : [[[^%]+]], [[J_2]]
+r3i = j;
+
+/// CHECK: [[R2J_0:%[0-9]+]] = hlir.load [[R2J]]
+/// CHECK: [[R1J_2:%[0-9]+]] = hlir.load [[R2J_0]]
+/// CHECK: [[R3J_0:%[0-9]+]] = hlir.load [[R3J]]
+/// CHECK: [[R2J_1:%[0-9]+]] = hlir.load [[R3J_0]]
+/// CHECK: [[R1J_3:%[0-9]+]] = hlir.load [[R2J_1]]
+/// CHECK: [[J_3:%[0-9]+]] = hlir.load [[R1J_3]]
+/// CHECK: hlir.store into [[R1J_2]] : [[[^%]+]], [[J_3]]
+r2j = r3j;
+
+/// CHECK: [[R3I_1:%[0-9]+]] = hlir.load [[R3I]]
+/// CHECK: [[R2I_2:%[0-9]+]] = hlir.load [[R3I_1]]
+/// CHECK: [[R1I_6:%[0-9]+]] = hlir.load [[R2I_2]]
+/// CHECK: [[R2I_3:%[0-9]+]] = hlir.load [[R2I]]
+/// CHECK: [[R1I_7:%[0-9]+]] = hlir.load [[R2I_3]]
+/// CHECK: [[I_3:%[0-9]+]] = hlir.load [[R1I_7]]
+/// CHECK: hlir.store into [[R1I_6]] : [[[^%]+]], [[I_3]]
+r3i = r2i;
+
+/// CHECK: [[R3I_2:%[0-9]+]] = hlir.load [[R3I]]
+/// CHECK: [[R2I_4:%[0-9]+]] = hlir.load [[R3I_2]]
+/// CHECK: [[R1I_8:%[0-9]+]] = hlir.load [[R2I_4]]
+/// CHECK: [[R1I_9:%[0-9]+]] = hlir.load [[R1I]]
+/// CHECK: [[I_4:%[0-9]+]] = hlir.load [[R1I_9]]
+/// CHECK: hlir.store into [[R1I_8]] : [[[^%]+]], [[I_4]]
+r3i = r1i;
+
+/// CHECK: [[R2J_2:%[0-9]+]] = hlir.load [[R2J]]
+/// CHECK: [[R1J_4:%[0-9]+]] = hlir.load [[R2J_2]]
+/// CHECK: [[R1J_5:%[0-9]+]] = hlir.load [[RIJ]]
+/// CHECK: [[J_4:%[0-9]+]] = hlir.load [[RIJ_5]]
+/// CHECK: hlir.store into [[R1J_4]] : [[[^%]+]], [[J_4]]
+r2j = r1j;
+
+
+/// ===== Multi-level Rebinding =====
+/// CHECK: hlir.store into [[R2I]] : [[[^%]+]], [[R1J]]
+/// CHECK: hlir.store into [[R3J]] : [[[^%]+]], [[R2I]]
+r2i => r1j;
 r3j => r2i;
 
-/// Complex rebinding.
+/// ===== Indirect Rebinding =====
+/// CHECK: [[R2I_5:%[0-9]+]] = hlir.load [[R2I]]
+/// CHECK: hlir.store into [[R2I_5]] : [[[^%]+]], [[I]]
 *r2i => i;
-*r3j => refi;
+
+/// CHECK: [[R3J_1:%[0-9]+]] = hlir.load [[R3J]]
+/// CHECK: hlir.store into [[R3J_1]] : [[[^%]+]], [[R1I]]
+*r3j => r1i;
+
+/// CHECK: [[R3I_3:%[0-9]+]] = hlir.load [[R3I]]
+/// CHECK: [[R2I_6:%[0-9]+]] = hlir.load [[R3I_3]]
+/// CHECK: hlir.store into [[R2I_6]] : [[[^%]+]], [[J]]
 **r3i => j;
+
+/// CHECK: [[R3J_2:%[0-9]+]] = hlir.load [[R3J]]
+/// CHECK: [[R2J_3:%[0-9]+]] = hlir.load [[R3J_2]]
+/// CHECK: [[R3I_4:%[0-9]+]] = hlir.load [[R3I]]
+/// CHECK: [[R2I_7:%[0-9]+]] = hlir.load [[R3I_4]]
+/// CHECK: [[R1I_10:%[0-9]+]] = hlir.load [[R2I_7]]
+/// CHECK: hlir.store into [[R2J_3]] : [[[^%]+]], [[R1I_10]]
 **r3j => r3i;
