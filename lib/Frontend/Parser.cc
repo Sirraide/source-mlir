@@ -216,6 +216,8 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                     not MayStartAnExpression(tok.type) or
                     NakedInvokePrecedence < curr_prec or /// Right-associative
                     At(Tk::LBrace) or
+                    tok.type == Tk::Star or /// Prefer binary '*' over unary '*' parse.
+                    tok.type == Tk::StarStar or
                     IsPostfix(tok.type)
                 ) break;
 

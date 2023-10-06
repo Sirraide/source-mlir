@@ -216,7 +216,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 /// Reference <-> LValue.
                 ///
                 /// These are logical operations only and no-ops
-                /// on the IR level.
+                /// at the IR level.
                 case CastKind::ReferenceToLValue:
                 case CastKind::LValueToReference:
                     c->mlir = c->operand->mlir;
