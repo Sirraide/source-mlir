@@ -1,0 +1,44 @@
+NAME MANGLING SCHEME
+
+Symbol format: _S [ E | M<name> ] <type>
+
+_S: start of a symbol.
+E: unmangled symbol (note: in module descriptions, the symbol
+    is still mangled to contain the signature, so this only indicates that
+    it should not be mangled when linking.)
+<name>: <size>N<bytes>: A name consisting of `size` many bytes, where <size> is a base-10 integer.
+M<name>: The name of the module containing the symbol.
+
+<type>: One of the following:
+- I<bit width> = integer
+- II = int
+- f1 = f32 / C float
+- f2 = f64 / C double
+- f3 = C long double
+- B = bool
+- v = void
+- Y = type
+- Z = noreturn
+- P<type> = pointer
+- H<type> = reference (why ‘H’? Because I ran out of letters.)
+- L<type> = slice
+- R<type> = range
+- A<size>S<type> = array
+- V<size>S<type> = vector
+- F<attrs><ret>{<type>}E = func
+- C<func> = closure
+- U[M<name>]<name>{variant clause} = struct
+- O[M<name>]<name> = opaque
+- N[M<name>]<name> = enum
+- T{<type>}E = tuple
+- Q<name> = variant clause
+- XU<name>{<constant>}E = structure template instantiation
+
+- attrs = [W][c], where W = variadic, c = ctor.
+
+<constant>: One of the following:
+- i<value>e = constant_integer
+- s<size>S<bytes> = constant_string
+- t<type> = constant_type
+- r<digits>e<digits>e = constant_range
+- n = constant_null

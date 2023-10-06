@@ -176,11 +176,21 @@ public:
 ///  Typed Expressions
 /// ===========================================================================
 enum struct CastKind {
-    LValueToRValue,      /// Convert lvalues and references to rvalues, dereferencing if needed.
-    LValueReduction,     /// Collapse multi-level references to an lvalue.
-    ImplicitDereference, /// Remove a single reference level, yielding an lvalue.
-    ReferenceBinding,    /// Convert an lvalue to a reference.
-    Implicit,            /// Any other implicit conversion.
+    /// Convert lvalues to rvalues.
+    LValueToRValue,
+
+    /// Convert an reference rvalue to an lvalue of the referenced type.
+    ReferenceToLValue,
+
+    /// Convert an lvalue to a reference rvalue.
+    LValueToReference,
+
+    /// Convert an reference lvalue to an lvalue of the referenced type. Same
+    /// as performing LValueToRValue and then ReferenceToLValue.
+    LValueRefToLValue,
+
+    /// Any other implicit conversion.
+    Implicit,
 };
 
 class TypedExpr : public Expr {

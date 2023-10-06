@@ -1,0 +1,156 @@
+<source> ::= [ <module-declarations> ] { <expr> | ";" | <pragma> | <static-assert> }
+
+/// ==========================================================================
+///  Module stuff.
+/// ==========================================================================
+<module-declarations> ::= <module-decl> { <import> | <header-import> }
+<module-decl>         ::= MODULE <module-name> ";"
+<module-name>         ::= <identifier> { "." <identifier> }
+<import>              ::= IMPORT <module-name> [ "." "*" ] ";"
+<header-import>       ::= import "<" TOKENS ">" [ AS <identifier> ]
+
+/// ==========================================================================
+///  Expressions.
+/// ==========================================================================
+<exprs> ::= { <expr> | ";" }
+<expr>  ::= <decl>
+          | <expr-assert>
+          | <expr-for>
+          | <expr-while>
+          | <expr-if>
+          | <expr-match>
+          | <expr-return>
+          | <expr-defer>
+          | <expr-proc-def>
+          | <expr-asm>
+          | <expr-block>
+          | <expr-paren>
+          | <expr-invoke> ///< Anything that *looks* like a call. May also be a template inst or a struct literal.
+          | <expr-subs>
+          | <expr-reduce>
+          | <expr-tuple>
+          | <expr-binary>
+          | <expr-prefix>
+          | <expr-postfix>
+          | <expr-member>
+          | <expr-property>
+          | <expr-cast>
+          | <expr-terse-proc>
+          | <expr-with>
+          | <expr-primary>
+          | <expr-unreachable>
+          | <expr-break>
+          | <expr-continue>
+          | <type> ///< Yes, I’m fully aware that this looks like insanity.
+
+<expr-for>            ::= FOR <decl-base> IN <expr> <delim-expr>
+<expr-while>          ::= WHILE <exprs> <delim-expr>
+<expr-if>             ::= IF <expr> <delim-expr> { ELIF <expr> <delim-expr> } [ ELSE <expr> ]
+<expr-match>          ::= MATCH [ <expr> <binary> ] "{" { <expr> <delim-expr> } [ ELSE <delim-expr> ] "}"
+<expr-asm>            ::= ASM "{" { <asm-instruction> } "}" | ASM <asm-instruction>
+<expr-assert>         ::= ASSERT <expr> [ "," <expr> ]
+<expr-return>         ::= RETURN [ <expr> ]
+<expr-defer>          ::= DEFER <expr>
+<expr-proc-def>       ::= <proc-unqual-sig> <proc-body>
+<expr-block>          ::= "{" <exprs> "}"
+<expr-paren>          ::= "(" <expr> ")"
+<expr-invoke>         ::= <expr> "(" [ <expr> { "," <expr> } [ "," ] ] ")"
+<expr-subs>           ::= <expr> "[" <expr> "]"
+<expr-reduce>         ::= <expr> "[" ( "+" | "*" | "&" | "|" | "xor" | ">" | "<" ) "]"
+<expr-tuple>          ::= "(" <expr> { "," <expr> }+ [ "," ] ")"
+<expr-binary>         ::= <expr> <binary> <expr>
+<expr-prefix>         ::= <prefix> <expr>
+<expr-postfix>        ::= <expr> <postfix>
+<expr-member>         ::= <expr> "." <identifier>
+<expr-property>       ::= <expr> "::" <identifier>
+<expr-cast>           ::= <expr> "as" <type>
+<expr-terse-proc>     ::= "->" <expr>
+<expr-with>           ::= "with" <expr> [ <delim-expr> ]
+<expr-primary>        ::= <identifier> | NUMBER | STRING | TRUE | FALSE | NULL
+<expr-unreachable>    ::= UNREACHABLE
+<expr-break>          ::= BREAK [ <expr> ]
+<expr-continue>       ::= CONTINUE [ <expr> ]
+
+<proc-unqual-sig>     ::= PROC <identifier> <proc-sig-rest>
+<proc-named-sig>      ::= PROC { <type-qual> } <identifier> <proc-sig-rest>
+<proc-anon-sig>       ::= PROC { <type-qual> } <proc-sig-rest>
+<proc-sig-rest>       ::=  [ <param-list> ] [ <proc-attrs> ] [ <proc-return> ]
+<param-list>          ::= "(" <parameter> { "," <parameter> } [ "," ] ")"
+<parameter>           ::= <decl-base> [ "=" <expr> ] | <proc-named-sig> | <proc-anon-sig>
+<proc-attrs>          ::= "variadic" | "nomangle"
+<proc-return>         ::= "->" ( <type> | UNREACHABLE )
+
+<proc-body>           ::= <expr-block> | "=" <expr>
+
+<delim-expr>          ::= [ <delim> ] <expr>
+<delim>               ::= DO | THEN | ":"
+
+<asm-instruction> ::= TOKEN [ <operand> { "," <operand> } ]
+<operand> ::= INTEGER
+<prefix> ::= "^" | "&" | "#" | "-" | "++" | "--"
+<postfix> ::= "++" | "--"
+<binary> ::= "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "and" | "or" | "&" | "|" | "<<" | ">>" | "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
+<identifier> ::= IDENTIFIER | "__id" "(" TOKEN  { TOKEN } ")"
+
+/// ==========================================================================
+///  Declarations.
+/// ==========================================================================
+<decl>             ::= [ EXPORT ] [ EXTERN ] <decl-unqualified>
+<decl-unqualified> ::= <decl-multi> | <decl-base> | <proc-unqual-sig> | <proc-named-sig>
+<decl-multi>       ::= <decl-base> { "," <identifier> } [ "=" <expr> ]
+<decl-base>        ::= <type> <identifier> [ <var-attrs> ]
+<var-attrs>        ::= "nomangle"
+
+/// ==========================================================================
+///  Structs, enums, templates, and variants.
+/// ==========================================================================
+<enum-named>      ::= [ EXPORT ] ENUM <identifier> [ ":" <type> ] <enum-rest>
+<enum-anon>       ::= ENUM [ ":" <type> ] <enum-rest>
+<enum-rest>       ::= "{" [ <enumerator> { "," <enumerator>  } ] "}"
+<enumerator>      ::= <identifier> [ "=" <expr> ]
+
+<struct-named>    ::= [ EXPORT ] STRUCT <identifier> <struct-rest>
+<struct-anon>     ::= STRUCT <struct-rest>
+<struct-opaque>   ::= [ EXPORT ] STRUCT <identifier> OPAQUE
+<struct-rest>     ::= [ <param-list> /* template */ ] <struct-body>
+<struct-body>     ::= "{" { ( <decl-base> | <variant-clause> | <init-block> ) ";" } "}"
+
+<variant-clause>  ::= VARIANT <identifier> <struct-body>
+<init-block>      ::= init "(" <param-list> ")" <proc-body>
+
+/// ==========================================================================
+///  Types.
+/// ==========================================================================
+<type>            ::= <type-prim>
+                    | <type-qualified>
+                    | <type-tuple>
+                    | <type-range>
+                    | <type-vector>
+                    | <type-typeof>
+                    | <type-templ-inst>
+                    | <proc-anon-sig>
+                    | <struct-named>
+                    | <struct-anon>
+                    | <struct-opaque>
+                    | <enum-named>
+                    | <enum-anon>
+                    | <identifier>
+                    | "(" <type> ")"
+<type-qualified>  ::= <type> { <type-qual> }
+<type-tuple>      ::= "(" <type> { "," <type> }+ ")"
+<type-range>      ::= <type> ".." <type>
+<type-typeof>     ::= "typeof" <expr>
+<type-templ-inst> ::= <identifier> "(" [ <expr> { "," <expr> } [ "," ] ] ")" ///< Very similar to <expr-invoke>
+<type-prim>       ::= I8 | I16 | I32 | I64 | ISZ | U8 | U16 | U32 | U64 | USZ | F32 | F64 | BOOL | STRING | VOID | TYPE | VAR | NORETURN
+<type-qual>       ::= "^" | "&" | "[]" | "[" <expr> "]"
+<type-vector>     ::= <type-prim> "<" <expr> ">"
+
+/// ==========================================================================
+///  Miscellany.
+/// ==========================================================================
+/// These can occur anywhere in the code, even in the middle of other rules.
+<pragma> ::=
+<tokens> ::= // Any tokens.
+<static-assert> ::= STATIC <expr-assert>
+<macro-definition> ::= MACRO <identifier> <tokens> EXPANDS <tokens> ENDMACRO
+<macro-expansion> ::= MACRONAME <tokens>

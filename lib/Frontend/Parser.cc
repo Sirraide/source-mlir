@@ -214,7 +214,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             default: {
                 if (
                     not MayStartAnExpression(tok.type) or
-                    NakedInvokePrecedence <= curr_prec or /// Right-associative
+                    NakedInvokePrecedence < curr_prec or /// Right-associative
                     At(Tk::LBrace) or
                     IsPostfix(tok.type)
                 ) break;

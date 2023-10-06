@@ -51,7 +51,9 @@ private:
     void AnalyseProcedure(ProcDecl* proc);
     void AnalyseModule();
 
-    /// Convert an expression to a type, inserting implicit conversions as needed.
+    /// Convert an expression to a type, inserting implicit conversions
+    /// as needed. This prefers to yield lvalues over rvalues, so insert
+    /// an additional lvalue-to-rvalue conversion manually if needed.
     bool Convert(Expr*& e, Expr* to);
 
     /// Returns false for convenience.
@@ -71,8 +73,17 @@ private:
     }
 
     void InsertImplicitCast(Expr*& e, Expr* to);
+
+    /// Dereference a reference, yielding an lvalue.
+    ///
+    /// This automatically handles dereferencing both references that
+    /// are themselves lvalues and rvalues.
     void InsertImplicitDereference(Expr*& e, isz depth);
-    void InsertLValueReduction(Expr*& e);
+
+    /// Perform lvalue-to-rvalue conversion.
+    ///
+    /// Notably, this does *not* change the type of the expression; unlike
+    /// in C++, expressions of reference type can be rvalues or lvalues.
     void InsertLValueToRValueConversion(Expr*& e);
 
     bool MakeDeclType(Expr*& e);

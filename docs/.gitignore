@@ -1,0 +1,6 @@
+*.aux
+*.log
+*.synctex.gz
+*.toc
+temporary.tex*
+ltx-highlight-code

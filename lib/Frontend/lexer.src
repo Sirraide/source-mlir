@@ -71,6 +71,30 @@ dynamic struct Expr {
 /// to a local variable may not be stored—except in other local variables—or bound to the a `retain`
 /// parameter of a function. Lastly, such values may not be returned from the function.
 
+/// `+%` for wrapping addition and `+|` for saturating addition.
+
+/// Think of some new syntax for bitwise operators. Maybe `&|` and `||`?
+
+/// `try` establishes a context that has the effect of
+/// ‘raising’ *any* errors up the call stack. E.g., if `.foo` and `.bar` can error, then
+/// write `try x.foo.bar` instead of `try (try x.foo).bar`. If you don’t want this
+/// behaviour, you can still write `(try x.foo).bar`.
+
+/// Use `nil` instead of `null` because it’s mainly used for optionals and not as a null pointer.
+
+/// Add a `bit` data type. It differs from `i1` in that it is packed, i.e. a `bit[32]` is 4 bytes, whereas an `i1[32]` is 32 bytes.
+
+/// Use :>, <:, :>=, <=: for unsigned comparison.
+
+/// `pragma export` to automatically export all following declarations in the current scope, and `pragma noexport`
+/// to turn it off again. Also consider an `internal` keyword to turn off exporting for a specific declaration.
+
+/// If possible, option types (`?`) should use the padding bits of the value type to store whether the object is
+/// there or not.
+
+/// Parameter attribute `exact` to forbid implicit conversions. This is useful for e.g. a function that takes
+/// an `i8` and an `i64` if there is any risk of confusion as to the order of the two.
+
 module lexer;
 
 export enum Tk {

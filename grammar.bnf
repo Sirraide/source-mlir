@@ -11,6 +11,8 @@
          | <expr-decl-ref>
          | <expr-access>
          | <expr-block>
+         | <expr-prefix>
+         | <expr-binary>
          | <decl>
 
 <expr-invoke>    ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
@@ -19,6 +21,8 @@
 <expr-decl-ref>  ::= IDENTIFIER
 <expr-access>    ::= <expr> "." IDENTIFIER
 <expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL
+<expr-prefix>    ::= <prefix-op> <expr>
+<expr-binary>    ::= <expr> <binary-op> <expr>
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
@@ -28,11 +32,14 @@
 <proc-body>      ::= <expr-block> | "=" <expr>
 <proc-attrs>     ::= EXTERN | NOMANGLE
 <param-decl>     ::= <type> [ IDENTIFIER ]
+<prefix-op>      ::= /// All prefix operators.
+<binary-op>      ::= /// All binary operators.
 
 /// ===========================================================================
 ///  Declarations
 /// ==========================================================================
-<decl>           ::= <proc-named> | <proc-extern> | <param-decl>
+<decl>           ::= <proc-named> | <proc-extern> | <param-decl> | <var-decl>
+<var-decl>       ::= <type> IDENTIFIER [ "=" <expr> ]
 
 /// ===========================================================================
 ///  Types

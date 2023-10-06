@@ -371,6 +371,7 @@ struct ASTPrinter {
 
         /// Print the type if there is one.
         if (type) out += fmt::format(" {}", type->type.str(use_colour));
+        if (node->is_lvalue) out += fmt::format(" {}lvalue", C(Blue));
         out += fmt::format("{}\n", C(Reset));
     }
 
@@ -436,10 +437,11 @@ struct ASTPrinter {
                 PrintLinkage(v->linkage);
                 PrintBasicHeader("VarDecl", e);
                 out += fmt::format(
-                    " {}{} {}\n",
+                    " {}{} {}{} lvalue\n",
                     C(White),
                     v->name,
-                    v->type.str(use_colour)
+                    v->type.str(use_colour),
+                    C(Blue)
                 );
                 return;
             }
@@ -476,10 +478,12 @@ struct ASTPrinter {
                 auto n = cast<DeclRefExpr>(e);
                 PrintBasicHeader("NameRefExpr", e);
                 out += fmt::format(
-                    " {}{} {}\n",
+                    " {}{} {}{}{}\n",
                     C(White),
                     n->name,
-                    n->type.str(use_colour)
+                    n->type.str(use_colour),
+                    C(Blue),
+                    n->is_lvalue ? " lvalue" : ""
                 );
                 return;
             }
@@ -488,10 +492,11 @@ struct ASTPrinter {
                 auto n = cast<ParamDecl>(e);
                 PrintBasicHeader("ParamDecl", e);
                 out += fmt::format(
-                    " {}{} {}\n",
+                    " {}{} {} {}lvalue\n",
                     C(Blue),
                     n->name,
-                    n->type.str(use_colour)
+                    n->type.str(use_colour),
+                    C(Blue)
                 );
                 return;
             }
@@ -502,14 +507,16 @@ struct ASTPrinter {
                 out += C(Red);
                 switch (c->cast_kind) {
                     case CastKind::Implicit: out += " Implicit"; break;
-                    case CastKind::ImplicitDereference: out += " ImplicitDereference"; break;
-                    case CastKind::LValueReduction: out += " LValueReduction"; break;
+                    case CastKind::ReferenceToLValue: out += " ReferenceToLValue"; break;
+                    case CastKind::LValueRefToLValue: out += " LValueRefToLValue"; break;
                     case CastKind::LValueToRValue: out += " LValueToRValue"; break;
-                    case CastKind::ReferenceBinding: out += " ReferenceBinding"; break;
+                    case CastKind::LValueToReference: out += " LValueToReference"; break;
                 }
                 out += fmt::format(
-                    " {}\n",
-                    c->type.str(use_colour)
+                    " {}{}{}\n",
+                    c->type.str(use_colour),
+                    C(Blue),
+                    c->is_lvalue ? " lvalue" : ""
                 );
                 return;
             }
@@ -524,10 +531,12 @@ struct ASTPrinter {
                 auto m = cast<MemberAccessExpr>(e);
                 PrintBasicHeader("MemberAccessExpr", e);
                 out += fmt::format(
-                    " {} {}{}\n",
+                    " {} {}{}{}{}\n",
                     m->type.str(use_colour),
                     C(Magenta),
-                    m->member
+                    m->member,
+                    C(Blue),
+                    m->is_lvalue ? " lvalue" : ""
                 );
                 return;
             }
@@ -536,10 +545,12 @@ struct ASTPrinter {
                 auto u = cast<UnaryPrefixExpr>(e);
                 PrintBasicHeader("UnaryPrefixExpr", e);
                 out += fmt::format(
-                    " {}{} {}\n",
+                    " {}{} {}{}{}\n",
                     C(Red),
                     Spelling(u->op),
-                    u->type.str(use_colour)
+                    u->type.str(use_colour),
+                    C(Blue),
+                    u->is_lvalue ? " lvalue" : ""
                 );
                 return;
             }
@@ -548,10 +559,12 @@ struct ASTPrinter {
                 auto b = cast<BinaryExpr>(e);
                 PrintBasicHeader("BinaryExpr", e);
                 out += fmt::format(
-                    " {}{} {}\n",
+                    " {}{} {}{}{}\n",
                     C(Red),
                     Spelling(b->op),
-                    b->type.str(use_colour)
+                    b->type.str(use_colour),
+                    C(Blue),
+                    b->is_lvalue ? " lvalue" : ""
                 );
                 return;
             }

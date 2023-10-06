@@ -165,73 +165,62 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto e = cast<MemberAccessExpr>(expr);
             Generate(e->object);
 
-            /// Member of a slice.
-            if (isa<SliceType>(e->object->type)) {
-                if (e->member == "data") {
-                    e->mlir = builder.create<hlir::SliceDataOp>(
-                        e->location.mlir(ctx),
-                        e->object->mlir
-                    );
-                } else if (e->member == "size") {
-                    e->mlir = builder.create<hlir::SliceSizeOp>(
-                        e->location.mlir(ctx),
-                        Ty(Type::Int),
-                        e->object->mlir
-                    );
+            /// The object may be an lvalue; if so, yield the address
+            /// rather than loading the entire object.
+            if (e->object->is_lvalue) {
+                Todo("Access member of lvalue");
+            }
+
+            /// Object is an rvalue.
+            else {
+                /// Member of a slice.
+                if (isa<SliceType>(e->object->type)) {
+                    if (e->member == "data") {
+                        e->mlir = builder.create<hlir::SliceDataOp>(
+                            e->location.mlir(ctx),
+                            e->object->mlir
+                        );
+                    } else if (e->member == "size") {
+                        e->mlir = builder.create<hlir::SliceSizeOp>(
+                            e->location.mlir(ctx),
+                            Ty(Type::Int),
+                            e->object->mlir
+                        );
+                    } else {
+                        Unreachable();
+                    }
                 } else {
                     Unreachable();
                 }
-            } else {
-                Unreachable();
             }
         } break;
 
         case Expr::Kind::CastExpr: {
             auto c = cast<CastExpr>(expr);
             Generate(c->operand);
+
+            /// Note that some of the casts perform the same operation,
+            /// but they are logically distinct in that they yield different
+            /// types and value categories at the AST level.
             switch (c->cast_kind) {
-                /// This collapses lvalues to rvalues.
+                /// Load a value or a reference.
+                case CastKind::LValueRefToLValue:
                 case CastKind::LValueToRValue: {
-                    c->mlir = c->operand->mlir;
-
-                    /// Already an rvalue.
-                    if (not c->operand->is_lvalue) break;
-
-                    /// Load the value.
-                    for (isz i = c->operand->type.ref_depth; i; i--) {
-                        c->mlir = builder.create<hlir::LoadOp>(
-                            c->location.mlir(ctx),
-                            c->mlir
-                        );
-                    }
-                } break;
-
-                /// Reduce references to an lvalue.
-                case CastKind::LValueReduction: {
-                    /// Because we need to produce an lvalue, we need to stop
-                    /// one reference level short of the operand’s type.
-                    const auto depth = c->operand->type.ref_depth;
-                    Assert(depth);
-                    c->mlir = c->operand->mlir;
-                    for (isz i = depth - 1; i; i--) {
-                        c->mlir = builder.create<hlir::LoadOp>(
-                            c->location.mlir(ctx),
-                            c->mlir
-                        );
-                    }
-                } break;
-
-                /// Remove a single reference level, yielding an lvalue.
-                case CastKind::ImplicitDereference: {
+                    Assert(c->operand->is_lvalue);
                     c->mlir = builder.create<hlir::LoadOp>(
                         c->location.mlir(ctx),
                         c->operand->mlir
                     );
                 } break;
 
-                /// Convert an lvalue to a reference. This is logical only
-                /// and a no-op at the codegen level.
-                case CastKind::ReferenceBinding: c->mlir = c->operand->mlir; break;
+                /// Reference <-> LValue.
+                ///
+                /// These are logical operations only and no-ops
+                /// on the IR level.
+                case CastKind::ReferenceToLValue:
+                case CastKind::LValueToReference:
+                    c->mlir = c->operand->mlir;
+                    break;
 
                 case CastKind::Implicit: {
                     /// Integer-to-integer casts.

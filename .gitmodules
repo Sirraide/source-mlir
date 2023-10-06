@@ -1,3 +1,6 @@
 [submodule "llvm"]
 	path = llvm
 	url = https://github.com/llvm/llvm-project/
+[submodule "docs/highlight"]
+	path = docs/highlight
+	url = git@github.com:Sirraide/ltx-highlight-code
