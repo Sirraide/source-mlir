@@ -54,8 +54,10 @@ public:
         CastExpr,
         MemberAccessExpr,
         UnaryPrefixExpr,
+        IfExpr,
         BinaryExpr,
         DeclRefExpr,
+        BoolLiteralExpr,
         IntegerLiteralExpr,
         StringLiteralExpr,
 
@@ -117,6 +119,12 @@ public:
 
         /// Get the size of this type, in bits.
         auto size(Context* ctx) -> isz;
+
+        /// Get the size of this type, in bytes.
+        auto size_bytes(Context* ctx) {
+            auto sz = size(ctx);
+            return sz / 8 + (sz % 8 != 0);
+        }
 
         /// Get a string representation of this type.
         auto str(bool use_colour) const -> std::string;
@@ -286,7 +294,7 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::MemberAccessExpr; }
 };
 
-class UnaryPrefixExpr: public TypedExpr {
+class UnaryPrefixExpr : public TypedExpr {
 public:
     /// The operand of this unary expression.
     Expr* operand;
@@ -301,6 +309,27 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::UnaryPrefixExpr; }
+};
+
+class IfExpr : public TypedExpr {
+public:
+    /// The condition of this if expression.
+    Expr* cond;
+
+    /// The then branch of this if expression.
+    Expr* then;
+
+    /// The optional else branch of this if expression.
+    Expr* else_;
+
+    IfExpr(Expr* cond, Expr* then, Expr* else_, Location loc)
+        : TypedExpr(Kind::IfExpr, detail::UnknownType, loc),
+          cond(cond),
+          then(then),
+          else_(else_) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::IfExpr; }
 };
 
 class BinaryExpr : public TypedExpr {
@@ -356,6 +385,19 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::IntegerLiteralExpr; }
+};
+
+class BoolLitExpr : public TypedExpr {
+public:
+    /// The value of this literal.
+    bool value;
+
+    BoolLitExpr(bool value, Location loc)
+        : TypedExpr(Kind::BoolLiteralExpr, detail::UnknownType, loc),
+          value(value) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::BoolLiteralExpr; }
 };
 
 class StrLitExpr : public TypedExpr {
@@ -531,13 +573,14 @@ private:
     /// Create a new builtin type.
     static auto Create(Module* m, BuiltinTypeKind kind, Location loc) -> BuiltinType* {
         auto bt = new (m) BuiltinType(kind, loc);
-        bt->sema.set_done();
         return bt;
     }
 
 public:
     BuiltinType(BuiltinTypeKind kind, Location loc)
-        : Type(Kind::BuiltinType, loc), builtin_kind(kind) {}
+        : Type(Kind::BuiltinType, loc), builtin_kind(kind) {
+        sema.set_done();
+    }
 
     static auto Unknown(Module* m, Location loc = {}) -> BuiltinType* { return Create(m, K::Unknown, loc); }
     static auto Void(Module* m, Location loc = {}) -> BuiltinType* { return Create(m, K::Void, loc); }

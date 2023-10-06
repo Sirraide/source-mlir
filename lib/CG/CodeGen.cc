@@ -79,11 +79,13 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
         case Expr::Kind::InvokeExpr:
         case Expr::Kind::MemberAccessExpr:
         case Expr::Kind::DeclRefExpr:
+        case Expr::Kind::BoolLiteralExpr:
         case Expr::Kind::IntegerLiteralExpr:
         case Expr::Kind::StringLiteralExpr:
         case Expr::Kind::ParamDecl:
         case Expr::Kind::ProcDecl:
         case Expr::Kind::CastExpr:
+        case Expr::Kind::IfExpr:
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::BinaryExpr:
         case Expr::Kind::VarDecl:
@@ -312,6 +314,16 @@ void src::CodeGen::Generate(src::Expr* expr) {
             );
         } break;
 
+        /// Create a bool constant.
+        case Expr::Kind::BoolLiteralExpr: {
+            auto e = cast<BoolLitExpr>(expr);
+            e->mlir = builder.create<mlir::arith::ConstantIntOp>(
+                e->location.mlir(ctx),
+                e->value,
+                mlir::IntegerType::get(mctx, 1)
+            );
+        } break;
+
         /// Create an integer constant.
         case Expr::Kind::IntegerLiteralExpr: {
             auto e = cast<IntLitExpr>(expr);
@@ -359,9 +371,59 @@ void src::CodeGen::Generate(src::Expr* expr) {
             else {
                 builder.create<hlir::ZeroinitialiserOp>(
                     e->location.mlir(ctx),
-                    e->mlir
+                    e->mlir,
+                    e->type.size_bytes(ctx)
                 );
             }
+        } break;
+
+        /// If expressions.
+        case Expr::Kind::IfExpr: {
+            /// Emit the condition.
+            auto e = cast<IfExpr>(expr);
+            Generate(e->cond);
+
+            /// Determine the result type of this operation.
+            const bool has_result = not Type::Equal(e->type, Type::Void);
+            SmallVector<mlir::Type, 1> result_type;
+            if (has_result) {
+                auto ty = Ty(e->type);
+                if (e->is_lvalue) ty = hlir::ReferenceType::get(ty);
+                result_type.push_back(ty);
+            }
+
+            /// We use scf.if for if expressions.
+            auto if_op = builder.create<mlir::scf::IfOp>(
+                e->location.mlir(ctx),
+                result_type,
+                e->cond->mlir,
+                /*withElseRegion=*/e->else_ != nullptr
+            );
+
+            /// Helper to emit a branch and yield its value if this
+            /// expression does no yield void and if there is not
+            /// already a terminator in the branch.
+            auto EmitBranch = [&](Expr* body, mlir::Block* block) {
+                builder.setInsertionPointToStart(block);
+                Generate(body);
+                if (has_result) {
+                    if (
+                        block->begin() == block->end() or
+                        not std::prev(block->end())->hasTrait<mlir::OpTrait::IsTerminator>()
+                    ) {
+                        builder.create<mlir::scf::YieldOp>(
+                            body->mlir.getLoc(),
+                            body->mlir
+                        );
+                    }
+                }
+            };
+
+            /// Emit the branches and set the result, if applicable.
+            EmitBranch(e->then, if_op.thenBlock());
+            if (e->else_) EmitBranch(e->else_, if_op.elseBlock());
+            if (has_result) e->mlir = if_op.getResult(0);
+            builder.setInsertionPointAfter(if_op);
         } break;
 
         case Expr::Kind::UnaryPrefixExpr: {

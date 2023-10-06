@@ -18,7 +18,7 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
         case Tk::LParen:
             return 1'000;
 
-        /// Prefix operator precedence: 900.
+            /// Prefix operator precedence: 900.
 
         case Tk::StarStar:
             return 100;
@@ -89,14 +89,18 @@ constexpr bool IsPostfix(Tk t) {
 
 constexpr bool MayStartAnExpression(Tk k) {
     switch (k) {
+        case Tk::False:
         case Tk::Identifier:
-        case Tk::Integer:
-        case Tk::StringLiteral:
-        case Tk::Proc:
+        case Tk::If:
         case Tk::Int:
+        case Tk::Integer:
         case Tk::IntegerType:
+        case Tk::LBrace:
+        case Tk::Proc:
         case Tk::Star:
         case Tk::StarStar:
+        case Tk::StringLiteral:
+        case Tk::True:
             return true;
 
         default:
@@ -165,6 +169,12 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             Next();
             break;
 
+        case Tk::True:
+        case Tk::False:
+            lhs = new (mod) BoolLitExpr(tok.type == Tk::True, tok.location);
+            Next();
+            break;
+
         case Tk::StringLiteral:
             lhs = new (mod) StrLitExpr(mod->strtab.intern(tok.text), tok.location);
             Next();
@@ -172,6 +182,10 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
         case Tk::Proc:
             lhs = ParseProc();
+            break;
+
+        case Tk::If:
+            lhs = ParseIf();
             break;
 
         case Tk::Star:
@@ -192,16 +206,18 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
     if (lhs.is_diag) return lhs.diag;
 
     /// Make sure that the rest of the parser knows that this
-    /// token can start an expression.
+    /// token can start an expression. This is a sanity check
+    /// because I keep forgetting to add a token to that function
+    /// when adding a new expression.
     Assert(
         MayStartAnExpression(start_token),
-        "Add {} to MayStartAnExpression()",
+        "Add '{}' to MayStartAnExpression()",
         Spelling(start_token)
     );
 
     /// Parse anything that looks like a binary operator or
     /// postfix operator.
-    for (;;) {
+    while (not IsError(lhs)) {
         /// Some operators need special parsing.
         switch (tok.type) {
             /// If the token could be the start of an expression, but not a block,
@@ -233,7 +249,8 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 auto init = Result<Expr*>::Null();
                 if (Consume(Tk::Assign)) {
                     auto expr = ParseExpr();
-                    if (not IsError(init)) init = *expr;
+                    if (IsError(expr)) return expr.diag;
+                    init = *expr;
                 }
 
                 Location loc = {lhs->location, not args.empty() ? args.back()->location : Location{}};
@@ -333,6 +350,24 @@ void src::Parser::ParseFile() {
 
     /// Parse expressions.
     std::ignore = ParseExprs(Tk::Eof, mod->top_level_func->body->exprs);
+}
+
+/// <expr-if> ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <expr> ]
+/// <then> ::= [ THEN ] <expr>
+auto src::Parser::ParseIf() -> Result<Expr*> {
+    auto start = curr_loc;
+    Assert(Consume(Tk::If, Tk::Elif));
+
+    /// Parse condition, elif clauses, and else clause.
+    auto cond = ParseExpr();
+    auto then = (Consume(Tk::Then), ParseExpr());
+    auto else_ = Consume(Tk::Elif) ? ParseExpr()
+               : Consume(Tk::Else) ? ParseExpr()
+                                   : Result<Expr*>::Null();
+
+    /// Create the expression.
+    if (IsError(cond, then, else_)) return Diag();
+    return new (mod) IfExpr(*cond, *then, *else_, {start, curr_loc});
 }
 
 /// <proc-args>  ::= "(" <param-decl> { "," <param-decl> } ")"

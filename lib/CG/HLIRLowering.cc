@@ -294,10 +294,10 @@ struct LocalVarOpLowering : public ConversionPattern {
     }
 };
 
-/*/// Lowering for `**`.
-struct ExpIOpLowering : public ConversionPattern {
-    explicit ExpIOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
-        : ConversionPattern(tc, hlir::ExpIOp::getOperationName(), 1, ctx) {
+/// Lowering for zero-initialisation.
+struct ZeroInitOpLowering : public ConversionPattern {
+    explicit ZeroInitOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::ZeroinitialiserOp::getOperationName(), 1, ctx) {
     }
 
     auto matchAndRewrite(
@@ -305,33 +305,31 @@ struct ExpIOpLowering : public ConversionPattern {
         ArrayRef<Value> operands,
         ConversionPatternRewriter& rewriter
     ) const -> LogicalResult override {
-        auto loc = op->getLoc();
-        auto expi = cast<hlir::ExpIOp>(op);
-        auto tc = getTypeConverter<LLVMTypeConverter>();
-        Value left = operands[0], right = operands[1];
-
-        /// Convert index to int because math.ipowi can’t deal with it.
-        left.getType().dump();
-        if (left.getType().isa<IndexType>())
-            left = rewriter.create<index::CastSOp>(loc, tc->getIndexType(), left).getOutput();
-        right.dump();
-        right.getType().dump();
-        if (right.getType().isa<IndexType>())
-            right = rewriter.create<index::CastSOp>(loc, tc->getIndexType(), right).getOutput();
-
-        /// Create the power operation, passing in non-index integers.
-        auto pow = rewriter.create<math::IPowIOp>(
-            loc,
-            left,
-            right
+        /// Generate a call to llvm.memset.
+        auto zero = rewriter.create<LLVM::ConstantOp>(
+            op->getLoc(),
+            rewriter.getI8Type(),
+            rewriter.getI8IntegerAttr(0)
         );
 
-        /// Replace the expi op with the intrinsic.
-        op->replaceAllUsesWith(pow);
+        auto bytes = rewriter.create<LLVM::ConstantOp>(
+            op->getLoc(),
+            getTypeConverter<LLVMTypeConverter>()->getIndexType(),
+            op->getAttr("bytes").cast<IntegerAttr>()
+        );
+
+        rewriter.create<LLVM::MemsetOp>(
+            op->getLoc(),
+            operands[0],
+            zero,
+            bytes,
+            false
+        );
+
         rewriter.eraseOp(op);
         return success();
     }
-};*/
+};
 
 struct HLIRToLLVMLoweringPass
     : public PassWrapper<HLIRToLLVMLoweringPass, OperationPass<ModuleOp>> {
@@ -407,7 +405,8 @@ struct HLIRToLLVMLoweringPass
             StoreOpLowering,
             LiteralOpLowering,
             ArrayDecayOpLowering,
-            LocalVarOpLowering
+            LocalVarOpLowering,
+            ZeroInitOpLowering
         >(&getContext(), tc);
         // clang-format on
 

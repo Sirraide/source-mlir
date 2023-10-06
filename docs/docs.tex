@@ -284,6 +284,7 @@ The following expressions are lvalues:
 \item \emph{member-access-expression}s \sref[expr.member] whose left-hand-side operand is an lvalue of structure type.
 \item \emph{unary-prefix-expression}s with operator `*` \sref[expr.unary.deref].
 \item \emph{binary-expression}s with assignment operators \sref[expr.binary.assign], but \emph{not} operator `=>` \sref[expr.binary.refassign].
+\item \emph{if-expression}s with an \emph{else-clause} whose body and \emph{else-clause} yield lvalues of compatible types.
 \end{itemize}
 
 \subsubsection{Rvalue Expressions [expr.value.rvalue]}
@@ -297,6 +298,7 @@ The following expressions are rvalues:
 \item \emph{literal-expression}s, including \emph{string-literal}s \sref[expr.literal].
 \item \emph{binary-expression}s \sref[expr.binary] with non-assignment operators \sref[expr.binary.assign] or operator `=>` \sref[expr.binary.refassign].
 \item \emph{type}s \sref[expr.type].
+\item \emph{if-expression}s with no \emph{else-clause} or whose body or \emph{else-clause} yield an rvalue.
 \end{itemize}
 
 \subsection{Operand Value Categories [expr.value.operands]}
@@ -334,6 +336,7 @@ associated with its operands in the general case (e.g. \sref[expr.block]).
       an rvalue of the same type as the type of the declared variable.
 \item For a \emph{member-access-expression}, the LHS operand must be of slice, range, or structure type or of
       a pointer-like type thereto.
+\item For an \emph{if-expression}, the condition must be an rvalue of type `bool`.
 \item For a \emph{unary-prefix-expression},
       \begin{itemize}
         \item with operator `*`, the operand must be of a pointer-like type.

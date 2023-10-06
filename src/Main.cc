@@ -37,6 +37,7 @@ using options = clopts< // clang-format off
     positional<"file", "The file to compile">,
     flag<"--syntax-only", "Skip the semantic analysis step">,
     flag<"--ast", "Print the AST of the module after parsing">,
+    flag<"--sema", "Run sema only">,
     flag<"--hlir", "Print the HLIR of the module">,
     flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
     flag<"--debug-llvm", "Debug LLVM lowering process">,
@@ -69,8 +70,8 @@ int main(int argc, char** argv) {
     /// Perform semantic analysis.
     src::Sema::Analyse(mod.get());
     if (ctx.has_error()) std::exit(1);
-    if (options::get<"--ast">()) {
-        mod->print_ast();
+    if (options::get<"--ast">() or options::get<"--sema">()) {
+        if (options::get<"--ast">()) mod->print_ast();
         std::exit(0);
     }
 

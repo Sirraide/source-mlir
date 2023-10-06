@@ -163,17 +163,18 @@ def LiteralOp : HLIR_Op<"literal"> {
 
 def ZeroinitialiserOp : HLIR_Op<"zeroinitialiser"> {
     let summary = "Zeroinitialiser";
-    let arguments = (ins HLIR_ReferenceType:$operand);
+    let arguments = (ins HLIR_ReferenceType:$operand, Builtin_IntegerAttr:$bytes);
     let assemblyFormat = "$operand `:` type($operand) attr-dict";
     let hasVerifier = 0;
 
     let builders = [
-        OpBuilder<(ins "::mlir::Value":$operand), [{
+        OpBuilder<(ins "::mlir::Value":$operand, "::std::int64_t":$type_size_in_bytes), [{
             build(
                 $_builder,
                 $_state,
                 {},
-                operand
+                operand,
+                $_builder.getI64IntegerAttr(type_size_in_bytes)
             );
         }]>
     ];

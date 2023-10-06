@@ -8,6 +8,7 @@
 <expr> ::= <expr-invoke>
          | <expr-proc>
          | <expr-literal>
+         | <expr-if>
          | <expr-decl-ref>
          | <expr-access>
          | <expr-block>
@@ -23,6 +24,7 @@
 <expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL
 <expr-prefix>    ::= <prefix-op> <expr>
 <expr-binary>    ::= <expr> <binary-op> <expr>
+<expr-if>        ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <expr> ]
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
@@ -32,6 +34,7 @@
 <proc-body>      ::= <expr-block> | "=" <expr>
 <proc-attrs>     ::= EXTERN | NOMANGLE
 <param-decl>     ::= <type> [ IDENTIFIER ]
+<then>           ::= [ THEN ] <expr>
 <prefix-op>      ::= /// All prefix operators.
 <binary-op>      ::= /// All binary operators.
 

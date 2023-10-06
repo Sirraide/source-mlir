@@ -5,11 +5,13 @@ namespace {
 src::BuiltinType IntTypeInstance{src::BuiltinTypeKind::Int, {}};
 src::BuiltinType UnknownTypeInstance{src::BuiltinTypeKind::Unknown, {}};
 src::BuiltinType VoidTypeInstance{src::BuiltinTypeKind::Void, {}};
+src::BuiltinType BoolTypeInstance{src::BuiltinTypeKind::Bool, {}};
 } // namespace
 src::Expr* const src::detail::UnknownType = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Int = &IntTypeInstance;
 src::BuiltinType* const src::Type::Void = &VoidTypeInstance;
 src::BuiltinType* const src::Type::Unknown = &UnknownTypeInstance;
+src::BuiltinType* const src::Type::Bool = &BoolTypeInstance;
 
 /// ===========================================================================
 ///  Expressions
@@ -21,11 +23,13 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::InvokeExpr:
         case Kind::MemberAccessExpr:
         case Kind::DeclRefExpr:
+        case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::ParamDecl:
         case Kind::ProcDecl:
         case Kind::CastExpr:
+        case Kind::IfExpr:
         case Kind::BinaryExpr:
         case Kind::UnaryPrefixExpr:
         case Kind::VarDecl:
@@ -95,7 +99,9 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::CastExpr:
         case Kind::MemberAccessExpr:
         case Kind::UnaryPrefixExpr:
+        case Kind::IfExpr:
         case Kind::BinaryExpr:
+        case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::ParamDecl:
@@ -176,7 +182,9 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::CastExpr:
         case Kind::MemberAccessExpr:
         case Kind::UnaryPrefixExpr:
+        case Kind::IfExpr:
         case Kind::BinaryExpr:
+        case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::ParamDecl:
@@ -257,11 +265,13 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::InvokeExpr:
         case Kind::MemberAccessExpr:
         case Kind::DeclRefExpr:
+        case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::ParamDecl:
         case Kind::ProcDecl:
         case Kind::CastExpr:
+        case Kind::IfExpr:
         case Kind::UnaryPrefixExpr:
         case Kind::BinaryExpr:
         case Kind::VarDecl:
@@ -320,11 +330,13 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::InvokeExpr:
         case Kind::MemberAccessExpr:
         case Kind::DeclRefExpr:
+        case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::ParamDecl:
         case Kind::ProcDecl:
         case Kind::CastExpr:
+        case Kind::IfExpr:
         case Kind::UnaryPrefixExpr:
         case Kind::BinaryExpr:
         case Kind::VarDecl:
@@ -446,6 +458,18 @@ struct ASTPrinter {
                 return;
             }
 
+            case K::BoolLiteralExpr: {
+                auto i = cast<IntLitExpr>(e);
+                PrintBasicHeader("BoolLiteral", e);
+                out += fmt::format(
+                    " {}{} {}\n",
+                    C(Red),
+                    i->value ? "true" : "false",
+                    i->type.str(use_colour)
+                );
+                return;
+            }
+
             case K::IntegerLiteralExpr: {
                 auto i = cast<IntLitExpr>(e);
                 PrintBasicHeader("IntegerLiteral", e);
@@ -541,6 +565,8 @@ struct ASTPrinter {
                 return;
             }
 
+            case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
+
             case K::UnaryPrefixExpr: {
                 auto u = cast<UnaryPrefixExpr>(e);
                 PrintBasicHeader("UnaryPrefixExpr", e);
@@ -595,6 +621,7 @@ struct ASTPrinter {
             case K::ProcDecl: break;
 
             /// These don’t have children.
+            case K::BoolLiteralExpr:
             case K::IntegerLiteralExpr:
             case K::StringLiteralExpr:
             case K::ParamDecl:
@@ -624,6 +651,13 @@ struct ASTPrinter {
                 SmallVector<Expr*, 12> children{c->callee};
                 children.insert(children.end(), c->args.begin(), c->args.end());
                 if (c->init) children.push_back(c->init);
+                PrintChildren(children, leading_text);
+            } break;
+
+            case K::IfExpr: {
+                auto i = cast<IfExpr>(e);
+                SmallVector<Expr*, 3> children{{i->cond, i->then}};
+                if (i->else_) children.push_back(i->else_);
                 PrintChildren(children, leading_text);
             } break;
 

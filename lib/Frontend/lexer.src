@@ -61,6 +61,9 @@ dynamic struct Expr {
 ///                replaced with its value at every call site. This has the effect of turning
 ///                a function into a template.
 ///
+///   - `exact`  = Forbid implicit conversions. This is useful for e.g. a function that takes
+///                an `i8` and an `i64` if there is any risk of confusion as to the order of the two.
+///
 ///   - `retain` = Allow capturing the reference that is passed in. This only be used if the
 ///                parameter has the `in`, `out`, or `inout` intent. This is a low-level feature;
 ///                regular users should prefer passing reference-counted types or scoped pointers
@@ -91,9 +94,6 @@ dynamic struct Expr {
 
 /// If possible, option types (`?`) should use the padding bits of the value type to store whether the object is
 /// there or not.
-
-/// Parameter attribute `exact` to forbid implicit conversions. This is useful for e.g. a function that takes
-/// an `i8` and an `i64` if there is any risk of confusion as to the order of the two.
 
 module lexer;
 

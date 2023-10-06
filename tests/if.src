@@ -1,0 +1,44 @@
+/// RUN: %srcc --hlir %s | FileCheck %s
+
+/// CHECK: [[A:%[0-9]+]] = hlir.local_var
+int a;
+
+/// CHECK: [[B:%[0-9]+]] = hlir.local_var
+/// CHECK-NEXT: [[T_1:%[a-z0-9_]+]] = arith.constant true
+/// CHECK-NEXT: [[IF_1:%[0-9]+]] = scf.if [[T_1]]
+/// CHECK-NEXT: [[A_1:%[0-9]+]] = hlir.load [[A]]
+/// CHECK-NEXT: scf.yield [[A_1]]
+/// CHECK-NEXT: } else {
+/// CHECK-NEXT: [[CONST_42:%[a-z0-9_]+]] = arith.constant 42 : i64
+/// CHECK-NEXT: scf.yield [[CONST_42]]
+/// CHECK-NEXT: }
+/// CHECK-NEXT: hlir.store into [[B]] : {{[^%]+}}, [[IF_1]]
+int b = if true then a else 42;
+
+/// CHECK: [[C:%[0-9]+]] = hlir.local_var
+/// CHECK-NEXT: [[T_2:%[a-z0-9_]+]] = arith.constant true
+/// CHECK-NEXT: [[IF_2:%[0-9]+]] = scf.if [[T_2]]
+/// CHECK-NEXT: [[CONST_42_2:%[a-z0-9_]+]] = arith.constant 42 : i64
+/// CHECK-NEXT: scf.yield [[CONST_42_2]]
+/// CHECK-NEXT: } else {
+/// CHECK-NEXT: [[A_2:%[0-9]+]] = hlir.load [[A]]
+/// CHECK-NEXT: scf.yield [[A_2]]
+/// CHECK-NEXT: }
+/// CHECK-NEXT: hlir.store into [[C]] : {{[^%]+}}, [[IF_2]]
+int c = if true { 42 } else { a };
+
+/// CHECK: [[D:%[0-9]+]] = hlir.local_var
+/// CHECK-NEXT: [[T_3:%[a-z0-9_]+]] = arith.constant true
+/// CHECK-NEXT: [[IF_3:%[0-9]+]] = scf.if [[T_3]]
+/// CHECK-NEXT: scf.yield [[B]]
+/// CHECK-NEXT: } else {
+/// CHECK-NEXT: scf.yield [[C]]
+/// CHECK-NEXT: }
+/// CHECK-NEXT: hlir.store into [[D]] : {{[^%]+}}, [[IF_3]]
+int& d = if true { b } else { c };
+
+/// CHECK-NEXT: [[T_4:%[a-z0-9_]+]] = arith.constant true
+/// CHECK-NEXT: scf.if [[T_4]]
+/// CHECK-NEXT: [[A_3:%[0-9]+]] = hlir.load [[A]]
+/// CHECK-NEXT: hlir.store into [[A]] : {{[^%]+}}, [[A_3]]
+if true then a = a;

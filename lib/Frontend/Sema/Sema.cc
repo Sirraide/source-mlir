@@ -116,6 +116,11 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::FFIType:
             break;
 
+        /// Bools are of type bool.
+        case Expr::Kind::BoolLiteralExpr:
+            cast<BoolLitExpr>(e)->stored_type = BuiltinType::Bool(mod, e->location);
+            break;
+
         /// Integers are of type int.
         case Expr::Kind::IntegerLiteralExpr:
             cast<IntLitExpr>(e)->stored_type = BuiltinType::Int(mod, e->location);
@@ -422,6 +427,40 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not var->sema.errored) {
                 curr_scope->declare(var->name, var);
                 var->is_lvalue = true;
+            }
+        } break;
+
+        /// If expressions.
+        case Expr::Kind::IfExpr: {
+            auto i = cast<IfExpr>(e);
+
+            /// If the condition has an error, the type of the if expression
+            /// itself can still be determined as it is independent of the
+            /// condition.
+            if (Analyse(i->cond) and not Convert(i->cond, Type::Bool)) Error(
+                i->cond->location,
+                "Type '{}' of condition of `if` must be convertible to '{}'",
+                i->cond->type.str(true),
+                Type::Bool->as_type.str(true)
+            );
+
+            /// Analyse the branches.
+            if (not Analyse(i->then) or (i->else_ and not Analyse(i->else_)))
+                return e->sema.set_errored();
+
+            /// If the types of the then and else branch are convertible to
+            /// one another, then the type of the if expression is that very
+            /// type. Furthermore, ensure that either both clauses are lvalues
+            /// or neither is; in the former case, the entire expr is an lvalue.
+            if (i->else_ and (Convert(i->else_, i->then->type) or Convert(i->then, i->else_->type))) {
+                i->stored_type = i->then->type;
+                if (i->then->is_lvalue and i->else_->is_lvalue) i->is_lvalue = true;
+                else {
+                    InsertLValueToRValueConversion(i->then);
+                    InsertLValueToRValueConversion(i->else_);
+                }
+            } else {
+                i->stored_type = Type::Void;
             }
         } break;
 

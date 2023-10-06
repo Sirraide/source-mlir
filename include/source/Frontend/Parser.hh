@@ -155,6 +155,7 @@ private:
     auto ParseExpr(int curr_prec = 0) -> Result<Expr*>;
     auto ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>;
     void ParseFile();
+    auto ParseIf() -> Result<Expr*>;
     auto ParseParamDeclList(SVI<ParamDecl*>& param_decls, SVI<Expr*>& param_types) -> Location;
     auto ParseProc() -> Result<Expr*>;
     auto ParseSignature() -> Signature;
