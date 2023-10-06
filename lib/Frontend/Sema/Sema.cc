@@ -178,6 +178,38 @@ bool src::Sema::Analyse(Expr*& e) {
             }
         } break;
 
+        /// Assertions take a bool and an optional message.
+        case Expr::Kind::AssertExpr: {
+            auto a = cast<AssertExpr>(e);
+            if (Analyse(a->cond) and not Convert(a->cond, Type::Bool)) {
+                Error(
+                    a->cond->location,
+                    "Condition of 'assert' must be of type '{}', but was '{}'",
+                    Type::Bool->as_type,
+                    a->cond->type
+                );
+            }
+
+            /// Get the condition as a source string.
+            a->message_string = a->cond->location.seekable(mod->context)
+                                 ? fmt::format("Assertion failed: '{}'", a->cond->location.text(mod->context))
+                                 : "Assertion failed: <invalid source location>";
+
+            /// Append the message if there is one.
+            if (a->msg) {
+                auto s = dyn_cast<StrLitExpr>(a->msg);
+                if (not s) Diag::ICE(
+                    mod->context,
+                    a->msg->location,
+                    "Sorry, assertion message must currently be a string literal"
+                );
+
+                /// Exclude null terminator.
+                auto v = mod->strtab[s->index];
+                a->message_string += fmt::format(". Message: {}", v.substr(0, v.size() - 1));
+            }
+        } break;
+
         /// The type of a block is the type of the last expression.
         case Expr::Kind::BlockExpr: {
             auto b = cast<BlockExpr>(e);

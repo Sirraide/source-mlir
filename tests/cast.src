@@ -1,0 +1,8 @@
+/// RUN: %srcc --hlir %s | FileCheck %s
+
+int a = 42;
+i8 b = a as i8;
+i16 c = a as i16;
+i32 d = a as i32;
+i64 e = a as i64;
+bool f = a as bool;

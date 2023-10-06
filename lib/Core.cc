@@ -273,6 +273,12 @@ auto src::Location::seek_line_column(const Context* ctx) const -> LocInfoShort {
     return info;
 }
 
+auto src::Location::text(const Context* ctx) const -> std::string_view {
+    auto& files = ctx->files();
+    auto* f = files[file_id].get();
+    return std::string_view{f->data(), f->size()}.substr(pos, len);
+}
+
 /// ===========================================================================
 ///  Module
 /// ===========================================================================

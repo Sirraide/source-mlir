@@ -75,6 +75,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
         case Expr::Kind::OptionalType:
             Unreachable();
 
+        case Expr::Kind::AssertExpr:
         case Expr::Kind::BlockExpr:
         case Expr::Kind::InvokeExpr:
         case Expr::Kind::MemberAccessExpr:
@@ -271,6 +272,16 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     }
                 }
             }
+        } break;
+
+        case Expr::Kind::AssertExpr: {
+            auto a = cast<AssertExpr>(expr);
+            Generate(a->cond);
+            builder.create<mlir::cf::AssertOp>(
+                expr->location.mlir(ctx),
+                a->cond->mlir,
+                std::string_view{a->message_string}
+            );
         } break;
 
         case Expr::Kind::BlockExpr: {

@@ -151,6 +151,7 @@ private:
     }
 
     /// Parser functions.
+    auto ParseAssertion() -> Result<Expr*>;
     auto ParseBlock() -> Result<BlockExpr*>;
     auto ParseExpr(int curr_prec = 0) -> Result<Expr*>;
     auto ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>;

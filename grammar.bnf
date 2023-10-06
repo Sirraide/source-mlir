@@ -14,8 +14,10 @@
          | <expr-block>
          | <expr-prefix>
          | <expr-binary>
+         | <expr-assert>
          | <decl>
 
+<expr-assert>    ::= ASSERT <expr> [ ","  <expr> ]
 <expr-invoke>    ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
 <expr-proc>      ::= <proc-extern> | <proc-named>
 <expr-block>     ::= "{" <exprs> "}"

@@ -48,6 +48,8 @@ public:
         ProcType,
         /// Type [end]
 
+        AssertExpr,
+
         /// TypedExpr [begin]
         BlockExpr,
         InvokeExpr,
@@ -178,6 +180,26 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return true; }
+};
+
+class AssertExpr: public Expr {
+public:
+    /// The condition of this assertion.
+    Expr* cond;
+
+    /// The optional message of this assertion.
+    Expr* msg;
+
+    /// TODO: Remove this once we allow arbitrary expressions as messages.
+    std::string message_string;
+
+    AssertExpr(Expr* cond, Expr* msg, Location loc)
+        : Expr(Kind::AssertExpr, loc),
+          cond(cond),
+          msg(msg) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::AssertExpr; }
 };
 
 /// ===========================================================================

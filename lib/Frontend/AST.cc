@@ -18,6 +18,9 @@ src::BuiltinType* const src::Type::Bool = &BoolTypeInstance;
 /// ===========================================================================
 auto src::Expr::_type() -> TypeHandle {
     switch (kind) {
+        case Kind::AssertExpr:
+            return Type::Void;
+
         /// Typed exprs.
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
@@ -94,6 +97,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::DeclRefExpr:
             Todo();
 
+        case Kind::AssertExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::CastExpr:
@@ -177,6 +181,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::DeclRefExpr:
             Todo();
 
+        case Kind::AssertExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::CastExpr:
@@ -260,6 +265,9 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
             }
         } break;
 
+        case Kind::AssertExpr:
+            return Type::Void->as_type.str(use_colour);
+
         /// Typed exprs.
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
@@ -326,6 +334,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
             return Type::Equal(pa->ret_type, pb->ret_type);
         }
 
+        case Kind::AssertExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::MemberAccessExpr:
@@ -459,7 +468,7 @@ struct ASTPrinter {
             }
 
             case K::BoolLiteralExpr: {
-                auto i = cast<IntLitExpr>(e);
+                auto i = cast<BoolLitExpr>(e);
                 PrintBasicHeader("BoolLiteral", e);
                 out += fmt::format(
                     " {}{} {}\n",
@@ -565,6 +574,7 @@ struct ASTPrinter {
                 return;
             }
 
+            case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
 
             case K::UnaryPrefixExpr: {
@@ -658,6 +668,13 @@ struct ASTPrinter {
                 auto i = cast<IfExpr>(e);
                 SmallVector<Expr*, 3> children{{i->cond, i->then}};
                 if (i->else_) children.push_back(i->else_);
+                PrintChildren(children, leading_text);
+            } break;
+
+            case K::AssertExpr: {
+                auto i = cast<AssertExpr>(e);
+                SmallVector<Expr*, 2> children{i->cond};
+                if (i->msg) children.push_back(i->msg);
                 PrintChildren(children, leading_text);
             } break;
 

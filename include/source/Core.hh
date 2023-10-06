@@ -248,6 +248,9 @@ struct Location {
 
     /// Check if the source location is seekable.
     [[nodiscard]] bool seekable(const Context* ctx) const;
+
+    /// Get the text pointed to by this source location.
+    [[nodiscard]] auto text(const Context* ctx) const -> std::string_view;
 };
 
 /// Reference to an imported module.

@@ -89,6 +89,7 @@ constexpr bool IsPostfix(Tk t) {
 
 constexpr bool MayStartAnExpression(Tk k) {
     switch (k) {
+        case Tk::Assert:
         case Tk::False:
         case Tk::Identifier:
         case Tk::If:
@@ -122,6 +123,18 @@ auto src::Parser::Parse(Context& ctx, File& f) -> std::unique_ptr<Module> {
     Parser p{&ctx, f};
     p.ParseFile();
     return ctx.has_error() ? nullptr : std::move(p.mod_ptr);
+}
+
+/// <expr-assert> ::= ASSERT <expr> [ ","  <expr> ]
+auto src::Parser::ParseAssertion() -> Result<Expr*> {
+    auto start = curr_loc;
+    Assert(Consume(Tk::Assert));
+
+    /// Parse condition.
+    auto cond = ParseExpr();
+    auto mess = Consume(Tk::Comma) ? ParseExpr() : Result<Expr*>::Null();
+    if (IsError(cond, mess)) return Diag();
+    return new (mod) AssertExpr(*cond, *mess, {start, *mess ? mess->location : cond->location});
 }
 
 /// <expr-block> ::= "{" { <expr> ";" } "}"
@@ -178,6 +191,10 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::StringLiteral:
             lhs = new (mod) StrLitExpr(mod->strtab.intern(tok.text), tok.location);
             Next();
+            break;
+
+        case Tk::Assert:
+            lhs = ParseAssertion();
             break;
 
         case Tk::Proc:
