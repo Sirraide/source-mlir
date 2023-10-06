@@ -28,14 +28,14 @@ int b = if true then a else 42;
 int c = if true { 42 } else { a };
 
 /// CHECK: [[D:%[0-9]+]] = hlir.local_var
-/// CHECK-NEXT: [[T_3:%[a-z0-9_]+]] = arith.constant true
+/// CHECK-NEXT: [[T_3:%[a-z0-9_]+]] = arith.constant false
 /// CHECK-NEXT: [[IF_3:%[0-9]+]] = scf.if [[T_3]]
 /// CHECK-NEXT: scf.yield [[B]]
 /// CHECK-NEXT: } else {
 /// CHECK-NEXT: scf.yield [[C]]
 /// CHECK-NEXT: }
 /// CHECK-NEXT: hlir.store into [[D]] : {{[^%]+}}, [[IF_3]]
-int& d = if true { b } else { c };
+int& d = if false { b } else { c };
 
 /// CHECK-NEXT: [[T_4:%[a-z0-9_]+]] = arith.constant true
 /// CHECK-NEXT: scf.if [[T_4]]
