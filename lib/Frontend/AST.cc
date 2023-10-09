@@ -6,20 +6,22 @@ src::BuiltinType IntTypeInstance{src::BuiltinTypeKind::Int, {}};
 src::BuiltinType UnknownTypeInstance{src::BuiltinTypeKind::Unknown, {}};
 src::BuiltinType VoidTypeInstance{src::BuiltinTypeKind::Void, {}};
 src::BuiltinType BoolTypeInstance{src::BuiltinTypeKind::Bool, {}};
+src::BuiltinType NoReturnTypeInstance{src::BuiltinTypeKind::NoReturn, {}};
 } // namespace
 src::Expr* const src::detail::UnknownType = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Int = &IntTypeInstance;
 src::BuiltinType* const src::Type::Void = &VoidTypeInstance;
 src::BuiltinType* const src::Type::Unknown = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Bool = &BoolTypeInstance;
+src::BuiltinType* const src::Type::NoReturn = &NoReturnTypeInstance;
 
 /// ===========================================================================
 ///  Expressions
 /// ===========================================================================
 auto src::Expr::_type() -> TypeHandle {
     switch (kind) {
-        case Kind::AssertExpr:
-            return Type::Void;
+        case Kind::AssertExpr: return Type::Void;
+        case Kind::ReturnExpr: return Type::NoReturn;
 
         /// Typed exprs.
         case Kind::BlockExpr:
@@ -51,6 +53,10 @@ auto src::Expr::_type() -> TypeHandle {
     }
 }
 
+auto src::ProcDecl::_ret_type() -> TypeHandle {
+    return cast<ProcType>(stored_type)->ret_type;
+}
+
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
@@ -62,6 +68,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
                 case BuiltinTypeKind::Void: return 8;
                 case BuiltinTypeKind::Int: return 64; /// FIXME: Use context.
                 case BuiltinTypeKind::Bool: return 8;
+                case BuiltinTypeKind::NoReturn: return 1; /// Alignment can’t be 0.
             }
 
             Unreachable();
@@ -98,6 +105,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
             Todo();
 
         case Kind::AssertExpr:
+        case Kind::ReturnExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::CastExpr:
@@ -129,6 +137,10 @@ bool src::Expr::TypeHandle::is_int(bool bool_is_int) {
     }
 }
 
+bool src::Expr::TypeHandle::_is_noreturn() {
+    return Type::Equal(ptr, Type::NoReturn);
+}
+
 auto src::Expr::TypeHandle::_ref_depth() -> isz {
     isz depth = 0;
     for (
@@ -147,6 +159,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
                 case BuiltinTypeKind::Void: return 0;
                 case BuiltinTypeKind::Int: return 64; /// FIXME: Use context.
                 case BuiltinTypeKind::Bool: return 1;
+                case BuiltinTypeKind::NoReturn: return 0;
             }
 
             Unreachable();
@@ -182,6 +195,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
             Todo();
 
         case Kind::AssertExpr:
+        case Kind::ReturnExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::CastExpr:
@@ -227,6 +241,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
                 case BuiltinTypeKind::Void: out += "void"; goto done;
                 case BuiltinTypeKind::Int: out += "int"; goto done;
                 case BuiltinTypeKind::Bool: out += "bool"; goto done;
+                case BuiltinTypeKind::NoReturn: out += "noreturn"; goto done;
             }
 
             out += fmt::format("<invalid builtin type: {}>", int(bk));
@@ -265,8 +280,8 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
             }
         } break;
 
-        case Kind::AssertExpr:
-            return Type::Void->as_type.str(use_colour);
+        case Kind::AssertExpr: return Type::Void->as_type.str(use_colour);
+        case Kind::ReturnExpr: return Type::NoReturn->as_type.str(use_colour);
 
         /// Typed exprs.
         case Kind::BlockExpr:
@@ -294,6 +309,10 @@ done:
 auto src::Expr::TypeHandle::_strip_refs() -> TypeHandle {
     if (auto r = dyn_cast<ReferenceType>(ptr)) return r->elem->as_type.strip_refs;
     return *this;
+}
+
+bool src::Expr::TypeHandle::_yields_value() {
+    return not Type::Equal(ptr, Type::Void) and not Type::Equal(ptr, Type::NoReturn);
 }
 
 bool src::Type::Equal(Expr* a, Expr* b) {
@@ -335,6 +354,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         }
 
         case Kind::AssertExpr:
+        case Kind::ReturnExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::MemberAccessExpr:
@@ -574,6 +594,7 @@ struct ASTPrinter {
                 return;
             }
 
+            case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
 
@@ -691,6 +712,11 @@ struct ASTPrinter {
             case K::BinaryExpr: {
                 auto b = cast<BinaryExpr>(e);
                 PrintChildren({b->lhs, b->rhs}, leading_text);
+            } break;
+
+            case K::ReturnExpr: {
+                auto r = cast<ReturnExpr>(e);
+                if (r->value) PrintChildren(r->value, leading_text);
             } break;
 
             case K::UnaryPrefixExpr:

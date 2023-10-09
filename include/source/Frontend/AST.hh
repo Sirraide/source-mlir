@@ -49,6 +49,7 @@ public:
         /// Type [end]
 
         AssertExpr,
+        ReturnExpr,
 
         /// TypedExpr [begin]
         BlockExpr,
@@ -116,6 +117,9 @@ public:
         /// Check if this is any integer type.
         bool is_int(bool bool_is_int);
 
+        /// Check if this is the builtin 'noreturn' type.
+        readonly_decl(bool, is_noreturn);
+
         /// Get the number of nested reference levels in this type.
         readonly_decl(isz, ref_depth);
 
@@ -133,6 +137,10 @@ public:
 
         /// Strip all references from this type.
         readonly_decl(TypeHandle, strip_refs);
+
+        /// Check if this type logically yields a value, i.e. is not
+        /// void or noreturn.
+        readonly_decl(bool, yields_value);
 
         /// Access the underlying type pointer.
         operator Expr*() const { return ptr; };
@@ -200,6 +208,19 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::AssertExpr; }
+};
+
+class ReturnExpr: public Expr {
+public:
+    /// The value being returned.
+    Expr* value;
+
+    ReturnExpr(Expr* value, Location loc)
+        : Expr(Kind::ReturnExpr, loc),
+          value(value) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ReturnExpr; }
 };
 
 /// ===========================================================================
@@ -523,6 +544,9 @@ public:
         mod->add_function(this);
     }
 
+    /// Get the return type of this procedure.
+    [[gnu::pure]] readonly_decl(TypeHandle, ret_type);
+
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ProcDecl; }
 };
@@ -538,6 +562,7 @@ enum struct BuiltinTypeKind {
     Void,
     Int,
     Bool,
+    NoReturn,
 };
 
 enum struct FFITypeKind {
@@ -556,6 +581,7 @@ public:
     static BuiltinType* const Unknown;
     static BuiltinType* const Void;
     static BuiltinType* const Bool;
+    static BuiltinType* const NoReturn;
 
     /// It is too goddamn easy to forget to dereference at least
     /// one of the expressions when comparing them w/ operator==,
@@ -608,6 +634,7 @@ public:
     static auto Void(Module* m, Location loc = {}) -> BuiltinType* { return Create(m, K::Void, loc); }
     static auto Int(Module* m, Location loc = {}) -> BuiltinType* { return Create(m, K::Int, loc); }
     static auto Bool(Module* m, Location loc = {}) -> BuiltinType* { return Create(m, K::Bool, loc); }
+    static auto NoReturn(Module* m, Location loc = {}) -> BuiltinType* { return Create(m, K::NoReturn, loc); }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::BuiltinType; }

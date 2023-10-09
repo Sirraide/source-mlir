@@ -95,6 +95,9 @@ dynamic struct Expr {
 /// If possible, option types (`?`) should use the padding bits of the value type to store whether the object is
 /// there or not.
 
+/// Allow `in` as an overloadable operator and use it to check if e.g. a vector contains a value or a string a
+/// character or substring (e.g. `if "foo" in s { ... }`).
+
 module lexer;
 
 export enum Tk {

@@ -33,6 +33,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
                 case K::Void: return mlir::NoneType::get(mctx);
                 case K::Int: return mlir::IntegerType::get(mctx, 64); /// FIXME: Get width from context.
                 case K::Bool: return mlir::IntegerType::get(mctx, 1);
+                case K::NoReturn: return mlir::NoneType::get(mctx);
             }
             Unreachable();
         }
@@ -67,15 +68,16 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
             for (auto p : ty->param_types) params.push_back(Ty(p));
 
             /// To ‘return void’, we have to set no return type at all.
-            if (Type::Equal(ty->ret_type, Type::Void)) return mlir::FunctionType::get(mctx, params, {});
+            if (not ty->ret_type->as_type.yields_value) return mlir::FunctionType::get(mctx, params, {});
             else return mlir::FunctionType::get(mctx, params, Ty(ty->ret_type));
         }
 
         case Expr::Kind::ScopedPointerType:
         case Expr::Kind::OptionalType:
-            Unreachable();
+            Todo();
 
         case Expr::Kind::AssertExpr:
+        case Expr::Kind::ReturnExpr:
         case Expr::Kind::BlockExpr:
         case Expr::Kind::InvokeExpr:
         case Expr::Kind::MemberAccessExpr:
@@ -135,7 +137,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// The operation only has a result if the function’s
             /// return type is not void.
-            if (not Type::Equal(e->type, Type::Void)) e->mlir = call_op.getResult(0);
+            if (e->type.yields_value) e->mlir = call_op.getResult(0);
         } break;
 
         case Expr::Kind::DeclRefExpr: {
@@ -151,11 +153,11 @@ void src::CodeGen::Generate(src::Expr* expr) {
             }
 
             /// If it is a variable, then this is a variable reference.
-            else if (auto var = dyn_cast<VarDecl>(e->decl)) {
+            else if (isa<VarDecl, ParamDecl>(e->decl)) {
                 /// Variable must have already been emitted. This is
                 /// an lvalue, so no loading happens here.
-                Assert(var->mlir);
-                e->mlir = var->mlir;
+                Assert(e->decl->mlir);
+                e->mlir = e->decl->mlir;
             }
 
             else {
@@ -274,6 +276,15 @@ void src::CodeGen::Generate(src::Expr* expr) {
             }
         } break;
 
+        case Expr::Kind::ReturnExpr: {
+            auto r = cast<ReturnExpr>(expr);
+            if (r->value) Generate(r->value);
+            builder.create<mlir::func::ReturnOp>(
+                r->location.mlir(ctx),
+                r->value ? ArrayRef<mlir::Value>{r->value->mlir} : ArrayRef<mlir::Value>{}
+            );
+        } break;
+
         case Expr::Kind::AssertExpr: {
             auto a = cast<AssertExpr>(expr);
             Generate(a->cond);
@@ -287,8 +298,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::BlockExpr: {
             auto e = cast<BlockExpr>(expr);
             for (auto s : e->exprs) Generate(s);
-            if (not Type::Equal(e->type, Type::Void))
-                e->mlir = e->exprs.back()->mlir;
+            if (not e->exprs.empty()) e->mlir = e->exprs.back()->mlir;
         } break;
 
         case Expr::Kind::StringLiteralExpr: {
@@ -390,20 +400,90 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         /// If expressions.
         case Expr::Kind::IfExpr: {
+            /// TODO: Emit if expressions using blocks rather than scf.if.
+            ///
+            /// IMPLEMENTATION OF DEFER:
+            ///
+            /// For break/continue/return and `defer`: Each defer block becomes
+            /// a separate function that is called every time a scope is exited.
+            ///
+            /// ALL allocas that have been emitted up to that point are passed
+            /// to that function, which means that, while we are emitting the
+            /// contents of the defer block into a separate function, we can
+            /// simply ‘remap’ the VarDecl nodes to map to the function arguments
+            /// rather than to their allocas.
+            ///
+            /// EXAMPLE. Given the following code.
+            ///
+            /// ```
+            /// defer a;
+            /// defer b;
+            /// if c {
+            ///     defer d;
+            ///     if d return;
+            ///     defer e;
+            ///     f;
+            ///     return;
+            /// }
+            /// defer c;
+            /// ```
+            ///
+            /// TODO: Formalise the following algorithm:
+            ///
+            /// As `defer` expressions are reached, they are placed on a stack;
+            /// each scope has its own defer stack. When the first if expression
+            /// above is reached, the top-level stack T contains `T: expr(a), expr(b)`;
+            /// we then add a new stack for the if expression I1 that links to the
+            /// top level stack: `I1(T)`; when `defer d` is reached, we add it
+            /// to I1: `I1(T): expr(d)`. When the return after that is reached,
+            /// we have to *emit the current stack*.
+            ///
+            /// The procedure is as follows: we create a new function, F, and pass
+            /// to it all currently emitted allocas. Into F, we emit all stack items
+            /// in lifo order until we hit a `deferfunc` item or the stack is exhausted.
+            ///
+            /// STEP X: If a deferfunc is reached, we simply call it and stop. We switch back
+            /// from emitting F to the actual function we’re emitting and insert a call
+            /// to F in the original function. We then emit the `return` or `branch` to
+            /// whatever we’re branching.
+            ///
+            /// If, on the other hand, the stack is exhausted, we inspect the parent
+            /// stack: if there is none, we simply push `F` as a deferfunc onto the
+            /// current stack and go to step X. If there is a parent stack, then, if
+            /// that stack’s topmost item is a deferfunc (or if the stack is empty),
+            /// call it (in F), and we’re done. Push F as a deferfunc and goto step X.
+            /// If the parent stack has other items on it, create a separate function
+            /// F' and start over with this algorithm and *emit* the parent stack. This will
+            /// leave a single deferfunc on the stack, which we call and then push F
+            /// as a deferfunc and goto step X.
+            ///
+            /// In any case, any
+            /// association with the parent stack is *cleared*. Thus, before emitting
+            /// the `return`, the stacks look like this:
+            ///
+            ///   - T: expr(a), expr(b)
+            ///   - I1(T): expr(d)
+            ///
+            /// After emitting the return, the stacks look like this:
+            ///
+            ///   - T: deferfunc(<executes a, b>);
+            ///   - I1: deferfunc(<executes d and deferfunc(a, b)>);
+            ///
+            /// At the end of a scope, we *emit* the defer stack of that scope.
+
             /// Emit the condition.
             auto e = cast<IfExpr>(expr);
             Generate(e->cond);
 
             /// Determine the result type of this operation.
-            const bool has_result = not Type::Equal(e->type, Type::Void);
             SmallVector<mlir::Type, 1> result_type;
-            if (has_result) {
+            if (e->type.yields_value) {
                 auto ty = Ty(e->type);
                 if (e->is_lvalue) ty = hlir::ReferenceType::get(ty);
                 result_type.push_back(ty);
             }
 
-            /// We use scf.if for if expressions.
+            /// Create the if operation.
             auto if_op = builder.create<mlir::scf::IfOp>(
                 e->location.mlir(ctx),
                 result_type,
@@ -417,7 +497,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto EmitBranch = [&](Expr* body, mlir::Block* block) {
                 builder.setInsertionPointToStart(block);
                 Generate(body);
-                if (has_result) {
+                if (e->type.yields_value) {
                     if (
                         block->begin() == block->end() or
                         not std::prev(block->end())->hasTrait<mlir::OpTrait::IsTerminator>()
@@ -431,9 +511,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
             };
 
             /// Emit the branches and set the result, if applicable.
-            EmitBranch(e->then, if_op.thenBlock());
-            if (e->else_) EmitBranch(e->else_, if_op.elseBlock());
-            if (has_result) e->mlir = if_op.getResult(0);
+            EmitBranch(e->then, &*if_op.getThenRegion().begin());
+            if (e->else_) EmitBranch(e->else_, &*if_op.getElseRegion().begin());
+            if (e->type.yields_value) e->mlir = if_op.getResult(0);
             builder.setInsertionPointAfter(if_op);
         } break;
 
@@ -501,8 +581,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
         /// Handled by the code that emits a DeclRefExpr.
         case Expr::Kind::ProcDecl: break;
 
-        case Expr::Kind::ParamDecl:
-            Unreachable();
+        /// Handled by GenerateProcedure().
+        case Expr::Kind::ParamDecl: Unreachable();
     }
 }
 
@@ -575,15 +655,50 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
 
     /// Generate the function body, if there is one.
     if (proc->body) {
+        /// Create local variables for parameters.
         builder.setInsertionPointToEnd(func.addEntryBlock());
+        for (auto [i, p] : vws::enumerate(proc->params)) {
+            p->emitted = true;
+            p->mlir = builder.create<hlir::LocalVarOp>(
+                p->location.mlir(ctx),
+                Ty(p->type),
+                p->type.align(ctx) / 8
+            );
+
+            /// Store the initial parameter value in the variable.
+            builder.create<hlir::StoreOp>(
+                p->location.mlir(ctx),
+                p->mlir,
+                func.getArgument(u32(i)),
+                p->type.align(ctx) / 8
+            );
+        }
+
+        /// Emit the body.
         Generate(proc->body);
 
-        /// If the last block is empty, return void.
-        if (Type::Equal(cast<ProcType>(proc->type)->ret_type, Type::Void)) {
-            if (func.back().empty() or not func.back().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+        /// Insert a return expression at the end if there isn’t already one.
+        if (func.back().empty() or not func.back().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+            /// Function returns void.
+            if (Type::Equal(proc->ret_type, Type::Void)) {
                 builder.create<mlir::func::ReturnOp>(
                     proc->location.mlir(ctx),
                     ArrayRef<mlir::Value>{}
+                );
+            }
+
+            /// Function does not return, or all paths return a value, but there
+            /// is no return expression at the very end.
+            else if (Type::Equal(proc->ret_type, Type::NoReturn) or not proc->body->implicit) {
+                builder.create<mlir::LLVM::UnreachableOp>(proc->location.mlir(ctx));
+            }
+
+            /// Function is a `= <expr>` function that returns its body.
+            else {
+                Assert(proc->body->mlir, "Inferred procedure body must yield a value");
+                builder.create<mlir::func::ReturnOp>(
+                    proc->location.mlir(ctx),
+                    proc->body->mlir
                 );
             }
         }

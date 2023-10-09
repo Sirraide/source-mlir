@@ -98,6 +98,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::IntegerType:
         case Tk::LBrace:
         case Tk::Proc:
+        case Tk::Return:
         case Tk::Star:
         case Tk::StarStar:
         case Tk::StringLiteral:
@@ -205,6 +206,18 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             lhs = ParseIf();
             break;
 
+        /// <expr-return> ::= RETURN [ <expr> ]
+        case Tk::Return: {
+            auto start = Next();
+            auto value = Result<Expr*>::Null();
+            if (MayStartAnExpression(tok.type)) {
+                value = ParseExpr();
+                if (IsError(value)) return value.diag;
+            }
+
+            lhs = new (mod) ReturnExpr(*value, {start, value ? value->location : start});
+        } break;
+
         case Tk::Star:
         case Tk::StarStar: {
             auto start = Next();
@@ -244,14 +257,19 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             ///
             /// We specifically disallow blocks in this position so that, e.g.
             /// in `if a {`, `a {` does not get parsed as an invoke expression.
+            ///
+            /// Furthermore, we disallow iife for named procs so we don’t have
+            /// to put semicolons after procedure declarations.
             default: {
                 if (
                     not MayStartAnExpression(tok.type) or
-                    NakedInvokePrecedence < curr_prec or /// Right-associative
-                    At(Tk::LBrace) or
-                    tok.type == Tk::Star or /// Prefer binary '*' over unary '*' parse.
+                    NakedInvokePrecedence < curr_prec or                               /// Right-associative.
+                    At(Tk::LBrace) or                                                  /// For parsing e.g. `if a {`.
+                    At(Tk::For, Tk::If, Tk::Match, Tk::Return, Tk::While, Tk::With) or /// Easier chaining of constructs.
+                    tok.type == Tk::Star or                                            /// Prefer binary '*' over unary '*' parse..
                     tok.type == Tk::StarStar or
-                    IsPostfix(tok.type)
+                    IsPostfix(tok.type) or
+                    (isa<ProcDecl>(*lhs) and not cast<ProcDecl>(*lhs)->name.empty())
                 ) break;
 
                 /// Parse the arguments of the invoke expression.
@@ -283,6 +301,10 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
             /// Delimited invoke.
             case Tk::LParen: {
+                /// Disallow iife for named procedure decls.
+                if (isa<ProcDecl>(*lhs) and not cast<ProcDecl>(*lhs)->name.empty())
+                    return lhs;
+
                 /// Yeet '('
                 if (InvokePrecedence < curr_prec) return lhs;
                 Next();
@@ -371,21 +393,21 @@ void src::Parser::ParseFile() {
 
 /// <expr-if> ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <expr> ]
 /// <then> ::= [ THEN ] <expr>
-auto src::Parser::ParseIf() -> Result<Expr*> {
+auto src::Parser::ParseIf() -> Result<Expr*> { // clang-format off
     auto start = curr_loc;
     Assert(Consume(Tk::If, Tk::Elif));
 
     /// Parse condition, elif clauses, and else clause.
-    auto cond = ParseExpr();
-    auto then = (Consume(Tk::Then), ParseExpr());
-    auto else_ = Consume(Tk::Elif) ? ParseExpr()
+    auto cond  = ParseExpr(); Consume(Tk::Then);
+    auto then  = ParseExpr(); Consume(Tk::Semicolon);
+    auto else_ = At(Tk::Elif)      ? ParseIf()
                : Consume(Tk::Else) ? ParseExpr()
-                                   : Result<Expr*>::Null();
+               : Result<Expr*>::Null();
 
     /// Create the expression.
     if (IsError(cond, then, else_)) return Diag();
     return new (mod) IfExpr(*cond, *then, *else_, {start, curr_loc});
-}
+} // clang-format on
 
 /// <proc-args>  ::= "(" <param-decl> { "," <param-decl> } ")"
 /// <param-decl> ::= <type> [ IDENTIFIER ]
@@ -441,14 +463,24 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
 
     /// Parse the body if the procedure is not external.
     auto body = Result<BlockExpr*>::Null();
+    bool infer_return_type = false;
     if (not sig.is_extern) {
         if (Consume(Tk::Assign)) {
             ScopeRAII sc{this};
+            infer_return_type = true;
             if (auto res = ParseExpr(); res.is_diag) return Diag();
-            else body = new (mod) BlockExpr(sc.scope, {*res}, {sig.loc, res->location});
-        } else if (At(Tk::LBrace)) body = ParseBlock();
-        else body = Error("Expected '=' or '{{' at start of procedure body");
+            else body = new (mod) BlockExpr(sc.scope, {*res}, {sig.loc, res->location}, true);
+        } else if (At(Tk::LBrace)) {
+            body = ParseBlock();
+        } else {
+            body = Error("Expected '=' or '{{' at start of procedure body");
+        }
     }
+
+    /// If the return type is not inferred and not provided, then
+    /// default to 'void' rather than 'unknown.
+    if (not infer_return_type and Type::Equal(sig.type->ret_type, Type::Unknown))
+        sig.type->ret_type = Type::Void;
 
     /// Create the procedure.
     ///
@@ -462,7 +494,7 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
         *body,
         sig.is_extern ? Linkage::Imported : Linkage::Internal,
         sig.is_nomangle ? Mangling::None : Mangling::Source,
-        *body ? Location{sig.loc, body->location} : sig.loc
+        sig.loc /// 300+ line locations are nonsense, so don’t even bother w/ the body’s location.
     );
 
     /// Add it to the current scope.
@@ -470,6 +502,10 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
     return proc;
 }
 
+/// Parse a procedure signature. The return type is 'unknown' by
+/// default, and not void, to allow distinguishing `-> void` from
+/// no return type at all.
+///
 /// <proc-signature> ::= [ <proc-args> ] [ <proc-ret> ] { <proc-attrs> }
 /// <proc-ret>       ::= "->" <type>
 /// <proc-attrs>     ::= EXTERN | NOMANGLE
@@ -516,7 +552,7 @@ auto src::Parser::ParseSignature() -> Signature {
     )); // clang-format on
 
     /// Finally, parse the return type.
-    Expr* ret_type = Type::Void;
+    Expr* ret_type = Type::Unknown;
     if (Consume(Tk::RArrow)) {
         auto res = ParseType();
         if (not IsError(res)) ret_type = *res;
@@ -549,6 +585,21 @@ auto src::Parser::ParseType() -> Result<Expr*> {
 
         case Tk::Int:
             base_type = BuiltinType::Int(mod, tok.location);
+            Next();
+            break;
+
+        case Tk::Bool:
+            base_type = BuiltinType::Bool(mod, tok.location);
+            Next();
+            break;
+
+        case Tk::Void:
+            base_type = BuiltinType::Void(mod, tok.location);
+            Next();
+            break;
+
+        case Tk::NoReturn:
+            base_type = BuiltinType::NoReturn(mod, tok.location);
             Next();
             break;
     }

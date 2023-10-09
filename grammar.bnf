@@ -15,6 +15,7 @@
          | <expr-prefix>
          | <expr-binary>
          | <expr-assert>
+         | <expr-return>
          | <decl>
 
 <expr-assert>    ::= ASSERT <expr> [ ","  <expr> ]
@@ -27,6 +28,7 @@
 <expr-prefix>    ::= <prefix-op> <expr>
 <expr-binary>    ::= <expr> <binary-op> <expr>
 <expr-if>        ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <expr> ]
+<expr-return>    ::= RETURN [ <expr> ]
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>

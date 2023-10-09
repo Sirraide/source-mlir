@@ -1,0 +1,120 @@
+/// RUN: %srcc --sema %s 2>&1 | FileCheck %s
+
+/// CHECK-NOT: Procedure 'trivial' does not return a value on all paths
+/// CHECK-NOT: Procedure 'abbr' does not return a value on all paths
+/// CHECK-NOT: Procedure 'abbr2' does not return a value on all paths
+proc trivial -> int { return 4; }
+proc abbr = 4;
+proc abbr2 -> int = 4;
+
+/// CHECK-NOT: Procedure 'if_else' does not return a value on all paths
+proc if_else (bool a) -> int {
+    if a return 4;
+    else return 5;
+}
+
+/// CHECK-NOT: Procedure 'if_default' does not return a value on all paths
+proc if_default (bool a) -> int {
+    if a return 4;
+    return 5;
+}
+
+/// CHECK-NOT: Procedure 'if_nested' does not return a value on all paths
+proc if_nested (bool a) -> int {
+    if a {
+        return 42;
+    } elif a {
+        if a return 42;
+        else return 3;
+    } else {
+        if a return 3;
+        elif a {}
+        else return 42;
+        return 6;
+    }
+}
+
+/// CHECK: Procedure 'trivial_err' does not return a value on all paths
+proc trivial_err -> int { }
+
+/// CHECK: Procedure 'if_else_err' does not return a value on all paths
+proc if_else_err (bool a) -> int {
+    if a return 4;
+    else {};
+}
+
+/// CHECK: Procedure 'if_default_err' does not return a value on all paths
+proc if_default_err (bool a) -> int {
+    if a return 4;
+}
+
+/// CHECK: Procedure 'if_nested_err1' does not return a value on all paths
+proc if_nested_err1 (bool a) -> int {
+    if a { }
+    elif a {
+        if a return 42;
+        else return 3;
+    } else {
+        if a return 3;
+        elif a {}
+        else return 42;
+        return 6;
+    }
+}
+
+/// CHECK: Procedure 'if_nested_err2' does not return a value on all paths
+proc if_nested_err2 (bool a) -> int {
+    if a {
+        return 42;
+    } elif a {
+        if a {}
+        else return 3;
+    } else {
+        if a return 3;
+        elif a {}
+        else return 42;
+        return 6;
+    }
+}
+
+/// CHECK: Procedure 'if_nested_err3' does not return a value on all paths
+proc if_nested_err3 (bool a) -> int {
+    if a {
+        return 42;
+    } elif a {
+        if a return 42;
+        else {}
+    } else {
+        if a return 3;
+        elif a {}
+        else return 42;
+        return 6;
+    }
+}
+
+/// CHECK: Procedure 'if_nested_err4' does not return a value on all paths
+proc if_nested_err4 (bool a) -> int {
+    if a {
+        return 42;
+    } elif a {
+        if a return 42;
+        else return 3;
+    } else {
+        if a return 3;
+        elif a {}
+        else return 42;
+    }
+}
+
+/// CHECK: Procedure 'if_nested_err5' does not return a value on all paths
+proc if_nested_err5 (bool a) -> int {
+    if a {
+        return 42;
+    } elif a {
+        if a return 42;
+        else return 3;
+    } else {
+        if a return 3;
+        elif a return 6;
+    }
+}

@@ -140,10 +140,7 @@ bool src::Sema::Analyse(Expr*& e) {
             Analyse(str->stored_type);
         } break;
 
-        /// Procedures are handled elsewhere.
-        case Expr::Kind::ProcDecl:
-            AnalyseProcedure(cast<ProcDecl>(e));
-            break;
+        case Expr::Kind::ProcDecl: AnalyseProcedure(cast<ProcDecl>(e)); break;
 
         /// `i0` is illegal.
         case Expr::Kind::IntType:
@@ -172,9 +169,51 @@ bool src::Sema::Analyse(Expr*& e) {
             }
 
             if (not AnalyseAsType(type->ret_type)) e->sema.set_errored();
-            else if (Type::Equal(type->ret_type, Type::Unknown)) {
-                e->sema.set_errored();
-                Error(type->ret_type, "Type inference is not permitted here");
+        } break;
+
+        /// Return expressions.
+        case Expr::Kind::ReturnExpr: {
+            auto r = cast<ReturnExpr>(e);
+            if (r->value and not Analyse(r->value)) return e->sema.set_errored();
+            if (curr_proc == mod->top_level_func) return Error(e, "'return' outside of function");
+
+            /// If we’re in a `= <expr>` procedure, and the return type
+            /// is unspecified, infer the return type from this return
+            /// expression.
+            auto ret = curr_proc->ret_type;
+            if (Type::Equal(ret, Type::Unknown)) {
+                cast<ProcType>(curr_proc->stored_type)->ret_type =
+                    not r->value ? Type::Void : r->value->type;
+            }
+
+            /// Check for noreturn.
+            else if (Type::Equal(ret, Type::NoReturn)) {
+                if (r->value and not Type::Equal(r->value, Type::NoReturn)) Error(
+                    e,
+                    "'noreturn' function may not return"
+                );
+            }
+
+            /// Return expression returns a value. Check that the return value
+            /// is convertible to the return type.
+            else if (r->value) {
+                if (not Convert(r->value, ret)) Error(
+                    e,
+                    "Cannot return a value of type '{}' from a function with return type '{}'",
+                    r->value->type,
+                    Type::Void->as_type
+                );
+            }
+
+            /// Return expression has no argument.
+            else {
+                if (not Type::Equal(ret, Type::Void)) {
+                    Error(
+                        e,
+                        "Function declared with return type '{}' must return a value",
+                        r->value->type
+                    );
+                }
             }
         } break;
 
@@ -192,8 +231,8 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Get the condition as a source string.
             a->message_string = a->cond->location.seekable(mod->context)
-                                 ? fmt::format("Assertion failed: '{}'", a->cond->location.text(mod->context))
-                                 : "Assertion failed: <invalid source location>";
+                                  ? fmt::format("Assertion failed: '{}'", a->cond->location.text(mod->context))
+                                  : "Assertion failed: <invalid source location>";
 
             /// Append the message if there is one.
             if (a->msg) {
@@ -412,6 +451,9 @@ bool src::Sema::Analyse(Expr*& e) {
             auto param = cast<ParamDecl>(e);
             if (not AnalyseAsType(param->stored_type) or not MakeDeclType(param->stored_type))
                 return e->sema.set_errored();
+
+            /// Add the parameter to the procedure body’s scope.
+            if (not param->name.empty()) curr_proc->body->scope->declare(param->name, param);
             param->is_lvalue = true;
             /// TODO: Check for redeclaration?
         } break;
@@ -480,16 +522,36 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not Analyse(i->then) or (i->else_ and not Analyse(i->else_)))
                 return e->sema.set_errored();
 
-            /// If the types of the then and else branch are convertible to
-            /// one another, then the type of the if expression is that very
-            /// type. Furthermore, ensure that either both clauses are lvalues
-            /// or neither is; in the former case, the entire expr is an lvalue.
-            if (i->else_ and (Convert(i->else_, i->then->type) or Convert(i->then, i->else_->type))) {
-                i->stored_type = i->then->type;
-                if (i->then->is_lvalue and i->else_->is_lvalue) i->is_lvalue = true;
-                else {
-                    InsertLValueToRValueConversion(i->then);
-                    InsertLValueToRValueConversion(i->else_);
+            /// If there is an else clause, then the type of this expression is a bit
+            /// more difficult to determine.
+            if (i->else_) {
+                /// In order to facilitate checking whether all paths in a function
+                /// return a value, we must take care to not set the type to noreturn
+                /// unless both branches are noreturn. This has to be a separate case
+                /// since noreturn is convertible to any type.
+                ///
+                /// If only one branch is of type noreturn, that means that if this
+                /// expression yields a value rather than returning, the value must
+                /// be of the other branch’s type.
+                if (i->then->type.is_noreturn or i->else_->type.is_noreturn) {
+                    i->stored_type = not i->then->type.is_noreturn  ? i->else_->type
+                                   : not i->else_->type.is_noreturn ? i->then->type
+                                                                    : Type::NoReturn;
+                }
+
+                /// Otherwise, If the types of the then and else branch are convertible
+                /// to one another, then the type of the if expression is that type.
+                /// Furthermore, ensure that either both clauses are lvalues or neither
+                /// is; in the former case, the entire expr is an lvalue.
+                else if (Convert(i->else_, i->then->type) or Convert(i->then, i->else_->type)) {
+                    i->stored_type = i->then->type;
+                    if (i->then->is_lvalue and i->else_->is_lvalue) i->is_lvalue = true;
+                    else {
+                        /// Convert both to rvalues so we don’t end up w/ an lvalue in
+                        /// one case and an rvalue in the other.
+                        InsertLValueToRValueConversion(i->then);
+                        InsertLValueToRValueConversion(i->else_);
+                    }
                 }
             } else {
                 i->stored_type = Type::Void;
@@ -710,19 +772,90 @@ void src::Sema::AnalyseProcedure(src::ProcDecl* proc) {
     /// If there is no body, then there is nothing to do.
     if (not proc->body) return;
 
+    /// Sanity check.
+    if (Type::Equal(proc->ret_type, Type::Unknown) and not proc->body->implicit) Diag::ICE(
+        mod->context,
+        proc->location,
+        "Non-inferred procedure has unknown return type"
+    );
+
+    /// Add all named parameters to the body’s scope.
+    for (auto* param : proc->params) {
+        Expr* e = param;
+        Analyse(e);
+        Assert(e == param, "ParamDecls may not be replaced with another expression");
+    }
+
     /// Analyse the body. If either it or the procedure
     /// contains an error, we can’t check if the procedure
     /// has a return statement.
     Expr* body = proc->body;
     Analyse(body);
-    if (not body->sema.ok or not proc->sema.ok) return;
+    if (not body->sema.ok) return;
 
-    /// TODO: Make sure all paths return a value.
+    /// If the body is `= <expr>`, infer the return type if
+    /// there isn’t already one.
+    ///
+    /// Note that, if the type of the body is actually noreturn here,
+    /// then this really is a noreturn function; if the body contains
+    /// a return expression and is noreturn because of that, then the
+    /// ret type would have already been inferred and would no longer
+    /// be `unknown`, so we could never get here in that case.
+    if (proc->body->implicit) {
+        /// Infer type.
+        if (Type::Equal(proc->ret_type, Type::Unknown))
+            cast<ProcType>(proc->stored_type)->ret_type = body->type;
+
+        /// Check that the type is valid.
+        else {
+            Scope* sc = proc->body->scope;
+            Expr* e = proc->body;
+            if (not Convert(e, proc->ret_type)) {
+                Error(
+                    e,
+                    "Cannot convert '{}' to return type '{}'",
+                    e->type,
+                    proc->ret_type
+                );
+                return;
+            }
+
+            /// If the conversion changed the expression, we need to add
+            /// another implicit block since the body of a procedure must
+            /// be a block. This is kind of scuffed, so maybe consider
+            /// dropping this requirement at some point?
+            if (e != proc->body) {
+                e = new (mod) BlockExpr(
+                    sc,
+                    {e},
+                    e->location,
+                    true
+                );
+
+                Analyse(e);
+                Assert(isa<BlockExpr>(e));
+                proc->body = cast<BlockExpr>(e);
+            }
+        }
+    }
+
+    /// Make sure all paths return a value.
+    else if (not Type::Equal(proc->ret_type, Type::Void)) {
+        if (not Type::Equal(body->type, Type::NoReturn)) Error(
+            proc->location,
+            "Procedure '{}' does not return a value on all paths",
+            proc->name
+        );
+    }
 }
 
 void src::Sema::AnalyseModule() {
     curr_scope = mod->global_scope;
 
     /// Analyse all functions.
-    for (auto& f : mod->functions) AnalyseProcedure(f);
+    for (auto& f : mod->functions) {
+        Expr* e = f;
+        Analyse(e);
+        Assert(e == f, "ProcDecl may not be replaced with another expression");
+    }
 }

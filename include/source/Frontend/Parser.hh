@@ -114,7 +114,7 @@ private:
     };
 
     struct Signature {
-        Expr* type;
+        ProcType* type;
         std::string name;
         SmallVector<ParamDecl*> param_decls;
         Location loc{};

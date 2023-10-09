@@ -1,5 +1,16 @@
 /// RUN: %srcc %s --hlir | FileCheck %s
-proc takes_int (int) extern;
+proc discard (int a) extern;
+
+/// CHECK:      func.func private @takes_int
+proc takes_int (int a) {
+    /// CHECK-NEXT: [[A:%[0-9]+]] = hlir.local_var
+    /// CHECK-NEXT: hlir.store into [[A]]
+    /// CHECK: [[A1:%[0-9]+]] = hlir.load [[A]]
+    /// CHECK-NEXT: [[A2:%[0-9]+]] = hlir.load [[A]]
+    /// CHECK-NEXT: [[SUM:%[0-9]+]] = arith.addi [[A1]], [[A2]]
+    /// CHECK-NEXT: call_indirect
+    discard a + a;
+}
 
 /// CHECK:      func.func private @invoke
 proc invoke() {
