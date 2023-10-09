@@ -5,40 +5,46 @@ int a;
 
 /// CHECK: [[B:%[0-9]+]] = hlir.local_var
 /// CHECK-NEXT: [[T_1:%[a-z0-9_]+]] = arith.constant true
-/// CHECK-NEXT: [[IF_1:%[0-9]+]] = scf.if [[T_1]]
+/// CHECK-NEXT: cf.cond_br [[T_1]], [[TRUE_1:\^bb[0-9]+]], [[FALSE_1:\^bb[0-9]+]]
+/// CHECK-NEXT: [[TRUE_1]]:
 /// CHECK-NEXT: [[A_1:%[0-9]+]] = hlir.load [[A]]
-/// CHECK-NEXT: scf.yield [[A_1]]
-/// CHECK-NEXT: } else {
+/// CHECK-NEXT: cf.br [[JOIN_1:\^bb[0-9]+]]([[A_1]]
+/// CHECK-NEXT: [[FALSE_1]]:
 /// CHECK-NEXT: [[CONST_42:%[a-z0-9_]+]] = arith.constant 42 : i64
-/// CHECK-NEXT: scf.yield [[CONST_42]]
-/// CHECK-NEXT: }
+/// CHECK-NEXT: cf.br [[JOIN_1]]([[CONST_42]]
+/// CHECK-NEXT: [[JOIN_1]]([[IF_1:%[a-z0-9_]+]]
 /// CHECK-NEXT: hlir.store into [[B]] : {{[^%]+}}, [[IF_1]]
 int b = if true then a else 42;
 
 /// CHECK: [[C:%[0-9]+]] = hlir.local_var
 /// CHECK-NEXT: [[T_2:%[a-z0-9_]+]] = arith.constant true
-/// CHECK-NEXT: [[IF_2:%[0-9]+]] = scf.if [[T_2]]
+/// CHECK-NEXT: cf.cond_br [[T_2]], [[TRUE_2:\^bb[0-9]+]], [[FALSE_2:\^bb[0-9]+]]
+/// CHECK-NEXT: [[TRUE_2]]:
 /// CHECK-NEXT: [[CONST_42_2:%[a-z0-9_]+]] = arith.constant 42 : i64
-/// CHECK-NEXT: scf.yield [[CONST_42_2]]
-/// CHECK-NEXT: } else {
+/// CHECK-NEXT: cf.br [[JOIN_2:\^bb[0-9]+]]([[CONST_42_2]]
+/// CHECK-NEXT: [[FALSE_2]]:
 /// CHECK-NEXT: [[A_2:%[0-9]+]] = hlir.load [[A]]
-/// CHECK-NEXT: scf.yield [[A_2]]
-/// CHECK-NEXT: }
+/// CHECK-NEXT: cf.br [[JOIN_2]]([[A_2]]
+/// CHECK-NEXT: [[JOIN_2]]([[IF_2:%[a-z0-9_]+]]
 /// CHECK-NEXT: hlir.store into [[C]] : {{[^%]+}}, [[IF_2]]
 int c = if true { 42 } else { a };
 
 /// CHECK: [[D:%[0-9]+]] = hlir.local_var
 /// CHECK-NEXT: [[T_3:%[a-z0-9_]+]] = arith.constant false
-/// CHECK-NEXT: [[IF_3:%[0-9]+]] = scf.if [[T_3]]
-/// CHECK-NEXT: scf.yield [[B]]
-/// CHECK-NEXT: } else {
-/// CHECK-NEXT: scf.yield [[C]]
-/// CHECK-NEXT: }
+/// CHECK-NEXT: cf.cond_br [[T_3]], [[TRUE_3:\^bb[0-9]+]], [[FALSE_3:\^bb[0-9]+]]
+/// CHECK-NEXT: [[TRUE_3]]:
+/// CHECK-NEXT: cf.br [[JOIN_3:\^bb[0-9]+]]([[B]]
+/// CHECK-NEXT: [[FALSE_3]]:
+/// CHECK-NEXT: cf.br [[JOIN_3]]([[C]]
+/// CHECK-NEXT: [[JOIN_3]]([[IF_3:%[a-z0-9_]+]]
 /// CHECK-NEXT: hlir.store into [[D]] : {{[^%]+}}, [[IF_3]]
 int& d = if false { b } else { c };
 
 /// CHECK-NEXT: [[T_4:%[a-z0-9_]+]] = arith.constant true
-/// CHECK-NEXT: scf.if [[T_4]]
+/// CHECK-NEXT: cf.cond_br [[T_4]], [[TRUE_4:\^bb[0-9]+]], [[JOIN_4:\^bb[0-9]+]]
+/// CHECK-NEXT: [[TRUE_4]]:
 /// CHECK-NEXT: [[A_3:%[0-9]+]] = hlir.load [[A]]
 /// CHECK-NEXT: hlir.store into [[A]] : {{[^%]+}}, [[A_3]]
+/// CHECK-NEXT: cf.br [[JOIN_4]]
+/// CHECK-NEXT: [[JOIN_4]]:
 if true then a = a;

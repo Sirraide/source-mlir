@@ -23,6 +23,19 @@ void src::Module::print_hlir(bool use_generic_assembly_format) const {
     mlir->print(llvm::outs(), flags);
 }
 
+template <typename T, typename... Args>
+auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...)) {
+    if (auto b = builder.getBlock(); not b->empty() and b->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+        /// If the block is already closed, create a new one, or
+        /// simply drop the instruction if it is a terminator.
+        if constexpr (T::template hasTrait<mlir::OpTrait::IsTerminator>()) return {};
+        builder.createBlock(b->getParent());
+    }
+
+    /// Create the instruction.
+    return builder.create<T>(loc, std::forward<Args>(args)...);
+}
+
 auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
     Assert(isa<Type>(type), "Type is not a Type");
     switch (type->kind) {
@@ -128,7 +141,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             }
 
             /// We emit every call as an indirect call.
-            auto call_op = builder.create<mlir::func::CallIndirectOp>(
+            auto call_op = Create<mlir::func::CallIndirectOp>(
                 e->location.mlir(ctx),
                 e->callee->mlir.getType().cast<mlir::FunctionType>().getResults(),
                 e->callee->mlir,
@@ -145,7 +158,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// If the operand is a function, create a function constant.
             if (auto p = dyn_cast<ProcDecl>(e->decl)) {
-                e->mlir = builder.create<mlir::func::ConstantOp>(
+                e->mlir = Create<mlir::func::ConstantOp>(
                     e->location.mlir(ctx),
                     Ty(p->type),
                     mlir::SymbolRefAttr::get(mctx, p->name)
@@ -181,12 +194,12 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 /// Member of a slice.
                 if (isa<SliceType>(e->object->type)) {
                     if (e->member == "data") {
-                        e->mlir = builder.create<hlir::SliceDataOp>(
+                        e->mlir = Create<hlir::SliceDataOp>(
                             e->location.mlir(ctx),
                             e->object->mlir
                         );
                     } else if (e->member == "size") {
-                        e->mlir = builder.create<hlir::SliceSizeOp>(
+                        e->mlir = Create<hlir::SliceSizeOp>(
                             e->location.mlir(ctx),
                             Ty(Type::Int),
                             e->object->mlir
@@ -212,7 +225,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 case CastKind::LValueRefToLValue:
                 case CastKind::LValueToRValue: {
                     Assert(c->operand->is_lvalue);
-                    c->mlir = builder.create<hlir::LoadOp>(
+                    c->mlir = Create<hlir::LoadOp>(
                         c->location.mlir(ctx),
                         c->operand->mlir
                     );
@@ -235,7 +248,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
                         /// Truncation.
                         if (from_size > to_size) {
-                            c->mlir = builder.create<mlir::arith::TruncIOp>(
+                            c->mlir = Create<mlir::arith::TruncIOp>(
                                 c->location.mlir(ctx),
                                 mlir::IntegerType::get(mctx, unsigned(to_size)),
                                 c->operand->mlir
@@ -249,13 +262,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
                             /// zero-extension, as in case of an i1 with the value 1 (true)
                             /// sign-extension would yield -1 instead of 1.
                             if (from_size == 1) {
-                                c->mlir = builder.create<mlir::arith::ExtUIOp>(
+                                c->mlir = Create<mlir::arith::ExtUIOp>(
                                     c->location.mlir(ctx),
                                     mlir::IntegerType::get(mctx, unsigned(to_size)),
                                     c->operand->mlir
                                 );
                             } else {
-                                c->mlir = builder.create<mlir::arith::ExtSIOp>(
+                                c->mlir = Create<mlir::arith::ExtSIOp>(
                                     c->location.mlir(ctx),
                                     mlir::IntegerType::get(mctx, unsigned(to_size)),
                                     c->operand->mlir
@@ -279,7 +292,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::ReturnExpr: {
             auto r = cast<ReturnExpr>(expr);
             if (r->value) Generate(r->value);
-            builder.create<mlir::func::ReturnOp>(
+            Create<mlir::func::ReturnOp>(
                 r->location.mlir(ctx),
                 r->value ? ArrayRef<mlir::Value>{r->value->mlir} : ArrayRef<mlir::Value>{}
             );
@@ -288,7 +301,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::AssertExpr: {
             auto a = cast<AssertExpr>(expr);
             Generate(a->cond);
-            builder.create<mlir::cf::AssertOp>(
+            Create<mlir::cf::AssertOp>(
                 expr->location.mlir(ctx),
                 a->cond->mlir,
                 std::string_view{a->message_string}
@@ -308,26 +321,26 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// a reference to an array of chars.
             auto str_value = mod->strtab[str->index];
             auto i8 = mlir::IntegerType::get(mctx, 8);
-            auto str_arr = builder.create<hlir::GlobalRefOp>(
+            auto str_arr = Create<hlir::GlobalRefOp>(
                 str->location.mlir(ctx),
                 hlir::ReferenceType::get(hlir::ArrayType::get(i8, str_value.size())),
                 mlir::SymbolRefAttr::get(mctx, fmt::format(".str.data.{}", str->index))
             );
 
             /// Insert a conversion from i8[size]& to i8&.
-            auto str_ptr = builder.create<hlir::ArrayDecayOp>(
+            auto str_ptr = Create<hlir::ArrayDecayOp>(
                 str->location.mlir(ctx),
                 str_arr
             );
 
             /// Create an integer holding the string size.
-            auto str_size = builder.create<mlir::index::ConstantOp>(
+            auto str_size = Create<mlir::index::ConstantOp>(
                 str->location.mlir(ctx),
                 mod->strtab[str->index].size() - 1 /// Exclude null terminator.
             );
 
             /// Create a slice.
-            str->mlir = builder.create<hlir::LiteralOp>(
+            str->mlir = Create<hlir::LiteralOp>(
                 str->location.mlir(ctx),
                 hlir::SliceType::get(i8),
                 str_ptr,
@@ -338,7 +351,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         /// Create a bool constant.
         case Expr::Kind::BoolLiteralExpr: {
             auto e = cast<BoolLitExpr>(expr);
-            e->mlir = builder.create<mlir::arith::ConstantIntOp>(
+            e->mlir = Create<mlir::arith::ConstantIntOp>(
                 e->location.mlir(ctx),
                 e->value,
                 mlir::IntegerType::get(mctx, 1)
@@ -351,7 +364,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// Explicit-width integer types.
             if (auto int_ty = dyn_cast<IntType>(e->type)) {
-                e->mlir = builder.create<mlir::arith::ConstantIntOp>(
+                e->mlir = Create<mlir::arith::ConstantIntOp>(
                     e->location.mlir(ctx),
                     e->value,
                     mlir::IntegerType::get(mctx, unsigned(int_ty->bits))
@@ -360,7 +373,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// `int` type.
             else if (Type::Equal(e->type, Type::Int)) {
-                e->mlir = builder.create<mlir::arith::ConstantOp>(
+                e->mlir = Create<mlir::arith::ConstantOp>(
                     e->location.mlir(ctx),
                     Ty(Type::Int),
                     builder.getI64IntegerAttr(e->value)
@@ -371,7 +384,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::VarDecl: {
             /// Currently, we only have local variables.
             auto e = cast<VarDecl>(expr);
-            e->mlir = builder.create<hlir::LocalVarOp>(
+            e->mlir = Create<hlir::LocalVarOp>(
                 e->location.mlir(ctx),
                 Ty(e->type),
                 e->type.align(ctx) / 8
@@ -380,7 +393,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// If there is an initialiser, emit it.
             if (e->init) {
                 Generate(e->init);
-                builder.create<hlir::StoreOp>(
+                Create<hlir::StoreOp>(
                     e->init->location.mlir(ctx),
                     e->mlir,
                     e->init->mlir,
@@ -390,7 +403,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// Otherwise, zero-initialise it.
             else {
-                builder.create<hlir::ZeroinitialiserOp>(
+                Create<hlir::ZeroinitialiserOp>(
                     e->location.mlir(ctx),
                     e->mlir,
                     e->type.size_bytes(ctx)
@@ -475,46 +488,42 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto e = cast<IfExpr>(expr);
             Generate(e->cond);
 
-            /// Determine the result type of this operation.
-            SmallVector<mlir::Type, 1> result_type;
-            if (e->type.yields_value) {
+            /// Create the blocks that we need.
+            bool has_yield = e->type.yields_value;
+            auto cond_block = builder.getBlock();
+            auto region = cond_block->getParent();
+            auto then = new mlir::Block;
+            auto join = new mlir::Block;
+            auto else_ = e->else_ ? new mlir::Block : join;
+            auto if_loc = e->location.mlir(ctx);
+
+            /// Add an argument to the join block if the expression
+            /// yields a value.
+            if (has_yield) {
                 auto ty = Ty(e->type);
                 if (e->is_lvalue) ty = hlir::ReferenceType::get(ty);
-                result_type.push_back(ty);
+                join->addArgument(ty, if_loc);
             }
 
-            /// Create the if operation.
-            auto if_op = builder.create<mlir::scf::IfOp>(
-                e->location.mlir(ctx),
-                result_type,
-                e->cond->mlir,
-                /*withElseRegion=*/e->else_ != nullptr
-            );
+            /// Emit the conditional branch.
+            Create<mlir::cf::CondBranchOp>(if_loc, e->cond->mlir, then, else_);
 
-            /// Helper to emit a branch and yield its value if this
-            /// expression does no yield void and if there is not
-            /// already a terminator in the branch.
-            auto EmitBranch = [&](Expr* body, mlir::Block* block) {
-                builder.setInsertionPointToStart(block);
-                Generate(body);
-                if (e->type.yields_value) {
-                    if (
-                        block->begin() == block->end() or
-                        not std::prev(block->end())->hasTrait<mlir::OpTrait::IsTerminator>()
-                    ) {
-                        builder.create<mlir::scf::YieldOp>(
-                            body->mlir.getLoc(),
-                            body->mlir
-                        );
-                    }
-                }
+            /// Helper to emit a branch.
+            auto EmitBranch = [&] (Expr* expr, mlir::Block* block) {
+                region->getBlocks().insert(region->end(), block);
+                builder.setInsertionPointToEnd(block);
+                Generate(expr);
+                Create<mlir::cf::BranchOp>(if_loc, join, has_yield ? expr->mlir : mlir::ValueRange{});
             };
 
-            /// Emit the branches and set the result, if applicable.
-            EmitBranch(e->then, &*if_op.getThenRegion().begin());
-            if (e->else_) EmitBranch(e->else_, &*if_op.getElseRegion().begin());
-            if (e->type.yields_value) e->mlir = if_op.getResult(0);
-            builder.setInsertionPointAfter(if_op);
+            /// Emit the then and else branches.
+            EmitBranch(e->then, then);
+            if (e->else_) EmitBranch(e->else_, else_);
+
+            /// Finally, resume inserting in the join block.
+            region->getBlocks().insert(region->end(), join);
+            builder.setInsertionPointToEnd(join);
+            if (has_yield) e->mlir = join->getArgument(0);
         } break;
 
         case Expr::Kind::UnaryPrefixExpr: {
@@ -525,7 +534,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
                 /// Dereference.
                 case Tk::Star: {
-                    u->mlir = builder.create<hlir::LoadOp>(
+                    u->mlir = Create<hlir::LoadOp>(
                         u->location.mlir(ctx),
                         u->operand->mlir
                     );
@@ -565,7 +574,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 /// Assignment and reference binding.
                 case Tk::Assign:
                 case Tk::RDblArrow: {
-                    builder.create<hlir::StoreOp>(
+                    Create<hlir::StoreOp>(
                         b->location.mlir(ctx),
                         b->lhs->mlir,
                         b->rhs->mlir,
@@ -588,7 +597,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
 template <typename Op>
 void src::CodeGen::GenerateBinOp(src::BinaryExpr* b) {
-    b->mlir = builder.create<Op>(
+    b->mlir = Create<Op>(
         b->location.mlir(ctx),
         b->lhs->mlir,
         b->rhs->mlir
@@ -597,7 +606,7 @@ void src::CodeGen::GenerateBinOp(src::BinaryExpr* b) {
 
 template <typename Op>
 void src::CodeGen::GenerateCmpOp(BinaryExpr* b, mlir::arith::CmpIPredicate pred) {
-    b->mlir = builder.create<Op>(
+    b->mlir = Create<Op>(
         b->location.mlir(ctx),
         pred,
         b->lhs->mlir,
@@ -617,7 +626,7 @@ void src::CodeGen::GenerateModule() {
     /// Codegen string literals.
     builder.setInsertionPointToEnd(mod->mlir.getBody());
     for (auto [i, s] : vws::enumerate(mod->strtab)) {
-        builder.create<hlir::StringOp>(
+        Create<hlir::StringOp>(
             builder.getUnknownLoc(),
             StringRef(s.data(), s.size()),
             APInt(64, u64(i))
@@ -646,7 +655,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         },
     };
 
-    auto func = builder.create<mlir::func::FuncOp>(
+    auto func = Create<mlir::func::FuncOp>(
         proc->location.mlir(ctx),
         proc->name,
         ty.cast<mlir::FunctionType>(),
@@ -659,14 +668,14 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         builder.setInsertionPointToEnd(func.addEntryBlock());
         for (auto [i, p] : vws::enumerate(proc->params)) {
             p->emitted = true;
-            p->mlir = builder.create<hlir::LocalVarOp>(
+            p->mlir = Create<hlir::LocalVarOp>(
                 p->location.mlir(ctx),
                 Ty(p->type),
                 p->type.align(ctx) / 8
             );
 
             /// Store the initial parameter value in the variable.
-            builder.create<hlir::StoreOp>(
+            Create<hlir::StoreOp>(
                 p->location.mlir(ctx),
                 p->mlir,
                 func.getArgument(u32(i)),
@@ -681,7 +690,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         if (func.back().empty() or not func.back().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
             /// Function returns void.
             if (Type::Equal(proc->ret_type, Type::Void)) {
-                builder.create<mlir::func::ReturnOp>(
+                Create<mlir::func::ReturnOp>(
                     proc->location.mlir(ctx),
                     ArrayRef<mlir::Value>{}
                 );
@@ -690,13 +699,13 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
             /// Function does not return, or all paths return a value, but there
             /// is no return expression at the very end.
             else if (Type::Equal(proc->ret_type, Type::NoReturn) or not proc->body->implicit) {
-                builder.create<mlir::LLVM::UnreachableOp>(proc->location.mlir(ctx));
+                Create<mlir::LLVM::UnreachableOp>(proc->location.mlir(ctx));
             }
 
             /// Function is a `= <expr>` function that returns its body.
             else {
                 Assert(proc->body->mlir, "Inferred procedure body must yield a value");
-                builder.create<mlir::func::ReturnOp>(
+                Create<mlir::func::ReturnOp>(
                     proc->location.mlir(ctx),
                     proc->body->mlir
                 );
