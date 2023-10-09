@@ -261,6 +261,9 @@ bool src::Sema::Analyse(Expr*& e) {
                     b->is_lvalue = expr->is_lvalue;
                 }
             }
+
+            /// If the type could not be determined, set it to void.
+            if (Type::Equal(b->stored_type, Type::Unknown)) b->stored_type = Type::Void;
         } break;
 
         /// An invoke expression may be a procedure call, or a declaration.
@@ -534,8 +537,8 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// expression yields a value rather than returning, the value must
                 /// be of the other branch’s type.
                 if (i->then->type.is_noreturn or i->else_->type.is_noreturn) {
-                    i->stored_type = not i->then->type.is_noreturn  ? i->else_->type
-                                   : not i->else_->type.is_noreturn ? i->then->type
+                    i->stored_type = not i->then->type.is_noreturn  ? i->then->type
+                                   : not i->else_->type.is_noreturn ? i->else_->type
                                                                     : Type::NoReturn;
                 }
 
