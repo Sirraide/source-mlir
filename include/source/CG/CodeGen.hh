@@ -14,6 +14,13 @@ class CodeGen {
     mlir::OpBuilder builder;
     bool no_verify;
 
+    using DeferStackEntry = std::variant<Expr*, mlir::func::FuncOp>;
+    using DeferStack = SmallVector<DeferStackEntry, 10>;
+    SmallVector<DeferStack, 10> defer_stacks;
+    SmallVector<mlir::Value, 10> in_scope_allocas;
+    ProcDecl* curr_proc{};
+    usz defer_procs{};
+
     CodeGen(Module* mod, bool no_verify)
         : mod(mod),
           ctx(mod->context),
@@ -29,8 +36,22 @@ public:
     }
 
 private:
-    template <typename T, typename ...Args>
-    auto Create(mlir::Location loc, Args&& ...args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
+    /// Call a function that executes deferred expressions.
+    void CallCleanupFunc(mlir::func::FuncOp func);
+
+    /// Check if a block is closed.
+    bool Closed();
+    bool Closed(mlir::Block* block);
+
+    /// Compact entries in a defer stack to allow emitting
+    /// it multiple times.
+    void CompactDeferStack(DeferStack& stack);
+
+    template <typename T, typename... Args>
+    auto Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
+
+    /// Emit the entries in a defer stack.
+    void EmitDeferStack(mlir::Location loc, DeferStack& stack);
 
     template <typename Op>
     void GenerateBinOp(BinaryExpr* b);

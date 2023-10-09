@@ -6,16 +6,65 @@ proc c extern;
 proc d extern;
 proc e extern;
 proc f extern;
+proc cond() extern -> bool;
+
+/// CHECK-LABEL: func.func public @__src_main
+/// CHECK: [[I:%[0-9a-z_]+]] = hlir.local_var
+int i = 4;
 
 defer a();
 defer b();
 
-if true {
+if cond() {
+    /// CHECK: [[J:%[0-9a-z_]+]] = hlir.local_var
+    int j = 5;
     defer c();
-    if false return;
+
+    /// Note that the first defer proc emitted is defer proc 0,
+    /// which is why the proc for `defer c()` is proc 0.
+    /// CHECK: [[C1:%[0-9a-z_]+]] = call_indirect
+    /// CHECK-NEXT: cf.cond_br [[C1]], [[TRUE_1:\^bb[0-9]+]]
+    /// CHECK-NEXT: [[TRUE_1]]:
+    /// CHECK-NEXT: call @__src_defer_proc_0([[I]], [[J]])
+    /// CHECK-NEXT: call @__src_defer_proc_1([[I]], [[J]])
+    /// CHECK-NEXT: return
+    if cond() return;
     defer d();
+
+    /// CHECK: [[D:%[0-9a-z_]+]] = constant @d
+    /// CHECK-NEXT: call_indirect [[D]]
+    /// CHECK-NEXT: call @__src_defer_proc_0([[I]], [[J]])
 }
 
+/// CHECK: [[K:%[0-9a-z_]+]] = hlir.local_var
+int k = 6;
 defer e();
-if true return;
+
+/// CHECK: [[C2:%[0-9a-z_]+]] = call_indirect
+/// CHECK-NEXT: cf.cond_br [[C2]], [[TRUE_2:\^bb[0-9]+]]
+/// CHECK-NEXT: [[TRUE_2]]:
+/// CHECK-NEXT: call @__src_defer_proc_2([[I]], [[K]])
+/// CHECK-NEXT: return
+if cond() return;
 defer f();
+
+/// CHECK: [[F:%[0-9a-z_]+]] = constant @f
+/// CHECK-NEXT: call_indirect [[F]]
+/// CHECK-NEXT: call @__src_defer_proc_2([[I]], [[K]])
+/// CHECK-NEXT: return
+
+
+/// CHECK-LABEL: func.func private @__src_defer_proc_0
+/// CHECK: [[C:%[0-9a-z_]+]] = constant @c
+/// CHECK-NEXT: call_indirect [[C]]
+
+/// CHECK-LABEL: func.func private @__src_defer_proc_1
+/// CHECK: [[B:%[0-9a-z_]+]] = constant @b
+/// CHECK-NEXT: call_indirect [[B]]
+/// CHECK: [[A:%[0-9a-z_]+]] = constant @a
+/// CHECK-NEXT: call_indirect [[A]]
+
+/// CHECK-LABEL: func.func private @__src_defer_proc_2
+/// CHECK: [[E:%[0-9a-z_]+]] = constant @e
+/// CHECK-NEXT: call_indirect [[E]]
+/// CHECK-NEXT: call @__src_defer_proc_1

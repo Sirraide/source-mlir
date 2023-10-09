@@ -23,6 +23,85 @@ void src::Module::print_hlir(bool use_generic_assembly_format) const {
     mlir->print(llvm::outs(), flags);
 }
 
+void src::CodeGen::CallCleanupFunc(mlir::func::FuncOp func) {
+    auto args = func.getNumArguments();
+    Create<mlir::func::CallOp>(
+        builder.getUnknownLoc(),
+        func,
+        mlir::ValueRange{in_scope_allocas}.take_front(args)
+    );
+}
+
+bool src::CodeGen::Closed() {
+    return Closed(builder.getBlock());
+}
+
+bool src::CodeGen::Closed(mlir::Block* block) {
+    return not block->empty() and block->back().hasTrait<mlir::OpTrait::IsTerminator>();
+}
+
+/// If emitted multiple times, each defer block becomes a separate
+/// function that is called every time a scope is exited.
+///
+/// ALL allocas that have been emitted up to that point are passed
+/// to that function, which means that, while we are emitting the
+/// contents of the defer block into a separate function, we can
+/// simply ‘remap’ the VarDecl nodes to map to the function arguments
+/// rather than to their allocas.
+///
+/// Since we always compact all expressions in the entire stack,
+/// if we encounter a function on the stack, we know that 1. there
+/// are no other expressions below that, and 2. that it must be
+/// the only other function on the stack.
+void src::CodeGen::CompactDeferStack(DeferStack& stack) {
+    /// Check if we need to compact at all.
+    if (std::holds_alternative<mlir::func::FuncOp>(stack.back())) return;
+
+    /// Perform compaction. First, create the function.
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    SmallVector<mlir::Type> params;
+    for (auto p : in_scope_allocas) params.push_back(p.getType());
+    auto func_type = mlir::FunctionType::get(mctx, params, {});
+
+    mlir::NamedAttribute attrs[] = {
+        mlir::NamedAttribute{
+            builder.getStringAttr("sym_visibility"),
+            builder.getStringAttr("private"),
+        },
+    };
+
+    builder.setInsertionPointToEnd(mod->mlir.getBody());
+    auto func = Create<mlir::func::FuncOp>(
+        builder.getUnknownLoc(),
+        fmt::format("__src_defer_proc_{}", defer_procs++),
+        func_type,
+        ArrayRef<mlir::NamedAttribute>{attrs}
+    );
+
+    /// Create a new defer stack just in case the user is
+    /// clinically insane and put a defer inside a defer,
+    /// or if someone uses types that have destructors in
+    /// a defer expression.
+    defer_stacks.emplace_back();
+    defer { defer_stacks.pop_back(); };
+
+    /// Override the local vars to point to our function arguments.
+    auto entry = func.addEntryBlock();
+    tempset in_scope_allocas = decltype(in_scope_allocas){};
+    for (auto arg : func.getArguments()) in_scope_allocas.push_back(arg);
+
+    /// Then, emit all expressions into the function.
+    /// Also emit the new defer stack we just created.
+    builder.setInsertionPointToEnd(entry);
+    EmitDeferStack(builder.getUnknownLoc(), stack);
+    EmitDeferStack(builder.getUnknownLoc(), defer_stacks.back());
+    if (not Closed()) Create<mlir::func::ReturnOp>(builder.getUnknownLoc());
+
+    /// Clear the stack and push the function onto it.
+    stack.clear();
+    stack.push_back(func);
+}
+
 template <typename T, typename... Args>
 auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...)) {
     if (auto b = builder.getBlock(); not b->empty() and b->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
@@ -34,6 +113,13 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
 
     /// Create the instruction.
     return builder.create<T>(loc, std::forward<Args>(args)...);
+}
+
+void src::CodeGen::EmitDeferStack(mlir::Location loc, DeferStack& stack) {
+    for (auto& op : vws::reverse(stack)) {
+        if (auto d = std::get_if<Expr*>(&op)) Generate(*d);
+        else CallCleanupFunc(std::get<mlir::func::FuncOp>(op));
+    }
 }
 
 auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
@@ -290,17 +376,33 @@ void src::CodeGen::Generate(src::Expr* expr) {
             }
         } break;
 
-        case Expr::Kind::DeferExpr: {
-            Todo();
-        }
+        case Expr::Kind::DeferExpr:
+            defer_stacks.back().push_back(cast<DeferExpr>(expr)->expr);
+            break;
 
         case Expr::Kind::ReturnExpr: {
             auto r = cast<ReturnExpr>(expr);
             if (r->value) Generate(r->value);
-            Create<mlir::func::ReturnOp>(
-                r->location.mlir(ctx),
-                r->value ? ArrayRef<mlir::Value>{r->value->mlir} : ArrayRef<mlir::Value>{}
-            );
+
+            /// Emit all defer stacks.
+            const auto loc = r->location.mlir(ctx);
+            const auto last_inst = expr == curr_proc->body->exprs.back();
+            for (auto& stack : vws::reverse(defer_stacks)) {
+                if (Closed()) break;
+                /// Compact only if this is not the last expression
+                /// in the function, as we won’t be needing the stacks
+                /// later anyway in that case.
+                if (not last_inst) CompactDeferStack(stack);
+                EmitDeferStack(loc, stack);
+            }
+
+            /// Return the value.
+            if (not Closed()) {
+                Create<mlir::func::ReturnOp>(
+                    loc,
+                    r->value ? ArrayRef<mlir::Value>{r->value->mlir} : ArrayRef<mlir::Value>{}
+                );
+            }
         } break;
 
         case Expr::Kind::AssertExpr: {
@@ -314,9 +416,26 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::BlockExpr: {
+            /// Restore in-scope local variables at end of scope.
+            const auto allocas = in_scope_allocas.size();
+            defer_stacks.emplace_back();
+            defer {
+                in_scope_allocas.resize(allocas);
+                defer_stacks.pop_back();
+            };
+
+            /// Add all function parameters if this is a function body.
+            if (curr_proc->body == expr)
+                for (auto param : curr_proc->params)
+                    in_scope_allocas.push_back(param->mlir);
+
+            /// Emit the block expression.
             auto e = cast<BlockExpr>(expr);
             for (auto s : e->exprs) Generate(s);
             if (not e->exprs.empty()) e->mlir = e->exprs.back()->mlir;
+
+            /// Emit deferred expressions.
+            if (not Closed()) EmitDeferStack(e->location.mlir(ctx), defer_stacks.back());
         } break;
 
         case Expr::Kind::StringLiteralExpr: {
@@ -395,6 +514,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 e->type.align(ctx) / 8
             );
 
+            /// Variable may need to be passed to deferred procedures.
+            in_scope_allocas.push_back(e->mlir);
+
             /// If there is an initialiser, emit it.
             if (e->init) {
                 Generate(e->init);
@@ -418,77 +540,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         /// If expressions.
         case Expr::Kind::IfExpr: {
-            /// TODO: Emit if expressions using blocks rather than scf.if.
-            ///
-            /// IMPLEMENTATION OF DEFER:
-            ///
-            /// For break/continue/return and `defer`: Each defer block becomes
-            /// a separate function that is called every time a scope is exited.
-            ///
-            /// ALL allocas that have been emitted up to that point are passed
-            /// to that function, which means that, while we are emitting the
-            /// contents of the defer block into a separate function, we can
-            /// simply ‘remap’ the VarDecl nodes to map to the function arguments
-            /// rather than to their allocas.
-            ///
-            /// EXAMPLE. Given the following code.
-            ///
-            /// ```
-            /// defer a;
-            /// defer b;
-            /// if c {
-            ///     defer d;
-            ///     if d return;
-            ///     defer e;
-            ///     f;
-            ///     return;
-            /// }
-            /// defer c;
-            /// ```
-            ///
-            /// TODO: Formalise the following algorithm:
-            ///
-            /// As `defer` expressions are reached, they are placed on a stack;
-            /// each scope has its own defer stack. When the first if expression
-            /// above is reached, the top-level stack T contains `T: expr(a), expr(b)`;
-            /// we then add a new stack for the if expression I1 that links to the
-            /// top level stack: `I1(T)`; when `defer d` is reached, we add it
-            /// to I1: `I1(T): expr(d)`. When the return after that is reached,
-            /// we have to *emit the current stack*.
-            ///
-            /// The procedure is as follows: we create a new function, F, and pass
-            /// to it all currently emitted allocas. Into F, we emit all stack items
-            /// in lifo order until we hit a `deferfunc` item or the stack is exhausted.
-            ///
-            /// STEP X: If a deferfunc is reached, we simply call it and stop. We switch back
-            /// from emitting F to the actual function we’re emitting and insert a call
-            /// to F in the original function. We then emit the `return` or `branch` to
-            /// whatever we’re branching.
-            ///
-            /// If, on the other hand, the stack is exhausted, we inspect the parent
-            /// stack: if there is none, we simply push `F` as a deferfunc onto the
-            /// current stack and go to step X. If there is a parent stack, then, if
-            /// that stack’s topmost item is a deferfunc (or if the stack is empty),
-            /// call it (in F), and we’re done. Push F as a deferfunc and goto step X.
-            /// If the parent stack has other items on it, create a separate function
-            /// F' and start over with this algorithm and *emit* the parent stack. This will
-            /// leave a single deferfunc on the stack, which we call and then push F
-            /// as a deferfunc and goto step X.
-            ///
-            /// In any case, any
-            /// association with the parent stack is *cleared*. Thus, before emitting
-            /// the `return`, the stacks look like this:
-            ///
-            ///   - T: expr(a), expr(b)
-            ///   - I1(T): expr(d)
-            ///
-            /// After emitting the return, the stacks look like this:
-            ///
-            ///   - T: deferfunc(<executes a, b>);
-            ///   - I1: deferfunc(<executes d and deferfunc(a, b)>);
-            ///
-            /// At the end of a scope, we *emit* the defer stack of that scope.
-
             /// Emit the condition.
             auto e = cast<IfExpr>(expr);
             Generate(e->cond);
@@ -659,6 +710,7 @@ void src::CodeGen::GenerateModule() {
 void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
     /// Create the function.
     auto ty = Ty(proc->type);
+    tempset curr_proc = proc;
 
     mlir::NamedAttribute attrs[] = {
         mlir::NamedAttribute{
