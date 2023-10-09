@@ -90,6 +90,7 @@ constexpr bool IsPostfix(Tk t) {
 constexpr bool MayStartAnExpression(Tk k) {
     switch (k) {
         case Tk::Assert:
+        case Tk::Defer:
         case Tk::False:
         case Tk::Identifier:
         case Tk::If:
@@ -215,7 +216,15 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 if (IsError(value)) return value.diag;
             }
 
-            lhs = new (mod) ReturnExpr(*value, {start, value ? value->location : start});
+            lhs = new (mod) ReturnExpr(*value, {start, *value ? value->location : start});
+        } break;
+
+        /// <expr-defer> ::= DEFER <expr>
+        case Tk::Defer: {
+            auto start = Next();
+            auto expr = ParseExpr();
+            if (IsError(expr)) return expr.diag;
+            lhs = new (mod) DeferExpr(*expr, {start, expr->location});
         } break;
 
         case Tk::Star:
@@ -254,23 +263,31 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             /// then this is an invoke expression, which means that this is either
             /// a declaration, a function call, a struct literal, or a template
             /// instantiation.
-            ///
-            /// We specifically disallow blocks in this position so that, e.g.
-            /// in `if a {`, `a {` does not get parsed as an invoke expression.
-            ///
-            /// Furthermore, we disallow iife for named procs so we don’t have
-            /// to put semicolons after procedure declarations.
             default: {
-                if (
-                    not MayStartAnExpression(tok.type) or
-                    NakedInvokePrecedence < curr_prec or                               /// Right-associative.
-                    At(Tk::LBrace) or                                                  /// For parsing e.g. `if a {`.
-                    At(Tk::For, Tk::If, Tk::Match, Tk::Return, Tk::While, Tk::With) or /// Easier chaining of constructs.
-                    tok.type == Tk::Star or                                            /// Prefer binary '*' over unary '*' parse..
-                    tok.type == Tk::StarStar or
-                    IsPostfix(tok.type) or
-                    (isa<ProcDecl>(*lhs) and not cast<ProcDecl>(*lhs)->name.empty())
-                ) break;
+                /// The next thing is not an expression, so it can’t be an invoke.
+                if (not MayStartAnExpression(tok.type)) break;
+
+                /// Invoke is right-associative.
+                if (NakedInvokePrecedence < curr_prec) break;
+
+                /// Only allow invoking certain kinds of expressions.
+                if (not isa<Type, DeclRefExpr, MemberAccessExpr>(*lhs)) break;
+
+                /// We specifically disallow blocks in this position so that, e.g.
+                /// in `if a {`, `a {` does not get parsed as an invoke expression.
+                if (At(Tk::LBrace)) break;
+
+                /// Don’t parse `a if` etc. as invoke expr. This is so we can chain
+                /// constructs easier, such as `if a while ...`.
+                if (At(Tk::For, Tk::If, Tk::Match, Tk::Return, Tk::While, Tk::With)) break;
+
+                /// Prefer binary '*' over unary '*' parse.
+                if (tok.type == Tk::Star or tok.type == Tk::StarStar) break;
+
+                /// If we don’t check for postfix operators here, then postfix
+                /// operators that are syntactically equivalent to prefix operators
+                /// will be impossible to parse in this position.
+                if (IsPostfix(tok.type)) break;
 
                 /// Parse the arguments of the invoke expression.
                 SmallVector<Expr*> args;

@@ -50,6 +50,7 @@ public:
 
         AssertExpr,
         ReturnExpr,
+        DeferExpr,
 
         /// TypedExpr [begin]
         BlockExpr,
@@ -221,6 +222,19 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ReturnExpr; }
+};
+
+class DeferExpr: public Expr {
+public:
+    /// The deferred expression.
+    Expr* expr;
+
+    DeferExpr(Expr* expr, Location loc)
+        : Expr(Kind::DeferExpr, loc),
+          expr(expr) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::DeferExpr; }
 };
 
 /// ===========================================================================

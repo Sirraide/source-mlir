@@ -171,11 +171,19 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not AnalyseAsType(type->ret_type)) e->sema.set_errored();
         } break;
 
+        /// Deferred expression.
+        case Expr::Kind::DeferExpr: {
+            /// Defer expressions have nothing to typecheck really, so
+            /// we just check the operand and leave it at that. Even
+            /// nested `defer defer` expressions, albeit degenerate, are
+            /// accepted.
+            Analyse(cast<DeferExpr>(e)->expr);
+        } break;
+
         /// Return expressions.
         case Expr::Kind::ReturnExpr: {
             auto r = cast<ReturnExpr>(e);
             if (r->value and not Analyse(r->value)) return e->sema.set_errored();
-            if (curr_proc == mod->top_level_func) return Error(e, "'return' outside of function");
 
             /// If we’re in a `= <expr>` procedure, and the return type
             /// is unspecified, infer the return type from this return

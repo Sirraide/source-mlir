@@ -1,0 +1,21 @@
+/// RUN: %srcc --hlir %s | FileCheck %s
+
+proc a extern;
+proc b extern;
+proc c extern;
+proc d extern;
+proc e extern;
+proc f extern;
+
+defer a();
+defer b();
+
+if true {
+    defer c();
+    if false return;
+    defer d();
+}
+
+defer e();
+if true return;
+defer f();

@@ -91,6 +91,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
 
         case Expr::Kind::AssertExpr:
         case Expr::Kind::ReturnExpr:
+        case Expr::Kind::DeferExpr:
         case Expr::Kind::BlockExpr:
         case Expr::Kind::InvokeExpr:
         case Expr::Kind::MemberAccessExpr:
@@ -288,6 +289,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 }
             }
         } break;
+
+        case Expr::Kind::DeferExpr: {
+            Todo();
+        }
 
         case Expr::Kind::ReturnExpr: {
             auto r = cast<ReturnExpr>(expr);

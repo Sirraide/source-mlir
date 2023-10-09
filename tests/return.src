@@ -62,6 +62,10 @@ proc if_nested (bool a) -> int {
         /// CHECK-NEXT: return [[C8]]
         else return 46;
 
+        /// Note that we end up with two join blocks here because
+        /// `elif` is actually just `else { if ... }`, so we have
+        /// a nested if and thus two join blocks.
+        ///
         /// CHECK-NEXT: [[JOIN_1]]:
         /// CHECK-NEXT: cf.br [[JOIN_2:\^bb[0-9]+]]
         /// CHECK-NEXT: [[JOIN_2]]:

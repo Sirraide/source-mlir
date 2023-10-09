@@ -20,8 +20,12 @@ src::BuiltinType* const src::Type::NoReturn = &NoReturnTypeInstance;
 /// ===========================================================================
 auto src::Expr::_type() -> TypeHandle {
     switch (kind) {
-        case Kind::AssertExpr: return Type::Void;
-        case Kind::ReturnExpr: return Type::NoReturn;
+        case Kind::ReturnExpr:
+            return Type::NoReturn;
+
+        case Kind::AssertExpr:
+        case Kind::DeferExpr:
+            return Type::Void;
 
         /// Typed exprs.
         case Kind::BlockExpr:
@@ -106,6 +110,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
 
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
+        case Kind::DeferExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::CastExpr:
@@ -196,6 +201,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
 
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
+        case Kind::DeferExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::CastExpr:
@@ -280,8 +286,12 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
             }
         } break;
 
-        case Kind::AssertExpr: return Type::Void->as_type.str(use_colour);
-        case Kind::ReturnExpr: return Type::NoReturn->as_type.str(use_colour);
+        case Kind::AssertExpr:
+        case Kind::DeferExpr:
+            return Type::Void->as_type.str(use_colour);
+
+        case Kind::ReturnExpr:
+            return Type::NoReturn->as_type.str(use_colour);
 
         /// Typed exprs.
         case Kind::BlockExpr:
@@ -355,6 +365,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
 
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
+        case Kind::DeferExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::MemberAccessExpr:
@@ -595,6 +606,7 @@ struct ASTPrinter {
             }
 
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
+            case K::DeferExpr: PrintBasicNode("DeferExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
 
@@ -718,6 +730,10 @@ struct ASTPrinter {
                 auto r = cast<ReturnExpr>(e);
                 if (r->value) PrintChildren(r->value, leading_text);
             } break;
+
+            case K::DeferExpr:
+                PrintChildren(cast<DeferExpr>(e)->expr, leading_text);
+                break;
 
             case K::UnaryPrefixExpr:
                 PrintChildren(cast<UnaryPrefixExpr>(e)->operand, leading_text);
