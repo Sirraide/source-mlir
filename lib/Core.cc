@@ -228,8 +228,10 @@ auto src::Location::seek(const Context* ctx) const -> LocInfo {
 
     /// Seek forward to the end of the line.
     const char* const end = data + f->size();
-    info.line_end = data + pos + len;
-    while (info.line_end < end and *info.line_end != '\n') info.line_end++;
+    const auto end_of_location = data + pos + len;
+    info.line_end = data + pos;
+    while (info.line_end < end and *info.line_end != '\n' and info.line_end < end_of_location)
+        info.line_end++;
 
     /// Determine the line and column number.
     info.line = 1;
@@ -299,7 +301,6 @@ src::Module::Module(Context* ctx, std::string name, Location module_decl_locatio
         Mangling::None,
         {},
     };
-
 }
 
 src::Module::~Module() {
@@ -443,8 +444,10 @@ void src::Diag::print() {
     /// Split the line into everything before the range, the range itself,
     /// and everything after.
     std::string before(line_start, col);
-    std::string range(line_start + col, where.len);
-    std::string after(line_start + col + where.len, line_end);
+    std::string range(line_start + col, std::min<u64>(where.len, u64(line_end - (line_start + col))));
+    auto after = line_start + col + where.len > line_end
+                   ? std::string{}
+                   : std::string(line_start + col + where.len, line_end);
 
     /// Replace tabs with spaces. We need to do this *after* splitting
     /// because this invalidates the offsets.
@@ -469,14 +472,21 @@ void src::Diag::print() {
     /// Determine the number of digits in the line number.
     const auto digits = utils::NumberWidth(line);
 
+    /// LLVM’s columnWidthUTF8() function returns -1 for non-printable characters
+    /// for some ungodly reason, so guard against that.
+    static const auto ColumnWidth = [](StringRef text) {
+        auto wd = llvm::sys::unicode::columnWidthUTF8(text);
+        return wd < 0 ? 0 : usz(wd);
+    };
+
     /// Underline the range. For that, we first pad the line based on the number
     /// of digits in the line number and append more spaces to line us up with
     /// the range.
-    for (usz i = 0, end = digits + usz(llvm::sys::unicode::columnWidthUTF8(before)) + sizeof("  | ") - 1; i < end; i++)
+    for (usz i = 0, end = digits + ColumnWidth(before) + sizeof("  | ") - 1; i < end; i++)
         fmt::print(stderr, " ");
 
     /// Finally, underline the range.
-    for (usz i = 0, end = usz(llvm::sys::unicode::columnWidthUTF8(range)); i < end; i++)
+    for (usz i = 0, end = ColumnWidth(range); i < end; i++)
         fmt::print(stderr, Colour(kind), "~");
     fmt::print(stderr, "\n");
 
