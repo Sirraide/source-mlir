@@ -514,12 +514,15 @@ bool src::Sema::Analyse(Expr*& e) {
             /// If the condition has an error, the type of the if expression
             /// itself can still be determined as it is independent of the
             /// condition.
-            if (Analyse(i->cond) and not Convert(i->cond, Type::Bool)) Error(
-                i->cond->location,
-                "Type '{}' of condition of `if` must be convertible to '{}'",
-                i->cond->type.str(true),
-                Type::Bool->as_type.str(true)
-            );
+            if (Analyse(i->cond)) {
+                if (Convert(i->cond, Type::Bool)) InsertLValueToRValueConversion(i->cond);
+                else Error(
+                    i->cond->location,
+                    "Type '{}' of condition of `if` must be convertible to '{}'",
+                    i->cond->type.str(true),
+                    Type::Bool->as_type.str(true)
+                );
+            }
 
             /// Analyse the branches.
             if (not Analyse(i->then) or (i->else_ and not Analyse(i->else_)))

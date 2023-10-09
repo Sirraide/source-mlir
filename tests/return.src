@@ -1,31 +1,72 @@
 /// RUN: %srcc --hlir %s | FileCheck %s
 
-/// CHECK:      func.func private @trivial
+/// CHECK-LABEL: func.func private @trivial
 /// CHECK-NEXT: [[C1:%[0-9a-z_]+]] = arith.constant 4
 /// CHECK-NEXT: return [[C1]]
-///proc trivial -> int { return 4; }
+proc trivial -> int { return 4; }
 
-/// CHECK:      func.func private @abbr
+/// CHECK-LABEL: func.func private @abbr
 /// CHECK-NEXT: [[C2:%[0-9a-z_]+]] = arith.constant 4
 /// CHECK-NEXT: return [[C2]]
-///proc abbr = 4;
+proc abbr = 4;
 
-/// CHECK:      func.func private @abbr2
+/// CHECK-LABEL: func.func private @abbr2
 /// CHECK-NEXT: [[C3:%[0-9a-z_]+]] = arith.constant 4
 /// CHECK-NEXT: return [[C3]]
-///proc abbr2 -> int = 4;
+proc abbr2 -> int = 4;
 
-/// TODO: Support unstructured `if-else`.
+/// CHECK-LABEL: func.func private @if_nested
 proc if_nested (bool a) -> int {
-    if a {
-        return 42;
-    } elif a {
-        if a return 42;
+    /// CHECK: [[A1:%[0-9a-z_]]] = hlir.load
+    /// CHECK-NEXT: cf.cond_br [[A1]], [[TRUE_1:\^bb[0-9]+]], [[FALSE_1:\^bb[0-9]+]]
+    /// CHECK-NEXT: [[TRUE_1]]:
+    /// CHECK-NEXT: [[C4:%[0-9a-z_]+]] = arith.constant 42
+    /// CHECK-NEXT: return [[C4]]
+    if a { return 42; }
+
+    /// CHECK-NEXT: [[FALSE_1]]:
+    /// CHECK-NEXT: [[A2:%[0-9a-z_]]] = hlir.load
+    /// CHECK-NEXT: cf.cond_br [[A2]], [[TRUE_2:\^bb[0-9]+]], [[FALSE_2:\^bb[0-9]+]]
+    /// CHECK-NEXT: [[TRUE_2]]:
+    elif a {
+        /// CHECK-NEXT: [[A3:%[0-9a-z_]]] = hlir.load
+        /// CHECK-NEXT: cf.cond_br [[A3]], [[TRUE_3:\^bb[0-9]+]], [[FALSE_3:\^bb[0-9]+]]
+        /// CHECK-NEXT: [[TRUE_3]]:
+        /// CHECK-NEXT: [[C5:%[0-9a-z_]+]] = arith.constant 43
+        /// CHECK-NEXT: return [[C5]]
+        /// CHECK-NEXT: [[FALSE_3]]:
+        /// CHECK-NEXT: [[C6:%[0-9a-z_]+]] = arith.constant 3
+        /// CHECK-NEXT: return [[C6]]
+        if a return 43;
         else return 3;
-    } else {
-        if a return 3;
+    }
+
+    /// CHECK-NEXT: [[FALSE_2]]:
+    else {
+        /// CHECK-NEXT: [[A4:%[0-9a-z_]]] = hlir.load
+        /// CHECK-NEXT: cf.cond_br [[A4]], [[TRUE_4:\^bb[0-9]+]], [[FALSE_4:\^bb[0-9]+]]
+        /// CHECK-NEXT: [[TRUE_4]]:
+        /// CHECK-NEXT: [[C7:%[0-9a-z_]+]] = arith.constant 5
+        /// CHECK-NEXT: return [[C7]]
+        if a return 5;
+
+        /// CHECK-NEXT: [[FALSE_4]]:
+        /// CHECK-NEXT: [[A5:%[0-9a-z_]]] = hlir.load
+        /// CHECK-NEXT: cf.cond_br [[A5]], [[TRUE_5:\^bb[0-9]+]], [[FALSE_5:\^bb[0-9]+]]
+        /// CHECK-NEXT: [[TRUE_5]]:
+        /// CHECK-NEXT: cf.br [[JOIN_1:\^bb[0-9]+]]
         elif a {}
-        else return 42;
+
+        /// CHECK-NEXT: [[FALSE_5]]:
+        /// CHECK-NEXT: [[C8:%[0-9a-z_]+]] = arith.constant 46
+        /// CHECK-NEXT: return [[C8]]
+        else return 46;
+
+        /// CHECK-NEXT: [[JOIN_1]]:
+        /// CHECK-NEXT: cf.br [[JOIN_2:\^bb[0-9]+]]
+        /// CHECK-NEXT: [[JOIN_2]]:
+        /// CHECK-NEXT: [[C9:%[0-9a-z_]+]] = arith.constant 6
+        /// CHECK-NEXT: return [[C9]]
         return 6;
     }
 }

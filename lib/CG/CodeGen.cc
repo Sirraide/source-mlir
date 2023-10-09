@@ -493,13 +493,14 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto cond_block = builder.getBlock();
             auto region = cond_block->getParent();
             auto then = new mlir::Block;
-            auto join = new mlir::Block;
+            auto join = e->type.is_noreturn ? nullptr : new mlir::Block;
             auto else_ = e->else_ ? new mlir::Block : join;
             auto if_loc = e->location.mlir(ctx);
 
             /// Add an argument to the join block if the expression
             /// yields a value.
             if (has_yield) {
+                Assert(join);
                 auto ty = Ty(e->type);
                 if (e->is_lvalue) ty = hlir::ReferenceType::get(ty);
                 join->addArgument(ty, if_loc);
@@ -509,11 +510,15 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Create<mlir::cf::CondBranchOp>(if_loc, e->cond->mlir, then, else_);
 
             /// Helper to emit a branch.
-            auto EmitBranch = [&] (Expr* expr, mlir::Block* block) {
+            auto EmitBranch = [&](Expr* expr, mlir::Block* block) {
                 region->getBlocks().insert(region->end(), block);
                 builder.setInsertionPointToEnd(block);
                 Generate(expr);
-                Create<mlir::cf::BranchOp>(if_loc, join, has_yield ? expr->mlir : mlir::ValueRange{});
+                if (join) Create<mlir::cf::BranchOp>(
+                    if_loc,
+                    join,
+                    has_yield ? expr->mlir : mlir::ValueRange{}
+                );
             };
 
             /// Emit the then and else branches.
@@ -521,9 +526,11 @@ void src::CodeGen::Generate(src::Expr* expr) {
             if (e->else_) EmitBranch(e->else_, else_);
 
             /// Finally, resume inserting in the join block.
-            region->getBlocks().insert(region->end(), join);
-            builder.setInsertionPointToEnd(join);
-            if (has_yield) e->mlir = join->getArgument(0);
+            if (join) {
+                region->getBlocks().insert(region->end(), join);
+                builder.setInsertionPointToEnd(join);
+                if (has_yield) e->mlir = join->getArgument(0);
+            }
         } break;
 
         case Expr::Kind::UnaryPrefixExpr: {
