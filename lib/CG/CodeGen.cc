@@ -55,7 +55,7 @@ bool src::CodeGen::Closed(mlir::Block* block) {
 /// the only other function on the stack.
 void src::CodeGen::CompactDeferStack(DeferStack& stack) {
     /// Check if we need to compact at all.
-    if (std::holds_alternative<mlir::func::FuncOp>(stack.back())) return;
+    if (stack.empty() or std::holds_alternative<mlir::func::FuncOp>(stack.back())) return;
 
     /// Perform compaction. First, create the function.
     mlir::OpBuilder::InsertionGuard guard(builder);
