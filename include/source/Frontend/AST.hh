@@ -256,6 +256,12 @@ enum struct CastKind {
 
     /// Any other implicit conversion.
     Implicit,
+
+    /// 'as' cast.
+    Soft,
+
+    /// 'as!' cast.
+    Hard,
 };
 
 class TypedExpr : public Expr {

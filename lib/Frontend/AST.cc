@@ -575,6 +575,8 @@ struct ASTPrinter {
                     case CastKind::LValueRefToLValue: out += " LValueRefToLValue"; break;
                     case CastKind::LValueToRValue: out += " LValueToRValue"; break;
                     case CastKind::LValueToReference: out += " LValueToReference"; break;
+                    case CastKind::Soft: out += " Soft"; break;
+                    case CastKind::Hard: out += " Hard"; break;
                 }
                 out += fmt::format(
                     " {}{}{}\n",

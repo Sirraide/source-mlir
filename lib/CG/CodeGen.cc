@@ -318,7 +318,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     );
                 } break;
 
-                /// Reference <-> LValue.
+                /// Reference <-> LValue; Nop
                 ///
                 /// These are logical operations only and no-ops
                 /// at the IR level.
@@ -327,7 +327,16 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     c->mlir = c->operand->mlir;
                     break;
 
-                case CastKind::Implicit: {
+                /// Proper casts are all handled the same.
+                case CastKind::Implicit:
+                case CastKind::Soft:
+                case CastKind::Hard: {
+                    /// No-op.
+                    if (Type::Equal(c->operand->type, c->type)) {
+                        c->mlir = c->operand->mlir;
+                        break;
+                    }
+
                     /// Integer-to-integer casts.
                     if (c->operand->type.is_int(true) and c->type.is_int(true)) {
                         auto from_size = c->operand->type.size(ctx);

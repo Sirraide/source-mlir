@@ -17,6 +17,7 @@
          | <expr-assert>
          | <expr-return>
          | <expr-defer>
+         | <expr-cast>
          | <decl>
 
 <expr-assert>    ::= ASSERT <expr> [ ","  <expr> ]
@@ -31,6 +32,7 @@
 <expr-if>        ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <expr> ]
 <expr-return>    ::= RETURN [ <expr> ]
 <expr-defer>     ::= DEFER <expr>
+<expr-cast>      ::= <expr> ( "as" | "as!" ) <type>
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>

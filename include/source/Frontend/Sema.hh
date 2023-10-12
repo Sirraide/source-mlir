@@ -48,6 +48,7 @@ private:
     /// Analyse the given expression and issue an error if it is not a type.
     bool AnalyseAsType(Expr*& e);
 
+    void AnalyseExplicitCast(Expr*& e, bool is_hard);
     void AnalyseProcedure(ProcDecl* proc);
     void AnalyseModule();
 

@@ -20,6 +20,10 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
 
             /// Prefix operator precedence: 900.
 
+        case Tk::As:
+        case Tk::AsBang:
+            return 200;
+
         case Tk::StarStar:
             return 100;
 
@@ -90,6 +94,7 @@ constexpr bool IsPostfix(Tk t) {
 constexpr bool MayStartAnExpression(Tk k) {
     switch (k) {
         case Tk::Assert:
+        case Tk::Bool:
         case Tk::Defer:
         case Tk::False:
         case Tk::Identifier:
@@ -98,12 +103,14 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Integer:
         case Tk::IntegerType:
         case Tk::LBrace:
+        case Tk::NoReturn:
         case Tk::Proc:
         case Tk::Return:
         case Tk::Star:
         case Tk::StarStar:
         case Tk::StringLiteral:
         case Tk::True:
+        case Tk::Void:
             return true;
 
         default:
@@ -167,6 +174,9 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
         case Tk::IntegerType:
         case Tk::Int:
+        case Tk::Bool:
+        case Tk::Void:
+        case Tk::NoReturn:
             lhs = ParseType();
             break;
 
@@ -353,6 +363,17 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 Next();
                 if (not At(Tk::Identifier)) Error("Expected identifier");
                 lhs = new (mod) MemberAccessExpr(*lhs, tok.text, {lhs->location, Next()});
+                continue;
+            }
+
+            /// Explicit cast.
+            case Tk::As:
+            case Tk::AsBang: {
+                auto kind = tok.type == Tk::As ? CastKind::Soft : CastKind::Hard;
+                Next();
+                auto ty = ParseType();
+                if (IsError(ty)) return ty.diag;
+                lhs = new (mod) CastExpr(kind, *lhs, *ty, {lhs->location, ty->location});
                 continue;
             }
         }
