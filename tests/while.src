@@ -1,0 +1,68 @@
+/// RUN: %srcc --hlir %s | FileCheck %s
+
+
+proc a() extern -> bool;
+proc b() extern;
+
+/// CHECK: cf.br [[COND_1:\^bb[0-9]+]]
+/// CHECK-NEXT: [[COND_1]]:
+/// CHECK-NEXT: [[A_1:%[0-9a-z_]+]] = constant @a
+/// CHECK-NEXT: [[C_1:%[0-9a-z_]+]] = call_indirect [[A_1]]()
+/// CHECK-NEXT: cf.cond_br [[C_1]], [[BODY_1:\^bb[0-9]+]], [[EXIT_1:\^bb[0-9]+]]
+/// CHECK-NEXT: [[BODY_1]]:
+/// CHECK-NEXT: cf.br [[COND_1]]
+/// CHECK-NEXT: [[EXIT_1]]:
+while a() { }
+
+/// CHECK: cf.br [[COND_2:\^bb[0-9]+]]
+/// CHECK-NEXT: [[COND_2]]:
+/// CHECK-NEXT: [[A_2:%[0-9a-z_]+]] = constant @a
+/// CHECK-NEXT: [[C_2:%[0-9a-z_]+]] = call_indirect [[A_2]]()
+/// CHECK-NEXT: cf.cond_br [[C_2]], [[BODY_2:\^bb[0-9]+]], [[EXIT_2:\^bb[0-9]+]]
+/// CHECK-NEXT: [[BODY_2]]:
+/// CHECK-NEXT: [[B_1:%[0-9a-z_]+]] = constant @b
+/// CHECK-NEXT: call_indirect [[B_1]]()
+/// CHECK-NEXT: cf.br [[COND_2]]
+/// CHECK-NEXT: [[EXIT_2]]:
+while a() do b();
+
+/// CHECK: cf.br [[COND_3:\^bb[0-9]+]]
+/// CHECK-NEXT: [[COND_3]]:
+/// CHECK-NEXT: [[A_3:%[0-9a-z_]+]] = constant @a
+/// CHECK-NEXT: [[C_3:%[0-9a-z_]+]] = call_indirect [[A_3]]()
+/// CHECK-NEXT: cf.cond_br [[C_3]], [[BODY_3:\^bb[0-9]+]], [[EXIT_3:\^bb[0-9]+]]
+/// CHECK-NEXT: [[BODY_3]]:
+/// CHECK-NEXT: [[B_2:%[0-9a-z_]+]] = constant @b
+/// CHECK-NEXT: call_indirect [[B_2]]()
+/// CHECK-NEXT: cf.br [[COND_3]]
+/// CHECK-NEXT: [[EXIT_3]]:
+while a() do { b(); }
+
+/// CHECK: cf.br [[COND_4:\^bb[0-9]+]]
+/// CHECK-NEXT: [[COND_4]]:
+/// CHECK-NEXT: [[A_4:%[0-9a-z_]+]] = constant @a
+/// CHECK-NEXT: [[C_4:%[0-9a-z_]+]] = call_indirect [[A_4]]()
+/// CHECK-NEXT: cf.cond_br [[C_4]], [[BODY_4:\^bb[0-9]+]], [[EXIT_4:\^bb[0-9]+]]
+/// CHECK-NEXT: [[BODY_4]]:
+/// CHECK-NEXT: [[B_3:%[0-9a-z_]+]] = constant @b
+/// CHECK-NEXT: call_indirect [[B_3]]()
+/// CHECK-NEXT: [[B_4:%[0-9a-z_]+]] = constant @b
+/// CHECK-NEXT: call_indirect [[B_4]]()
+/// CHECK-NEXT: cf.br [[COND_4]]
+/// CHECK-NEXT: [[EXIT_4]]:
+while a() {
+    b();
+    b();
+}
+
+/// TODO  Should be converted to noreturn and never return.
+///       Check that there is no return instruction after this.
+///
+/// CHECK: cf.br [[COND_5:\^bb[0-9]+]]
+/// CHECK-NEXT: [[COND_5]]:
+/// CHECK-NEXT: [[TRUE:%[0-9a-z_]+]] = arith.constant true
+/// CHECK-NEXT: cf.cond_br [[TRUE]], [[BODY_5:\^bb[0-9]+]], [[EXIT_5:\^bb[0-9]+]]
+/// CHECK-NEXT: [[BODY_5]]:
+/// CHECK-NEXT: cf.br [[COND_5]]
+/// CHECK-NEXT: [[EXIT_5]]:
+while true {}

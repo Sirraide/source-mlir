@@ -51,6 +51,7 @@ public:
         AssertExpr,
         ReturnExpr,
         DeferExpr,
+        WhileExpr,
 
         /// TypedExpr [begin]
         BlockExpr,
@@ -235,6 +236,23 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::DeferExpr; }
+};
+
+class WhileExpr: public Expr {
+public:
+    /// The condition of this while loop.
+    Expr* cond;
+
+    /// The body of this while loop.
+    Expr* body;
+
+    WhileExpr(Expr* cond, Expr* body, Location loc)
+        : Expr(Kind::WhileExpr, loc),
+          cond(cond),
+          body(body) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::WhileExpr; }
 };
 
 /// ===========================================================================

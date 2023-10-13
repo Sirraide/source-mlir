@@ -79,15 +79,15 @@ public:
 
     /// Checked cast for results.
     ///
-    /// Note: \c is() and \c cast() seem to have confusing semantics in
-    /// conjunction with results, so we only provide this one for now:
-    /// it’s unclear what \c is() should return if the result holds a
-    /// diagnostic, and \c cast() is just a bad idea because it would
-    /// just fill our results with null pointers, which is something
-    /// we’re actively trying to prevent.
+    /// Note: \c isa() and \c dyn_cast() seem to have confusing semantics in
+    /// conjunction with results, so we only provide this one for now: it’s
+    /// unclear what \c isa() should return if the result holds a diagnostic,
+    /// and \c dyn_cast() is just a bad idea because it would just fill our
+    /// results with null pointers, which is something we’re actively trying
+    /// to prevent.
     template <typename To, typename From>
     requires is_result_v<From>
-    friend auto as(From&& result) -> Result<To*> {
+    friend auto cast(From&& result) -> Result<To*> {
         if (result.is_diag) return std::forward<decltype(result)>(result).diag;
         else return Result<To*>{cast<To>(std::forward<decltype(result)>(result).value())};
     }

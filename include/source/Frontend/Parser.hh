@@ -157,10 +157,12 @@ private:
     auto ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>;
     void ParseFile();
     auto ParseIf() -> Result<Expr*>;
+    auto ParseImplicitBlock() -> Result<BlockExpr*>;
     auto ParseParamDeclList(SVI<ParamDecl*>& param_decls, SVI<Expr*>& param_types) -> Location;
     auto ParseProc() -> Result<Expr*>;
     auto ParseSignature() -> Signature;
     auto ParseType() -> Result<Expr*>;
+    auto ParseWhile() -> Result<Expr*>;
 
     /// Synchronise in case of errors.
     void Synchronise(Tk token = Tk::Semicolon, std::same_as<Tk> auto... tks) {

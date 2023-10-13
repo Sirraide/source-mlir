@@ -111,6 +111,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::StringLiteral:
         case Tk::True:
         case Tk::Void:
+        case Tk::While:
             return true;
 
         default:
@@ -217,6 +218,10 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             lhs = ParseIf();
             break;
 
+        case Tk::While:
+            lhs = ParseWhile();
+            break;
+
         /// <expr-return> ::= RETURN [ <expr> ]
         case Tk::Return: {
             auto start = Next();
@@ -229,10 +234,10 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             lhs = new (mod) ReturnExpr(*value, {start, *value ? value->location : start});
         } break;
 
-        /// <expr-defer> ::= DEFER <expr>
+        /// <expr-defer> ::= DEFER <implicit-block>
         case Tk::Defer: {
             auto start = Next();
-            auto expr = ParseExpr();
+            auto expr = ParseImplicitBlock();
             if (IsError(expr)) return expr.diag;
             lhs = new (mod) DeferExpr(*expr, {start, expr->location});
         } break;
@@ -277,10 +282,11 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 /// The next thing is not an expression, so it can’t be an invoke.
                 if (not MayStartAnExpression(tok.type)) break;
 
-                /// Invoke is right-associative.
-                if (NakedInvokePrecedence < curr_prec) break;
+                /// Invoke is left-associative.
+                if (NakedInvokePrecedence <= curr_prec) break;
 
                 /// Only allow invoking certain kinds of expressions.
+                /// TODO: Allow invoking invoke expressions so `deque int a;` works.
                 if (not isa<Type, DeclRefExpr, MemberAccessExpr>(*lhs)) break;
 
                 /// We specifically disallow blocks in this position so that, e.g.
@@ -429,23 +435,40 @@ void src::Parser::ParseFile() {
     std::ignore = ParseExprs(Tk::Eof, mod->top_level_func->body->exprs);
 }
 
-/// <expr-if> ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <expr> ]
-/// <then> ::= [ THEN ] <expr>
-auto src::Parser::ParseIf() -> Result<Expr*> { // clang-format off
+/// <expr-if> ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
+/// <then> ::= [ THEN ] <implicit-block>
+auto src::Parser::ParseIf() -> Result<Expr*> {
     auto start = curr_loc;
     Assert(Consume(Tk::If, Tk::Elif));
 
     /// Parse condition, elif clauses, and else clause.
-    auto cond  = ParseExpr(); Consume(Tk::Then);
-    auto then  = ParseExpr(); Consume(Tk::Semicolon);
+    auto cond = ParseExpr();
+    Consume(Tk::Then);
+
+    auto then = ParseImplicitBlock();
+    Consume(Tk::Semicolon);
+
     auto else_ = At(Tk::Elif)      ? ParseIf()
-               : Consume(Tk::Else) ? ParseExpr()
-               : Result<Expr*>::Null();
+               : Consume(Tk::Else) ? ParseImplicitBlock()
+                                   : Result<Expr*>::Null();
 
     /// Create the expression.
     if (IsError(cond, then, else_)) return Diag();
     return new (mod) IfExpr(*cond, *then, *else_, {start, curr_loc});
-} // clang-format on
+}
+
+/// Syntactically any expression, but wrapped in an implicit
+/// block if it isn’t already one.
+///
+/// <implicit-block> ::= <expr>
+auto src::Parser::ParseImplicitBlock() -> Result<BlockExpr*> {
+    if (At(Tk::LBrace)) return cast<BlockExpr>(ParseExpr());
+
+    /// Not already a block.
+    ScopeRAII sc{this};
+    if (auto res = ParseExpr(); res.is_diag) return Diag();
+    else return new (mod) BlockExpr(sc.scope, {*res}, {res->location}, true);
+}
 
 /// <proc-args>  ::= "(" <param-decl> { "," <param-decl> } ")"
 /// <param-decl> ::= <type> [ IDENTIFIER ]
@@ -493,7 +516,7 @@ auto src::Parser::ParseParamDeclList(
 
 /// <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 /// <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
-/// <proc-body>      ::= <expr-block> | "=" <expr>
+/// <proc-body>      ::= <expr-block> | "=" <implicit-block>
 auto src::Parser::ParseProc() -> Result<Expr*> {
     /// Procedure signatures are rather complicated, so
     /// we’ll parse them separately.
@@ -504,10 +527,8 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
     bool infer_return_type = false;
     if (not sig.is_extern) {
         if (Consume(Tk::Assign)) {
-            ScopeRAII sc{this};
             infer_return_type = true;
-            if (auto res = ParseExpr(); res.is_diag) return Diag();
-            else body = new (mod) BlockExpr(sc.scope, {*res}, {sig.loc, res->location}, true);
+            body = ParseImplicitBlock();
         } else if (At(Tk::LBrace)) {
             body = ParseBlock();
         } else {
@@ -649,4 +670,21 @@ auto src::Parser::ParseType() -> Result<Expr*> {
     }
 
     return base_type;
+}
+
+/// <expr-while> ::= WHILE <expr> [ DO ] <implicit-block>
+auto src::Parser::ParseWhile() -> Result<Expr*> {
+    auto start = curr_loc;
+    Assert(Consume(Tk::While));
+
+    /// Parse condition and body.
+    auto cond = ParseExpr();
+    auto body = Result<Expr*>::Null();
+    if (IsError(cond)) return Diag();
+    Consume(Tk::Do);
+    body = ParseImplicitBlock();
+
+    /// Create the expression.
+    if (IsError(body)) return body;
+    return new (mod) WhileExpr(*cond, *body, {start, curr_loc});
 }

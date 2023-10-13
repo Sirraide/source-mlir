@@ -36,6 +36,9 @@ public:
     }
 
 private:
+    /// Attach a block to the end of a region.
+    auto Attach(mlir::Region* region, mlir::Block* block) -> mlir::Block*;
+
     /// Call a function that executes deferred expressions.
     void CallCleanupFunc(mlir::func::FuncOp func);
 

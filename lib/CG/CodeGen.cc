@@ -23,6 +23,11 @@ void src::Module::print_hlir(bool use_generic_assembly_format) const {
     mlir->print(llvm::outs(), flags);
 }
 
+auto src::CodeGen::Attach(mlir::Region* region, mlir::Block* block) -> mlir::Block* {
+    region->getBlocks().insert(region->end(), block);
+    return block;
+}
+
 void src::CodeGen::CallCleanupFunc(mlir::func::FuncOp func) {
     auto args = func.getNumArguments();
     Create<mlir::func::CallOp>(
@@ -189,6 +194,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
         case Expr::Kind::ProcDecl:
         case Expr::Kind::CastExpr:
         case Expr::Kind::IfExpr:
+        case Expr::Kind::WhileExpr:
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::BinaryExpr:
         case Expr::Kind::VarDecl:
@@ -576,7 +582,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// Helper to emit a branch.
             auto EmitBranch = [&](Expr* expr, mlir::Block* block) {
-                region->getBlocks().insert(region->end(), block);
+                Attach(region, block);
                 builder.setInsertionPointToEnd(block);
                 Generate(expr);
                 if (join) Create<mlir::cf::BranchOp>(
@@ -592,10 +598,36 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// Finally, resume inserting in the join block.
             if (join) {
-                region->getBlocks().insert(region->end(), join);
+                Attach(region, join);
                 builder.setInsertionPointToEnd(join);
                 if (has_yield) e->mlir = join->getArgument(0);
             }
+        } break;
+
+        case Expr::Kind::WhileExpr: {
+            auto w = cast<WhileExpr>(expr);
+
+            /// Create a new block for the condition so we can branch
+            /// to it and emit the condition there.
+            auto region = builder.getBlock()->getParent();
+            auto cond = Attach(region, new mlir::Block);
+            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), cond);
+            builder.setInsertionPointToEnd(cond);
+            Generate(w->cond);
+
+            /// Emit the branch to the body.
+            auto body = Attach(region, new mlir::Block);
+            auto join = new mlir::Block;
+            Create<mlir::cf::CondBranchOp>(w->location.mlir(ctx), w->cond->mlir, body, join);
+
+            /// Emit the body.
+            builder.setInsertionPointToEnd(body);
+            Generate(w->body);
+            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), cond);
+
+            /// Insert the join block and continue inserting there.
+            Attach(region, join);
+            builder.setInsertionPointToEnd(join);
         } break;
 
         case Expr::Kind::UnaryPrefixExpr: {

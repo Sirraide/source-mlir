@@ -578,6 +578,25 @@ bool src::Sema::Analyse(Expr*& e) {
             }
         } break;
 
+        /// While loops.
+        case Expr::Kind::WhileExpr: {
+            auto w = cast<WhileExpr>(e);
+            if (Analyse(w->cond) and not Convert(w->cond, Type::Bool)) Error(
+                w->cond->location,
+                "Type '{}' of loop condition is not convertible to '{}'",
+                w->cond->type.str(true),
+                Type::Bool->as_type.str(true)
+            );
+
+            /// Condition is an rvalue.
+            InsertLValueToRValueConversion(w->cond);
+
+            /// There is nothing left to do other than analyse the body. The
+            /// type of this is always void, so sema for the while expression
+            /// itself can never fail.
+            Analyse(w->body);
+        } break;
+
         /// Unary expressions.
         case Expr::Kind::UnaryPrefixExpr: {
             auto u = cast<UnaryPrefixExpr>(e);

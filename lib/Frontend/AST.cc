@@ -25,6 +25,7 @@ auto src::Expr::_type() -> TypeHandle {
 
         case Kind::AssertExpr:
         case Kind::DeferExpr:
+        case Kind::WhileExpr:
             return Type::Void;
 
         /// Typed exprs.
@@ -111,6 +112,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
         case Kind::DeferExpr:
+        case Kind::WhileExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::CastExpr:
@@ -202,6 +204,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
         case Kind::DeferExpr:
+        case Kind::WhileExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::CastExpr:
@@ -288,6 +291,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
 
         case Kind::AssertExpr:
         case Kind::DeferExpr:
+        case Kind::WhileExpr:
             return Type::Void->as_type.str(use_colour);
 
         case Kind::ReturnExpr:
@@ -366,6 +370,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
         case Kind::DeferExpr:
+        case Kind::WhileExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::MemberAccessExpr:
@@ -609,6 +614,7 @@ struct ASTPrinter {
 
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
             case K::DeferExpr: PrintBasicNode("DeferExpr", e, nullptr); return;
+            case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
 
@@ -726,6 +732,11 @@ struct ASTPrinter {
             case K::BinaryExpr: {
                 auto b = cast<BinaryExpr>(e);
                 PrintChildren({b->lhs, b->rhs}, leading_text);
+            } break;
+
+            case K::WhileExpr: {
+                auto w = cast<WhileExpr>(e);
+                PrintChildren({w->cond, w->body}, leading_text);
             } break;
 
             case K::ReturnExpr: {
