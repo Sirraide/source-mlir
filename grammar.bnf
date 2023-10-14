@@ -19,6 +19,8 @@
          | <expr-defer>
          | <expr-cast>
          | <expr-while>
+         | <expr-labelled>
+         | <expr-loop-ctrl>
          | <decl>
 
 <expr-assert>    ::= ASSERT <expr> [ ","  <expr> ]
@@ -35,6 +37,8 @@
 <expr-defer>     ::= DEFER <implicit-block>
 <expr-cast>      ::= <expr> ( "as" | "as!" ) <type>
 <expr-while>     ::= WHILE <expr> <do>
+<expr-labelled>  ::= IDENTIFIER ":" <expr>
+<expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>

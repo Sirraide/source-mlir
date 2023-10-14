@@ -180,6 +180,48 @@ bool src::Sema::Analyse(Expr*& e) {
             Analyse(cast<DeferExpr>(e)->expr);
         } break;
 
+        /// Loop control expressions.
+        case Expr::Kind::LoopControlExpr: {
+            auto l = cast<LoopControlExpr>(e);
+
+            /// Find the label if there is one.
+            if (not l->label.empty()) {
+                auto target = curr_proc->labels.find(l->label);
+                if (target == curr_proc->labels.end()) {
+                    Error(l->location, "Unknown label '{}'", l->label);
+                    break;
+                }
+
+                /// Set the target to the label and make sure we’re
+                /// actually inside that loop.
+                l->target = target->getValue();
+                for (auto loop : vws::reverse(loop_stack))
+                    if (cast<WhileExpr>(loop)->label == l->label)
+                        goto done;
+                Error(
+                    l->target,
+                    "Cannot {} to label '{}' from outside loop",
+                    l->is_continue ? "continue" : "break",
+                    l->label
+                );
+            }
+
+            /// Otherwise, the target is the parent.
+            else {
+                /// No loop to break out of or continue.
+                if (loop_stack.empty()) {
+                    Error(
+                        l->location,
+                        "'{}' is invalid outside of loops",
+                        l->is_continue ? "continue" : "break"
+                    );
+                    break;
+                }
+
+                l->target = loop_stack.back();
+            }
+        } break;
+
         /// Return expressions.
         case Expr::Kind::ReturnExpr: {
             auto r = cast<ReturnExpr>(e);
@@ -594,6 +636,8 @@ bool src::Sema::Analyse(Expr*& e) {
             /// There is nothing left to do other than analyse the body. The
             /// type of this is always void, so sema for the while expression
             /// itself can never fail.
+            loop_stack.push_back(w);
+            defer { loop_stack.pop_back(); };
             Analyse(w->body);
         } break;
 
@@ -791,6 +835,7 @@ bool src::Sema::Analyse(Expr*& e) {
         }
     }
 
+done:
     /// Can’t check for 'ok' as that may not be set yet.
     return not e->sema.errored;
 }

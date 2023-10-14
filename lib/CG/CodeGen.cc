@@ -182,6 +182,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
 
         case Expr::Kind::AssertExpr:
         case Expr::Kind::ReturnExpr:
+        case Expr::Kind::LoopControlExpr:
         case Expr::Kind::DeferExpr:
         case Expr::Kind::BlockExpr:
         case Expr::Kind::InvokeExpr:
@@ -394,6 +395,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::DeferExpr:
             defer_stacks.back().push_back(cast<DeferExpr>(expr)->expr);
             break;
+
+        case Expr::Kind::LoopControlExpr:
+            Todo();
 
         case Expr::Kind::ReturnExpr: {
             auto r = cast<ReturnExpr>(expr);

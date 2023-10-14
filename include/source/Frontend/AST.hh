@@ -52,6 +52,7 @@ public:
         ReturnExpr,
         DeferExpr,
         WhileExpr,
+        LoopControlExpr,
 
         /// TypedExpr [begin]
         BlockExpr,
@@ -192,7 +193,7 @@ public:
     static bool classof(const Expr* e) { return true; }
 };
 
-class AssertExpr: public Expr {
+class AssertExpr : public Expr {
 public:
     /// The condition of this assertion.
     Expr* cond;
@@ -212,7 +213,7 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::AssertExpr; }
 };
 
-class ReturnExpr: public Expr {
+class ReturnExpr : public Expr {
 public:
     /// The value being returned.
     Expr* value;
@@ -225,7 +226,7 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::ReturnExpr; }
 };
 
-class DeferExpr: public Expr {
+class DeferExpr : public Expr {
 public:
     /// The deferred expression.
     Expr* expr;
@@ -238,7 +239,7 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::DeferExpr; }
 };
 
-class WhileExpr: public Expr {
+class WhileExpr : public Expr {
 public:
     /// The condition of this while loop.
     Expr* cond;
@@ -246,13 +247,39 @@ public:
     /// The body of this while loop.
     Expr* body;
 
-    WhileExpr(Expr* cond, Expr* body, Location loc)
+    /// Optional label.
+    std::string label;
+
+    WhileExpr(Expr* cond, Expr* body, std::string label, Location loc)
         : Expr(Kind::WhileExpr, loc),
           cond(cond),
-          body(body) {}
+          body(body),
+          label(std::move(label)) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::WhileExpr; }
+};
+
+class LoopControlExpr : public Expr {
+public:
+    /// Label to jump to.
+    std::string label;
+
+    /// Resolved expression. This is set to the parent
+    /// if there is no label. This is resolved in Sema.
+    Expr* target{};
+
+    /// Whether this is a continue or break.
+    bool is_continue;
+    readonly(bool, is_break, return not is_continue);
+
+    LoopControlExpr(std::string label, bool is_continue, Location loc)
+        : Expr(Kind::LoopControlExpr, loc),
+          label(std::move(label)),
+          is_continue(is_continue) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::LoopControlExpr; }
 };
 
 /// ===========================================================================
@@ -561,11 +588,17 @@ public:
 
 class ProcDecl : public ObjectDecl {
 public:
+    /// The module this procedure belongs to.
+    Module* module;
+
     /// The function parameter decls.
     SmallVector<ParamDecl*> params;
 
     /// Body of the function.
     BlockExpr* body;
+
+    /// Labels are global per procedure.
+    StringMap<Expr*> labels;
 
     ProcDecl(
         Module* mod,
@@ -577,9 +610,28 @@ public:
         Mangling mangling,
         Location loc
     ) : ObjectDecl(Kind::ProcDecl, std::move(name), type, linkage, mangling, loc),
+        module(mod),
         params(std::move(params)),
         body(body) {
         mod->add_function(this);
+    }
+
+    /// Add a labelled expression to the function. This is done
+    /// at parse time so all labels are available in sema.
+    ///
+    /// \param label The label to register.
+    /// \param expr The expression that the label points at.
+    /// \return The expression, or an error.
+    auto add_label(std::string label, Expr* expr) -> Result<Expr*> {
+        if (labels.contains(label)) return Diag::Error(
+            module->context,
+            expr->location,
+            "Label '{}' is already defined",
+            label
+        );
+
+        labels[label] = expr;
+        return expr;
     }
 
     /// Get the return type of this procedure.

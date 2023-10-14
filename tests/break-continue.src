@@ -1,0 +1,52 @@
+
+proc a() extern;
+proc b() extern;
+proc c() extern;
+proc d() extern;
+proc e() extern;
+proc f() extern;
+proc g() extern;
+proc h() extern;
+proc i() extern;
+proc j() extern;
+proc k() extern;
+proc l() extern;
+
+bool t = true;
+
+defer a();
+while t {
+    defer b();
+    defer c();
+    loop: while t {
+        defer d();
+        loop2: while t {
+            defer e();
+            while t {
+                defer f();
+                if t then break;
+                defer g();
+                if t then break loop2;
+            }
+
+            defer h();
+            while t {
+                defer i();
+                if t then continue loop;
+            }
+
+            while t {
+                defer j();
+                if t then continue;
+                if t then break;
+                if t then return;
+                defer k();
+                if t break loop;
+                if t continue loop2;
+            }
+        }
+
+        defer l();
+        if t then break;
+    }
+}

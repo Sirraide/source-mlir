@@ -21,6 +21,7 @@ src::BuiltinType* const src::Type::NoReturn = &NoReturnTypeInstance;
 auto src::Expr::_type() -> TypeHandle {
     switch (kind) {
         case Kind::ReturnExpr:
+        case Kind::LoopControlExpr:
             return Type::NoReturn;
 
         case Kind::AssertExpr:
@@ -111,6 +112,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
 
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
+        case Kind::LoopControlExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
         case Kind::BlockExpr:
@@ -203,6 +205,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
 
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
+        case Kind::LoopControlExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
         case Kind::BlockExpr:
@@ -295,6 +298,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
             return Type::Void->as_type.str(use_colour);
 
         case Kind::ReturnExpr:
+        case Kind::LoopControlExpr:
             return Type::NoReturn->as_type.str(use_colour);
 
         /// Typed exprs.
@@ -369,6 +373,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
 
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
+        case Kind::LoopControlExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
         case Kind::BlockExpr:
@@ -612,9 +617,33 @@ struct ASTPrinter {
                 return;
             }
 
+            case K::LoopControlExpr: {
+                auto l = cast<LoopControlExpr>(e);
+                PrintBasicHeader("LoopControlExpr", e);
+                out += fmt::format(
+                    " {}{}\n",
+                    C(Yellow),
+                    l->label.empty() ? "<parent>" : l->label
+                );
+                return;
+            }
+
+            case K::WhileExpr: {
+                auto w = cast<WhileExpr>(e);
+                PrintBasicHeader("WhileExpr", e);
+                if (not w->label.empty()) {
+                    out += fmt::format(
+                        " {}{}\n",
+                        C(Yellow),
+                        w->label
+                    );
+                } else {
+                    out += '\n';
+                }
+                return;
+            }
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
             case K::DeferExpr: PrintBasicNode("DeferExpr", e, nullptr); return;
-            case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
 
@@ -742,6 +771,12 @@ struct ASTPrinter {
             case K::ReturnExpr: {
                 auto r = cast<ReturnExpr>(e);
                 if (r->value) PrintChildren(r->value, leading_text);
+            } break;
+
+            case K::LoopControlExpr: {
+                tempset print_children_of_children = false;
+                auto r = cast<LoopControlExpr>(e);
+                if (r->target) PrintChildren(r->target, leading_text);
             } break;
 
             case K::DeferExpr:

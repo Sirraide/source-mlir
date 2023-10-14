@@ -95,6 +95,8 @@ constexpr bool MayStartAnExpression(Tk k) {
     switch (k) {
         case Tk::Assert:
         case Tk::Bool:
+        case Tk::Break:
+        case Tk::Continue:
         case Tk::Defer:
         case Tk::False:
         case Tk::Identifier:
@@ -186,9 +188,25 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             break;
 
         case Tk::Identifier:
-            lhs = new (mod) DeclRefExpr(tok.text, curr_scope, tok.location);
-            Next();
+            lhs = ParseIdentExpr();
             break;
+
+        /// <expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
+        case Tk::Break:
+        case Tk::Continue: {
+            const bool is_continue = tok.type == Tk::Continue;
+            auto start = Next();
+
+            /// Parse optional label.
+            std::string label;
+            if (At(Tk::Identifier)) {
+                label = tok.text;
+                start = {start, tok.location};
+                Next();
+            }
+
+            lhs = new (mod) LoopControlExpr(std::move(label), is_continue, {start, curr_loc});
+        } break;
 
         case Tk::Integer:
             lhs = new (mod) IntLitExpr(tok.integer, tok.location);
@@ -295,7 +313,18 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
                 /// Don’t parse `a if` etc. as invoke expr. This is so we can chain
                 /// constructs easier, such as `if a while ...`.
-                if (At(Tk::For, Tk::If, Tk::Match, Tk::Return, Tk::While, Tk::With)) break;
+                if (
+                    At(
+                        Tk::Continue,
+                        Tk::Break,
+                        Tk::For,
+                        Tk::If,
+                        Tk::Match,
+                        Tk::Return,
+                        Tk::While,
+                        Tk::With
+                    )
+                ) break;
 
                 /// Prefer binary '*' over unary '*' parse.
                 if (tok.type == Tk::Star or tok.type == Tk::StarStar) break;
@@ -426,6 +455,7 @@ void src::Parser::ParseFile() {
     /// Parse preamble; this also creates the module.
     mod_ptr = std::make_unique<Module>(ctx, "");
     mod = mod_ptr.get();
+    curr_func = mod->top_level_func;
 
     /// Set up scopes.
     scope_stack.push_back(mod->global_scope);
@@ -433,6 +463,29 @@ void src::Parser::ParseFile() {
 
     /// Parse expressions.
     std::ignore = ParseExprs(Tk::Eof, mod->top_level_func->body->exprs);
+}
+
+/// <expr-decl-ref> ::= IDENTIFIER
+/// <expr-labelled> ::= IDENTIFIER ":" <expr>
+auto src::Parser::ParseIdentExpr() -> Result<Expr*> {
+    auto text = tok.text;
+    auto start = Next();
+
+    /// If the next token is `:`, then this is a label.
+    if (Consume(Tk::Colon)) {
+        const auto DefineLabel = [this](Expr* e) {
+            return curr_func->add_label(cast<WhileExpr>(e)->label, e);
+        };
+
+        /// Currently, we can only label loops.
+        if (not At(Tk::While)) return Error(start, "A label is not allowed here");
+
+        /// Parse the while loop and attach the label.
+        return ParseWhile(std::move(text)) >> DefineLabel;
+    }
+
+    /// Otherwise, this is a regular name.
+    return new (mod) DeclRefExpr(std::move(text), curr_scope, start);
 }
 
 /// <expr-if> ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
@@ -460,9 +513,24 @@ auto src::Parser::ParseIf() -> Result<Expr*> {
 /// Syntactically any expression, but wrapped in an implicit
 /// block if it isn’t already one.
 ///
+/// If we are at a block, then we only parse that block here,
+/// and nothing else, meaning that if the user writes sth like
+/// `defer { ... } + 4`, then it will be parsed as `(defer {...})
+/// + 4`.
+///
+/// This is to avoid having to deal with highly degenerate cases
+/// such as `defer { ... } + int a`, which, if we parsed the entire
+/// `+` as the body of the defer, would cause us to emit the variable
+/// in the defer but declare it outside it. By only parsing at most
+/// a block here if we’re already at a block, we avoid creating two
+/// scopes and the variable will both be emitted and declared outside
+/// the defer (of course, in this case, sema is actually going to
+/// complain that we can’t add `void` and `int`, but that’s beside
+/// the point here).
+///
 /// <implicit-block> ::= <expr>
 auto src::Parser::ParseImplicitBlock() -> Result<BlockExpr*> {
-    if (At(Tk::LBrace)) return cast<BlockExpr>(ParseExpr());
+    if (At(Tk::LBrace)) return ParseBlock();
 
     /// Not already a block.
     ScopeRAII sc{this};
@@ -673,7 +741,7 @@ auto src::Parser::ParseType() -> Result<Expr*> {
 }
 
 /// <expr-while> ::= WHILE <expr> [ DO ] <implicit-block>
-auto src::Parser::ParseWhile() -> Result<Expr*> {
+auto src::Parser::ParseWhile(std::string label) -> Result<Expr*> {
     auto start = curr_loc;
     Assert(Consume(Tk::While));
 
@@ -686,5 +754,5 @@ auto src::Parser::ParseWhile() -> Result<Expr*> {
 
     /// Create the expression.
     if (IsError(body)) return body;
-    return new (mod) WhileExpr(*cond, *body, {start, curr_loc});
+    return new (mod) WhileExpr(*cond, *body, std::move(label), {start, curr_loc});
 }
