@@ -211,7 +211,7 @@ auto src::CodeGen::DeferInfo::Iterate(src::Expr* stop_at, bool may_compact) {
 }
 
 void src::CodeGen::DeferInfo::AddDeferredExpression(Expr* e) {
-    CurrentStack().add(e);
+    CurrentStack().add(DeferredMaterial{e, vars.size()});
 }
 
 void src::CodeGen::DeferInfo::AddLocal(mlir::Value val) {
@@ -301,12 +301,21 @@ void src::CodeGen::DeferInfo::Stack::compact(DeferInfo& DI) {
         std::holds_alternative<mlir::func::FuncOp>(entries.back())
     ) return;
 
+    /// Determine the maximum number of arguments to pass in.
+    const auto max_args = rgs::fold_left( // clang-format off
+        entries | vws::transform([](auto& op) -> usz {
+            if (auto d = std::get_if<DeferredMaterial>(&op)) return d->vars_count;
+            else return std::get<mlir::func::FuncOp>(op).getNumArguments();
+        }),
+        usz(0), [](usz a, usz b) { return std::max(a, b); }
+    ); // clang-format on
+
     /// Perform compaction. First, create the function.
     auto& CG = DI.CG;
     auto& builder = CG.builder;
     mlir::OpBuilder::InsertionGuard guard(builder);
     SmallVector<mlir::Type> params;
-    for (auto p : DI.vars) params.push_back(p.getType());
+    for (auto p : DI.vars | vws::take(max_args)) params.push_back(p.getType());
     auto func_type = mlir::FunctionType::get(CG.mctx, params, {});
 
     mlir::NamedAttribute attrs[] = {
@@ -344,8 +353,7 @@ void src::CodeGen::DeferInfo::Stack::compact(DeferInfo& DI) {
 
     /// Override the local vars to point to our function arguments.
     auto entry = func.addEntryBlock();
-    tempset DI.vars = decltype(DI.vars){};
-    for (auto arg : func.getArguments()) DI.vars.push_back(arg);
+    tempset DI.vars = decltype(DI.vars){func.getArguments().take_front(max_args)};
 
     /// Then, emit all expressions into the function.
     /// Also emit the new defer stack we just created.
@@ -361,11 +369,10 @@ void src::CodeGen::DeferInfo::Stack::compact(DeferInfo& DI) {
 
 void src::CodeGen::DeferInfo::Stack::emit(DeferInfo& DI) {
     for (auto& op : vws::reverse(entries)) {
-        if (auto d = std::get_if<Expr*>(&op)) DI.CG.Generate(*d);
+        if (auto d = std::get_if<DeferredMaterial>(&op)) DI.CG.Generate(d->expr);
         else DI.CallCleanupFunc(std::get<mlir::func::FuncOp>(op));
     }
 }
-
 
 /// ===========================================================================
 ///  Code Generation

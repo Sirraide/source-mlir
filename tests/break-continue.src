@@ -102,8 +102,8 @@ while t {
                 /// CHECK-NEXT: cf.cond_br [[T8]], [[THEN3:\^bb[0-9]+]], [[ELSE3:\^bb[0-9]+]]
                 /// CHECK-NEXT: [[THEN3]]:
                 /// CHECK-NEXT: call @__src_defer_proc_3([[T]], [[Q]], [[W]])
-                /// CHECK-NEXT: call @__src_defer_proc_4([[T]], [[Q]], [[W]])
-                /// CHECK-NEXT: call @__src_defer_proc_5([[T]], [[Q]], [[W]])
+                /// CHECK-NEXT: call @__src_defer_proc_4([[T]], [[Q]])
+                /// CHECK-NEXT: call @__src_defer_proc_5([[T]], [[Q]])
                 /// CHECK-NEXT: cf.br [[COND2]]
                 if t then continue loop;
                 /// CHECK-NEXT: [[ELSE3]]:
@@ -150,8 +150,8 @@ while t {
                 /// CHECK-NEXT: call @__src_defer_proc_6([[T]], [[Q]])
                 /// CHECK-NEXT: call @__src_defer_proc_4([[T]], [[Q]])
                 /// CHECK-NEXT: call @__src_defer_proc_5([[T]], [[Q]])
-                /// CHECK-NEXT: call @__src_defer_proc_7([[T]], [[Q]])
-                /// CHECK-NEXT: call @__src_defer_proc_8([[T]], [[Q]])
+                /// CHECK-NEXT: call @__src_defer_proc_7([[T]])
+                /// CHECK-NEXT: call @__src_defer_proc_8([[T]])
                 /// CHECK-NEXT: return
                 if t then return;
                 /// CHECK-NEXT: [[ELSE6]]:

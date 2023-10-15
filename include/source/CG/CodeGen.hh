@@ -22,8 +22,16 @@ class CodeGen {
             WhileExpr* loop;
         };
 
+        /// Deferred expression + number of variables
+        /// that were in scope when the expression was
+        /// added.
+        struct DeferredMaterial {
+            Expr* expr;
+            usz vars_count;
+        };
+
         /// Defer stack associated with a scope.
-        using Entry = std::variant<Expr*, mlir::func::FuncOp>;
+        using Entry = std::variant<DeferredMaterial, mlir::func::FuncOp>;
         struct Stack {
             SmallVector<Entry, 10> entries;
 
