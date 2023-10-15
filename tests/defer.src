@@ -26,7 +26,7 @@ if cond() {
     /// CHECK-NEXT: cf.cond_br [[C1]], [[TRUE_1:\^bb[0-9]+]]
     /// CHECK-NEXT: [[TRUE_1]]:
     /// CHECK-NEXT: call @__src_defer_proc_0([[I]], [[J]])
-    /// CHECK-NEXT: call @__src_defer_proc_1([[I]], [[J]])
+    /// CHECK-NEXT: call @__src_defer_proc_1([[I]])
     /// CHECK-NEXT: return
     if cond() return;
     defer d();

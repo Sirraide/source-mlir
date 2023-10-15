@@ -323,6 +323,11 @@ void src::CodeGen::DeferInfo::Stack::compact(DeferInfo& DI) {
             builder.getStringAttr("sym_visibility"),
             builder.getStringAttr("private"),
         },
+
+        mlir::NamedAttribute{
+            builder.getStringAttr("llvm.linkage"),
+            mlir::LLVM::LinkageAttr::get(CG.mctx, mlir::LLVM::Linkage::Private),
+        },
     };
 
     builder.setInsertionPointToEnd(CG.mod->mlir.getBody());
@@ -928,6 +933,16 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         mlir::NamedAttribute{
             builder.getStringAttr("sym_visibility"),
             builder.getStringAttr(proc->exported ? "public" : "private"),
+        },
+
+        mlir::NamedAttribute{
+            builder.getStringAttr("llvm.linkage"),
+            mlir::LLVM::LinkageAttr::get(
+                mctx,
+                proc->exported or proc->imported
+                    ? mlir::LLVM::Linkage::External
+                    : mlir::LLVM::Linkage::Private
+            ),
         },
     };
 
