@@ -250,6 +250,10 @@ public:
     /// Optional label.
     std::string label;
 
+    /// For the backend.
+    mlir::Block* cond_block{};
+    mlir::Block* join_block{};
+
     WhileExpr(Expr* cond, Expr* body, std::string label, Location loc)
         : Expr(Kind::WhileExpr, loc),
           cond(cond),

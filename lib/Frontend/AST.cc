@@ -621,7 +621,9 @@ struct ASTPrinter {
                 auto l = cast<LoopControlExpr>(e);
                 PrintBasicHeader("LoopControlExpr", e);
                 out += fmt::format(
-                    " {}{}\n",
+                    " {}{} {}{}\n",
+                    C(Red),
+                    l->is_break ? "break" : "continue",
                     C(Yellow),
                     l->label.empty() ? "<parent>" : l->label
                 );

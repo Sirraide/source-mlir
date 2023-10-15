@@ -6,6 +6,7 @@
 #include <source/HLIR/HLIRDialect.hh>
 
 namespace src {
+class WhileExpr;
 class BinaryExpr;
 class CodeGen {
     Module* const mod;
@@ -14,12 +15,100 @@ class CodeGen {
     mlir::OpBuilder builder;
     bool no_verify;
 
-    using DeferStackEntry = std::variant<Expr*, mlir::func::FuncOp>;
-    using DeferStack = SmallVector<DeferStackEntry, 10>;
-    SmallVector<DeferStack, 10> defer_stacks;
-    SmallVector<mlir::Value, 10> in_scope_allocas;
+    /// Everything related to defer goes here.
+    class DeferInfo {
+        /// Loop marker.
+        struct Loop {
+            WhileExpr* loop;
+        };
+
+        /// Defer stack associated with a scope.
+        using Entry = std::variant<Expr*, mlir::func::FuncOp>;
+        struct Stack {
+            SmallVector<Entry, 10> entries;
+
+            void add(Entry e) { entries.push_back(e); }
+            void compact(DeferInfo& DI);
+            void emit(DeferInfo& DI);
+        };
+
+        /// Codegen context.
+        CodeGen& CG;
+
+        /// Stack of defer stacks.
+        SmallVector<std::variant<Stack, Loop>, 10> stacks;
+
+        /// Local variables that are currently in scope.
+        SmallVector<mlir::Value> vars;
+
+        /// Counter for emitting procedures.
+        usz defer_procs{};
+
+        /// Sanity check to check for iterator invalidation.
+        bool may_compact = false;
+
+    public:
+        /// RAII guard for entering a new block.
+        ///
+        /// This takes care of allocating a new defer stack, resetting
+        /// tracked local variables, and emitting the defer stack that
+        /// is added for this block.
+        class BlockGuard {
+            DeferInfo& DI;
+            const std::size_t vars_count;
+            mlir::Location location;
+
+        public:
+            BlockGuard(DeferInfo& DI, mlir::Location loc);
+            ~BlockGuard();
+        };
+
+        /// RAII guard for entering a loop.
+        class LoopGuard {
+            DeferInfo& DI;
+
+        public:
+            LoopGuard(DeferInfo& DI, WhileExpr* loop);
+            ~LoopGuard();
+        };
+
+        /// Initialise defer info.
+        DeferInfo(CodeGen& CG) : CG(CG) {}
+
+        /// Add an expression to be executed at the end of the scope.
+        void AddDeferredExpression(Expr* e);
+
+        /// Add a local variable.
+        void AddLocal(mlir::Value val);
+
+        /// Emit all defer stacks up to a labelled expression.
+        void EmitDeferStacksUpTo(Expr* stop_at);
+
+        /// Emit all defer stacks for a return expression.
+        void Return(mlir::Location loc, bool last_instruction_in_function);
+
+    private:
+        /// Call a function that executes deferred expressions.
+        void CallCleanupFunc(mlir::func::FuncOp func);
+
+        /// Get the current defer stack.
+        auto CurrentStack() -> Stack&;
+
+        /// Iterate over the defer stacks in reverse.
+        ///
+        /// \param stop_at If this is not nullptr, iteration will
+        ///     stop once the given expression is reached in
+        ///     the stack.
+        /// \param may_compact Whether to allow Stack::compact() calls
+        ///     in the loop. This requires an extra stack that is created
+        ///     by Iterate() if this flag is true.
+        /// \return An iterator range that can be used to iterate over
+        ///     the defer stacks.
+        auto Iterate(Expr* stop_at, bool may_compact);
+    };
+
+    DeferInfo DI{*this};
     ProcDecl* curr_proc{};
-    usz defer_procs{};
 
     CodeGen(Module* mod, bool no_verify)
         : mod(mod),
@@ -27,6 +116,11 @@ class CodeGen {
           mctx(&ctx->mlir),
           builder(mctx),
           no_verify(no_verify) {}
+
+    CodeGen(const CodeGen&) = delete;
+    CodeGen(CodeGen&&) = delete;
+    CodeGen& operator=(const CodeGen&) = delete;
+    CodeGen& operator=(CodeGen&&) = delete;
 
 public:
     static void Generate(Module* mod, bool no_verify) {
@@ -39,22 +133,12 @@ private:
     /// Attach a block to the end of a region.
     auto Attach(mlir::Region* region, mlir::Block* block) -> mlir::Block*;
 
-    /// Call a function that executes deferred expressions.
-    void CallCleanupFunc(mlir::func::FuncOp func);
-
     /// Check if a block is closed.
     bool Closed();
     bool Closed(mlir::Block* block);
 
-    /// Compact entries in a defer stack to allow emitting
-    /// it multiple times.
-    void CompactDeferStack(DeferStack& stack);
-
     template <typename T, typename... Args>
     auto Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
-
-    /// Emit the entries in a defer stack.
-    void EmitDeferStack(mlir::Location loc, DeferStack& stack);
 
     template <typename Op>
     void GenerateBinOp(BinaryExpr* b);

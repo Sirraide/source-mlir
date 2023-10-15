@@ -28,83 +28,12 @@ auto src::CodeGen::Attach(mlir::Region* region, mlir::Block* block) -> mlir::Blo
     return block;
 }
 
-void src::CodeGen::CallCleanupFunc(mlir::func::FuncOp func) {
-    auto args = func.getNumArguments();
-    Create<mlir::func::CallOp>(
-        builder.getUnknownLoc(),
-        func,
-        mlir::ValueRange{in_scope_allocas}.take_front(args)
-    );
-}
-
 bool src::CodeGen::Closed() {
     return Closed(builder.getBlock());
 }
 
 bool src::CodeGen::Closed(mlir::Block* block) {
     return not block->empty() and block->back().hasTrait<mlir::OpTrait::IsTerminator>();
-}
-
-/// If emitted multiple times, each defer block becomes a separate
-/// function that is called every time a scope is exited.
-///
-/// ALL allocas that have been emitted up to that point are passed
-/// to that function, which means that, while we are emitting the
-/// contents of the defer block into a separate function, we can
-/// simply ‘remap’ the VarDecl nodes to map to the function arguments
-/// rather than to their allocas.
-///
-/// Since we always compact all expressions in the entire stack,
-/// if we encounter a function on the stack, we know that 1. there
-/// are no other expressions below that, and 2. that it must be
-/// the only other function on the stack.
-void src::CodeGen::CompactDeferStack(DeferStack& stack) {
-    /// Check if we need to compact at all.
-    if (stack.empty() or std::holds_alternative<mlir::func::FuncOp>(stack.back())) return;
-
-    /// Perform compaction. First, create the function.
-    mlir::OpBuilder::InsertionGuard guard(builder);
-    SmallVector<mlir::Type> params;
-    for (auto p : in_scope_allocas) params.push_back(p.getType());
-    auto func_type = mlir::FunctionType::get(mctx, params, {});
-
-    mlir::NamedAttribute attrs[] = {
-        mlir::NamedAttribute{
-            builder.getStringAttr("sym_visibility"),
-            builder.getStringAttr("private"),
-        },
-    };
-
-    builder.setInsertionPointToEnd(mod->mlir.getBody());
-    auto func = Create<mlir::func::FuncOp>(
-        builder.getUnknownLoc(),
-        fmt::format("__src_defer_proc_{}", defer_procs++),
-        func_type,
-        ArrayRef<mlir::NamedAttribute>{attrs}
-    );
-
-    /// Create a new defer stack just in case the user is
-    /// clinically insane and put a defer inside a defer,
-    /// or if someone uses types that have destructors in
-    /// a defer expression.
-    defer_stacks.emplace_back();
-    defer { defer_stacks.pop_back(); };
-
-    /// Override the local vars to point to our function arguments.
-    auto entry = func.addEntryBlock();
-    tempset in_scope_allocas = decltype(in_scope_allocas){};
-    for (auto arg : func.getArguments()) in_scope_allocas.push_back(arg);
-
-    /// Then, emit all expressions into the function.
-    /// Also emit the new defer stack we just created.
-    builder.setInsertionPointToEnd(entry);
-    EmitDeferStack(builder.getUnknownLoc(), stack);
-    EmitDeferStack(builder.getUnknownLoc(), defer_stacks.back());
-    if (not Closed()) Create<mlir::func::ReturnOp>(builder.getUnknownLoc());
-
-    /// Clear the stack and push the function onto it.
-    stack.clear();
-    stack.push_back(func);
 }
 
 template <typename T, typename... Args>
@@ -118,13 +47,6 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
 
     /// Create the instruction.
     return builder.create<T>(loc, std::forward<Args>(args)...);
-}
-
-void src::CodeGen::EmitDeferStack(mlir::Location loc, DeferStack& stack) {
-    for (auto& op : vws::reverse(stack)) {
-        if (auto d = std::get_if<Expr*>(&op)) Generate(*d);
-        else CallCleanupFunc(std::get<mlir::func::FuncOp>(op));
-    }
 }
 
 auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
@@ -204,6 +126,246 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
 
     Unreachable();
 }
+
+/// ===========================================================================
+///  Defer Handling.
+/// ===========================================================================
+auto src::CodeGen::DeferInfo::Iterate(src::Expr* stop_at, bool may_compact) {
+    class Iterator {
+        DeferInfo& DI;
+        Expr* stop_at = nullptr;
+        const bool may_compact;
+
+        /// Index to avoid iterator invalidation.
+        usz it;
+
+        /// Invalid (‘end’) iterator.
+        enum : usz { end = std::numeric_limits<usz>::max() };
+
+    public:
+        Iterator(DeferInfo& DI, Expr* stop_at, bool may_compact)
+            : DI(DI),
+              stop_at(stop_at),
+              may_compact(may_compact),
+              it(DI.stacks.size() - 1) {
+            Assert(not DI.stacks.empty(), "Defer stack is empty");
+            SkipToNextStack();
+
+            /// Push an empty stack if we want to compact.
+            if (may_compact) {
+                DI.stacks.emplace_back();
+                DI.may_compact = true;
+            }
+        }
+
+        /// Pop the empty stack if we wanted to compact.
+        ~Iterator() {
+            if (may_compact) DI.stacks.pop_back();
+            DI.may_compact = false;
+        }
+
+        /// This std::get is fine because the iterator always halts
+        /// at either a defer stack or `end`.
+        Stack& operator*() { return std::get<Stack>(DI.stacks[it]); }
+        Stack* operator->() { return &operator*(); }
+        Iterator& operator++() {
+            Assert(it != end, "Defer stack underflow");
+            it--;
+            SkipToNextStack();
+            return *this;
+        }
+
+        bool operator==(std::default_sentinel_t) const { return it == end; }
+
+    private:
+        /// Find the next defer stack.
+        void SkipToNextStack() {
+            /// Skip any intervening labels until we reach the next
+            /// stack or the end of the stacks.
+            while (it != end) {
+                /// Check if this is a label.
+                auto label = std::get_if<Loop>(&DI.stacks[it]);
+                if (not label) return;
+
+                /// Check if this is the stop point.
+                if (label->loop and reinterpret_cast<Expr*>(label->loop) == stop_at) {
+                    it = end;
+                    return;
+                }
+
+                /// Skip the label.
+                it--;
+            }
+        }
+    };
+
+    struct IteratorRange {
+        DeferInfo& DI;
+        Expr* stop_at;
+        bool may_compact;
+        decltype(auto) begin() { return Iterator{DI, stop_at, may_compact}; }
+        decltype(auto) end() { return std::default_sentinel; }
+    };
+
+    return IteratorRange{*this, stop_at, may_compact};
+}
+
+void src::CodeGen::DeferInfo::AddDeferredExpression(Expr* e) {
+    CurrentStack().add(e);
+}
+
+void src::CodeGen::DeferInfo::AddLocal(mlir::Value val) {
+    vars.push_back(val);
+}
+
+void src::CodeGen::DeferInfo::EmitDeferStacksUpTo(Expr* stop_at) {
+    for (auto& stack : Iterate(stop_at, true)) {
+        stack.compact(*this);
+        stack.emit(*this);
+    }
+}
+
+void src::CodeGen::DeferInfo::CallCleanupFunc(mlir::func::FuncOp func) {
+    CG.Create<mlir::func::CallOp>(
+        CG.builder.getUnknownLoc(),
+        func,
+        mlir::ValueRange{vars}.take_front(func.getNumArguments())
+    );
+}
+
+auto src::CodeGen::DeferInfo::CurrentStack() -> Stack& {
+    return *Iterate(nullptr, false).begin();
+}
+
+void src::CodeGen::DeferInfo::Return(mlir::Location loc, bool last_instruction_in_function) {
+    /// Compact only if this is not the last expression
+    /// in the function, as we won’t be needing the stacks
+    /// later anyway in that case.
+    const bool needs_compact = not last_instruction_in_function;
+    for (auto& stack : Iterate(nullptr, needs_compact)) {
+        if (CG.Closed()) break;
+        if (needs_compact) stack.compact(*this);
+        stack.emit(*this);
+    }
+}
+
+src::CodeGen::DeferInfo::BlockGuard::BlockGuard(DeferInfo& DI, mlir::Location loc)
+    : DI(DI),
+      vars_count(DI.vars.size()),
+      location(loc) {
+    /// Emplace back only works as intended if the first
+    /// variant clause is Stack.
+    using Variant = std::remove_cvref_t<decltype(stacks[0])>;
+    using First = std::variant_alternative_t<0, Variant>;
+    static_assert(std::is_same_v<First, Stack>);
+    DI.stacks.emplace_back();
+}
+
+src::CodeGen::DeferInfo::BlockGuard::~BlockGuard() {
+    auto st = std::get<Stack>(DI.stacks.back());
+
+    /// Emit defer stack.
+    if (not DI.CG.Closed()) st.emit(DI);
+
+    /// Remove our stack.
+    DI.vars.resize(vars_count);
+    DI.stacks.pop_back();
+}
+
+src::CodeGen::DeferInfo::LoopGuard::LoopGuard(DeferInfo& DI, WhileExpr* loop) : DI(DI) {
+    DI.stacks.push_back(Loop{loop});
+}
+
+src::CodeGen::DeferInfo::LoopGuard::~LoopGuard() {
+    Assert(std::holds_alternative<Loop>(DI.stacks.back()), "Defer stack corrupted");
+    DI.stacks.pop_back();
+}
+
+/// If emitted multiple times, each defer block becomes a separate
+/// function that is called every time a scope is exited.
+///
+/// ALL allocas that have been emitted up to that point are passed
+/// to that function, which means that, while we are emitting the
+/// contents of the defer block into a separate function, we can
+/// simply ‘remap’ the VarDecl nodes to map to the function arguments
+/// rather than to their allocas.
+///
+/// Since we always compact all expressions in the entire stack,
+/// if we encounter a function on the stack, we know that 1. there
+/// are no other expressions below that, and 2. that it must be
+/// the only other function on the stack.
+void src::CodeGen::DeferInfo::Stack::compact(DeferInfo& DI) {
+    /// Check if we need to compact at all.
+    if (
+        entries.empty() or
+        std::holds_alternative<mlir::func::FuncOp>(entries.back())
+    ) return;
+
+    /// Perform compaction. First, create the function.
+    auto& CG = DI.CG;
+    auto& builder = CG.builder;
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    SmallVector<mlir::Type> params;
+    for (auto p : DI.vars) params.push_back(p.getType());
+    auto func_type = mlir::FunctionType::get(CG.mctx, params, {});
+
+    mlir::NamedAttribute attrs[] = {
+        mlir::NamedAttribute{
+            builder.getStringAttr("sym_visibility"),
+            builder.getStringAttr("private"),
+        },
+    };
+
+    builder.setInsertionPointToEnd(CG.mod->mlir.getBody());
+    auto func = CG.Create<mlir::func::FuncOp>(
+        builder.getUnknownLoc(),
+        fmt::format("__src_defer_proc_{}", DI.defer_procs++),
+        func_type,
+        ArrayRef<mlir::NamedAttribute>{attrs}
+    );
+
+    /// Note that compacting requires an extra defer stack just
+    /// in case the user is clinically insane and put a defer inside
+    /// a defer, or if someone uses types that have destructors in
+    /// a defer expression.
+    ///
+    /// This means that we need to ‘append’ an extra defer stack. The
+    /// problem with that is that this function is called from within
+    /// a loop that loops over all stacks, so allocating an extra stack
+    /// may cause `this` to move and our entries to be invalidated. To
+    /// remedy this, we instead create this extra stack before we start
+    /// iterating and only allow compacting after it has been created.
+    ///
+    /// Thus, the only thing we need to do here is clear that stack and
+    /// check if we’re allowed to compact.
+    Assert(DI.may_compact, "compact() must be called from within an Iterate() loop");
+    auto& extra_stack = std::get<Stack>(DI.stacks.back());
+    extra_stack.entries.clear();
+
+    /// Override the local vars to point to our function arguments.
+    auto entry = func.addEntryBlock();
+    tempset DI.vars = decltype(DI.vars){};
+    for (auto arg : func.getArguments()) DI.vars.push_back(arg);
+
+    /// Then, emit all expressions into the function.
+    /// Also emit the new defer stack we just created.
+    builder.setInsertionPointToEnd(entry);
+    emit(DI);
+    extra_stack.emit(DI);
+    if (not CG.Closed()) CG.Create<mlir::func::ReturnOp>(builder.getUnknownLoc());
+
+    /// Clear the stack and push the function onto it.
+    entries.clear();
+    entries.push_back(func);
+}
+
+void src::CodeGen::DeferInfo::Stack::emit(DeferInfo& DI) {
+    for (auto& op : vws::reverse(entries)) {
+        if (auto d = std::get_if<Expr*>(&op)) DI.CG.Generate(*d);
+        else DI.CallCleanupFunc(std::get<mlir::func::FuncOp>(op));
+    }
+}
+
 
 /// ===========================================================================
 ///  Code Generation
@@ -393,11 +555,24 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::DeferExpr:
-            defer_stacks.back().push_back(cast<DeferExpr>(expr)->expr);
+            DI.AddDeferredExpression(cast<DeferExpr>(expr)->expr);
             break;
 
-        case Expr::Kind::LoopControlExpr:
-            Todo();
+        case Expr::Kind::LoopControlExpr: {
+            /// Emit all defer stacks up to and including the stack
+            /// associated with the loop that we’re breaking out of
+            /// or continuing.
+            auto l = cast<LoopControlExpr>(expr);
+            const auto loc = expr->location.mlir(ctx);
+            DI.EmitDeferStacksUpTo(l->target);
+
+            /// Emit the branch.
+            auto tgt = cast<WhileExpr>(l->target);
+            Create<mlir::cf::BranchOp>(
+                loc,
+                l->is_continue ? tgt->cond_block : tgt->join_block
+            );
+        } break;
 
         case Expr::Kind::ReturnExpr: {
             auto r = cast<ReturnExpr>(expr);
@@ -406,14 +581,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// Emit all defer stacks.
             const auto loc = r->location.mlir(ctx);
             const auto last_inst = expr == curr_proc->body->exprs.back();
-            for (auto& stack : vws::reverse(defer_stacks)) {
-                if (Closed()) break;
-                /// Compact only if this is not the last expression
-                /// in the function, as we won’t be needing the stacks
-                /// later anyway in that case.
-                if (not last_inst) CompactDeferStack(stack);
-                EmitDeferStack(loc, stack);
-            }
+            DI.Return(loc, last_inst);
 
             /// Return the value.
             if (not Closed()) {
@@ -435,26 +603,17 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::BlockExpr: {
-            /// Restore in-scope local variables at end of scope.
-            const auto allocas = in_scope_allocas.size();
-            defer_stacks.emplace_back();
-            defer {
-                in_scope_allocas.resize(allocas);
-                defer_stacks.pop_back();
-            };
+            DeferInfo::BlockGuard guard{DI, expr->location.mlir(ctx)};
 
             /// Add all function parameters if this is a function body.
             if (curr_proc->body == expr)
                 for (auto param : curr_proc->params)
-                    in_scope_allocas.push_back(param->mlir);
+                    DI.AddLocal(param->mlir);
 
             /// Emit the block expression.
             auto e = cast<BlockExpr>(expr);
             for (auto s : e->exprs) Generate(s);
             if (not e->exprs.empty()) e->mlir = e->exprs.back()->mlir;
-
-            /// Emit deferred expressions.
-            if (not Closed()) EmitDeferStack(e->location.mlir(ctx), defer_stacks.back());
         } break;
 
         case Expr::Kind::StringLiteralExpr: {
@@ -534,7 +693,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             );
 
             /// Variable may need to be passed to deferred procedures.
-            in_scope_allocas.push_back(e->mlir);
+            DI.AddLocal(e->mlir);
 
             /// If there is an initialiser, emit it.
             if (e->init) {
@@ -610,28 +769,29 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::WhileExpr: {
             auto w = cast<WhileExpr>(expr);
+            DeferInfo::LoopGuard guard{DI, w};
 
             /// Create a new block for the condition so we can branch
             /// to it and emit the condition there.
             auto region = builder.getBlock()->getParent();
-            auto cond = Attach(region, new mlir::Block);
-            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), cond);
-            builder.setInsertionPointToEnd(cond);
+            w->cond_block = Attach(region, new mlir::Block);
+            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), w->cond_block);
+            builder.setInsertionPointToEnd(w->cond_block);
             Generate(w->cond);
 
             /// Emit the branch to the body.
             auto body = Attach(region, new mlir::Block);
-            auto join = new mlir::Block;
-            Create<mlir::cf::CondBranchOp>(w->location.mlir(ctx), w->cond->mlir, body, join);
+            w->join_block = new mlir::Block;
+            Create<mlir::cf::CondBranchOp>(w->location.mlir(ctx), w->cond->mlir, body, w->join_block);
 
             /// Emit the body.
             builder.setInsertionPointToEnd(body);
             Generate(w->body);
-            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), cond);
+            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), w->cond_block);
 
             /// Insert the join block and continue inserting there.
-            Attach(region, join);
-            builder.setInsertionPointToEnd(join);
+            Attach(region, w->join_block);
+            builder.setInsertionPointToEnd(w->join_block);
         } break;
 
         case Expr::Kind::UnaryPrefixExpr: {
