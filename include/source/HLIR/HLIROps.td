@@ -2,11 +2,14 @@
 #define HLIR_OPS_TD
 
 include "HLIRDialect.td"
+include "mlir/Dialect/LLVMIR/LLVMAttrDefs.td"
 
 def FuncOp : HLIR_Op<"func", [FunctionOpInterface, IsolatedFromAbove]> {
     let summary = "Function";
     let arguments = (ins
         SymbolNameAttr:$sym_name,
+        LinkageAttr:$linkage,
+        CConvAttr:$cc,
         TypeAttrOf<FunctionType>:$function_type,
         OptionalAttr<DictArrayAttr>:$arg_attrs,
         OptionalAttr<DictArrayAttr>:$res_attrs
@@ -16,9 +19,15 @@ def FuncOp : HLIR_Op<"func", [FunctionOpInterface, IsolatedFromAbove]> {
     let builders = [
         OpBuilder<(ins
             "StringRef":$name,
+            "::mlir::LLVM::Linkage":$linkage,
+            "::mlir::LLVM::CConv":$cc,
             "FunctionType":$type,
             CArg<"ArrayRef<NamedAttribute>", "{}">:$attrs
-        )>
+        ), [{
+            buildWithEntryBlock($_builder, $_state, name, type, attrs, type.getInputs());
+            $_state.addAttribute(getCcAttrName($_state.name), mlir::LLVM::CConvAttr::get($_state.getContext(), cc));
+            $_state.addAttribute(getLinkageAttrName($_state.name), mlir::LLVM::LinkageAttr::get($_state.getContext(), linkage));
+        }]>
     ];
 
     let extraClassDeclaration = [{
@@ -31,6 +40,51 @@ def FuncOp : HLIR_Op<"func", [FunctionOpInterface, IsolatedFromAbove]> {
 
     let hasCustomAssemblyFormat = 1;
     let skipDefaultBuilders = 1;
+}
+
+def CallOp : HLIR_Op<"call", [
+    CallOpInterface,
+    MemRefsNormalizable,
+    DeclareOpInterfaceMethods<SymbolUserOpInterface>
+]> {
+    let summary = "call operation";
+    let description = [{ Function call }];
+
+    let arguments = (ins FlatSymbolRefAttr:$callee, Variadic<AnyType>:$operands);
+    let results = (outs Variadic<AnyType>);
+
+    let builders = [
+    OpBuilder<(ins "::mlir::hlir::FuncOp":$callee, CArg<"ValueRange", "{}">:$operands), [{
+      $_state.addOperands(operands);
+      $_state.addAttribute("callee", SymbolRefAttr::get(callee));
+      $_state.addTypes(callee.getFunctionType().getResults());
+    }]>];
+
+    let extraClassDeclaration = [{
+        FunctionType getCalleeType();
+
+        /// Get the argument operands to the called function.
+        operand_range getArgOperands() {
+            return {arg_operand_begin(), arg_operand_end()};
+        }
+
+        operand_iterator arg_operand_begin() { return operand_begin(); }
+        operand_iterator arg_operand_end() { return operand_end(); }
+
+        /// Return the callee of this operation.
+        CallInterfaceCallable getCallableForCallee() {
+            return (*this)->getAttrOfType<SymbolRefAttr>("callee");
+        }
+
+        /// Set the callee for this operation.
+        void setCalleeFromCallable(CallInterfaceCallable callee) {
+            (*this)->setAttr("callee", callee.get<SymbolRefAttr>());
+        }
+    }];
+
+    let assemblyFormat = [{
+        $callee `(` $operands `)` attr-dict `:` functional-type($operands, results)
+    }];
 }
 
 def StringOp : HLIR_Op<"string"> {
