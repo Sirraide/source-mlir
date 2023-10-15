@@ -4,3 +4,6 @@
 [submodule "docs/highlight"]
 	path = docs/highlight
 	url = git@github.com:Sirraide/ltx-highlight-code
+[submodule "libs/cpptrace"]
+	path = libs/cpptrace
+	url = https://github.com/jeremy-rifkin/cpptrace

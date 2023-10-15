@@ -112,37 +112,44 @@ using f64 = double;
     __declspec(property(get = _##name)) type name
 
 // clang-format off
-#define Assert(cond, ...) (cond ? void(0) :                    \
-    ::src::detail::AssertFail(                                 \
-        fmt::format(                                           \
-            "Assertion failed: \"" #cond "\" in {} at line {}" \
-            __VA_OPT__(".\nMessage: {}"), __FILE__, __LINE__   \
-            __VA_OPT__(, fmt::format(__VA_ARGS__))             \
-        )                                                      \
-    )                                                          \
+#define AssertImpl(kind, cond, ...) (cond ? void(0) : \
+    ::src::detail::AssertFail(                        \
+        ::src::detail::AssertKind::kind,              \
+        #cond,                                        \
+        __FILE__,                                     \
+        __LINE__                                      \
+        __VA_OPT__(, fmt::format(__VA_ARGS__))        \
+    )                                                 \
 )
 
-#define Todo(...)                                              \
-    ::src::detail::AssertFail(                                 \
-        fmt::format(                                           \
-            "TODO in {} at line {}"                            \
-            __VA_OPT__(".\nMessage: {}"), __FILE__, __LINE__   \
-            __VA_OPT__(, fmt::format(__VA_ARGS__))             \
-        )                                                      \
-    ) // clang-format on
+#define AbortImpl(kind, ...)                    \
+    ::src::detail::AssertFail(                  \
+        ::src::detail::AssertKind::kind,        \
+        "",                                     \
+        __FILE__,                               \
+        __LINE__                                \
+        __VA_OPT__(, fmt::format(__VA_ARGS__))  \
+    )                                           \
 
-#define Unreachable(...)                                                              \
-    ::src::detail::AssertFail(                                                        \
-        fmt::format(                                                                  \
-            "Unreachable code reached in {} at line {}" __VA_OPT__(".\nMessage: {}"), \
-            __FILE__,                                                                 \
-            __LINE__                                                                  \
-                __VA_OPT__(, fmt::format(__VA_ARGS__))                                \
-        )                                                                             \
-    ) // clang-format on
+#define Assert(cond, ...) AssertImpl(AK_Assert, cond __VA_OPT__(, __VA_ARGS__))
+#define Todo(...) AbortImpl(AK_Todo __VA_OPT__(, __VA_ARGS__))
+#define Unreachable(...) AbortImpl(AK_Unreachable __VA_OPT__(, __VA_ARGS__))
+// clang-format on
 
 namespace detail {
-[[noreturn]] void AssertFail(std::string&& msg);
+enum struct AssertKind {
+    AK_Assert,
+    AK_Todo,
+    AK_Unreachable,
+};
+
+[[noreturn]] void AssertFail(
+    AssertKind k,
+    std::string_view condition,
+    std::string_view file,
+    int line,
+    std::string&& message = ""
+);
 
 template <typename Callable>
 struct DeferStage2 {

@@ -126,11 +126,11 @@ endif()
 ## Debug/Release flags.
 if (NOT MSVC)
     target_compile_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g>
+        $<$<CONFIG:DEBUG>:-O0 -g -glldb -funwind-tables>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
     target_link_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g>
+        $<$<CONFIG:DEBUG>:-O0 -g -glldb -funwind-tables>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
 else()
@@ -226,6 +226,7 @@ add_definitions(
     ${MLIR_DEFINITIONS}
     ${CLANG_DEFINITIONS}
     "-D__SRCC_CLANG_EXE=\"${LLVM_TOOLS_BINARY_DIR}/clang\""
+    "-D__SRCC_PROJECT_DIR_NAME=\"Source-MLIR\""
 )
 
 ## Use llvm-config to get all LLVM libraries.
@@ -318,7 +319,7 @@ endif()
 ## Add the executable.
 add_llvm_executable(srcc ${sources})
 set_target_properties(srcc PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}")
-target_link_libraries(srcc PRIVATE options)
+target_link_libraries(srcc PRIVATE options cpptrace)
 target_precompile_headers(srcc PRIVATE
     include/source/Support/Utils.hh
 )

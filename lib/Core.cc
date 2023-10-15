@@ -1,3 +1,4 @@
+#include <cpptrace/cpptrace.hpp>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/Unicode.h>
 #include <llvm/Target/TargetOptions.h>
@@ -311,10 +312,11 @@ src::Module::~Module() {
 /// ===========================================================================
 ///  Diagnostics
 /// ===========================================================================
+namespace src {
 namespace {
 /// Get the colour of a diagnostic.
-static constexpr auto Colour(src::Diag::Kind kind) {
-    using Kind = src::Diag::Kind;
+static constexpr auto Colour(Diag::Kind kind) {
+    using Kind = Diag::Kind;
     switch (kind) {
         case Kind::ICError: return fmt::fg(fmt::terminal_color::magenta) | fmt::emphasis::bold;
         case Kind::Warning: return fmt::fg(fmt::terminal_color::yellow) | fmt::emphasis::bold;
@@ -330,8 +332,8 @@ static constexpr auto Colour(src::Diag::Kind kind) {
 }
 
 /// Get the name of a diagnostic.
-static constexpr std::string_view Name(src::Diag::Kind kind) {
-    using Kind = src::Diag::Kind;
+static constexpr std::string_view Name(Diag::Kind kind) {
+    using Kind = Diag::Kind;
     switch (kind) {
         case Kind::ICError: return "Internal Compiler Error";
         case Kind::FError: return "Fatal Error";
@@ -342,41 +344,184 @@ static constexpr std::string_view Name(src::Diag::Kind kind) {
     }
 }
 
-#ifdef __linux__
+/// Remove project directory from filename.
+auto NormaliseFilename(std::string_view filename) -> std::string_view {
+    if (auto pos = filename.find(__SRCC_PROJECT_DIR_NAME); pos != std::string_view::npos) {
+        static constexpr std::string_view name{__SRCC_PROJECT_DIR_NAME};
+        filename.remove_prefix(pos + name.size() + 1);
+    }
+    return filename;
+}
+
 /// Print the current stack trace.
 void PrintBacktrace() {
-    /// Get the backtrace.
-    static void* trace[128];
-    int n = backtrace(trace, 128);
+    std::fflush(stdout);
+    std::fflush(stderr);
 
-    /// Convert to strings.
-    std::vector<std::string> trace_strs;
-    trace_strs.reserve(src::usz(n));
-    for (int i = 0; i < n; i++) trace_strs.emplace_back(fmt::format("{:p}", trace[i]));
+    utils::Colours C{true};
+    using enum utils::Colour;
 
-    /// Symboliser path.
-    std::string sym = std::getenv("SYMBOLIZER_PATH") ?: "";
-    if (sym.empty()) sym = "llvm-symbolizer";
+    auto trace = cpptrace::generate_trace(2);
+    for (auto&& [i, frame] : vws::enumerate(trace.frames)) {
+        std::string_view symbol = frame.symbol;
+        std::string sym;
 
-    /// Use llvm-symbolizer to print the backtrace.
-    auto cmd = fmt::format(
-        "{} {} -e {} -s -p -C -i --color --output-style=GNU | awk '{{ print \"#\" NR, $0 }}'",
-        sym,
-        fmt::join(trace_strs, " "),
-        src::fs::canonical("/proc/self/exe").native()
-    );
-    std::system(cmd.c_str());
+        /// Helper to remove template parameters.
+        auto SkipTemplateParams = [&] {
+            /// Skip matching angle brackets.
+            usz brackets = 1;
+            usz j = 0;
+            for (; j < symbol.size(); j++) {
+                if (symbol[j] == '<') brackets++;
+                else if (symbol[j] == '>') {
+                    brackets--;
+                    if (brackets == 0) break;
+                }
+            }
+
+            /// Remove everything up to and including the closing angle bracket.
+            symbol.remove_prefix(std::min(j + 1, symbol.size()));
+        };
+
+        /// Clean up the symbol name.
+        for (;;) {
+            /// Seek next occurrence of `std::`, ` >`, or `src::.
+            auto pos = std::min({
+                symbol.find("std::"sv),
+                symbol.find(" >"sv),
+                symbol.find("src::"sv),
+                symbol.find("fmt::"sv),
+            });
+
+            /// Nothing found.
+            if (pos == std::string_view::npos) {
+                sym += symbol;
+                break;
+            }
+
+            /// Append everything up to the position.
+            sym += symbol.substr(0, pos);
+            symbol.remove_prefix(pos);
+
+            /// If we found ` >` or `src::`, simply remove them and continue.
+            if (symbol.starts_with(" >")) {
+                symbol.remove_prefix(" >"sv.size());
+                sym += ">";
+                continue;
+            } else if (symbol.starts_with("src::")) {
+                symbol.remove_prefix("src::"sv.size());
+                continue;
+            }
+
+            /// Otherwise, append and remove `std::`, but keep going.
+            if (symbol.starts_with("std::")) {
+                symbol.remove_prefix("std::"sv.size());
+                sym += "std::";
+
+                /// Remove `__cxx11::`.
+                if (symbol.starts_with("__cxx11::")) symbol.remove_prefix("__cxx11::"sv.size());
+
+                /// Prettify std::string.
+                if (symbol.starts_with("basic_string<char")) {
+                    symbol.remove_prefix("basic_string<char"sv.size());
+                    SkipTemplateParams();
+                    sym += "string";
+                }
+                continue;
+            }
+
+            /// Prettify fmt::format_string.
+            if (symbol.starts_with("fmt::")) {
+                symbol.remove_prefix("fmt::"sv.size());
+                sym += "fmt::";
+
+                /// Remove version.
+                if (symbol.size() >= 2 and symbol[0] == 'v' and std::isdigit(u8(symbol[1]))) {
+                    auto nmsp = symbol.find("::"sv);
+                    if (nmsp == std::string_view::npos) continue;
+                    symbol.remove_prefix(nmsp + "::"sv.size());
+                }
+
+                /// If we’re looking at `format_string`, remove its template parameters.
+                if (symbol.starts_with("basic_format_string<")) {
+                    symbol.remove_prefix("basic_format_string<"sv.size());
+                    SkipTemplateParams();
+                    sym += "format_string<...>";
+                }
+            }
+        }
+
+        /// Use a relative filepath for less noise.
+        std::string_view filename = NormaliseFilename(frame.filename);
+
+        /// Print the line.
+        fmt::print(
+            stderr,
+            "#{:<{}} {}{:#016x} {}in {}{} {}at {}{}{}:{}{}{}\n",
+            i,
+            utils::NumberWidth(trace.frames.size()),
+            C(Blue),
+            frame.address,
+            C(Reset),
+            C(Yellow),
+            sym,
+            C(Reset),
+            C(Green),
+            filename,
+            C(Reset),
+            C(Blue),
+            frame.line,
+            C(Reset)
+        );
+
+        /// Stop at main.
+        if (frame.symbol == "main") break;
+    }
+
+    std::fflush(stdout);
+    std::fflush(stderr);
 }
-#else
-void PrintBacktrace() {
-    /// TODO: Implement this for other platforms.
-}
-#endif
 } // namespace
+} // namespace src
 
 /// Abort due to assertion failure.
-[[noreturn]] void src::detail::AssertFail(std::string&& msg) {
-    Diag::ICE("{}", std::move(msg));
+void src::detail::AssertFail(
+    AssertKind k,
+    std::string_view condition,
+    std::string_view file,
+    int line,
+    std::string&& message
+) {
+    using fmt::fg;
+    using enum fmt::emphasis;
+    using enum fmt::terminal_color;
+
+    /// Print filename and ICE title.
+    fmt::print(stderr, bold, "{}:", NormaliseFilename(file));
+    fmt::print(stderr, Colour(Diag::Kind::ICError), " {}: ", Name(Diag::Kind::ICError));
+
+    /// Print the condition, if any.
+    switch (k) {
+        case AssertKind::AK_Assert:
+            fmt::print(stderr, "Assertion failed: '{}'", condition);
+            break;
+
+        case AssertKind::AK_Todo:
+            fmt::print(stderr, "TODO");
+            break;
+
+        case AssertKind::AK_Unreachable:
+            fmt::print(stderr, "Unreachable code reached");
+            break;
+    }
+
+    /// Print the message.
+    if (not message.empty()) fmt::print(stderr, ": {}", message);
+    fmt::print("\n");
+
+    /// Print the backtrace and exit.
+    PrintBacktrace();
+    std::exit(Diag::ICEExitCode);
 }
 
 void src::Diag::HandleFatalErrors() {

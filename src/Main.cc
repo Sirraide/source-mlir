@@ -50,6 +50,7 @@ using options = clopts< // clang-format off
 using detail::options;
 
 int main(int argc, char** argv) {
+    llvm::EnablePrettyStackTrace();
     options::parse(argc, argv);
 
     /// Create context.
