@@ -21,6 +21,19 @@ dynamic struct Expr {
     }
 }
 
+/// Scoped pointers (‘smart pointers’, ‘unique pointers’):
+///
+/// int^ x = new int; /// Allocates a new int on the heap.
+/// int^ y = x;       /// Moves x into y.
+/// x = 4;            /// ERROR: x has been moved.
+/// y = 5;            /// Assign 5 to y.
+/// x => y;           /// Rebind x to y.
+/// y = 6;            /// ERROR: y has been moved.
+/// y => new int;     /// Allocate a new int.
+/// delete x;         /// Delete the int pointed to by x.
+/// // y is deleted at end of scope.
+
+
 /// USE `::` for scope access, and remove it as an operator. Use e.g. `int.size` to get the size of an int.
 
 /// Idea: Lex all tokens beforehand to make lookahead a no-op and allow lookbehind.

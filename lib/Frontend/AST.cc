@@ -55,6 +55,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::ProcType:
         case Kind::IntType:
         case Kind::SliceType:
+        case Kind::StructType:
             return this;
     }
 }
@@ -99,6 +100,9 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
 
         case Kind::SliceType:
             return 64; /// FIXME: Use context.
+
+        case Kind::StructType:
+            return cast<StructType>(ptr)->stored_alignment;
 
         case Kind::OptionalType:
             Todo();
@@ -192,6 +196,9 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
 
         case Kind::SliceType:
             return 128; /// FIXME: Use context.
+
+        case Kind::StructType:
+            return cast<StructType>(ptr)->stored_size;
 
         case Kind::OptionalType:
             Todo();
@@ -292,6 +299,27 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
             }
         } break;
 
+        case Kind::StructType: {
+            auto s = cast<StructType>(ptr);
+            out += fmt::format("{}struct ", C(Red));
+            if (not s->name.empty()) {
+                out += fmt::format("{}{}", C(Cyan), s->name.str());
+            } else {
+                out += fmt::format(
+                    "<anonymous {}{}{} at {}{}{}:{}{}{}>",
+                    C(Blue),
+                    fmt::ptr(ptr),
+                    C(Red),
+                    C(Magenta),
+                    s->location.file_id,
+                    C(Red),
+                    C(Magenta),
+                    s->location.pos,
+                    C(Red)
+                );
+            }
+        } break;
+
         case Kind::AssertExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
@@ -334,6 +362,9 @@ bool src::Expr::TypeHandle::_yields_value() {
 }
 
 bool src::Type::Equal(Expr* a, Expr* b) {
+    /// Any instance of a type is equal to itself.
+    if (a == b) return true;
+
     /// Non-types are never equal.
     if (not isa<Type>(a) or not isa<Type>(b)) return false;
 
@@ -371,6 +402,24 @@ bool src::Type::Equal(Expr* a, Expr* b) {
             return Type::Equal(pa->ret_type, pb->ret_type);
         }
 
+        case Kind::StructType: {
+            auto sa = cast<StructType>(a);
+            auto sb = cast<StructType>(b);
+
+            /// If either type is named, they’re the same iff they’re the
+            /// same instance. Since we’ve already tested for that above,
+            /// we can just return here.
+            ///
+            /// Note that two different structs may have the same name if
+            /// they are declared in different scopes, so checking for name
+            /// equality makes no sense, ever.
+            if (not sa->name.empty() or not sb->name.empty()) return false;
+
+            /// Two anonymous structs are equal iff they are layout-compatible
+            /// TODO: and neither has a user-defined constructor or destructor.
+            return StructType::LayoutCompatible(sa, sb);
+        }
+
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
         case Kind::LoopControlExpr:
@@ -394,6 +443,22 @@ bool src::Type::Equal(Expr* a, Expr* b) {
     }
 
     Unreachable();
+}
+
+/// This only checks the layout; whether this makes sense
+/// at all is up to the caller.
+bool src::StructType::LayoutCompatible(StructType* a, StructType* b) {
+    using std::get;
+    if (a->fields.size() != b->fields.size()) return false;
+
+    /// Check if all fields’ types are the same. Note that,
+    /// since padding is explicitly encoded in the form of
+    /// extra fields, this also takes care of checking for
+    /// alignment.
+    return llvm::all_of(
+        llvm::zip_equal(a->field_types(), b->field_types()),
+        [](auto&& t) { return Type::Equal(t); }
+    );
 }
 
 /// ===========================================================================
@@ -686,6 +751,7 @@ struct ASTPrinter {
             case K::OptionalType:
             case K::IntType:
             case K::SliceType:
+            case K::StructType:
                 PrintBasicNode("Type", e, e);
                 return;
         }
@@ -718,6 +784,10 @@ struct ASTPrinter {
             case K::OptionalType:
             case K::IntType:
             case K::SliceType:
+                break;
+
+            /// TODO: Print struct type info.
+            case K::StructType:
                 break;
 
             case K::DeclRefExpr: {

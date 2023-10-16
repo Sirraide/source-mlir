@@ -21,6 +21,7 @@
          | <expr-while>
          | <expr-labelled>
          | <expr-loop-ctrl>
+         | <type-struct>
          | <decl>
 
 <expr-assert>    ::= ASSERT <expr> [ ","  <expr> ]
@@ -59,11 +60,16 @@
 /// ==========================================================================
 <decl>           ::= <proc-named> | <proc-extern> | <param-decl> | <var-decl>
 <var-decl>       ::= <type> IDENTIFIER [ "=" <expr> ]
+<type-struct>    ::= STRUCT <name> <struct-rest>
+<struct-anon>    ::= STRUCT <struct-rest>
+<struct-rest>    ::= "{" { <struct-field> } "}"
+<struct-field>   ::= <var-decl>
 
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
-<type>           ::= <type-prim> | <type-qualified>
+<type>           ::= <type-prim> | <type-qualified> | <type-named> | <type-struct> | <struct-anon>
 <type-prim>      ::= INTEGER_TYPE | INT
+<type-named>     ::= IDENTIFIER
 <type-qualified> ::= <type> { <type-qual> }
 <type-qual>      ::= "&"

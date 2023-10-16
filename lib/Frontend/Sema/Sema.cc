@@ -171,6 +171,10 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not AnalyseAsType(type->ret_type)) e->sema.set_errored();
         } break;
 
+        /// Structures.
+        case Expr::Kind::StructType:
+            Todo();
+
         /// Deferred expression.
         case Expr::Kind::DeferExpr: {
             /// Defer expressions have nothing to typecheck really, so

@@ -153,6 +153,7 @@ private:
     /// Parser functions.
     auto ParseAssertion() -> Result<Expr*>;
     auto ParseBlock() -> Result<BlockExpr*>;
+    auto ParseDecl() -> Result<Decl*>;
     auto ParseExpr(int curr_prec = 0) -> Result<Expr*>;
     auto ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>;
     void ParseFile();
@@ -162,6 +163,7 @@ private:
     auto ParseParamDeclList(SVI<ParamDecl*>& param_decls, SVI<Expr*>& param_types) -> Location;
     auto ParseProc() -> Result<Expr*>;
     auto ParseSignature() -> Signature;
+    auto ParseStruct() -> Result<StructType*>;
     auto ParseType() -> Result<Expr*>;
     auto ParseWhile(std::string label = "") -> Result<Expr*>;
 

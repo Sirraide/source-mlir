@@ -1,0 +1,11 @@
+struct S {
+    i8 a;
+    i8 b;
+    i64 c;
+    i32 d;
+}
+
+proc foo (S& a, S b) = a.a + b.a;
+
+S s;
+foo s, s;

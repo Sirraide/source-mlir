@@ -111,6 +111,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Star:
         case Tk::StarStar:
         case Tk::StringLiteral:
+        case Tk::Struct:
         case Tk::True:
         case Tk::Void:
         case Tk::While:
@@ -163,6 +164,31 @@ auto src::Parser::ParseBlock() -> Result<BlockExpr*> {
     return block;
 }
 
+/// <decl> ::= <proc-named> | <proc-extern> | <param-decl> | <var-decl>
+auto src::Parser::ParseDecl() -> Result<Decl*> {
+    if (At(Tk::Proc)) return cast<Decl>(ParseProc());
+
+    /// Parse decl type.
+    auto ty = ParseType();
+    if (IsError(ty)) return ty.diag;
+
+    /// Parse name.
+    if (not At(Tk::Identifier)) return Error("Expected identifier");
+    auto name = tok.text;
+    auto loc = Next();
+
+    /// Create a variable declaration, but don’t add it to any scope.
+    return new (mod) VarDecl(
+        mod,
+        std::move(name),
+        *ty,
+        nullptr,
+        Linkage::Internal,
+        Mangling::Source,
+        loc
+    );
+}
+
 /// <expr-decl-ref> ::= IDENTIFIER
 /// <expr-access>   ::= <expr> "." IDENTIFIER
 /// <expr-literal>  ::= INTEGER_LITERAL | STRING_LITERAL
@@ -181,6 +207,17 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::Void:
         case Tk::NoReturn:
             lhs = ParseType();
+            break;
+
+        /// Struct type or decl.
+        ///
+        /// Note that a named struct decl cannot be used directly as a type,
+        /// so we return here if this is one. This is so that we don’t have
+        /// to put a semicolon after the closing brace of a struct without
+        /// causing the struct to gobble up any name after it.
+        case Tk::Struct:
+            lhs = ParseStruct();
+            if (lhs.is_value and not cast<StructType>(*lhs)->name.empty()) return lhs;
             break;
 
         case Tk::LBrace:
@@ -694,16 +731,72 @@ auto src::Parser::ParseSignature() -> Signature {
     return sig;
 }
 
-/// <type>           ::= <type-prim> | <type-qualified>
+/// <type-struct>    ::= STRUCT <name> <struct-rest>
+/// <struct-anon>    ::= STRUCT <struct-rest>
+/// <struct-rest>    ::= "{" { <struct-field> } "}"
+/// <struct-field>   ::= <var-decl>
+auto src::Parser::ParseStruct() -> Result<StructType*> {
+    Assert(At(Tk::Struct));
+    auto start = Next();
+
+    /// Parse name if there is one.
+    SmallString<32> name;
+    if (At(Tk::Identifier)) {
+        name = tok.text;
+        Next();
+    }
+
+    /// Parse fields.
+    if (not Consume(Tk::LBrace)) return Error("Expected '{{' in struct type");
+    ScopeRAII sc{this};
+    SmallVector<StructType::Field> fields;
+    while (not At(Tk::RBrace, Tk::Eof)) {
+        auto field = ParseDecl();
+        if (IsError(field)) {
+            Synchronise(Tk::Semicolon, Tk::RBrace);
+            continue;
+        }
+
+        /// If the decl is a var decl, add it as a field. Other
+        /// decls are currently illegal in this position.
+        if (auto var = dyn_cast<VarDecl>(*field)) fields.push_back({var});
+        else Error("Only variable declarations are allowed in struct types");
+        Consume(Tk::Semicolon);
+    }
+
+    /// Parse closing brace.
+    if (not Consume(Tk::RBrace)) Error("Expected '}}'");
+
+    /// Create the struct type.
+    return new (mod) StructType(
+        std::move(name),
+        std::move(fields),
+        sc.scope,
+        {start, curr_loc}
+    );
+}
+
+/// <type>           ::= <type-prim> | <type-qualified> | <type-named> | <type-struct> | <struct-anon>
 /// <type-prim>      ::= INTEGER_TYPE | INT
+/// <type-named>     ::= IDENTIFIER
 /// <type-qualified> ::= <type> { <type-qual> }
 /// <type-qual>      ::= "&"
 auto src::Parser::ParseType() -> Result<Expr*> {
     /// Parse base type.
     Expr* base_type = nullptr;
     switch (tok.type) {
-        default:
-            return Error("Expected type");
+        default: return Error("Expected type");
+
+        case Tk::Struct: {
+            auto ty = ParseStruct();
+            if (IsError(ty)) return ty.diag;
+            base_type = *ty;
+        } break;
+
+        case Tk::Identifier:
+            base_type = new (mod) DeclRefExpr(tok.text, curr_scope, Next());
+            Next();
+            break;
 
         case Tk::IntegerType:
             base_type = new (mod) IntType(tok.integer, tok.location);

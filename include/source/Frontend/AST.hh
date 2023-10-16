@@ -40,6 +40,7 @@ public:
         /// Type [begin]
         BuiltinType,
         FFIType,
+        StructType,
         IntType,
         ReferenceType,
         ScopedPointerType,
@@ -682,6 +683,15 @@ public:
     /// so we disallow that altogether.
     static bool Equal(Expr* a, Expr* b);
 
+    /// Wrapper around Equal() for a tuple.
+    template <typename T>
+    static bool Equal(T&& t)
+    requires requires (T u) { std::get<0>(u); }
+    {
+        auto&& [a, b] = std::forward<T>(t);
+        return Equal(a, b);
+    }
+
     /// RTTI.
     static bool classof(const Expr* e) {
         return e->kind >= Kind::BuiltinType and e->kind <= Kind::ProcType;
@@ -754,6 +764,45 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::FFIType; }
+};
+
+class StructType : public Type {
+public:
+    struct Field {
+        VarDecl* decl;
+    };
+
+    /// The fields of this struct.
+    SmallVector<Field> fields;
+
+    /// The name of this struct.
+    SmallString<32> name;
+
+    /// Scope associated with this struct.
+    Scope* scope;
+
+    /// Cached size and alignment, in bits.
+    isz stored_size{};
+    isz stored_alignment{1};
+
+    StructType(SmallString<32> name, SmallVector<Field> fields, Scope* scope, Location loc)
+        : Type(Kind::StructType, loc),
+          fields(std::move(fields)),
+          name(std::move(name)),
+          scope(scope) {}
+
+    /// The types of all fields.
+    auto field_types() {
+        /// This can’t be a property because of how stupid C++ name lookup is.
+        return vws::transform(fields, [](Field& f) { return f.decl->type; });
+    }
+
+    /// Check if two struct types have the same layout.
+    static bool LayoutCompatible(StructType* a, StructType* b);
+
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::StructType; }
 };
 
 class SingleElementTypeBase : public Type {

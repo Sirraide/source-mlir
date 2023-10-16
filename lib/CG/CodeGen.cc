@@ -100,6 +100,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
 
         case Expr::Kind::ScopedPointerType:
         case Expr::Kind::OptionalType:
+        case Expr::Kind::StructType: /// TODO: Just use llvm.struct for this one for now.
             Todo();
 
         case Expr::Kind::AssertExpr:
@@ -394,6 +395,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::SliceType:
         case Expr::Kind::OptionalType:
         case Expr::Kind::ProcType:
+        case Expr::Kind::StructType:
             Unreachable();
 
         case Expr::Kind::InvokeExpr: {
