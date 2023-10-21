@@ -288,19 +288,21 @@ src::Module::Module(Context* ctx, std::string name, Location module_decl_locatio
     : context(ctx),
       name(std::move(name)),
       module_decl_location(module_decl_location) {
-    /// Create the global scope. The scope is automatically
-    /// added to our list of scopes by operator new.
-    new (this) Scope{nullptr, this};
     top_level_func = new (this) ProcDecl{
         this,
+        nullptr,
         is_logical_module ? fmt::format("_S.static.initialisation.{}", name) : "__src_main",
         new (this) ProcType({}, BuiltinType::Void(this), {}),
         {},
-        new (this) BlockExpr{global_scope, {}, {}},
         Linkage::Exported,
         Mangling::None,
         {},
     };
+
+    /// Create the global scope. The scope is automatically
+    /// added to our list of scopes by operator new.
+    new (this) Scope{nullptr, this};
+    top_level_func->body = new (this) BlockExpr{global_scope, {}, {}};
 }
 
 src::Module::~Module() {

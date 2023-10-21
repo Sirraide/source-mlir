@@ -1,0 +1,26 @@
+
+
+proc p1 {
+    int a;
+    a = 4;
+
+    proc p2 {
+        int b;
+        a = 3;
+
+        proc p3 {
+            b = 4;
+            p5();
+
+            proc p4 {
+                a = 8;
+                p5();
+            }
+        }
+
+        proc p5 {
+            a = 7;
+            b = 6;
+        }
+    }
+}

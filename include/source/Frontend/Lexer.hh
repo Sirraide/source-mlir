@@ -184,7 +184,7 @@ class Lexer {
         StringMap<Token> bound_parameters{};
 
     public:
-        MacroExpansion(Lexer& l, Macro& m, StringMap<Token> args, Location loc)
+        MacroExpansion(Lexer&, Macro& m, StringMap<Token> args, Location)
             : m(&m), it(m.expansion.begin()), bound_parameters(std::move(args)) {}
 
         /// Check if the macro is done expanding.

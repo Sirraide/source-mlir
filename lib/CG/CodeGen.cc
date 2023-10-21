@@ -122,6 +122,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
         case Expr::Kind::InvokeExpr:
         case Expr::Kind::MemberAccessExpr:
         case Expr::Kind::DeclRefExpr:
+        case Expr::Kind::VarRefExpr:
         case Expr::Kind::BoolLiteralExpr:
         case Expr::Kind::IntegerLiteralExpr:
         case Expr::Kind::StringLiteralExpr:
@@ -249,7 +250,7 @@ auto src::CodeGen::DeferInfo::CurrentStack() -> Stack& {
     return *Iterate(nullptr, false).begin();
 }
 
-void src::CodeGen::DeferInfo::Return(mlir::Location loc, bool last_instruction_in_function) {
+void src::CodeGen::DeferInfo::Return(bool last_instruction_in_function) {
     /// Compact only if this is not the last expression
     /// in the function, as we won’t be needing the stacks
     /// later anyway in that case.
@@ -448,16 +449,32 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 );
             }
 
-            /// If it is a variable, then this is a variable reference.
-            else if (isa<VarDecl, ParamDecl>(e->decl)) {
-                /// Variable must have already been emitted. This is
-                /// an lvalue, so no loading happens here.
+            /// If it is a parameter, then this is a parameter reference.
+            else if (isa<ParamDecl>(e->decl)) {
                 Assert(e->decl->mlir);
                 e->mlir = e->decl->mlir;
             }
 
             else {
                 Unreachable();
+            }
+        } break;
+
+        case Expr::Kind::VarRefExpr: {
+            auto var = cast<VarRefExpr>(expr);
+
+            /// Easy case: the variable we’re accessing is in the same
+            /// scope as the reference.
+            if (var->static_chain_distance == 0) {
+                Assert(var->decl->mlir);
+                var->mlir = var->decl->mlir;
+            }
+
+            /// This is the complicated one. We need to retrieve the
+            /// address of this variable (note that this is an lvalue!)
+            /// via the static chain.
+            else {
+                Todo();
             }
         } break;
 
@@ -611,7 +628,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// Emit all defer stacks.
             const auto loc = r->location.mlir(ctx);
             const auto last_inst = expr == curr_proc->body->exprs.back();
-            DI.Return(loc, last_inst);
+            DI.Return(last_inst);
 
             /// Return the value.
             if (not Closed()) {
@@ -996,6 +1013,9 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         Generate(proc->body);
 
         /// Insert a return expression at the end if there isn’t already one.
+        ///
+        /// Note: No need to worry about deferred expressions here or anything since
+        /// that has already been taken care of by the code that emits the body.
         if (func.back().empty() or not func.back().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
             /// Function returns void.
             if (Type::Equal(proc->ret_type, Type::Void)) {

@@ -10,6 +10,7 @@ namespace src {
 class Expr;
 class Type;
 class FunctionDecl;
+class VarDecl;
 
 namespace detail {
 extern Expr* const UnknownType;
@@ -81,6 +82,7 @@ public:
         IfExpr,
         BinaryExpr,
         DeclRefExpr,
+        VarRefExpr,
         BoolLiteralExpr,
         IntegerLiteralExpr,
         StringLiteralExpr,
@@ -212,9 +214,6 @@ public:
 
     /// Print this expression to stdout.
     void print() const;
-
-    /// RTTI.
-    static bool classof(const Expr* e) { return true; }
 };
 
 class AssertExpr : public Expr {
@@ -513,6 +512,23 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::DeclRefExpr; }
 };
 
+/// DeclRefExpr that references a VarDecl, possibly in
+/// a parent function.
+class VarRefExpr : public TypedExpr {
+public:
+    /// Distance to the declaration in stack frames. 0 means
+    /// the declaration is in the current stack frame.
+    isz static_chain_distance{};
+
+    /// The declaration this refers to.
+    VarDecl* decl;
+
+    VarRefExpr(VarDecl* decl, Location loc);
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::VarRefExpr; }
+};
+
 class IntLitExpr : public TypedExpr {
 public:
     /// The value of this literal.
@@ -599,13 +615,16 @@ public:
 
 class VarDecl : public ObjectDecl {
 public:
+    /// The procedure containing this variable.
+    ProcDecl* parent;
+
     /// The initialiser.
     Expr* init;
 
     /// Linkage and mangling are ignored for e.g. struct fields.
     /// TODO: Maybe use a different FieldDecl class for that?
     VarDecl(
-        Module* mod,
+        ProcDecl* parent,
         std::string name,
         Expr* type,
         Expr* init,
@@ -613,7 +632,9 @@ public:
         Mangling mangling,
         Location loc
     ) : ObjectDecl(Kind::VarDecl, std::move(name), type, linkage, mangling, loc),
-        init(init) {}
+        parent(parent),
+        init(init) {
+    }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::VarDecl; }
@@ -623,6 +644,9 @@ class ProcDecl : public ObjectDecl {
 public:
     /// The module this procedure belongs to.
     Module* module;
+
+    /// The parent function. Null if this is the top-level function.
+    ProcDecl* parent;
 
     /// The function parameter decls.
     SmallVector<ParamDecl*> params;
@@ -635,19 +659,14 @@ public:
 
     ProcDecl(
         Module* mod,
+        ProcDecl* parent,
         std::string name,
         Expr* type,
         SmallVector<ParamDecl*> params,
-        BlockExpr* body,
         Linkage linkage,
         Mangling mangling,
         Location loc
-    ) : ObjectDecl(Kind::ProcDecl, std::move(name), type, linkage, mangling, loc),
-        module(mod),
-        params(std::move(params)),
-        body(body) {
-        mod->add_function(this);
-    }
+    );
 
     /// Add a labelled expression to the function. This is done
     /// at parse time so all labels are available in sema.

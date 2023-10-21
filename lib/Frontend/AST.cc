@@ -20,6 +20,29 @@ src::IntType* const src::Type::I8 = &IntType8Instance;
 /// ===========================================================================
 ///  Expressions
 /// ===========================================================================
+src::ProcDecl::ProcDecl(
+    Module* mod,
+    ProcDecl* parent,
+    std::string name,
+    Expr* type,
+    SmallVector<ParamDecl*> params,
+    Linkage linkage,
+    Mangling mangling,
+    Location loc
+) : ObjectDecl(Kind::ProcDecl, std::move(name), type, linkage, mangling, loc),
+    module(mod),
+    parent(parent),
+    params(std::move(params)),
+    body(nullptr) {
+    mod->add_function(this);
+}
+
+src::VarRefExpr::VarRefExpr(VarDecl* decl, Location loc)
+    : TypedExpr(Kind::VarRefExpr, decl->type, loc),
+      decl(decl) {
+    is_lvalue = true;
+}
+
 auto src::Expr::_type() -> TypeHandle {
     switch (kind) {
         case Kind::ReturnExpr:
@@ -37,6 +60,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::ConstExpr:
         case Kind::MemberAccessExpr:
         case Kind::DeclRefExpr:
+        case Kind::VarRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
@@ -123,6 +147,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
             Unreachable(".align accessed on function type");
 
         case Kind::DeclRefExpr:
+        case Kind::VarRefExpr:
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
         case Kind::ConstExpr:
@@ -232,6 +257,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
             Unreachable(".size accessed on function type");
 
         case Kind::DeclRefExpr:
+        case Kind::VarRefExpr:
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
         case Kind::ConstExpr:
@@ -371,6 +397,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::ConstExpr:
         case Kind::MemberAccessExpr:
         case Kind::DeclRefExpr:
+        case Kind::VarRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
@@ -481,6 +508,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::InvokeExpr:
         case Kind::MemberAccessExpr:
         case Kind::DeclRefExpr:
+        case Kind::VarRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
@@ -667,7 +695,7 @@ struct ASTPrinter {
 
             case K::DeclRefExpr: {
                 auto n = cast<DeclRefExpr>(e);
-                PrintBasicHeader("NameRefExpr", e);
+                PrintBasicHeader("DeclRefExpr", e);
                 out += fmt::format(
                     " {}{} {}{}{}\n",
                     C(White),
@@ -675,6 +703,20 @@ struct ASTPrinter {
                     n->type.str(use_colour),
                     C(Blue),
                     n->is_lvalue ? " lvalue" : ""
+                );
+                return;
+            }
+
+            case K::VarRefExpr: {
+                auto n = cast<VarRefExpr>(e);
+                PrintBasicHeader("VarRefExpr", e);
+                out += fmt::format(
+                    " {} {}lvalue{}\n",
+                    n->type.str(use_colour),
+                    C(Blue),
+                    n->static_chain_distance
+                        ? fmt::format(" chain{}({}{}{})", C(Red), C(Magenta), n->static_chain_distance, C(Red))
+                        : ""
                 );
                 return;
             }
@@ -885,6 +927,12 @@ struct ASTPrinter {
                     tempset print_children_of_children = false;
                     PrintChildren(n->decl, leading_text);
                 }
+            } break;
+
+            case K::VarRefExpr: {
+                auto n = cast<VarRefExpr>(e);
+                tempset print_children_of_children = false;
+                PrintChildren(n->decl, leading_text);
             } break;
 
             case K::InvokeExpr: {

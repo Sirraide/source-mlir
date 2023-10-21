@@ -49,7 +49,6 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clan
         ## Disabled warnings.
         -Wno-unused-function
         -Wno-unused-local-typedefs
-        -Wno-unused-parameter
 
         ## NULL Errors.
         -Werror=nonnull # Passing NULL to nonnull parameter.

@@ -93,7 +93,7 @@ class CodeGen {
         void EmitDeferStacksUpTo(Expr* stop_at);
 
         /// Emit all defer stacks for a return expression.
-        void Return(mlir::Location loc, bool last_instruction_in_function);
+        void Return(bool last_instruction_in_function);
 
     private:
         /// Call a function that executes deferred expressions.

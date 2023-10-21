@@ -179,7 +179,7 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
 
     /// Create a variable declaration, but don’t add it to any scope.
     return new (mod) VarDecl(
-        mod,
+        curr_func,
         std::move(name),
         *ty,
         nullptr,
@@ -627,10 +627,23 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
     /// we’ll parse them separately.
     auto sig = ParseSignature();
 
+    /// Create the procedure early so we can set it as
+    /// the current procedure.
+    tempset curr_func = new (mod) ProcDecl(
+        mod,
+        curr_func,
+        std::move(sig.name),
+        sig.type,
+        std::move(sig.param_decls),
+        sig.is_extern ? Linkage::Imported : Linkage::Internal,
+        sig.is_nomangle ? Mangling::None : Mangling::Source,
+        sig.loc
+    );
+
     /// Parse the body if the procedure is not external.
-    auto body = Result<BlockExpr*>::Null();
     bool infer_return_type = false;
     if (not sig.is_extern) {
+        auto body = Result<BlockExpr*>::Null();
         if (Consume(Tk::Assign)) {
             infer_return_type = true;
             body = ParseImplicitBlock();
@@ -639,31 +652,21 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
         } else {
             body = Error("Expected '=' or '{{' at start of procedure body");
         }
+
+        /// Set the body if there is one.
+        if (IsError(body)) return body;
+        curr_func->body = *body;
+        curr_func->body->scope->set_function_scope();
     }
 
     /// If the return type is not inferred and not provided, then
-    /// default to 'void' rather than 'unknown.
+    /// default to 'void' rather than 'unknown'.
     if (not infer_return_type and Type::Equal(sig.type->ret_type, Type::Unknown))
         sig.type->ret_type = Type::Void;
 
-    /// Create the procedure.
-    ///
-    /// Note: Variable declarations are only added to a scope in Sema.
-    if (IsError(body)) return body;
-    auto proc = new (mod) ProcDecl(
-        mod,
-        std::move(sig.name),
-        sig.type,
-        std::move(sig.param_decls),
-        *body,
-        sig.is_extern ? Linkage::Imported : Linkage::Internal,
-        sig.is_nomangle ? Mangling::None : Mangling::Source,
-        sig.loc /// 300+ line locations are nonsense, so don’t even bother w/ the body’s location.
-    );
-
     /// Add it to the current scope.
-    curr_scope->declare(proc->name, proc);
-    return proc;
+    curr_scope->declare(curr_func->name, curr_func);
+    return curr_func;
 }
 
 /// Parse a procedure signature. The return type is 'unknown' by
