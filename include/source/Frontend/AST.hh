@@ -10,7 +10,7 @@ namespace src {
 class Expr;
 class Type;
 class FunctionDecl;
-class VarDecl;
+class LocalDecl;
 
 namespace detail {
 extern Expr* const UnknownType;
@@ -82,17 +82,16 @@ public:
         IfExpr,
         BinaryExpr,
         DeclRefExpr,
-        VarRefExpr,
+        LocalRefExpr,
         BoolLiteralExpr,
         IntegerLiteralExpr,
         StringLiteralExpr,
 
         /// Decl [begin]
-        ParamDecl,
+        LocalDecl,
 
         /// ObjectDecl [begin]
         ProcDecl,
-        VarDecl,
     };
 
     class SemaState {
@@ -512,21 +511,21 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::DeclRefExpr; }
 };
 
-/// DeclRefExpr that references a VarDecl, possibly in
+/// DeclRefExpr that references a LocalDecl, possibly in
 /// a parent function.
-class VarRefExpr : public TypedExpr {
+class LocalRefExpr : public TypedExpr {
 public:
     /// Distance to the declaration in stack frames. 0 means
     /// the declaration is in the current stack frame.
     isz static_chain_distance{};
 
     /// The declaration this refers to.
-    VarDecl* decl;
+    LocalDecl* decl;
 
-    VarRefExpr(VarDecl* decl, Location loc);
+    LocalRefExpr(LocalDecl* decl, Location loc);
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::VarRefExpr; }
+    static bool classof(const Expr* e) { return e->kind == Kind::LocalRefExpr; }
 };
 
 class IntLitExpr : public TypedExpr {
@@ -580,7 +579,7 @@ public:
         : TypedExpr(k, type, loc), name(std::move(name)) {}
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind >= Kind::ParamDecl; }
+    static bool classof(const Expr* e) { return e->kind >= Kind::LocalDecl; }
 };
 
 class ObjectDecl : public Decl {
@@ -604,26 +603,44 @@ public:
     static bool classof(const Expr* e) { return e->kind >= Kind::ProcDecl; }
 };
 
-class ParamDecl : public Decl {
+/// Local variable declaration.
+class LocalDecl : public Decl {
 public:
-    ParamDecl(std::string name, Expr* type, Location loc)
-        : Decl(Kind::ParamDecl, std::move(name), type, loc) {}
+    /// The procedure containing this declaration.
+    ProcDecl* parent;
+
+    /// The initialiser, if any.
+    Expr* init;
+
+    /// Whether this declaration is captured.
+    bool captured = false;
+
+    LocalDecl(
+        ProcDecl* parent,
+        std::string name,
+        Expr* type,
+        Expr* init,
+        Location loc
+    ) : Decl(Kind::LocalDecl, std::move(name), type, loc),
+        parent(parent),
+        init(init) {
+    }
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::ParamDecl; }
+    static bool classof(const Expr* e) { return e->kind == Kind::LocalDecl; }
 };
 
-class VarDecl : public ObjectDecl {
+/*
+/// Global variable decalration.
+class GlobalDecl : public ObjectDecl {
 public:
-    /// The procedure containing this variable.
-    ProcDecl* parent;
 
     /// The initialiser.
     Expr* init;
 
     /// Linkage and mangling are ignored for e.g. struct fields.
     /// TODO: Maybe use a different FieldDecl class for that?
-    VarDecl(
+    GlobalDecl(
         ProcDecl* parent,
         std::string name,
         Expr* type,
@@ -631,14 +648,15 @@ public:
         Linkage linkage,
         Mangling mangling,
         Location loc
-    ) : ObjectDecl(Kind::VarDecl, std::move(name), type, linkage, mangling, loc),
+    ) : ObjectDecl(Kind::LocalDecl, std::move(name), type, linkage, mangling, loc),
         parent(parent),
         init(init) {
     }
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::VarDecl; }
+    static bool classof(const Expr* e) { return e->kind == Kind::LocalDecl; }
 };
+*/
 
 class ProcDecl : public ObjectDecl {
 public:
@@ -649,7 +667,7 @@ public:
     ProcDecl* parent;
 
     /// The function parameter decls.
-    SmallVector<ParamDecl*> params;
+    SmallVector<LocalDecl*> params;
 
     /// Body of the function.
     BlockExpr* body;
@@ -662,7 +680,7 @@ public:
         ProcDecl* parent,
         std::string name,
         Expr* type,
-        SmallVector<ParamDecl*> params,
+        SmallVector<LocalDecl*> params,
         Linkage linkage,
         Mangling mangling,
         Location loc
@@ -685,6 +703,9 @@ public:
         labels[label] = expr;
         return expr;
     }
+
+    /// Whether this is a nested procedure.
+    readonly(bool, nested, return parent and parent->parent != nullptr);
 
     /// Get the return type of this procedure.
     [[gnu::pure]] readonly_decl(TypeHandle, ret_type);
@@ -818,7 +839,7 @@ public:
 class StructType : public Type {
 public:
     struct Field {
-        VarDecl* decl;
+        LocalDecl* decl;
         isz offset{};
         bool padding{};
     };
@@ -849,7 +870,7 @@ public:
 
     /// Get the fields of this struct, including all padding fields.
     auto fields_and_padding() {
-        return vws::transform(all_fields, &Field::decl) | vws::transform(&VarDecl::stored_type);
+        return vws::transform(all_fields, &Field::decl) | vws::transform(&LocalDecl::stored_type);
     }
 
     /// Check if two struct types have the same layout.
@@ -998,7 +1019,7 @@ public:
     Symbols symbol_table;
 
     /// Whether this scope is a function scope.
-    bool is_function;
+    bool is_function{};
 
     /// Get the nearest parent scope that is a function scope.
     readonly_decl(Scope*, enclosing_function_scope);

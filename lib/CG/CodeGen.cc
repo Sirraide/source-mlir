@@ -122,18 +122,17 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
         case Expr::Kind::InvokeExpr:
         case Expr::Kind::MemberAccessExpr:
         case Expr::Kind::DeclRefExpr:
-        case Expr::Kind::VarRefExpr:
+        case Expr::Kind::LocalRefExpr:
         case Expr::Kind::BoolLiteralExpr:
         case Expr::Kind::IntegerLiteralExpr:
         case Expr::Kind::StringLiteralExpr:
-        case Expr::Kind::ParamDecl:
         case Expr::Kind::ProcDecl:
         case Expr::Kind::CastExpr:
         case Expr::Kind::IfExpr:
         case Expr::Kind::WhileExpr:
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::BinaryExpr:
-        case Expr::Kind::VarDecl:
+        case Expr::Kind::LocalDecl:
             Unreachable();
     }
 
@@ -300,7 +299,7 @@ src::CodeGen::DeferInfo::LoopGuard::~LoopGuard() {
 /// ALL allocas that have been emitted up to that point are passed
 /// to that function, which means that, while we are emitting the
 /// contents of the defer block into a separate function, we can
-/// simply ‘remap’ the VarDecl nodes to map to the function arguments
+/// simply ‘remap’ the LocalDecl nodes to map to the function arguments
 /// rather than to their allocas.
 ///
 /// Since we always compact all expressions in the entire stack,
@@ -449,19 +448,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 );
             }
 
-            /// If it is a parameter, then this is a parameter reference.
-            else if (isa<ParamDecl>(e->decl)) {
-                Assert(e->decl->mlir);
-                e->mlir = e->decl->mlir;
-            }
-
             else {
                 Unreachable();
             }
         } break;
 
-        case Expr::Kind::VarRefExpr: {
-            auto var = cast<VarRefExpr>(expr);
+        case Expr::Kind::LocalRefExpr: {
+            auto var = cast<LocalRefExpr>(expr);
 
             /// Easy case: the variable we’re accessing is in the same
             /// scope as the reference.
@@ -730,9 +723,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
             }
         } break;
 
-        case Expr::Kind::VarDecl: {
+        case Expr::Kind::LocalDecl: {
             /// Currently, we only have local variables.
-            auto e = cast<VarDecl>(expr);
+            auto e = cast<LocalDecl>(expr);
             e->mlir = Create<hlir::LocalVarOp>(
                 e->location.mlir(ctx),
                 Ty(e->type),
@@ -904,9 +897,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         /// Handled by the code that emits a DeclRefExpr.
         case Expr::Kind::ProcDecl: break;
-
-        /// Handled by GenerateProcedure().
-        case Expr::Kind::ParamDecl: Unreachable();
     }
 }
 

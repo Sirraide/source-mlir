@@ -178,13 +178,11 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
     auto loc = Next();
 
     /// Create a variable declaration, but don’t add it to any scope.
-    return new (mod) VarDecl(
+    return new (mod) LocalDecl(
         curr_func,
         std::move(name),
         *ty,
         nullptr,
-        Linkage::Internal,
-        Mangling::Source,
         loc
     );
 }
@@ -578,7 +576,7 @@ auto src::Parser::ParseImplicitBlock() -> Result<BlockExpr*> {
 /// <proc-args>  ::= "(" <param-decl> { "," <param-decl> } ")"
 /// <param-decl> ::= <type> [ IDENTIFIER ]
 auto src::Parser::ParseParamDeclList(
-    SVI<ParamDecl*>& param_decls,
+    SVI<LocalDecl*>& param_decls,
     SVI<Expr*>& param_types
 ) -> Location {
     auto loc = curr_loc;
@@ -604,10 +602,11 @@ auto src::Parser::ParseParamDeclList(
         }
 
         /// TODO: Default values go in their own scope.
-
-        param_decls.push_back(new (mod) ParamDecl(
+        param_decls.push_back(new (mod) LocalDecl(
+            nullptr,
             std::move(name),
             *param_type,
+            nullptr,
             tok.location
         ));
         param_types.push_back(*param_type);
@@ -762,7 +761,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 
         /// If the decl is a var decl, add it as a field. Other
         /// decls are currently illegal in this position.
-        if (auto var = dyn_cast<VarDecl>(*field)) fields.push_back({var});
+        if (auto var = dyn_cast<LocalDecl>(*field)) fields.push_back({var});
         else Error("Only variable declarations are allowed in struct types");
         Consume(Tk::Semicolon);
     }

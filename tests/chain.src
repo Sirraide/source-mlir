@@ -3,24 +3,29 @@
 proc p1 {
     int a;
     a = 4;
+    p2();
 
     proc p2 {
         int b;
         a = 3;
+        p3();
 
-        proc p3 {
+        proc p3() {
             b = 4;
-            p5();
+            p4();
+            p5(2, 3);
 
             proc p4 {
                 a = 8;
-                p5();
+                p5(4, 5);
             }
         }
 
-        proc p5 {
+        proc p5(int, int) {
             a = 7;
             b = 6;
         }
     }
 }
+
+p1();

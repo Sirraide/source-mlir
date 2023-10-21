@@ -25,20 +25,21 @@ src::ProcDecl::ProcDecl(
     ProcDecl* parent,
     std::string name,
     Expr* type,
-    SmallVector<ParamDecl*> params,
+    SmallVector<LocalDecl*> param_decls,
     Linkage linkage,
     Mangling mangling,
     Location loc
 ) : ObjectDecl(Kind::ProcDecl, std::move(name), type, linkage, mangling, loc),
     module(mod),
     parent(parent),
-    params(std::move(params)),
+    params(std::move(param_decls)),
     body(nullptr) {
-    mod->add_function(this);
+    module->add_function(this);
+    for (auto param : params) param->parent = this;
 }
 
-src::VarRefExpr::VarRefExpr(VarDecl* decl, Location loc)
-    : TypedExpr(Kind::VarRefExpr, decl->type, loc),
+src::LocalRefExpr::LocalRefExpr(LocalDecl* decl, Location loc)
+    : TypedExpr(Kind::LocalRefExpr, decl->type, loc),
       decl(decl) {
     is_lvalue = true;
 }
@@ -60,17 +61,16 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::ConstExpr:
         case Kind::MemberAccessExpr:
         case Kind::DeclRefExpr:
-        case Kind::VarRefExpr:
+        case Kind::LocalRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
-        case Kind::ParamDecl:
         case Kind::ProcDecl:
         case Kind::CastExpr:
         case Kind::IfExpr:
         case Kind::BinaryExpr:
         case Kind::UnaryPrefixExpr:
-        case Kind::VarDecl:
+        case Kind::LocalDecl:
             return cast<TypedExpr>(this)->stored_type;
 
         /// Already a type.
@@ -147,7 +147,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
             Unreachable(".align accessed on function type");
 
         case Kind::DeclRefExpr:
-        case Kind::VarRefExpr:
+        case Kind::LocalRefExpr:
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
         case Kind::ConstExpr:
@@ -164,9 +164,8 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
-        case Kind::ParamDecl:
         case Kind::ProcDecl:
-        case Kind::VarDecl:
+        case Kind::LocalDecl:
             Unreachable(".align accessed on non-type expression");
     }
 
@@ -257,7 +256,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
             Unreachable(".size accessed on function type");
 
         case Kind::DeclRefExpr:
-        case Kind::VarRefExpr:
+        case Kind::LocalRefExpr:
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
         case Kind::ConstExpr:
@@ -274,9 +273,8 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
-        case Kind::ParamDecl:
         case Kind::ProcDecl:
-        case Kind::VarDecl:
+        case Kind::LocalDecl:
             Unreachable(".size accessed on non-type expression");
     }
 
@@ -397,17 +395,16 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::ConstExpr:
         case Kind::MemberAccessExpr:
         case Kind::DeclRefExpr:
-        case Kind::VarRefExpr:
+        case Kind::LocalRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
-        case Kind::ParamDecl:
         case Kind::ProcDecl:
         case Kind::CastExpr:
         case Kind::IfExpr:
         case Kind::UnaryPrefixExpr:
         case Kind::BinaryExpr:
-        case Kind::VarDecl:
+        case Kind::LocalDecl:
             return cast<TypedExpr>(ptr)->stored_type->type.str(use_colour);
     }
 
@@ -508,17 +505,16 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::InvokeExpr:
         case Kind::MemberAccessExpr:
         case Kind::DeclRefExpr:
-        case Kind::VarRefExpr:
+        case Kind::LocalRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
         case Kind::StringLiteralExpr:
-        case Kind::ParamDecl:
         case Kind::ProcDecl:
         case Kind::CastExpr:
         case Kind::IfExpr:
         case Kind::UnaryPrefixExpr:
         case Kind::BinaryExpr:
-        case Kind::VarDecl:
+        case Kind::LocalDecl:
             Unreachable("Not a type");
     }
 
@@ -557,7 +553,7 @@ struct ASTPrinter {
     using enum utils::Colour;
 
     Module* mod;
-    DenseSet<ProcDecl*> printed_functions{};
+    DenseSet<const ProcDecl*> printed_functions{};
     bool print_children_of_children = true;
     std::string out;
     bool use_colour = true;
@@ -629,20 +625,20 @@ struct ASTPrinter {
             case K::ProcDecl: {
                 auto f = cast<ProcDecl>(e);
                 PrintLinkage(f->linkage);
-                PrintBasicHeader("FuncDecl", e);
+                PrintBasicHeader("ProcDecl", e);
                 out += fmt::format(
-                    " {}{} {}\n",
+                    " {}{} {}{}\n",
                     C(Green),
                     f->name,
-                    f->type.str(use_colour)
+                    f->type.str(use_colour),
+                    f->nested ? fmt::format(" {}nested", C(Blue)) : ""
                 );
                 return;
             }
 
-            case K::VarDecl: {
-                auto v = cast<VarDecl>(e);
-                PrintLinkage(v->linkage);
-                PrintBasicHeader("VarDecl", e);
+            case K::LocalDecl: {
+                auto v = cast<LocalDecl>(e);
+                PrintBasicHeader("LocalDecl", e);
                 out += fmt::format(
                     " {}{} {}{} lvalue\n",
                     C(White),
@@ -707,9 +703,9 @@ struct ASTPrinter {
                 return;
             }
 
-            case K::VarRefExpr: {
-                auto n = cast<VarRefExpr>(e);
-                PrintBasicHeader("VarRefExpr", e);
+            case K::LocalRefExpr: {
+                auto n = cast<LocalRefExpr>(e);
+                PrintBasicHeader("LocalRefExpr", e);
                 out += fmt::format(
                     " {} {}lvalue{}\n",
                     n->type.str(use_colour),
@@ -717,19 +713,6 @@ struct ASTPrinter {
                     n->static_chain_distance
                         ? fmt::format(" chain{}({}{}{})", C(Red), C(Magenta), n->static_chain_distance, C(Red))
                         : ""
-                );
-                return;
-            }
-
-            case K::ParamDecl: {
-                auto n = cast<ParamDecl>(e);
-                PrintBasicHeader("ParamDecl", e);
-                out += fmt::format(
-                    " {}{} {} {}lvalue\n",
-                    C(Blue),
-                    n->name,
-                    n->type.str(use_colour),
-                    C(Blue)
                 );
                 return;
             }
@@ -880,14 +863,10 @@ struct ASTPrinter {
         /// Print the children of a node.
         using K = Expr::Kind;
         switch (e->kind) {
-            /// We only print function bodies at the top level.
-            case K::ProcDecl: break;
-
             /// These don’t have children.
             case K::BoolLiteralExpr:
             case K::IntegerLiteralExpr:
             case K::StringLiteralExpr:
-            case K::ParamDecl:
                 break;
 
             /// We don’t print types here.
@@ -921,6 +900,15 @@ struct ASTPrinter {
                 }
             } break;
 
+            case K::ProcDecl: {
+                auto f = cast<ProcDecl>(e);
+                printed_functions.insert(f);
+                SmallVector<Expr*, 25> children{f->params.begin(), f->params.end()};
+                if (auto body = llvm::dyn_cast_if_present<BlockExpr>(f->body))
+                    children.insert(children.end(), body->exprs.begin(), body->exprs.end());
+                PrintChildren(children, leading_text);
+            } break;
+
             case K::DeclRefExpr: {
                 auto n = cast<DeclRefExpr>(e);
                 if (n->decl) {
@@ -929,8 +917,8 @@ struct ASTPrinter {
                 }
             } break;
 
-            case K::VarRefExpr: {
-                auto n = cast<VarRefExpr>(e);
+            case K::LocalRefExpr: {
+                auto n = cast<LocalRefExpr>(e);
                 tempset print_children_of_children = false;
                 PrintChildren(n->decl, leading_text);
             } break;
@@ -957,8 +945,8 @@ struct ASTPrinter {
                 PrintChildren(children, leading_text);
             } break;
 
-            case K::VarDecl: {
-                auto v = cast<VarDecl>(e);
+            case K::LocalDecl: {
+                auto v = cast<LocalDecl>(e);
                 if (v->init) PrintChildren(v->init, leading_text);
             } break;
 
@@ -1013,15 +1001,7 @@ struct ASTPrinter {
     /// Print a top-level node.
     void PrintTopLevelNode(Expr* e) {
         PrintHeader(e);
-        if (auto f = dyn_cast<ProcDecl>(e)) {
-            printed_functions.insert(f);
-            SmallVector<Expr*, 25> children{f->params.begin(), f->params.end()};
-            if (auto body = llvm::dyn_cast_if_present<BlockExpr>(f->body))
-                children.insert(children.end(), body->exprs.begin(), body->exprs.end());
-            PrintChildren(children, "");
-        } else {
-            PrintNodeChildren(e);
-        }
+        PrintNodeChildren(e);
     }
 
     /// Print a node.

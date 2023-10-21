@@ -206,21 +206,19 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Create a padding field at the given location.
             const auto CreatePaddingField = [&](isz padding, auto insert_before) {
                 /// Field decl.
-                Expr* decl = new (mod) VarDecl(
+                Expr* decl = new (mod) LocalDecl(
                     nullptr,
                     fmt::format("#padding{}", padding_count++),
                     new (mod) ArrayType(Type::I8, new (mod) IntLitExpr(padding / 8, s->location), s->location),
                     nullptr,
-                    Linkage::Local,
-                    Mangling::Source,
                     s->location
                 );
 
                 /// Should never fail.
-                Assert(Analyse(decl) and isa<VarDecl>(decl));
+                Assert(Analyse(decl) and isa<LocalDecl>(decl));
 
                 /// Create a new member to serve as padding.
-                StructType::Field f(cast<VarDecl>(decl));
+                StructType::Field f(cast<LocalDecl>(decl));
                 f.offset = s->stored_size;
                 f.padding = true;
                 s->all_fields.insert(insert_before, f);
@@ -474,14 +472,12 @@ bool src::Sema::Analyse(Expr*& e) {
                 }
 
                 /// Helper to create a var decl.
-                auto MakeVar = [&](Expr* name, Expr* init) -> VarDecl* {
-                    return new (mod) VarDecl(
+                auto MakeVar = [&](Expr* name, Expr* init) -> LocalDecl* {
+                    return new (mod) LocalDecl(
                         curr_proc,
                         cast<DeclRefExpr>(name)->name,
                         invoke->callee,
                         init,
-                        Linkage::Local,
-                        Mangling::Source,
                         name->location
                     );
                 };
@@ -615,43 +611,32 @@ bool src::Sema::Analyse(Expr*& e) {
                 }
 
                 /// If it is a variable declaration, replace it w/ a variable reference.
-                else if (auto var = dyn_cast<VarDecl>(d->decl)) {
+                else if (isa<LocalDecl>(d->decl)) {
                     e->sema.unset(); /// Other instances of this will have to be replaced w/ this again.
-                    e = new (mod) VarRefExpr(var, d->location);
+                    e = new (mod) LocalRefExpr(cast<LocalDecl>(d->decl), d->location);
                     return Analyse(e);
                 }
 
                 /// Otherwise, this stays as a DeclRefExpr.
                 else {
                     d->stored_type = d->decl->type;
-                    d->is_lvalue = isa<ParamDecl>(d->decl);
+                    d->is_lvalue = false;
                 }
             }
         } break;
 
         /// Determine the static chain offset from a variable reference to
         /// its declaration. Type and lvalueness is already set by the ctor.
-        case Expr::Kind::VarRefExpr: {
-            auto var = cast<VarRefExpr>(e);
+        case Expr::Kind::LocalRefExpr: {
+            auto var = cast<LocalRefExpr>(e);
             for (auto proc = curr_proc; proc and proc != var->decl->parent; proc = proc->parent)
                 var->static_chain_distance++;
-        } break;
-
-        /// Make sure the type is valid.
-        case Expr::Kind::ParamDecl: {
-            auto param = cast<ParamDecl>(e);
-            if (not AnalyseAsType(param->stored_type) or not MakeDeclType(param->stored_type))
-                return e->sema.set_errored();
-
-            /// Add the parameter to the procedure body’s scope.
-            if (not param->name.empty()) curr_proc->body->scope->declare(param->name, param);
-            param->is_lvalue = true;
-            /// TODO: Check for redeclaration?
+            if (var->static_chain_distance != 0) var->decl->captured = true;
         } break;
 
         /// Variable declaration.
-        case Expr::Kind::VarDecl: {
-            auto var = cast<VarDecl>(e);
+        case Expr::Kind::LocalDecl: {
+            auto var = cast<LocalDecl>(e);
             if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
 
             /// If the type is unknown, then we must infer it from
@@ -1019,6 +1004,7 @@ void src::Sema::AnalyseProcedure(src::ProcDecl* proc) {
 
     /// If there is no body, then there is nothing to do.
     if (not proc->body) return;
+    tempset curr_scope = proc->body->scope;
 
     /// Sanity check.
     if (Type::Equal(proc->ret_type, Type::Unknown) and not proc->body->implicit) Diag::ICE(
