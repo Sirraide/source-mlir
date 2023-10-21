@@ -88,6 +88,16 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
             return hlir::ReferenceType::get(Ty(ty->elem));
         }
 
+        case Expr::Kind::ArrayType: {
+            auto ty = cast<ArrayType>(type);
+            return hlir::ArrayType::get(Ty(ty->elem), usz(ty->dimension()));
+        }
+
+        case Expr::Kind::SugaredType: {
+            auto ty = cast<SugaredType>(type);
+            return Ty(ty->elem);
+        }
+
         case Expr::Kind::ProcType: {
             auto ty = cast<ProcType>(type);
             SmallVector<mlir::Type> params;
@@ -104,6 +114,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
             Todo();
 
         case Expr::Kind::AssertExpr:
+        case Expr::Kind::ConstExpr:
         case Expr::Kind::ReturnExpr:
         case Expr::Kind::LoopControlExpr:
         case Expr::Kind::DeferExpr:
@@ -396,6 +407,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::OptionalType:
         case Expr::Kind::ProcType:
         case Expr::Kind::StructType:
+        case Expr::Kind::ArrayType:
+        case Expr::Kind::SugaredType:
             Unreachable();
 
         case Expr::Kind::InvokeExpr: {
@@ -567,6 +580,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 }
             }
         } break;
+
+        case Expr::Kind::ConstExpr:
+            Todo();
 
         case Expr::Kind::DeferExpr:
             DI.AddDeferredExpression(cast<DeferExpr>(expr)->expr);

@@ -7,6 +7,7 @@ src::BuiltinType UnknownTypeInstance{src::BuiltinTypeKind::Unknown, {}};
 src::BuiltinType VoidTypeInstance{src::BuiltinTypeKind::Void, {}};
 src::BuiltinType BoolTypeInstance{src::BuiltinTypeKind::Bool, {}};
 src::BuiltinType NoReturnTypeInstance{src::BuiltinTypeKind::NoReturn, {}};
+src::IntType IntType8Instance{8, {}};
 } // namespace
 src::Expr* const src::detail::UnknownType = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Int = &IntTypeInstance;
@@ -14,6 +15,7 @@ src::BuiltinType* const src::Type::Void = &VoidTypeInstance;
 src::BuiltinType* const src::Type::Unknown = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Bool = &BoolTypeInstance;
 src::BuiltinType* const src::Type::NoReturn = &NoReturnTypeInstance;
+src::IntType* const src::Type::I8 = &IntType8Instance;
 
 /// ===========================================================================
 ///  Expressions
@@ -32,6 +34,7 @@ auto src::Expr::_type() -> TypeHandle {
         /// Typed exprs.
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
+        case Kind::ConstExpr:
         case Kind::MemberAccessExpr:
         case Kind::DeclRefExpr:
         case Kind::BoolLiteralExpr:
@@ -56,6 +59,8 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::IntType:
         case Kind::SliceType:
         case Kind::StructType:
+        case Kind::ArrayType:
+        case Kind::SugaredType:
             return this;
     }
 }
@@ -101,8 +106,14 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::SliceType:
             return 64; /// FIXME: Use context.
 
+        case Kind::ArrayType:
+            return cast<ArrayType>(ptr)->elem->type.align(ctx);
+
         case Kind::StructType:
             return cast<StructType>(ptr)->stored_alignment;
+
+        case Kind::SugaredType:
+            return cast<SugaredType>(ptr)->elem->type.align(ctx);
 
         case Kind::OptionalType:
             Todo();
@@ -112,10 +123,9 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
             Unreachable(".align accessed on function type");
 
         case Kind::DeclRefExpr:
-            Todo();
-
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
+        case Kind::ConstExpr:
         case Kind::LoopControlExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
@@ -136,6 +146,11 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
     }
 
     Unreachable();
+}
+
+auto src::Expr::TypeHandle::_desugared() -> TypeHandle {
+    if (auto s = dyn_cast<SugaredType>(ptr)) return s->elem->as_type.desugared;
+    return *this;
 }
 
 bool src::Expr::TypeHandle::is_int(bool bool_is_int) {
@@ -197,6 +212,15 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::SliceType:
             return 128; /// FIXME: Use context.
 
+        case Kind::SugaredType:
+            return cast<SugaredType>(ptr)->elem->type.size(ctx);
+
+        case Kind::ArrayType: {
+            if (not ptr->sema.ok) return 0;
+            auto a = cast<ArrayType>(ptr);
+            return a->elem->type.size(ctx) * a->dimension();
+        }
+
         case Kind::StructType:
             return cast<StructType>(ptr)->stored_size;
 
@@ -208,10 +232,9 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
             Unreachable(".size accessed on function type");
 
         case Kind::DeclRefExpr:
-            Todo();
-
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
+        case Kind::ConstExpr:
         case Kind::LoopControlExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
@@ -252,6 +275,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::OptionalType: WriteSElem("?"); break;
         case Kind::SliceType: WriteSElem("[]"); break;
         case Kind::IntType: out += fmt::format("i{}", cast<IntType>(ptr)->bits); break;
+        case Kind::SugaredType: out += cast<SugaredType>(ptr)->name; break;
 
         case Kind::BuiltinType: {
             auto bk = cast<BuiltinType>(ptr)->builtin_kind;
@@ -273,6 +297,18 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
             }
 
             out += fmt::format("<invalid ffi type: {}>", int(cast<FFIType>(ptr)->ffi_kind));
+        } break;
+
+        case Kind::ArrayType: {
+            auto a = cast<ArrayType>(ptr);
+            out += fmt::format(
+                "{}{}[{}{}{}]",
+                a->elem->as_type.str(use_colour),
+                C(Red),
+                C(Magenta),
+                a->dimension(),
+                C(Red)
+            );
         } break;
 
         case Kind::ProcType: {
@@ -332,6 +368,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         /// Typed exprs.
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
+        case Kind::ConstExpr:
         case Kind::MemberAccessExpr:
         case Kind::DeclRefExpr:
         case Kind::BoolLiteralExpr:
@@ -368,9 +405,15 @@ bool src::Type::Equal(Expr* a, Expr* b) {
     /// Non-types are never equal.
     if (not isa<Type>(a) or not isa<Type>(b)) return false;
 
+    /// If either is a sugared type, look through the sugar.
+    if (auto s = dyn_cast<SugaredType>(a)) return Type::Equal(s->elem, b);
+    if (auto s = dyn_cast<SugaredType>(b)) return Type::Equal(a, s->elem);
+
     /// Types of different kinds are never equal.
     if (a->kind != b->kind) return false;
     switch (a->kind) {
+        case Kind::SugaredType: Unreachable();
+
         case Kind::BuiltinType:
             return cast<BuiltinType>(a)->builtin_kind == cast<BuiltinType>(b)->builtin_kind;
 
@@ -379,6 +422,14 @@ bool src::Type::Equal(Expr* a, Expr* b) {
 
         case Kind::IntType:
             return cast<IntType>(a)->bits == cast<IntType>(b)->bits;
+
+        case Kind::ArrayType: {
+            auto arr_a = cast<ArrayType>(a);
+            auto arr_b = cast<ArrayType>(b);
+            if (not a->sema.ok or not b->sema.ok) return false;
+            if (arr_a->dimension() != arr_b->dimension()) return false;
+            [[fallthrough]];
+        }
 
         case Kind::ReferenceType:
         case Kind::ScopedPointerType:
@@ -421,6 +472,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         }
 
         case Kind::AssertExpr:
+        case Kind::ConstExpr:
         case Kind::ReturnExpr:
         case Kind::LoopControlExpr:
         case Kind::DeferExpr:
@@ -449,14 +501,14 @@ bool src::Type::Equal(Expr* a, Expr* b) {
 /// at all is up to the caller.
 bool src::StructType::LayoutCompatible(StructType* a, StructType* b) {
     using std::get;
-    if (a->fields.size() != b->fields.size()) return false;
+    if (a->all_fields.size() != b->all_fields.size()) return false;
 
     /// Check if all fields’ types are the same. Note that,
     /// since padding is explicitly encoded in the form of
     /// extra fields, this also takes care of checking for
     /// alignment.
     return llvm::all_of(
-        llvm::zip_equal(a->field_types(), b->field_types()),
+        llvm::zip_equal(a->fields_and_padding(), b->fields_and_padding()),
         [](auto&& t) { return Type::Equal(t); }
     );
 }
@@ -713,6 +765,7 @@ struct ASTPrinter {
             case K::DeferExpr: PrintBasicNode("DeferExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
+            case K::ConstExpr: PrintBasicNode("ConstExpr", e, e->type); return;
 
             case K::UnaryPrefixExpr: {
                 auto u = cast<UnaryPrefixExpr>(e);
@@ -742,8 +795,28 @@ struct ASTPrinter {
                 return;
             }
 
-            /// We don’t print types here.
+            /// Struct declaration.
+            case K::StructType: {
+                if (auto s = cast<StructType>(e); not s->name.empty()) {
+                    PrintBasicHeader("StructDecl", e);
+                    out += fmt::format(
+                        " {}{} {}{}{}/{}{}\n",
+                        C(Cyan),
+                        s->name.str(),
+                        C(Yellow),
+                        s->sema.ok ? std::to_string(s->stored_size) : "?",
+                        C(Red),
+                        C(Yellow),
+                        s->sema.ok ? std::to_string(s->stored_alignment) : "?"
+                    );
+                    return;
+                }
+                [[fallthrough]];
+            }
+
+            /// We don’t print any other types here.
             case K::ProcType:
+            case K::ArrayType:
             case K::BuiltinType:
             case K::FFIType:
             case K::ReferenceType:
@@ -751,7 +824,7 @@ struct ASTPrinter {
             case K::OptionalType:
             case K::IntType:
             case K::SliceType:
-            case K::StructType:
+            case K::SugaredType:
                 PrintBasicNode("Type", e, e);
                 return;
         }
@@ -783,12 +856,28 @@ struct ASTPrinter {
             case K::ScopedPointerType:
             case K::OptionalType:
             case K::IntType:
+            case K::ArrayType:
             case K::SliceType:
+            case K::SugaredType:
                 break;
 
-            /// TODO: Print struct type info.
-            case K::StructType:
-                break;
+            case K::StructType: {
+                auto s = cast<StructType>(e);
+                for (auto& f : s->all_fields) {
+                    out += fmt::format(
+                        "{}{}{}Field {} {}{} {}at {}{}\n",
+                        C(Red),
+                        leading_text,
+                        &f == &s->all_fields.back() ? "└─" : "├─",
+                        f.decl->type.str(use_colour),
+                        C(Magenta),
+                        f.decl->name,
+                        C(Red),
+                        C(Yellow),
+                        s->sema.ok ? std::to_string(f.offset) : "?"
+                    );
+                }
+            } break;
 
             case K::DeclRefExpr: {
                 auto n = cast<DeclRefExpr>(e);
@@ -851,6 +940,10 @@ struct ASTPrinter {
                 if (r->target) PrintChildren(r->target, leading_text);
             } break;
 
+            case K::ConstExpr:
+                PrintChildren(cast<ConstExpr>(e)->expr, leading_text);
+                break;
+
             case K::DeferExpr:
                 PrintChildren(cast<DeferExpr>(e)->expr, leading_text);
                 break;
@@ -874,8 +967,10 @@ struct ASTPrinter {
         PrintHeader(e);
         if (auto f = dyn_cast<ProcDecl>(e)) {
             printed_functions.insert(f);
+            SmallVector<Expr*, 25> children{f->params.begin(), f->params.end()};
             if (auto body = llvm::dyn_cast_if_present<BlockExpr>(f->body))
-                PrintChildren(body->exprs, "");
+                children.insert(children.end(), body->exprs.begin(), body->exprs.end());
+            PrintChildren(children, "");
         } else {
             PrintNodeChildren(e);
         }

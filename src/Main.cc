@@ -51,11 +51,11 @@ using detail::options;
 
 int main(int argc, char** argv) {
     llvm::EnablePrettyStackTrace();
-    options::parse(argc, argv);
+    auto opts = options::parse(argc, argv, [](auto&& s) -> bool { src::Diag::Fatal("{}", s); });
 
     /// Create context.
     src::Context ctx;
-    auto& f = ctx.get_or_load_file(*options::get<"file">());
+    auto& f = ctx.get_or_load_file(*opts.get<"file">());
 
     /// Parse the file. Exit on error since, in that case, the
     /// parser returns nullptr.
@@ -63,38 +63,38 @@ int main(int argc, char** argv) {
     if (ctx.has_error()) std::exit(1);
 
     /// Print the AST of the module, if requested.
-    if (options::get<"--syntax-only">()) {
-        if (options::get<"--ast">()) mod->print_ast();
+    if (opts.get<"--syntax-only">()) {
+        if (opts.get<"--ast">()) mod->print_ast();
         std::exit(0);
     }
 
     /// Perform semantic analysis.
     src::Sema::Analyse(mod.get());
     if (ctx.has_error()) std::exit(1);
-    if (options::get<"--ast">() or options::get<"--sema">()) {
-        if (options::get<"--ast">()) mod->print_ast();
+    if (opts.get<"--ast">() or opts.get<"--sema">()) {
+        if (opts.get<"--ast">()) mod->print_ast();
         std::exit(0);
     }
 
     /// Generate HLIR. If this fails, that’s an ICE, so no
     /// need for error checking here.
-    src::CodeGen::Generate(mod.get(), options::get<"--no-verify">());
+    src::CodeGen::Generate(mod.get(), opts.get<"--no-verify">());
     if (ctx.has_error()) std::exit(1);
-    if (options::get<"--hlir">()) {
-        mod->print_hlir(options::get<"--use-generic-assembly-format">());
+    if (opts.get<"--hlir">()) {
+        mod->print_hlir(opts.get<"--use-generic-assembly-format">());
         std::exit(0);
     }
 
     /// Lower HLIR to LLVM IR.
-    src::LowerToLLVM(mod.get(), options::get<"--debug-llvm">(), options::get<"--no-verify">());
+    src::LowerToLLVM(mod.get(), opts.get<"--debug-llvm">(), opts.get<"--no-verify">());
     if (ctx.has_error()) std::exit(1);
-    if (options::get<"--llvm">()) {
-        mod->print_llvm(int(options::get_or<"-O">(0)));
+    if (opts.get<"--llvm">()) {
+        mod->print_llvm(int(opts.get_or<"-O">(0)));
         std::exit(0);
     }
 
     /// Run the code.
-    return mod->run(int(options::get_or<"-O">(0)));
+    return mod->run(int(opts.get_or<"-O">(0)));
 
     /*    /// Notes:
         /// - ‘freeze’ keyword that makes a value const rather than forcing

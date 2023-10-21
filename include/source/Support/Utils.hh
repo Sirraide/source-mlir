@@ -107,6 +107,10 @@ using f64 = double;
     type _##name() { code; }       \
     __declspec(property(get = _##name)) type name
 
+#define readonly_const(type, name, code) \
+    type _##name() const { code; }       \
+    __declspec(property(get = _##name)) type name
+
 #define readonly_decl(type, name) \
     type _##name();               \
     __declspec(property(get = _##name)) type name
@@ -257,12 +261,17 @@ enum IterationResult {
     ContinueIteration,
 };
 
+/// Get the padding required to align a value to a given alignment.
+template <typename T = usz>
+constexpr T AlignPadding(T value, T align) {
+    Assert(align != 0);
+    return (align - (value % align)) % align;
+}
+
 /// Align a value to a given alignment.
 template <typename T = usz>
 constexpr T AlignTo(T value, T align) {
-    Assert(align != 0);
-    const auto padding = (align - (value % align)) % align;
-    return value + padding;
+    return value + AlignPadding(value, align);
 }
 
 /// Used to implement Class::operator new(size_t, T).

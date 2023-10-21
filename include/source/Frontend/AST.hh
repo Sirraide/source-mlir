@@ -15,6 +15,20 @@ namespace detail {
 extern Expr* const UnknownType;
 }
 
+class EvalResult {
+    std::variant<std::monostate, isz, Expr*> value{};
+
+public:
+    Expr* type = detail::UnknownType;
+
+    EvalResult() : value(std::monostate{}) {}
+    EvalResult(isz value) : value(value) {}
+    EvalResult(Expr* value) : value(value) {}
+
+    auto as_int() -> isz { return std::get<isz>(value); }
+    auto as_type() -> Expr* { return std::get<Expr*>(value); }
+};
+
 /// ===========================================================================
 ///  Enums
 /// ===========================================================================
@@ -45,7 +59,9 @@ public:
         ReferenceType,
         ScopedPointerType,
         SliceType,
+        ArrayType,
         OptionalType,
+        SugaredType,
         ProcType,
         /// Type [end]
 
@@ -58,6 +74,7 @@ public:
         /// TypedExpr [begin]
         BlockExpr,
         InvokeExpr,
+        ConstExpr,
         CastExpr,
         MemberAccessExpr,
         UnaryPrefixExpr,
@@ -87,10 +104,10 @@ public:
         St state = St::NotAnalysed;
 
     public:
-        readonly(bool, analysed, return state == St::Errored or state == St::Ok);
-        readonly(bool, errored, return state == St::Errored);
-        readonly(bool, in_progress, return state == St::InProgress);
-        readonly(bool, ok, return state == St::Ok);
+        readonly_const(bool, analysed, return state == St::Errored or state == St::Ok);
+        readonly_const(bool, errored, return state == St::Errored);
+        readonly_const(bool, in_progress, return state == St::InProgress);
+        readonly_const(bool, ok, return state == St::Ok);
 
         void set_done() {
             if (state != St::Errored) state = St::Ok;
@@ -105,6 +122,9 @@ public:
         void set_in_progress() {
             if (state == St::NotAnalysed) state = St::InProgress;
         }
+
+        /// Reset the state.
+        void unset() { state = St::NotAnalysed; }
     };
 
     /// Helper type that makes accessing properties of types easier.
@@ -117,6 +137,9 @@ public:
 
         /// Get the alignment of this type, in bits.
         auto align(Context* ctx) -> isz;
+
+        /// Get the type stripped of any sugar.
+        readonly_decl(TypeHandle, desugared);
 
         /// Check if this is any integer type.
         bool is_int(bool bool_is_int);
@@ -373,6 +396,26 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::InvokeExpr; }
 };
 
+class ConstExpr : public TypedExpr {
+public:
+    /// The underlying expression.
+    Expr* expr;
+
+    /// Cached result.
+    EvalResult value;
+
+    ConstExpr(Expr* expr, EvalResult cached, Location loc)
+        : TypedExpr(Kind::ConstExpr, detail::UnknownType, loc),
+          expr(expr),
+          value(std::move(cached)) {
+        Assert(expr);
+        sema.set_done();
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ConstExpr; }
+};
+
 class CastExpr : public TypedExpr {
 public:
     /// The kind of this cast.
@@ -388,23 +431,6 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::CastExpr; }
-};
-
-class MemberAccessExpr : public TypedExpr {
-public:
-    /// The name of the member being accessed.
-    std::string member;
-
-    /// The object being accessed.
-    Expr* object;
-
-    MemberAccessExpr(Expr* object, std::string member, Location loc)
-        : TypedExpr(Kind::MemberAccessExpr, detail::UnknownType, loc),
-          member(std::move(member)),
-          object(object) {}
-
-    /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::MemberAccessExpr; }
 };
 
 class UnaryPrefixExpr : public TypedExpr {
@@ -576,6 +602,8 @@ public:
     /// The initialiser.
     Expr* init;
 
+    /// Linkage and mangling are ignored for e.g. struct fields.
+    /// TODO: Maybe use a different FieldDecl class for that?
     VarDecl(
         Module* mod,
         std::string name,
@@ -650,6 +678,7 @@ public:
 ///  Types
 /// ===========================================================================
 class BuiltinType;
+class IntType;
 class FFIType;
 
 enum struct BuiltinTypeKind {
@@ -677,6 +706,7 @@ public:
     static BuiltinType* const Void;
     static BuiltinType* const Bool;
     static BuiltinType* const NoReturn;
+    static IntType* const I8;
 
     /// It is too goddamn easy to forget to dereference at least
     /// one of the expressions when comparing them w/ operator==,
@@ -692,7 +722,7 @@ public:
         return Equal(a, b);
     }
 
-    /// RTTI.
+    /// Note: an Expr may be a type even if this returns false.
     static bool classof(const Expr* e) {
         return e->kind >= Kind::BuiltinType and e->kind <= Kind::ProcType;
     }
@@ -770,10 +800,12 @@ class StructType : public Type {
 public:
     struct Field {
         VarDecl* decl;
+        isz offset{};
+        bool padding{};
     };
 
     /// The fields of this struct.
-    SmallVector<Field> fields;
+    SmallVector<Field> all_fields;
 
     /// The name of this struct.
     SmallString<32> name;
@@ -787,19 +819,22 @@ public:
 
     StructType(SmallString<32> name, SmallVector<Field> fields, Scope* scope, Location loc)
         : Type(Kind::StructType, loc),
-          fields(std::move(fields)),
+          all_fields(std::move(fields)),
           name(std::move(name)),
           scope(scope) {}
 
-    /// The types of all fields.
-    auto field_types() {
-        /// This can’t be a property because of how stupid C++ name lookup is.
-        return vws::transform(fields, [](Field& f) { return f.decl->type; });
+    /// Get the non-padding fields of this struct.
+    auto fields() {
+        return vws::filter(all_fields, [](Field& f) { return not f.padding; });
+    }
+
+    /// Get the fields of this struct, including all padding fields.
+    auto fields_and_padding() {
+        return vws::transform(all_fields, &Field::decl) | vws::transform(&VarDecl::stored_type);
     }
 
     /// Check if two struct types have the same layout.
     static bool LayoutCompatible(StructType* a, StructType* b);
-
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::StructType; }
@@ -842,6 +877,25 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::ScopedPointerType; }
 };
 
+class ArrayType : public SingleElementTypeBase {
+public:
+    Expr* dim_expr;
+
+    ArrayType(Expr* elem, Expr* dim_expr, Location loc)
+        : SingleElementTypeBase(Kind::ArrayType, elem, loc),
+          dim_expr(dim_expr) {}
+
+    /// Get the dimension of this array type.
+    isz dimension() {
+        auto cexpr = dyn_cast<ConstExpr>(dim_expr);
+        if (not sema.ok or not cexpr) return 0;
+        return cexpr->value.as_int();
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ArrayType; }
+};
+
 class SliceType : public SingleElementTypeBase {
 public:
     SliceType(Expr* elem, Location loc)
@@ -849,6 +903,22 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::SliceType; }
+};
+
+/// Like DeclRefExpr, but for types.
+class SugaredType : public SingleElementTypeBase {
+public:
+    /// The name of the type this was looked up as.
+    std::string name;
+
+    SugaredType(std::string name, Expr* underlying, Location loc)
+        : SingleElementTypeBase(Kind::SugaredType, underlying, loc),
+          name(std::move(name)) {
+        sema.set_done();
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::SugaredType; }
 };
 
 class ProcType : public Type {
@@ -866,6 +936,30 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ProcType; }
+};
+
+/// ===========================================================================
+///  Remaining Expressions
+/// ===========================================================================
+/// Declared here because it references StructType::Field.
+class MemberAccessExpr : public TypedExpr {
+public:
+    /// The name of the member being accessed.
+    std::string member;
+
+    /// The object being accessed.
+    Expr* object;
+
+    /// The field being accessed if this is a struct field access.
+    StructType::Field* field{};
+
+    MemberAccessExpr(Expr* object, std::string member, Location loc)
+        : TypedExpr(Kind::MemberAccessExpr, detail::UnknownType, loc),
+          member(std::move(member)),
+          object(object) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::MemberAccessExpr; }
 };
 
 /// ===========================================================================

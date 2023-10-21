@@ -231,8 +231,7 @@ auto src::Location::seek(const Context* ctx) const -> LocInfo {
     const char* const end = data + f->size();
     const auto end_of_location = data + pos + len;
     info.line_end = data + pos;
-    while (info.line_end < end and *info.line_end != '\n' and info.line_end < end_of_location)
-        info.line_end++;
+    while (info.line_end < end and *info.line_end != '\n') info.line_end++;
 
     /// Determine the line and column number.
     info.line = 1;
@@ -497,7 +496,7 @@ void src::detail::AssertFail(
     using enum fmt::terminal_color;
 
     /// Print filename and ICE title.
-    fmt::print(stderr, bold, "{}:", NormaliseFilename(file));
+    fmt::print(stderr, bold, "{}:{}:", NormaliseFilename(file), line);
     fmt::print(stderr, Colour(Diag::Kind::ICError), " {}: ", Name(Diag::Kind::ICError));
 
     /// Print the condition, if any.

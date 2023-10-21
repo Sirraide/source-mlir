@@ -111,6 +111,10 @@ dynamic struct Expr {
 /// Allow `in` as an overloadable operator and use it to check if e.g. a vector contains a value or a string a
 /// character or substring (e.g. `if "foo" in s { ... }`).
 
+/// USE `llvm.localescape` and `llvm.localrecover` for static chains. Emit all static allocas for a function
+/// at the very start of the function, track which ones escape in sema, and then call `llvm.localescape` on
+/// all of them right after.
+
 module lexer;
 
 export enum Tk {

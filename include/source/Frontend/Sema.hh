@@ -90,6 +90,7 @@ private:
     /// in C++, expressions of reference type can be rvalues or lvalues.
     void InsertLValueToRValueConversion(Expr*& e);
 
+    template <bool in_array = false>
     bool MakeDeclType(Expr*& e);
 
     template <typename T>

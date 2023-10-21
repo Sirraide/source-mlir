@@ -768,12 +768,16 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
     if (not Consume(Tk::RBrace)) Error("Expected '}}'");
 
     /// Create the struct type.
-    return new (mod) StructType(
+    auto s = new (mod) StructType(
         std::move(name),
         std::move(fields),
         sc.scope,
         {start, curr_loc}
     );
+
+    /// Named structs go in the symbol table.
+    if (not s->name.empty()) sc.scope->parent->declare(s->name, s);
+    return s;
 }
 
 /// <type>           ::= <type-prim> | <type-qualified> | <type-named> | <type-struct> | <struct-anon>
@@ -794,7 +798,7 @@ auto src::Parser::ParseType() -> Result<Expr*> {
         } break;
 
         case Tk::Identifier:
-            base_type = new (mod) DeclRefExpr(tok.text, curr_scope, Next());
+            base_type = new (mod) DeclRefExpr(tok.text, curr_scope, tok.location);
             Next();
             break;
 
