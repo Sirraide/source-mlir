@@ -26,9 +26,8 @@ void src::Module::print_hlir(bool use_generic_assembly_format) const {
 
 auto src::CodeGen::AllocateLocalVar(src::LocalDecl* decl) -> mlir::Value {
     /// Captured variables are stored in the static chain area.
-    if (decl->captured) return Create<hlir::ChainRefLocalOp>(
+    if (decl->captured) return Create<hlir::StructGEPOp>(
         decl->location.mlir(ctx),
-        Ty(decl->type),
         decl->parent->captured_locals_ptr,
         decl->capture_index
     );
@@ -182,7 +181,6 @@ auto src::CodeGen::GetStaticChainPointer(ProcDecl* proc) -> mlir::Value {
     /// Load the parent’s chain pointer.
     mlir::Value chain = Create<hlir::ChainExtractLocalOp>(
         builder.getUnknownLoc(),
-        hlir::ReferenceType::get(Ty(proc->captured_locals_type)),
         curr_proc->captured_locals_ptr,
         0
     );
@@ -191,7 +189,6 @@ auto src::CodeGen::GetStaticChainPointer(ProcDecl* proc) -> mlir::Value {
     for (auto p = curr_proc->parent; p != proc; p = p->parent) {
         chain = Create<hlir::ChainExtractLocalOp>(
             builder.getUnknownLoc(),
-            hlir::ReferenceType::get(Ty(p->captured_locals_type)),
             chain,
             0
         );
@@ -661,9 +658,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 /// the variable declaration.
                 auto& locals = var->decl->parent->captured_locals;
                 auto var_index = std::distance(locals.begin(), rgs::find(locals, var->decl));
-                var->mlir = Create<hlir::ChainRefLocalOp>(
+                var->mlir = Create<hlir::StructGEPOp>(
                     var->location.mlir(ctx),
-                    Ty(var->type),
                     GetStaticChainPointer(var->decl->parent),
                     var_index + var->decl->parent->nested
                 );

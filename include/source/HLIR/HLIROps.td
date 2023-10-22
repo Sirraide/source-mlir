@@ -306,19 +306,8 @@ def ExpIOp : HLIR_Op<
     ];
 }
 
-def GEPOp : HLIR_Op<"gep"> {
-    let summary = "LLVM getelementptr instruction";
-    let arguments = (ins
-        HLIR_ReferenceType:$operand,
-        Variadic<HLIR_Type>:$indices
-    );
-    let results = (outs HLIR_ReferenceType:$res);
-    let assemblyFormat = "$operand `:` type($operand) `,` $indices `:` type($indices) attr-dict `:` type($res)";
-    let hasVerifier = 0;
-}
-
-def ChainRefLocalOp : HLIR_Op<"reflocal"> {
-    let summary = "Obtain a reference to a local variable from a static chain area";
+def StructGEPOp : HLIR_Op<"structgep"> {
+    let summary = "Get a pointer to a struct element by offsetting from a struct pointer";
     let arguments = (ins HLIR_ReferenceType:$operand, Builtin_IntegerAttr:$idx);
     let results = (outs HLIR_ReferenceType:$res);
     let assemblyFormat = "$operand `:` type($operand) `,` $idx attr-dict `:` type($res)";
@@ -326,14 +315,18 @@ def ChainRefLocalOp : HLIR_Op<"reflocal"> {
 
     let builders = [
         OpBuilder<(ins
-            "::mlir::Type":$type,
             "::mlir::Value":$operand,
             "::std::int32_t":$idx
         ), [{
+            auto ty = operand
+                .getType().cast<ReferenceType>()
+                .getElem().cast<LLVM::LLVMStructType>()
+                .getBody()[idx];
+
             build(
                 $_builder,
                 $_state,
-                hlir::ReferenceType::get(type),
+                hlir::ReferenceType::get(ty),
                 operand,
                 $_builder.getI32IntegerAttr(idx)
             );
@@ -350,14 +343,18 @@ def ChainExtractLocalOp : HLIR_Op<"extractlocal"> {
 
     let builders = [
         OpBuilder<(ins
-            "::mlir::Type":$type,
             "::mlir::Value":$operand,
             "::std::int32_t":$idx
         ), [{
+            auto ty = operand
+                .getType().cast<ReferenceType>()
+                .getElem().cast<LLVM::LLVMStructType>()
+                .getBody()[idx];
+
             build(
                 $_builder,
                 $_state,
-                type,
+                ty,
                 operand,
                 $_builder.getI32IntegerAttr(idx)
             );
