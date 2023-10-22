@@ -153,9 +153,6 @@ private:
     template <typename T, typename... Args>
     auto Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
 
-    /// Perform preprocessing on locals to support nested procedures.
-    void EscapeCapturedProcedureLocals(ProcDecl* proc);
-
     template <typename Op>
     void GenerateBinOp(BinaryExpr* b);
 
@@ -168,6 +165,9 @@ private:
 
     /// Retrieve the static chain pointer for a procedure.
     auto GetStaticChainPointer(ProcDecl* proc) -> mlir::Value;
+
+    /// Perform preprocessing on locals to support nested procedures.
+    void InitStaticChain(ProcDecl* proc, mlir::func::FuncOp f);
 
     auto Ty(Expr* type) -> mlir::Type;
 };

@@ -25,6 +25,14 @@ void src::Module::print_hlir(bool use_generic_assembly_format) const {
 }
 
 auto src::CodeGen::AllocateLocalVar(src::LocalDecl* decl) -> mlir::Value {
+    /// Captured variables are stored in the static chain area.
+    if (decl->captured) return Create<hlir::ChainRefLocalOp>(
+        decl->location.mlir(ctx),
+        Ty(decl->type),
+        decl->parent->captured_locals_ptr,
+        decl->capture_index
+    );
+
     return Create<hlir::LocalVarOp>(
         decl->location.mlir(ctx),
         Ty(decl->type),
@@ -58,7 +66,7 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
     return builder.create<T>(loc, std::forward<Args>(args)...);
 }
 
-void src::CodeGen::EscapeCapturedProcedureLocals(src::ProcDecl* proc) {
+void src::CodeGen::InitStaticChain(ProcDecl* proc, mlir::func::FuncOp func) {
     if (proc->captured_locals.empty() and not proc->takes_static_chain) return;
 
     /// Collect all captured variables; static chain is first.
@@ -70,9 +78,8 @@ void src::CodeGen::EscapeCapturedProcedureLocals(src::ProcDecl* proc) {
         0,
     });
 
-    /// Emit allocas for all captured variables here so we can escape them.
+    /// Add a field for each captured variable.
     for (auto v : proc->captured_locals) {
-        v->mlir = AllocateLocalVar(v);
         captured.push_back({
             v,
             u64(v->type.size_bytes(ctx)),
@@ -134,17 +141,35 @@ void src::CodeGen::EscapeCapturedProcedureLocals(src::ProcDecl* proc) {
     llvm::SmallString<32> name;
     fmt::format_to(std::back_inserter(name), "%struct.anon.{}", anon_structs++);
     auto s = new (mod) StructType(mod, std::move(name), std::move(fields), nullptr, {});
+
+    /// The alignment and size are just set to what LLVM’s algorithm told us
+    /// they should be. In particular, we need *not* ensure that the size is
+    /// a multiple of the alignment, as we will never have an array of these
+    /// anyway.
     s->stored_alignment = isz(align.value());
     s->stored_size = isz(size);
     s->sema.set_done();
 
-    /// Finally, associate it with the procedure and create the vars area.
+    /// Associate it with the procedure and create the vars area.
     proc->captured_locals_type = s;
     proc->captured_locals_ptr = Create<hlir::LocalVarOp>(
         builder.getUnknownLoc(),
         Ty(s),
         s->stored_alignment
     );
+
+    /// Save the parent’s chain pointer if there is one.
+    if (proc->takes_static_chain) {
+        Assert(func.getNumArguments() == proc->params.size() + 1);
+
+        /// Save the pointer.
+        Create<hlir::StoreOp>(
+            builder.getUnknownLoc(),
+            proc->captured_locals_ptr,
+            func.getArgument(u32(proc->params.size())), /// (!)
+            8                                           /// FIXME: Get alignment of pointer type from context.
+        );
+    }
 }
 
 auto src::CodeGen::GetStaticChainPointer(ProcDecl* proc) -> mlir::Value {
@@ -232,7 +257,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
             /// Add an extra parameter for the static chain pointer.
             if (ty->static_chain_parent) {
                 Assert(ty->static_chain_parent->captured_locals_type);
-                params.push_back(Ty(ty->static_chain_parent->captured_locals_type));
+                params.push_back(hlir::ReferenceType::get(Ty(ty->static_chain_parent->captured_locals_type)));
             }
 
             /// To ‘return void’, we have to set no return type at all.
@@ -1152,8 +1177,14 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
 
     /// Generate the function body, if there is one.
     if (proc->body) {
-        /// Create local variables for parameters.
+        /// Entry block must be created first so we can access parameter values.
         builder.setInsertionPointToEnd(func.addEntryBlock());
+
+        /// Perform the transformations required to make local variables
+        /// declared in this procedure accessible to its nested procedures.
+        InitStaticChain(proc, func);
+
+        /// Create local variables for parameters.
         for (auto [i, p] : vws::enumerate(proc->params)) {
             p->emitted = true;
             p->mlir = AllocateLocalVar(p);
@@ -1164,21 +1195,6 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
                 p->mlir,
                 func.getArgument(u32(i)),
                 p->type.align(ctx) / 8
-            );
-        }
-
-        /// Perform the transformations required to make local variables
-        /// declared in this procedure accessible to its nested procedures.
-        EscapeCapturedProcedureLocals(proc);
-
-        /// Save the parent’s chain pointer if there is one.
-        if (proc->takes_static_chain) {
-            /// Save the pointer.
-            Create<hlir::StoreOp>(
-                builder.getUnknownLoc(),
-                proc->captured_locals_ptr,
-                func.getArgument(u32(proc->params.size())), /// (!)
-                8                                           /// FIXME: Get alignment of pointer type from context.
             );
         }
 
