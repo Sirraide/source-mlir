@@ -308,17 +308,17 @@ def ExpIOp : HLIR_Op<
 
 def StructGEPOp : HLIR_Op<"structgep"> {
     let summary = "Get a pointer to a struct element by offsetting from a struct pointer";
-    let arguments = (ins HLIR_ReferenceType:$operand, Builtin_IntegerAttr:$idx);
+    let arguments = (ins HLIR_ReferenceType:$struct_ref, Builtin_IntegerAttr:$idx);
     let results = (outs HLIR_ReferenceType:$res);
-    let assemblyFormat = "$operand `:` type($operand) `,` $idx attr-dict `:` type($res)";
+    let assemblyFormat = "$struct_ref `:` type($struct_ref) `,` $idx attr-dict `:` type($res)";
     let hasVerifier = 0;
 
     let builders = [
         OpBuilder<(ins
-            "::mlir::Value":$operand,
+            "::mlir::Value":$struct_ref,
             "::std::int32_t":$idx
         ), [{
-            auto ty = operand
+            auto ty = struct_ref
                 .getType().cast<ReferenceType>()
                 .getElem().cast<LLVM::LLVMStructType>()
                 .getBody()[idx];
@@ -327,7 +327,7 @@ def StructGEPOp : HLIR_Op<"structgep"> {
                 $_builder,
                 $_state,
                 hlir::ReferenceType::get(ty),
-                operand,
+                struct_ref,
                 $_builder.getI32IntegerAttr(idx)
             );
         }]>
@@ -336,17 +336,17 @@ def StructGEPOp : HLIR_Op<"structgep"> {
 
 def ChainExtractLocalOp : HLIR_Op<"extractlocal"> {
     let summary = "Extract a local variable from a static chain area";
-    let arguments = (ins HLIR_ReferenceType:$operand, Builtin_IntegerAttr:$idx);
+    let arguments = (ins HLIR_ReferenceType:$struct_ref, Builtin_IntegerAttr:$idx);
     let results = (outs HLIR_Type:$res);
-    let assemblyFormat = "$operand `:` type($operand) `,` $idx attr-dict `:` type($res)";
+    let assemblyFormat = "$struct_ref `:` type($struct_ref) `,` $idx attr-dict `:` type($res)";
     let hasVerifier = 0;
 
     let builders = [
         OpBuilder<(ins
-            "::mlir::Value":$operand,
+            "::mlir::Value":$struct_ref,
             "::std::int32_t":$idx
         ), [{
-            auto ty = operand
+            auto ty = struct_ref
                 .getType().cast<ReferenceType>()
                 .getElem().cast<LLVM::LLVMStructType>()
                 .getBody()[idx];
@@ -355,7 +355,7 @@ def ChainExtractLocalOp : HLIR_Op<"extractlocal"> {
                 $_builder,
                 $_state,
                 ty,
-                operand,
+                struct_ref,
                 $_builder.getI32IntegerAttr(idx)
             );
         }]>

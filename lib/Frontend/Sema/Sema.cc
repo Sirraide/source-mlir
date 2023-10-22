@@ -334,6 +334,9 @@ bool src::Sema::Analyse(Expr*& e) {
                     r->value->type,
                     Type::Void->as_type
                 );
+
+                /// Operand of return is an rvalue.
+                InsertLValueToRValueConversion(r->value);
             }
 
             /// Return expression has no argument.

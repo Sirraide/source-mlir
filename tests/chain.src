@@ -1,8 +1,13 @@
 /// RUN: %srcc %s --hlir | FileCheck %s
+/// RUN: %srcc %s --llvm -O3 | FileCheck %s --check-prefix=OPT
+
+proc exit (i32) extern -> noreturn;
+/// OPT: define void @__src_main()
+/// OPT-NEXT: tail call void @exit(i32 42)
 
 /// CHECK-LABEL: func.func private @p1
-proc p1 {
-    /// CHECK-NEXT: [[CHAIN1:%[0-9]+]] = hlir.local_var <!llvm.struct<"%struct.anon.0"
+proc p1 -> int {
+    /// CHECK-NEXT: [[CHAIN1:%[0-9]+]] = hlir.local_var <!llvm.struct<"struct.anon.0"
     /// CHECK-NEXT: [[A:%[0-9]+]] = hlir.structgep [[CHAIN1]] {{.+}}, 0 : i32
     /// CHECK-NEXT: hlir.zeroinitialiser [[A]]
     int a;
@@ -19,7 +24,7 @@ proc p1 {
 
     /// CHECK-LABEL: func.func private @p2
     proc p2(int b) {
-        /// CHECK-NEXT: [[CHAIN2:%[0-9]+]] = hlir.local_var <!llvm.struct<"%struct.anon.1"
+        /// CHECK-NEXT: [[CHAIN2:%[0-9]+]] = hlir.local_var <!llvm.struct<"struct.anon.1"
         /// CHECK-NEXT: hlir.store into [[CHAIN2]]
 
         /// CHECK: [[CHAIN1_1:%[0-9]+]] = hlir.extractlocal [[CHAIN2]] {{.+}}, 0 : i32
@@ -34,7 +39,7 @@ proc p1 {
 
         /// CHECK-LABEL: func.func private @p3
         proc p3() {
-            /// CHECK-NEXT: [[CHAIN3:%[0-9]+]] = hlir.local_var <!llvm.struct<"%struct.anon.2"
+            /// CHECK-NEXT: [[CHAIN3:%[0-9]+]] = hlir.local_var <!llvm.struct<"struct.anon.2"
             /// CHECK-NEXT: hlir.store into [[CHAIN3]]
             /// CHECK: [[CHAIN2_1:%[0-9]+]] = hlir.extractlocal [[CHAIN3]] {{.+}}, 0 : i32
             /// CHECK-NEXT: [[B1:%[0-9]+]] = hlir.structgep [[CHAIN2_1]] {{.+}}, 1 : i32
@@ -55,7 +60,7 @@ proc p1 {
 
             /// CHECK-LABEL: func.func private @p4
             proc p4 {
-                /// CHECK-NEXT: [[CHAIN4:%[0-9]+]] = hlir.local_var <!llvm.struct<"%struct.anon.3"
+                /// CHECK-NEXT: [[CHAIN4:%[0-9]+]] = hlir.local_var <!llvm.struct<"struct.anon.3"
                 /// CHECK-NEXT: hlir.store into [[CHAIN4]]
                 /// CHECK-NEXT: [[CHAIN3_1:%[0-9]+]] = hlir.extractlocal [[CHAIN4]] {{.+}}, 0 : i32
                 /// CHECK-NEXT: [[CHAIN2_2:%[0-9]+]] = hlir.extractlocal [[CHAIN3_1]] {{.+}}, 0 : i32
@@ -77,15 +82,15 @@ proc p1 {
 
         /// CHECK-LABEL: func.func private @p5
         proc p5(int, int) {
-            /// CHECK-NEXT: [[CHAIN5:%[0-9]+]] = hlir.local_var <!llvm.struct<"%struct.anon.4"
+            /// CHECK-NEXT: [[CHAIN5:%[0-9]+]] = hlir.local_var <!llvm.struct<"struct.anon.4"
             /// CHECK-NEXT: hlir.store into [[CHAIN5]]
 
             /// CHECK: [[CHAIN2_4:%[0-9]+]] = hlir.extractlocal [[CHAIN5]] {{.+}}, 0 : i32
             /// CHECK-NEXT: [[CHAIN1_3:%[0-9]+]] = hlir.extractlocal [[CHAIN2_4]] {{.+}}, 0 : i32
             /// CHECK-NEXT: [[A3:%[0-9]+]] = hlir.structgep [[CHAIN1_3]] {{.+}}, 0 : i32
-            /// CHECK-NEXT: [[CONST_10:%[a-z0-9_]+]] = arith.constant 7 : i64
+            /// CHECK-NEXT: [[CONST_10:%[a-z0-9_]+]] = arith.constant 42 : i64
             /// CHECK-NEXT: hlir.store into [[A3]] : {{[^%]+}}, [[CONST_10]]
-            a = 7;
+            a = 42;
 
             /// CHECK: [[CHAIN2_5:%[0-9]+]] = hlir.extractlocal [[CHAIN5]] {{.+}}, 0 : i32
             /// CHECK-NEXT: [[B2:%[0-9]+]] = hlir.structgep [[CHAIN2_5]] {{.+}}, 1 : i32
@@ -94,6 +99,8 @@ proc p1 {
             b = 6;
         }
     }
+
+    return a;
 }
 
 /// CHECK-LABEL: func.func private @p6
@@ -111,4 +118,5 @@ proc p6 {
     }
 }
 
-p1();
+int ret = p1();
+exit ret as i32;

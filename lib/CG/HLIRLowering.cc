@@ -331,6 +331,73 @@ struct ZeroInitOpLowering : public ConversionPattern {
     }
 };
 
+/// Lowering for structure geps.
+struct StructGepOpLowering : public ConversionPattern {
+    explicit StructGepOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::StructGEPOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> operands,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto gep = cast<hlir::StructGEPOp>(op);
+        auto loc = op->getLoc();
+        hlir::StructGEPOpAdaptor adaptor(operands, op->getAttrDictionary());
+
+        /// Create the GEP.
+        auto gep_op = rewriter.create<LLVM::GEPOp>(
+            loc,
+            getTypeConverter()->convertType(gep.getType()),
+            adaptor.getStructRef(),
+            ArrayRef{LLVM::GEPArg(0), LLVM::GEPArg(i32(adaptor.getIdx().getValue().getZExtValue()))},
+            true
+        );
+
+        /// Replace the struct gep op with the GEP.
+        rewriter.replaceOp(op, gep_op);
+        return success();
+    }
+};
+
+/// Lowering for chain extractlocal.
+struct ChainExtractLocalOpLowering : public ConversionPattern {
+    explicit ChainExtractLocalOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::ChainExtractLocalOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> operands,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto loc = op->getLoc();
+        auto extract = cast<hlir::ChainExtractLocalOp>(op);
+        hlir::ChainExtractLocalOpAdaptor adaptor(operands, op->getAttrDictionary());
+
+        /// This is a GEP, followed by a load.
+        auto gep_op = rewriter.create<LLVM::GEPOp>(
+            loc,
+            getTypeConverter()->convertType(hlir::ReferenceType::get(extract.getType())),
+            adaptor.getStructRef(),
+            ArrayRef{LLVM::GEPArg(0), LLVM::GEPArg(i32(adaptor.getIdx().getValue().getZExtValue()))},
+            true
+        );
+
+        /// Create the load.
+        auto load = rewriter.create<LLVM::LoadOp>(
+            loc,
+            getTypeConverter()->convertType(extract.getType()),
+            gep_op
+        );
+
+        /// Replace the extract local op with the load.
+        rewriter.replaceOp(op, load);
+        return success();
+    }
+};
+
 struct HLIRToLLVMLoweringPass
     : public PassWrapper<HLIRToLLVMLoweringPass, OperationPass<ModuleOp>> {
     void getDependentDialects(DialectRegistry& registry) const override {
@@ -406,7 +473,9 @@ struct HLIRToLLVMLoweringPass
             LiteralOpLowering,
             ArrayDecayOpLowering,
             LocalVarOpLowering,
-            ZeroInitOpLowering
+            ZeroInitOpLowering,
+            StructGepOpLowering,
+            ChainExtractLocalOpLowering
         >(&getContext(), tc);
         // clang-format on
 

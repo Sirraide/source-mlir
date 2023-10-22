@@ -138,7 +138,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, mlir::func::FuncOp func) {
 
     /// Create a struct type and finalise it.
     llvm::SmallString<32> name;
-    fmt::format_to(std::back_inserter(name), "%struct.anon.{}", anon_structs++);
+    fmt::format_to(std::back_inserter(name), "struct.anon.{}", anon_structs++);
     auto s = new (mod) StructType(mod, std::move(name), std::move(fields), nullptr, {});
 
     /// The alignment and size are just set to what LLVM’s algorithm told us
