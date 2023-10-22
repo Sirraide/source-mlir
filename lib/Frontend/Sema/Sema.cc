@@ -203,22 +203,10 @@ bool src::Sema::Analyse(Expr*& e) {
             auto s = cast<StructType>(e);
             usz padding_count = 0;
 
-            /// Create a padding field at the given location.
+            /// Create a padding field at the given location to serve as padding.
             const auto CreatePaddingField = [&](isz padding, auto insert_before) {
-                /// Field decl.
-                Expr* decl = new (mod) LocalDecl(
-                    nullptr,
-                    fmt::format("#padding{}", padding_count++),
-                    new (mod) ArrayType(Type::I8, new (mod) IntLitExpr(padding / 8, s->location), s->location),
-                    nullptr,
-                    s->location
-                );
-
-                /// Should never fail.
-                Assert(Analyse(decl) and isa<LocalDecl>(decl));
-
-                /// Create a new member to serve as padding.
-                StructType::Field f(cast<LocalDecl>(decl));
+                auto ty = new (mod) ArrayType(Type::I8, new (mod) IntLitExpr(padding / 8, s->location), s->location);
+                StructType::Field f({fmt::format("#padding{}", padding_count++), ty});
                 f.offset = s->stored_size;
                 f.padding = true;
                 s->all_fields.insert(insert_before, f);
@@ -243,8 +231,8 @@ bool src::Sema::Analyse(Expr*& e) {
             for (usz i = 0; i < s->all_fields.size(); i++) {
                 if (
                     auto& f = s->all_fields[i];
-                    not AnalyseAsType(f.decl->stored_type) or
-                    not MakeDeclType(f.decl->stored_type)
+                    not AnalyseAsType(f.type) or
+                    not MakeDeclType(f.type)
                 ) {
                     e->sema.set_errored();
                     continue;
@@ -252,11 +240,11 @@ bool src::Sema::Analyse(Expr*& e) {
 
                 /// Set offset of each field and determine the size and alignment
                 /// of the struct.
-                auto align = s->all_fields[i].decl->type.align(mod->context);
+                auto align = s->all_fields[i].type->as_type.align(mod->context);
                 AlignField(align, i);
                 s->all_fields[i].offset = s->stored_size;
                 s->stored_alignment = std::max<isz>(s->stored_alignment, align);
-                s->stored_size += s->all_fields[i].decl->type.size(mod->context);
+                s->stored_size += s->all_fields[i].type->as_type.size(mod->context);
             }
 
             /// Size must be a multiple of the alignment.
@@ -574,11 +562,11 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Struct field accesses are lvalues.
             if (auto s = dyn_cast<StructType>(desugared)) {
                 auto fields = s->fields();
-                auto f = rgs::find(fields, m->member, [](auto& f) { return f.decl->name; });
+                auto f = rgs::find(fields, m->member, [](auto& f) { return f.name; });
                 if (f == fields.end()) return Error(m, "Type '{}' has no '{}' member", s, m->member);
 
                 m->field = &*f;
-                m->stored_type = m->field->decl->stored_type;
+                m->stored_type = m->field->type;
                 m->is_lvalue = true;
                 return true;
             }
@@ -613,7 +601,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// If it is a variable declaration, replace it w/ a variable reference.
                 else if (isa<LocalDecl>(d->decl)) {
                     e->sema.unset(); /// Other instances of this will have to be replaced w/ this again.
-                    e = new (mod) LocalRefExpr(cast<LocalDecl>(d->decl), d->location);
+                    e = new (mod) LocalRefExpr(curr_proc, cast<LocalDecl>(d->decl), d->location);
                     return Analyse(e);
                 }
 
@@ -629,9 +617,7 @@ bool src::Sema::Analyse(Expr*& e) {
         /// its declaration. Type and lvalueness is already set by the ctor.
         case Expr::Kind::LocalRefExpr: {
             auto var = cast<LocalRefExpr>(e);
-            for (auto proc = curr_proc; proc and proc != var->decl->parent; proc = proc->parent)
-                var->static_chain_distance++;
-            if (var->static_chain_distance != 0) var->decl->captured = true;
+            if (var->parent != var->decl->parent) var->decl->set_captured();
         } break;
 
         /// Variable declaration.
@@ -1002,6 +988,10 @@ void src::Sema::AnalyseProcedure(src::ProcDecl* proc) {
     if (not AnalyseAsType(cast<TypedExpr>(proc)->stored_type))
         proc->sema.set_errored();
 
+    /// Sanity check.
+    auto ty = cast<TypedExpr>(proc)->stored_type;
+    Assert(isa<ProcType>(ty), "Type of procedure is not a procedure type");
+
     /// If there is no body, then there is nothing to do.
     if (not proc->body) return;
     tempset curr_scope = proc->body->scope;
@@ -1087,9 +1077,25 @@ void src::Sema::AnalyseModule() {
     curr_scope = mod->global_scope;
 
     /// Analyse all functions.
-    for (auto& f : mod->functions) {
+    for (auto f : mod->functions) {
         Expr* e = f;
         Analyse(e);
         Assert(e == f, "ProcDecl may not be replaced with another expression");
     }
+
+    /// If a function is nested and any of its parents have
+    /// captured locals, then it must take a chain pointer.
+    std::function<bool(ProcDecl*)> TakesChainPointer = [&](ProcDecl* f) -> bool {
+        if (not f->nested) return false;
+        for (auto p = f->parent; p; p = p->parent)
+            if (not p->captured_locals.empty())
+                return true;
+        return false;
+    };
+
+    /// Only after analysing all functions can we determine whether
+    /// any of them take static chain pointers or not.
+    for (auto f : mod->functions)
+        if (TakesChainPointer(f))
+            cast<ProcType>(f->type)->static_chain_parent = f->parent;
 }

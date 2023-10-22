@@ -17,6 +17,7 @@ class Decl;
 class ProcDecl;
 class Expr;
 class Scope;
+class StructType;
 
 /// A file in the context.
 class File {
@@ -279,7 +280,7 @@ struct ImportedModuleRef {
 
 /// A Source module.
 class Module {
-    public:
+public:
     Context* const context;
 
     /// Modules imported by this module.
@@ -287,6 +288,9 @@ class Module {
 
     /// Exported declarations.
     StringMap<SmallVector<Expr*, 1>> exports;
+
+    /// Named structs.
+    SmallVector<StructType*, 64> named_structs;
 
     /// Top-level module function.
     ProcDecl* top_level_func;

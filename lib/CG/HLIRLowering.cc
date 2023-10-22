@@ -28,7 +28,7 @@ struct StringOpLowering : public ConversionPattern {
 
     auto matchAndRewrite(
         Operation* op,
-        ArrayRef<Value> operands,
+        ArrayRef<Value>,
         ConversionPatternRewriter& rewriter
     ) const -> LogicalResult override {
         auto module = op->getParentOfType<ModuleOp>();
@@ -122,7 +122,7 @@ struct GlobalRefOpLowering : public ConversionPattern {
 
     auto matchAndRewrite(
         Operation* op,
-        ArrayRef<Value> operands,
+        ArrayRef<Value>,
         ConversionPatternRewriter& rewriter
     ) const -> LogicalResult override {
         auto global_ref = cast<hlir::GlobalRefOp>(op);
@@ -266,7 +266,7 @@ struct LocalVarOpLowering : public ConversionPattern {
 
     auto matchAndRewrite(
         Operation* op,
-        ArrayRef<Value> operands,
+        ArrayRef<Value>,
         ConversionPatternRewriter& rewriter
     ) const -> LogicalResult override {
         auto loc = op->getLoc();

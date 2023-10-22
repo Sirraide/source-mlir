@@ -42,6 +42,7 @@ def HLIR_Void : TypeAlias<NoneType, "void">;
 def HLIR_Bool : TypeAlias<I1, "bool">;
 def HLIR_Int : TypeAlias<Index, "int">;
 
+
 class HLIR_Type<string name, string type_mnemonic, list<Trait> traits = []> :
     TypeDef<HLIR_Dialect, name, traits> {
     let mnemonic = type_mnemonic;
@@ -57,6 +58,8 @@ class HLIR_SingleElementType<string name, string type_mnemonic, list<Trait> trai
         }]>
     ];
 }
+
+// def HLIR_StaticChainPointerType : HLIR_Type<"StaticChainPointer", "static_chain_pointer">;
 
 def HLIR_SliceType : HLIR_SingleElementType<"Slice", "slice">;
 def HLIR_ReferenceType : HLIR_SingleElementType<"Reference", "ref">;
@@ -80,6 +83,7 @@ def HLIR_Type : AnyTypeOf<[
     HLIR_SliceType,
     HLIR_ArrayType,
     HLIR_ReferenceType,
+//    HLIR_StaticChainPointerType,
 ]>;
 
 #endif // HLIR_DIALECT_TD

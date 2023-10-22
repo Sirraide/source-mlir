@@ -8,12 +8,14 @@
 namespace src {
 class WhileExpr;
 class BinaryExpr;
+class LocalDecl;
 class CodeGen {
     Module* const mod;
     Context* const ctx;
     mlir::MLIRContext* const mctx;
     mlir::OpBuilder builder;
     bool no_verify;
+    usz anon_structs = 0;
 
     /// Everything related to defer goes here.
     class DeferInfo {
@@ -138,6 +140,9 @@ public:
     }
 
 private:
+    /// Create an alloca for a local variable.
+    [[nodiscard]] auto AllocateLocalVar(LocalDecl* decl) -> mlir::Value;
+
     /// Attach a block to the end of a region.
     auto Attach(mlir::Region* region, mlir::Block* block) -> mlir::Block*;
 
@@ -148,6 +153,9 @@ private:
     template <typename T, typename... Args>
     auto Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
 
+    /// Perform preprocessing on locals to support nested procedures.
+    void EscapeCapturedProcedureLocals(ProcDecl* proc);
+
     template <typename Op>
     void GenerateBinOp(BinaryExpr* b);
 
@@ -157,6 +165,9 @@ private:
     void Generate(Expr* expr);
     void GenerateModule();
     void GenerateProcedure(ProcDecl* proc);
+
+    /// Retrieve the static chain pointer for a procedure.
+    auto GetStaticChainPointer(ProcDecl* proc) -> mlir::Value;
 
     auto Ty(Expr* type) -> mlir::Type;
 };

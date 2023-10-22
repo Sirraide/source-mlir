@@ -1,3 +1,4 @@
+#include <llvm/Support/OptimizedStructLayout.h>
 #include <source/CG/CodeGen.hh>
 #include <source/Frontend/AST.hh>
 #include <source/HLIR/HLIRDialect.hh>
@@ -21,6 +22,14 @@ void src::Module::print_hlir(bool use_generic_assembly_format) const {
     flags.printGenericOpForm(use_generic_assembly_format);
     if (not use_generic_assembly_format) flags.assumeVerified();
     mlir->print(llvm::outs(), flags);
+}
+
+auto src::CodeGen::AllocateLocalVar(src::LocalDecl* decl) -> mlir::Value {
+    return Create<hlir::LocalVarOp>(
+        decl->location.mlir(ctx),
+        Ty(decl->type),
+        decl->type.align(ctx) / 8
+    );
 }
 
 auto src::CodeGen::Attach(mlir::Region* region, mlir::Block* block) -> mlir::Block* {
@@ -47,6 +56,123 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
 
     /// Create the instruction.
     return builder.create<T>(loc, std::forward<Args>(args)...);
+}
+
+void src::CodeGen::EscapeCapturedProcedureLocals(src::ProcDecl* proc) {
+    if (proc->captured_locals.empty() and not proc->takes_static_chain) return;
+
+    /// Collect all captured variables; static chain is first.
+    SmallVector<llvm::OptimizedStructLayoutField, 10> captured;
+    if (proc->takes_static_chain) captured.push_back({
+        nullptr,
+        8,              /// FIXME: Get size of pointer type from context.
+        llvm::Align(8), /// FIXME: Get alignment of pointer type from context.
+        0,
+    });
+
+    /// Emit allocas for all captured variables here so we can escape them.
+    for (auto v : proc->captured_locals) {
+        v->mlir = AllocateLocalVar(v);
+        captured.push_back({
+            v,
+            u64(v->type.size_bytes(ctx)),
+            llvm::Align(u64(v->type.align(ctx) / 8)),
+            llvm::OptimizedStructLayoutField::FlexibleOffset,
+        });
+    }
+
+    /// Optimise the layout.
+    const auto [size, align] = llvm::performOptimizedStructLayout(captured);
+
+    /// Combine the allocas to a struct type. Even though the offsets of
+    /// all fields are known, we may still need to emit padding to align
+    /// each field to its required offset since LLVM doesn’t know anything
+    /// about the offsets.
+    SmallVector<StructType::Field> fields;
+    isz total_size = 0;
+    for (const auto& [i, var] : vws::enumerate(captured)) {
+        /// Zero is the static chain.
+        if (proc->takes_static_chain and i == 0) {
+            fields.emplace_back(
+                "",
+                new (mod) ReferenceType(proc->parent->captured_locals_type, {}),
+                0,
+                false
+            );
+
+            total_size += 8; /// FIXME: Get pointer alignment from context.
+            continue;
+        }
+
+        /// Anything else is a captured local. Note: const_cast is
+        /// safe here because we passed in non-const LocalDecl*’s
+        /// above.
+        auto v = static_cast<LocalDecl*>(const_cast<void*>(var.Id));
+        v->capture_index = isz(i);
+
+        /// Insert padding if required.
+        if (total_size != isz(var.Offset)) {
+            v->capture_index++;
+            fields.emplace_back(
+                "",
+                ArrayType::GetByteArray(mod, isz(var.Offset) - total_size),
+                total_size,
+                true
+            );
+        }
+
+        total_size = isz(var.Offset) + v->type.size_bytes(ctx);
+        fields.emplace_back(
+            "",
+            v->type,
+            isz(var.Offset),
+            false
+        );
+    }
+
+    /// Create a struct type and finalise it.
+    llvm::SmallString<32> name;
+    fmt::format_to(std::back_inserter(name), "%struct.anon.{}", anon_structs++);
+    auto s = new (mod) StructType(mod, std::move(name), std::move(fields), nullptr, {});
+    s->stored_alignment = isz(align.value());
+    s->stored_size = isz(size);
+    s->sema.set_done();
+
+    /// Finally, associate it with the procedure and create the vars area.
+    proc->captured_locals_type = s;
+    proc->captured_locals_ptr = Create<hlir::LocalVarOp>(
+        builder.getUnknownLoc(),
+        Ty(s),
+        s->stored_alignment
+    );
+}
+
+auto src::CodeGen::GetStaticChainPointer(ProcDecl* proc) -> mlir::Value {
+    /// Current procedure.
+    if (curr_proc == proc) {
+        Assert(proc->captured_locals_ptr);
+        return proc->captured_locals_ptr;
+    }
+
+    /// Load the parent’s chain pointer.
+    mlir::Value chain = Create<hlir::ChainExtractLocalOp>(
+        builder.getUnknownLoc(),
+        hlir::ReferenceType::get(Ty(proc->captured_locals_type)),
+        curr_proc->captured_locals_ptr,
+        0
+    );
+
+    /// Walk up the stack till we reach the desired procedure.
+    for (auto p = curr_proc->parent; p != proc; p = p->parent) {
+        chain = Create<hlir::ChainExtractLocalOp>(
+            builder.getUnknownLoc(),
+            hlir::ReferenceType::get(Ty(p->captured_locals_type)),
+            chain,
+            0
+        );
+    }
+
+    return chain;
 }
 
 auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
@@ -103,6 +229,12 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
             SmallVector<mlir::Type> params;
             for (auto p : ty->param_types) params.push_back(Ty(p));
 
+            /// Add an extra parameter for the static chain pointer.
+            if (ty->static_chain_parent) {
+                Assert(ty->static_chain_parent->captured_locals_type);
+                params.push_back(Ty(ty->static_chain_parent->captured_locals_type));
+            }
+
             /// To ‘return void’, we have to set no return type at all.
             if (not ty->ret_type->as_type.yields_value) return mlir::FunctionType::get(mctx, params, {});
             else return mlir::FunctionType::get(mctx, params, Ty(ty->ret_type));
@@ -110,8 +242,36 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
 
         case Expr::Kind::ScopedPointerType:
         case Expr::Kind::OptionalType:
-        case Expr::Kind::StructType: /// TODO: Just use llvm.struct for this one for now.
-            Todo();
+
+        case Expr::Kind::StructType: {
+            auto s = cast<StructType>(type);
+            if (s->mlir) return s->mlir;
+
+            /// Collect element types.
+            auto range = s->field_types() | vws::transform([&](auto& t) { return Ty(t); });
+            SmallVector<mlir::Type> elements{range.begin(), range.end()};
+
+            /// Named struct.
+            if (not s->name.empty()) {
+                s->mlir = mlir::LLVM::LLVMStructType::getNewIdentified(
+                    mctx,
+                    s->name,
+                    elements,
+                    false
+                );
+            }
+
+            /// Literal struct.
+            else {
+                s->mlir = mlir::LLVM::LLVMStructType::getLiteral(
+                    mctx,
+                    elements,
+                    false
+                );
+            }
+
+            return s->mlir;
+        }
 
         case Expr::Kind::AssertExpr:
         case Expr::Kind::ConstExpr:
@@ -423,6 +583,11 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 args.push_back(a->mlir);
             }
 
+            /// If the callee takes a static chain pointer, retrieve
+            /// it and add it to the argument list.
+            if (auto chain = cast<ProcType>(e->callee->type)->static_chain_parent)
+                args.push_back(GetStaticChainPointer(chain));
+
             /// We emit every call as an indirect call.
             auto call_op = Create<mlir::func::CallIndirectOp>(
                 e->location.mlir(ctx),
@@ -458,7 +623,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// Easy case: the variable we’re accessing is in the same
             /// scope as the reference.
-            if (var->static_chain_distance == 0) {
+            if (var->parent == var->decl->parent) {
                 Assert(var->decl->mlir);
                 var->mlir = var->decl->mlir;
             }
@@ -467,7 +632,16 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// address of this variable (note that this is an lvalue!)
             /// via the static chain.
             else {
-                Todo();
+                /// Get the frame pointer of the procedure containing
+                /// the variable declaration.
+                auto& locals = var->decl->parent->captured_locals;
+                auto var_index = std::distance(locals.begin(), rgs::find(locals, var->decl));
+                var->mlir = Create<hlir::ChainRefLocalOp>(
+                    var->location.mlir(ctx),
+                    Ty(var->type),
+                    GetStaticChainPointer(var->decl->parent),
+                    var_index + var->decl->parent->nested
+                );
             }
         } break;
 
@@ -726,11 +900,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::LocalDecl: {
             /// Currently, we only have local variables.
             auto e = cast<LocalDecl>(expr);
-            e->mlir = Create<hlir::LocalVarOp>(
-                e->location.mlir(ctx),
-                Ty(e->type),
-                e->type.align(ctx) / 8
-            );
+
+            /// If the variable hasn’t already been allocated, do so now.
+            if (not e->mlir) e->mlir = AllocateLocalVar(e);
 
             /// Variable may need to be passed to deferred procedures.
             DI.AddLocal(e->mlir);
@@ -984,11 +1156,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         builder.setInsertionPointToEnd(func.addEntryBlock());
         for (auto [i, p] : vws::enumerate(proc->params)) {
             p->emitted = true;
-            p->mlir = Create<hlir::LocalVarOp>(
-                p->location.mlir(ctx),
-                Ty(p->type),
-                p->type.align(ctx) / 8
-            );
+            p->mlir = AllocateLocalVar(p);
 
             /// Store the initial parameter value in the variable.
             Create<hlir::StoreOp>(
@@ -996,6 +1164,21 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
                 p->mlir,
                 func.getArgument(u32(i)),
                 p->type.align(ctx) / 8
+            );
+        }
+
+        /// Perform the transformations required to make local variables
+        /// declared in this procedure accessible to its nested procedures.
+        EscapeCapturedProcedureLocals(proc);
+
+        /// Save the parent’s chain pointer if there is one.
+        if (proc->takes_static_chain) {
+            /// Save the pointer.
+            Create<hlir::StoreOp>(
+                builder.getUnknownLoc(),
+                proc->captured_locals_ptr,
+                func.getArgument(u32(proc->params.size())), /// (!)
+                8                                           /// FIXME: Get alignment of pointer type from context.
             );
         }
 

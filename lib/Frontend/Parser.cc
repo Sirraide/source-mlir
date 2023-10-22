@@ -761,7 +761,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 
         /// If the decl is a var decl, add it as a field. Other
         /// decls are currently illegal in this position.
-        if (auto var = dyn_cast<LocalDecl>(*field)) fields.push_back({var});
+        if (auto var = dyn_cast<LocalDecl>(*field)) fields.push_back({var->name, var->type});
         else Error("Only variable declarations are allowed in struct types");
         Consume(Tk::Semicolon);
     }
@@ -771,6 +771,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 
     /// Create the struct type.
     auto s = new (mod) StructType(
+        mod,
         std::move(name),
         std::move(fields),
         sc.scope,

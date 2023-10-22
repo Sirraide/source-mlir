@@ -8,6 +8,8 @@ src::BuiltinType VoidTypeInstance{src::BuiltinTypeKind::Void, {}};
 src::BuiltinType BoolTypeInstance{src::BuiltinTypeKind::Bool, {}};
 src::BuiltinType NoReturnTypeInstance{src::BuiltinTypeKind::NoReturn, {}};
 src::IntType IntType8Instance{8, {}};
+src::ReferenceType VoidRefTypeInstance{&VoidTypeInstance, {}};
+src::ReferenceType VoidRefRefTypeInstance{&VoidTypeInstance, {}};
 } // namespace
 src::Expr* const src::detail::UnknownType = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Int = &IntTypeInstance;
@@ -16,6 +18,8 @@ src::BuiltinType* const src::Type::Unknown = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Bool = &BoolTypeInstance;
 src::BuiltinType* const src::Type::NoReturn = &NoReturnTypeInstance;
 src::IntType* const src::Type::I8 = &IntType8Instance;
+src::ReferenceType* const src::Type::VoidRef = &VoidRefTypeInstance;
+src::ReferenceType* const src::Type::VoidRefRef = &VoidRefRefTypeInstance;
 
 /// ===========================================================================
 ///  Expressions
@@ -38,10 +42,17 @@ src::ProcDecl::ProcDecl(
     for (auto param : params) param->parent = this;
 }
 
-src::LocalRefExpr::LocalRefExpr(LocalDecl* decl, Location loc)
+src::LocalRefExpr::LocalRefExpr(ProcDecl* parent, LocalDecl* decl, Location loc)
     : TypedExpr(Kind::LocalRefExpr, decl->type, loc),
+      parent(parent),
       decl(decl) {
     is_lvalue = true;
+}
+
+void src::LocalDecl::set_captured() {
+    if (is_captured) return;
+    is_captured = true;
+    parent->captured_locals.push_back(this);
 }
 
 auto src::Expr::_type() -> TypeHandle {
@@ -93,9 +104,21 @@ auto src::ProcDecl::_ret_type() -> TypeHandle {
     return cast<ProcType>(stored_type)->ret_type;
 }
 
+bool src::ProcDecl::_takes_static_chain() {
+    return cast<ProcType>(stored_type)->static_chain_parent;
+}
+
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
+src::StructType::StructType(Module* mod, SmallString<32> sname, SmallVector<Field> fields, Scope* scope, Location loc)
+    : Type(Kind::StructType, loc),
+      all_fields(std::move(fields)),
+      name(std::move(sname)),
+      scope(scope) {
+      if (not name.empty()) mod->named_structs.push_back(this);
+}
+
 auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
     switch (ptr->kind) {
         case Kind::BuiltinType:
@@ -532,7 +555,7 @@ bool src::StructType::LayoutCompatible(StructType* a, StructType* b) {
     /// extra fields, this also takes care of checking for
     /// alignment.
     return llvm::all_of(
-        llvm::zip_equal(a->fields_and_padding(), b->fields_and_padding()),
+        llvm::zip_equal(a->field_types(), b->field_types()),
         [](auto&& t) { return Type::Equal(t); }
     );
 }
@@ -627,11 +650,12 @@ struct ASTPrinter {
                 PrintLinkage(f->linkage);
                 PrintBasicHeader("ProcDecl", e);
                 out += fmt::format(
-                    " {}{} {}{}\n",
+                    " {}{} {}{}{}\n",
                     C(Green),
                     f->name,
                     f->type.str(use_colour),
-                    f->nested ? fmt::format(" {}nested", C(Blue)) : ""
+                    f->nested ? fmt::format(" {}nested", C(Blue)) : "",
+                    f->takes_static_chain ? " chain" : ""
                 );
                 return;
             }
@@ -640,11 +664,12 @@ struct ASTPrinter {
                 auto v = cast<LocalDecl>(e);
                 PrintBasicHeader("LocalDecl", e);
                 out += fmt::format(
-                    " {}{} {}{} lvalue\n",
+                    " {}{} {}{} lvalue{}\n",
                     C(White),
                     v->name,
                     v->type.str(use_colour),
-                    C(Blue)
+                    C(Blue),
+                    v->captured ? " captured" : ""
                 );
                 return;
             }
@@ -710,8 +735,8 @@ struct ASTPrinter {
                     " {} {}lvalue{}\n",
                     n->type.str(use_colour),
                     C(Blue),
-                    n->static_chain_distance
-                        ? fmt::format(" chain{}({}{}{})", C(Red), C(Magenta), n->static_chain_distance, C(Red))
+                    n->parent != n->decl->parent
+                        ? fmt::format(" chain{}:{}{}", C(Red), C(Green), n->decl->parent->name)
                         : ""
                 );
                 return;
@@ -890,9 +915,9 @@ struct ASTPrinter {
                         C(Red),
                         leading_text,
                         &f == &s->all_fields.back() ? "└─" : "├─",
-                        f.decl->type.str(use_colour),
+                        f.type->as_type.str(use_colour),
                         C(Magenta),
-                        f.decl->name,
+                        f.name,
                         C(Red),
                         C(Yellow),
                         s->sema.ok ? std::to_string(f.offset) : "?"

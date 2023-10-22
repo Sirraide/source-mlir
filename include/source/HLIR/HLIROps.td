@@ -306,4 +306,124 @@ def ExpIOp : HLIR_Op<
     ];
 }
 
+def GEPOp : HLIR_Op<"gep"> {
+    let summary = "LLVM getelementptr instruction";
+    let arguments = (ins
+        HLIR_ReferenceType:$operand,
+        Variadic<HLIR_Type>:$indices
+    );
+    let results = (outs HLIR_ReferenceType:$res);
+    let assemblyFormat = "$operand `:` type($operand) `,` $indices `:` type($indices) attr-dict `:` type($res)";
+    let hasVerifier = 0;
+}
+
+def ChainRefLocalOp : HLIR_Op<"reflocal"> {
+    let summary = "Obtain a reference to a local variable from a static chain area";
+    let arguments = (ins HLIR_ReferenceType:$operand, Builtin_IntegerAttr:$idx);
+    let results = (outs HLIR_ReferenceType:$res);
+    let assemblyFormat = "$operand `:` type($operand) `,` $idx attr-dict `:` type($res)";
+    let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Type":$type,
+            "::mlir::Value":$operand,
+            "::std::int32_t":$idx
+        ), [{
+            build(
+                $_builder,
+                $_state,
+                hlir::ReferenceType::get(type),
+                operand,
+                $_builder.getI32IntegerAttr(idx)
+            );
+        }]>
+    ];
+}
+
+def ChainExtractLocalOp : HLIR_Op<"extractlocal"> {
+    let summary = "Extract a local variable from a static chain area";
+    let arguments = (ins HLIR_ReferenceType:$operand, Builtin_IntegerAttr:$idx);
+    let results = (outs HLIR_Type:$res);
+    let assemblyFormat = "$operand `:` type($operand) `,` $idx attr-dict `:` type($res)";
+    let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Type":$type,
+            "::mlir::Value":$operand,
+            "::std::int32_t":$idx
+        ), [{
+            build(
+                $_builder,
+                $_state,
+                type,
+                operand,
+                $_builder.getI32IntegerAttr(idx)
+            );
+        }]>
+    ];
+}
+
+// def LocalEscapeOp : HLIR_Op<"localescape"> {
+//     let summary = "Make a local variables visible in nested functions";
+//     let arguments = (ins Variadic<HLIR_ReferenceType>:$vars);
+//     let hasVerifier = 0;
+//     let assemblyFormat = "`(` $vars `)` attr-dict `:` type($vars)";
+//
+//     let builders = [
+//         OpBuilder<(ins "::mlir::ValueRange":$vars), [{
+//             build(
+//                 $_builder,
+//                 $_state,
+//                 {},
+//                 vars
+//             );
+//         }]>
+//     ];
+// }
+//
+// def LocalRecoverOp : HLIR_Op<"localrecover"> {
+//     let summary = "Recover a local variable from a frame pointer";
+//     let arguments = (ins FlatSymbolRefAttr:$func, HLIR_StaticChainPointerType:$fp, Builtin_IntegerAttr:$idx);
+//     let results = (outs HLIR_ReferenceType:$var);
+//     let hasVerifier = 0;
+//     let assemblyFormat = "$fp `:` type($var) attr-dict";
+//
+//     let builders = [
+//         OpBuilder<(ins
+//             "::mlir::Type":$type,
+//             "::llvm::StringRef":$func,
+//             "::mlir::Value":$fp,
+//             "::std::int32_t":$idx
+//         ), [{
+//             build(
+//                 $_builder,
+//                 $_state,
+//                 ::hlir::ReferenceType::get($_state.getContext(), type),
+//                 SymbolRefAttr::get($_state.getContext(), func),
+//                 fp,
+//                 $_builder.getI32IntegerAttr(idx)
+//             );
+//         }]>
+//     ];
+// }
+//
+// def LocalAddressOp : HLIR_Op<"localaddress"> {
+//     let summary = "Get a frame pointer suitable for passing to hlir.localrecover";
+//     let hasVerifier = 0;
+//     let assemblyFormat = "attr-dict";
+//     let results = (outs HLIR_StaticChainPointerType);
+//
+//     let builders = [
+//         OpBuilder<(ins), [{
+//             build(
+//                 $_builder,
+//                 $_state,
+//                 ::hlir::StaticChainPointerType::get($_state.getContext())
+//             );
+//         }]>
+//     ];
+// }
+
 #endif // HLIR_OPS_TD

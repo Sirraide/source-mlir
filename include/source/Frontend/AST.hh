@@ -11,6 +11,7 @@ class Expr;
 class Type;
 class FunctionDecl;
 class LocalDecl;
+class StructType;
 
 namespace detail {
 extern Expr* const UnknownType;
@@ -515,14 +516,13 @@ public:
 /// a parent function.
 class LocalRefExpr : public TypedExpr {
 public:
-    /// Distance to the declaration in stack frames. 0 means
-    /// the declaration is in the current stack frame.
-    isz static_chain_distance{};
+    /// Procedure containing the reference.
+    ProcDecl* parent;
 
     /// The declaration this refers to.
     LocalDecl* decl;
 
-    LocalRefExpr(LocalDecl* decl, Location loc);
+    LocalRefExpr(ProcDecl* parent, LocalDecl* decl, Location loc);
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::LocalRefExpr; }
@@ -605,6 +605,8 @@ public:
 
 /// Local variable declaration.
 class LocalDecl : public Decl {
+    bool is_captured = false;
+
 public:
     /// The procedure containing this declaration.
     ProcDecl* parent;
@@ -612,8 +614,11 @@ public:
     /// The initialiser, if any.
     Expr* init;
 
+    /// Index in capture list of parent procedure, if any.
+    isz capture_index{};
+
     /// Whether this declaration is captured.
-    bool captured = false;
+    readonly(bool, captured, return is_captured);
 
     LocalDecl(
         ProcDecl* parent,
@@ -625,6 +630,9 @@ public:
         parent(parent),
         init(init) {
     }
+
+    /// Mark this declaration as captured.
+    void set_captured();
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::LocalDecl; }
@@ -675,6 +683,15 @@ public:
     /// Labels are global per procedure.
     StringMap<Expr*> labels;
 
+    /// Captured variables.
+    SmallVector<LocalDecl*> captured_locals;
+
+    /// Type of the struct containing the captured variables.
+    StructType* captured_locals_type{};
+
+    /// LocalVar holding the captured variables.
+    mlir::Value captured_locals_ptr{};
+
     ProcDecl(
         Module* mod,
         ProcDecl* parent,
@@ -707,6 +724,9 @@ public:
     /// Whether this is a nested procedure.
     readonly(bool, nested, return parent and parent->parent != nullptr);
 
+    /// Whether this takes a static chain pointer parameter.
+    readonly_decl(bool, takes_static_chain);
+
     /// Get the return type of this procedure.
     [[gnu::pure]] readonly_decl(TypeHandle, ret_type);
 
@@ -719,6 +739,7 @@ public:
 /// ===========================================================================
 class BuiltinType;
 class IntType;
+class ReferenceType;
 class FFIType;
 
 enum struct BuiltinTypeKind {
@@ -746,6 +767,8 @@ public:
     static BuiltinType* const Void;
     static BuiltinType* const Bool;
     static BuiltinType* const NoReturn;
+    static ReferenceType* const VoidRef;
+    static ReferenceType* const VoidRefRef;
     static IntType* const I8;
 
     /// It is too goddamn easy to forget to dereference at least
@@ -839,7 +862,8 @@ public:
 class StructType : public Type {
 public:
     struct Field {
-        LocalDecl* decl;
+        std::string name;
+        Expr* type;
         isz offset{};
         bool padding{};
     };
@@ -857,11 +881,16 @@ public:
     isz stored_size{};
     isz stored_alignment{1};
 
-    StructType(SmallString<32> name, SmallVector<Field> fields, Scope* scope, Location loc)
-        : Type(Kind::StructType, loc),
-          all_fields(std::move(fields)),
-          name(std::move(name)),
-          scope(scope) {}
+    /// MLIR type.
+    mlir::Type mlir{};
+
+    StructType(
+        Module* mod,
+        SmallString<32> name,
+        SmallVector<Field> fields,
+        Scope* scope,
+        Location loc
+    );
 
     /// Get the non-padding fields of this struct.
     auto fields() {
@@ -869,8 +898,8 @@ public:
     }
 
     /// Get the fields of this struct, including all padding fields.
-    auto fields_and_padding() {
-        return vws::transform(all_fields, &Field::decl) | vws::transform(&LocalDecl::stored_type);
+    auto field_types() {
+        return vws::transform(all_fields, &Field::type);
     }
 
     /// Check if two struct types have the same layout.
@@ -932,6 +961,22 @@ public:
         return cexpr->value.as_int();
     }
 
+    /// Create an i8[X] type of dimension X.
+    ///
+    /// This is intended for use by the backend only. Do not use
+    /// this in the frontend as it offers no location information
+    /// whatsoever.
+    static auto GetByteArray(Module* mod, isz dim) -> ArrayType* {
+        auto lit = new (mod) IntLitExpr(dim, {});
+        lit->stored_type = Type::Int;
+        lit->sema.set_done();
+
+        auto cexpr = new (mod) ConstExpr(lit, EvalResult(dim), {});
+        auto arr = new (mod) ArrayType(Type::I8, cexpr, {});
+        arr->sema.set_done();
+        return arr;
+    }
+
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ArrayType; }
 };
@@ -968,6 +1013,9 @@ public:
 
     /// The return type.
     Expr* ret_type;
+
+    /// The procedure whose chain pointer this takes.
+    ProcDecl* static_chain_parent{};
 
     ProcType(SmallVector<Expr*> param_types, Expr* ret_type, Location loc)
         : Type(Kind::ProcType, loc),

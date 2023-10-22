@@ -1,8 +1,11 @@
 
-
 proc p1 {
+
     int a;
+    int c;
     a = 4;
+
+
     p2();
 
     proc p2 {
@@ -25,6 +28,14 @@ proc p1 {
             a = 7;
             b = 6;
         }
+    }
+}
+
+proc p6 {
+    int a;
+    proc p7 {
+        int b;
+        b = 17;
     }
 }
 
