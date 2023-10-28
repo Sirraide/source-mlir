@@ -5,7 +5,6 @@ project(Source VERSION 0.1.0 LANGUAGES C CXX)
 ##  Global CMake Variables.
 ## ============================================================================
 set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 ## ============================================================================
@@ -322,9 +321,19 @@ target_link_libraries(srcc PRIVATE options cpptrace)
 target_precompile_headers(srcc PRIVATE
     include/source/Support/Utils.hh
 )
+
 #llvm_update_compile_flags(srcc)
 #mlir_check_all_link_libraries(srcc)
 
 ## Tests
-add_subdirectory(tests)
-add_custom_target(check COMMAND lit "${PROJECT_SOURCE_DIR}/tests" -v)
+include(CTest)
+set(FCHK_FORCE_RELEASE ON)
+add_subdirectory(fchk)
+FCHKAddAllTestsInDir(
+    IN tests
+    PATTERN "*.src"
+    PREFIX  "///"
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    ARGS -P re -P nocap -l .
+    RECURSIVE
+)

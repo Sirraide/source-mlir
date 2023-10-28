@@ -1,28 +1,28 @@
-/// RUN: %srcc %s --hlir | FileCheck %s
+/// R ./srcc %s --hlir
 proc i extern -> i64;
 proc consume (i64) extern;
 
 i64 a = i();
 i64 b = i();
 
-consume a + b;   /// CHECK: arith.addi
-consume a - b;   /// CHECK: arith.subi
-consume a * b;   /// CHECK: arith.muli
-consume a ** b;  /// CHECK: math.ipowi
-consume a / b;   /// CHECK: arith.divsi
-consume a % b;   /// CHECK: arith.remsi
-consume a and b; /// CHECK: arith.andi
-consume a or b;  /// CHECK: arith.ori
-consume a xor b; /// CHECK: arith.xori
-consume a << b;  /// CHECK: arith.shli
-consume a >> b;  /// CHECK: arith.shrsi
-consume a >>> b; /// CHECK: arith.shrui
-consume a == b;  /// CHECK: arith.cmpi eq
-consume a != b;  /// CHECK: arith.cmpi ne
-consume a < b;   /// CHECK: arith.cmpi slt
-consume a <= b;  /// CHECK: arith.cmpi sle
-consume a > b;   /// CHECK: arith.cmpi sgt
-consume a >= b;  /// CHECK: arith.cmpi sge
+consume a + b;   /// * arith.addi
+consume a - b;   /// * arith.subi
+consume a * b;   /// * arith.muli
+consume a ** b;  /// * math.ipowi
+consume a / b;   /// * arith.divsi
+consume a % b;   /// * arith.remsi
+consume a and b; /// * arith.andi
+consume a or b;  /// * arith.ori
+consume a xor b; /// * arith.xori
+consume a << b;  /// * arith.shli
+consume a >> b;  /// * arith.shrsi
+consume a >>> b; /// * arith.shrui
+consume a == b;  /// * arith.cmpi eq
+consume a != b;  /// * arith.cmpi ne
+consume a < b;   /// * arith.cmpi slt
+consume a <= b;  /// * arith.cmpi sle
+consume a > b;   /// * arith.cmpi sgt
+consume a >= b;  /// * arith.cmpi sge
 
 
 

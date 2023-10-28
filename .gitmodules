@@ -7,3 +7,6 @@
 [submodule "libs/cpptrace"]
 	path = libs/cpptrace
 	url = https://github.com/jeremy-rifkin/cpptrace
+[submodule "fchk"]
+	path = fchk
+	url = git@github.com:Sirraide/fchk.git

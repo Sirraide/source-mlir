@@ -1,6 +1,7 @@
-/// RUN: %srcc %s --hlir | FileCheck %s
+/// R ./srcc %s --hlir
 
-/// CHECK: cf.assert
+/// * cf.assert
 assert true;
-/// CHECK: cf.assert
+
+/// * cf.assert
 assert true, "Ok";

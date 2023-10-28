@@ -1,78 +1,80 @@
-/// RUN: %srcc --hlir %s | FileCheck %s
+/// R ./srcc --hlir %s
 
-/// CHECK: [[A:%[0-9a-z_]+]] = hlir.local_var
+/// d t %[0-9a-zA-Z_]+
+
+/// * (?<A>$t) = hlir.local_var
 int a = 42;
 
 /// ===== TRUNCATING CASTS  =====
-/// CHECK: [[B:%[0-9a-z_]+]] = hlir.local_var
-/// CHECK-NEXT: [[A_1:%[0-9]+]] = hlir.load [[A]]
-/// CHECK-NEXT: [[ATRUNC_1:%[0-9]+]] = arith.trunci [[A_1]] : i64 to i8
-/// CHECK-NEXT: hlir.store into [[B]] : {{[^%]+}}, [[ATRUNC_1]]
+/// * (?<B>$t) = hlir.local_var
+/// + (?<A_1>$t) = hlir.load $A
+/// + (?<ATRUNC_1>$t) = arith.trunci $A_1 : i64 to i8
+/// + hlir.store into $B : [^%]+, $ATRUNC_1
 i8 b = a as i8;
 
-/// CHECK: [[C:%[0-9a-z_]+]] = hlir.local_var
-/// CHECK-NEXT: [[A_2:%[0-9]+]] = hlir.load [[A]]
-/// CHECK-NEXT: [[ATRUNC_2:%[0-9]+]] = arith.trunci [[A_2]] : i64 to i16
-/// CHECK-NEXT: hlir.store into [[C]] : {{[^%]+}}, [[ATRUNC_2]]
+/// * (?<C>$t) = hlir.local_var
+/// + (?<A_2>$t) = hlir.load $A
+/// + (?<ATRUNC_2>$t) = arith.trunci $A_2 : i64 to i16
+/// + hlir.store into $C : [^%]+, $ATRUNC_2
 i16 c = a as i16;
 
-/// CHECK: [[D:%[0-9a-z_]+]] = hlir.local_var
-/// CHECK-NEXT: [[A_3:%[0-9]+]] = hlir.load [[A]]
-/// CHECK-NEXT: [[ATRUNC_3:%[0-9]+]] = arith.trunci [[A_3]] : i64 to i32
-/// CHECK-NEXT: hlir.store into [[D]] : {{[^%]+}}, [[ATRUNC_3]]
+/// * (?<D>$t) = hlir.local_var
+/// + (?<A_3>$t) = hlir.load $A
+/// + (?<ATRUNC_3>$t) = arith.trunci $A_3 : i64 to i32
+/// + hlir.store into $D : [^%]+, $ATRUNC_3
 i32 d = a as i32;
 
-/// CHECK: [[E:%[0-9a-z_]+]] = hlir.local_var
-/// CHECK-NEXT: [[A_4:%[0-9]+]] = hlir.load [[A]]
-/// CHECK-NEXT: hlir.store into [[E]] : {{[^%]+}}, [[A_4]]
+/// * (?<E>$t) = hlir.local_var
+/// + (?<A_4>$t) = hlir.load $A
+/// + hlir.store into $E : [^%]+, $A_4
 i64 e = a as i64;
 
-/// CHECK: [[F:%[0-9a-z_]+]] = hlir.local_var
-/// CHECK-NEXT: [[A_5:%[0-9]+]] = hlir.load [[A]]
-/// CHECK-NEXT: [[ATRUNC_5:%[0-9]+]] = arith.trunci [[A_5]] : i64 to i1
-/// CHECK-NEXT: hlir.store into [[F]] : {{[^%]+}}, [[ATRUNC_5]]
+/// * (?<F>$t) = hlir.local_var
+/// + (?<A_5>$t) = hlir.load $A
+/// + (?<ATRUNC_5>$t) = arith.trunci $A_5 : i64 to i1
+/// + hlir.store into $F : [^%]+, $ATRUNC_5
 bool f = a as bool;
 
 /// ===== SIGN-EXTENDING CASTS  =====
-/// CHECK: [[G:%[0-9a-z_]+]] = hlir.local_var
+/// * (?<G>$t) = hlir.local_var
 i8 g = 42 as i8;
 
-/// CHECK: [[H:%[0-9a-z_]+]] = hlir.local_var
-/// CHECK-NEXT: [[G_1:%[0-9]+]] = hlir.load [[G]]
-/// CHECK-NEXT: [[GSEXT_1:%[0-9]+]] = arith.extsi [[G_1]] : i8 to i16
-/// CHECK-NEXT: hlir.store into [[H]] : {{[^%]+}}, [[GSEXT_1]]
+/// * (?<H>$t) = hlir.local_var
+/// + (?<G_1>$t) = hlir.load $G
+/// + (?<GSEXT_1>$t) = arith.extsi $G_1 : i8 to i16
+/// + hlir.store into $H : [^%]+, $GSEXT_1
 i16 h = g as i16;
 
-/// CHECK: [[I:%[0-9a-z_]+]] = hlir.local_var
-/// CHECK-NEXT: [[G_2:%[0-9]+]] = hlir.load [[G]]
-/// CHECK-NEXT: [[GSEXT_2:%[0-9]+]] = arith.extsi [[G_2]] : i8 to i32
-/// CHECK-NEXT: hlir.store into [[I]] : {{[^%]+}}, [[GSEXT_2]]
+/// * (?<I>$t) = hlir.local_var
+/// + (?<G_2>$t) = hlir.load $G
+/// + (?<GSEXT_2>$t) = arith.extsi $G_2 : i8 to i32
+/// + hlir.store into $I : [^%]+, $GSEXT_2
 i32 i = g as i32;
 
-/// CHECK: [[J:%[0-9a-z_]+]] = hlir.local_var
-/// CHECK-NEXT: [[G_3:%[0-9]+]] = hlir.load [[G]]
-/// CHECK-NEXT: [[GSEXT_3:%[0-9]+]] = arith.extsi [[G_3]] : i8 to i64
-/// CHECK-NEXT: hlir.store into [[J]] : {{[^%]+}}, [[GSEXT_3]]
+/// * (?<J>$t) = hlir.local_var
+/// + (?<G_3>$t) = hlir.load $G
+/// + (?<GSEXT_3>$t) = arith.extsi $G_3 : i8 to i64
+/// + hlir.store into $J : [^%]+, $GSEXT_3
 i64 j = g as i64;
 
 /// ===== ZERO-EXTENDING CASTS  =====
 /// Casts from `bool` and `i1` must ALWAYS zero-extend since
 /// sign-extension would cause 1 to become -1.
 
-/// CHECK: [[K:%[0-9a-z_]+]] = hlir.local_var
+/// * (?<K>$t) = hlir.local_var
 bool k = true;
 
-/// CHECK: [[L:%[0-9a-z_]+]] = hlir.local_var
+/// * (?<L>$t) = hlir.local_var
 i1 l = true;
 
-/// CHECK: [[M:%[0-9a-z_]+]] = hlir.local_var
-/// CHECK-NEXT: [[K_1:%[0-9]+]] = hlir.load [[K]]
-/// CHECK-NEXT: [[KZEXT_1:%[0-9]+]] = arith.extui [[K_1]] : i1 to i64
-/// CHECK-NEXT: hlir.store into [[M]] : {{[^%]+}}, [[KZEXT_1]]
+/// * (?<M>$t) = hlir.local_var
+/// + (?<K_1>$t) = hlir.load $K
+/// + (?<KZEXT_1>$t) = arith.extui $K_1 : i1 to i64
+/// + hlir.store into $M : [^%]+, $KZEXT_1
 i64 m = k as i64;
 
-/// CHECK: [[N:%[0-9a-z_]+]] = hlir.local_var
-/// CHECK-NEXT: [[L_1:%[0-9]+]] = hlir.load [[L]]
-/// CHECK-NEXT: [[LZEXT_1:%[0-9]+]] = arith.extui [[L_1]] : i1 to i64
-/// CHECK-NEXT: hlir.store into [[N]] : {{[^%]+}}, [[LZEXT_1]]
+/// * (?<N>$t) = hlir.local_var
+/// + (?<L_1>$t) = hlir.load $L
+/// + (?<LZEXT_1>$t) = arith.extui $L_1 : i1 to i64
+/// + hlir.store into $N : [^%]+, $LZEXT_1
 i64 n = l as i64;

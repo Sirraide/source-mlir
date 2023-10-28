@@ -320,4 +320,12 @@ void ReplaceAll(
 
 } // namespace src
 
+template <>
+struct fmt::formatter<llvm::StringRef> : fmt::formatter<std::string_view> {
+    template <typename FormatContext>
+    auto format(llvm::StringRef s, FormatContext& ctx) {
+        return fmt::formatter<std::string_view>::format(std::string_view{s.data(), s.size()}, ctx);
+    }
+};
+
 #endif // SOURCE_MLIR_UTILS_HH
