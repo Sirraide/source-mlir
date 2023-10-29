@@ -1,133 +1,135 @@
-/// RUN: %srcc %s --hlir | FileCheck %s
+/// R ./srcc %s --hlir
 
-/// CHECK: [[I:%[0-9]+]] = hlir.local_var
-/// CHECK: [[J:%[0-9]+]] = hlir.local_var
+/// d t %[a-zA-Z0-9_]+
+
+/// * (?<I>$t) = hlir.local_var
+/// * (?<J>$t) = hlir.local_var
 int i = 1;
 int j = 2;
 
 /// ======= Reference Binding =======
-/// CHECK: [[R1I:%[0-9]+]] = hlir.local_var
-/// CHECK-NEXT: hlir.store into [[R1I]] : {{[^%]+}}, [[I]]
+/// * (?<R1I>$t) = hlir.local_var
+/// + hlir.store into $R1I : [^%]+, $I
 int& r1i = i;
 
-/// CHECK: [[R1J:%[0-9]+]] = hlir.local_var
-/// CHECK-NEXT: [[R1I_0:%[0-9]+]] = hlir.load [[R1I]]
-/// CHECK-NEXT: hlir.store into [[R1J]] : {{[^%]+}}, [[R1I_0]]
+/// * (?<R1J>$t) = hlir.local_var
+/// + (?<R1I_0>$t) = hlir.load $R1I
+/// + hlir.store into $R1J : [^%]+, $R1I_0
 int& r1j = r1i;
 
 /// ======= Autodereferencing =======
-/// CHECK: [[COPY_I:%[0-9]+]] = hlir.local_var
-/// CHECK-NEXT: [[R1I_1:%[0-9]+]] = hlir.load [[R1I]]
-/// CHECK-NEXT: [[I_1:%[0-9]+]] = hlir.load [[R1I_1]]
-/// CHECK-NEXT: hlir.store into [[COPY_I]] : {{[^%]+}}, [[I_1]]
+/// * (?<COPY_I>$t) = hlir.local_var
+/// + (?<R1I_1>$t) = hlir.load $R1I
+/// + (?<I_1>$t) = hlir.load $R1I_1
+/// + hlir.store into $COPY_I : [^%]+, $I_1
 int copy_i = r1i;
 
-/// CHECK: [[R1I_2:%[0-9]+]] = hlir.load [[R1I]]
-/// CHECK-NEXT: [[I_2:%[0-9]+]] = hlir.load [[R1I_2]]
-/// CHECK-NEXT: hlir.store into [[I]] : {{[^%]+}}, [[I_2]]
+/// * (?<R1I_2>$t) = hlir.load $R1I
+/// + (?<I_2>$t) = hlir.load $R1I_2
+/// + hlir.store into $I : [^%]+, $I_2
 i = r1i;
 
-/// CHECK: [[R1I_3:%[0-9]+]] = hlir.load [[R1I]]
-/// CHECK-NEXT: [[R1J_0:%[0-9]+]] = hlir.load [[R1J]]
-/// CHECK-NEXT: [[J_0:%[0-9]+]] = hlir.load [[R1J_0]]
-/// CHECK-NEXT: hlir.store into [[R1I_3]] : {{[^%]+}}, [[J_0]]
+/// * (?<R1I_3>$t) = hlir.load $R1I
+/// + (?<R1J_0>$t) = hlir.load $R1J
+/// + (?<J_0>$t) = hlir.load $R1J_0
+/// + hlir.store into $R1I_3 : [^%]+, $J_0
 r1i = r1j;
 
 /// ===== Trivial Rebinding =====
-/// CHECK: hlir.store into [[R1I]] : {{[^%]+}}, [[J]]
-/// CHECK-NEXT: [[R1J_1:%[0-9]+]] = hlir.load [[R1J]]
-/// CHECK-NEXT: hlir.store into [[R1I]] : {{[^%]+}}, [[R1J_1]]
+/// * hlir.store into $R1I : [^%]+, $J
+/// + (?<R1J_1>$t) = hlir.load $R1J
+/// + hlir.store into $R1I : [^%]+, $R1J_1
 r1i => j;
 r1i => r1j;
 
 /// ===== Multi-level Ref Decls =====
-/// CHECK: [[R2I:%[0-9]+]] = hlir.local_var
-/// CHECK-NEXT: hlir.store into [[R2I]] : {{[^%]+}}, [[R1I]]
+/// * (?<R2I>$t) = hlir.local_var
+/// + hlir.store into $R2I : [^%]+, $R1I
 int&& r2i = r1i;
 
-/// CHECK: [[R2J:%[0-9]+]] = hlir.local_var
-/// CHECK-NEXT: hlir.store into [[R2J]] : {{[^%]+}}, [[R1J]]
+/// * (?<R2J>$t) = hlir.local_var
+/// + hlir.store into $R2J : [^%]+, $R1J
 int&& r2j = r1j;
 
-/// CHECK: [[R3I:%[0-9]+]] = hlir.local_var
-/// CHECK-NEXT: hlir.store into [[R3I]] : {{[^%]+}}, [[R2I]]
+/// * (?<R3I>$t) = hlir.local_var
+/// + hlir.store into $R3I : [^%]+, $R2I
 int&&& r3i = r2i;
 
-/// CHECK: [[R3J:%[0-9]+]] = hlir.local_var
-/// CHECK-NEXT: hlir.store into [[R3J]] : {{[^%]+}}, [[R2J]]
+/// * (?<R3J>$t) = hlir.local_var
+/// + hlir.store into $R3J : [^%]+, $R2J
 int&&& r3j = r2j;
 
 /// ===== Multi-level Ref Assignment =====
-/// CHECK: [[R2I_0:%[0-9]+]] = hlir.load [[R2I]]
-/// CHECK-NEXT: [[R1I_4:%[0-9]+]] = hlir.load [[R2I_0]]
-/// CHECK-NEXT: [[J_1:%[0-9]+]] = hlir.load [[J]]
-/// CHECK-NEXT: hlir.store into [[R1I_4]] : {{[^%]+}}, [[J_1]]
+/// * (?<R2I_0>$t) = hlir.load $R2I
+/// + (?<R1I_4>$t) = hlir.load $R2I_0
+/// + (?<J_1>$t) = hlir.load $J
+/// + hlir.store into $R1I_4 : [^%]+, $J_1
 r2i = j;
 
-/// CHECK: [[R3I_0:%[0-9]+]] = hlir.load [[R3I]]
-/// CHECK-NEXT: [[R2I_1:%[0-9]+]] = hlir.load [[R3I_0]]
-/// CHECK-NEXT: [[R1I_5:%[0-9]+]] = hlir.load [[R2I_1]]
-/// CHECK-NEXT: [[J_2:%[0-9]+]] = hlir.load [[J]]
-/// CHECK-NEXT: hlir.store into [[R1I_5]] : {{[^%]+}}, [[J_2]]
+/// * (?<R3I_0>$t) = hlir.load $R3I
+/// + (?<R2I_1>$t) = hlir.load $R3I_0
+/// + (?<R1I_5>$t) = hlir.load $R2I_1
+/// + (?<J_2>$t) = hlir.load $J
+/// + hlir.store into $R1I_5 : [^%]+, $J_2
 r3i = j;
 
-/// CHECK: [[R2J_0:%[0-9]+]] = hlir.load [[R2J]]
-/// CHECK-NEXT: [[R1J_2:%[0-9]+]] = hlir.load [[R2J_0]]
-/// CHECK-NEXT: [[R3J_0:%[0-9]+]] = hlir.load [[R3J]]
-/// CHECK-NEXT: [[R2J_1:%[0-9]+]] = hlir.load [[R3J_0]]
-/// CHECK-NEXT: [[R1J_3:%[0-9]+]] = hlir.load [[R2J_1]]
-/// CHECK-NEXT: [[J_3:%[0-9]+]] = hlir.load [[R1J_3]]
-/// CHECK-NEXT: hlir.store into [[R1J_2]] : {{[^%]+}}, [[J_3]]
+/// * (?<R2J_0>$t) = hlir.load $R2J
+/// + (?<R1J_2>$t) = hlir.load $R2J_0
+/// + (?<R3J_0>$t) = hlir.load $R3J
+/// + (?<R2J_1>$t) = hlir.load $R3J_0
+/// + (?<R1J_3>$t) = hlir.load $R2J_1
+/// + (?<J_3>$t) = hlir.load $R1J_3
+/// + hlir.store into $R1J_2 : [^%]+, $J_3
 r2j = r3j;
 
-/// CHECK: [[R3I_1:%[0-9]+]] = hlir.load [[R3I]]
-/// CHECK-NEXT: [[R2I_2:%[0-9]+]] = hlir.load [[R3I_1]]
-/// CHECK-NEXT: [[R1I_6:%[0-9]+]] = hlir.load [[R2I_2]]
-/// CHECK-NEXT: [[R2I_3:%[0-9]+]] = hlir.load [[R2I]]
-/// CHECK-NEXT: [[R1I_7:%[0-9]+]] = hlir.load [[R2I_3]]
-/// CHECK-NEXT: [[I_3:%[0-9]+]] = hlir.load [[R1I_7]]
-/// CHECK-NEXT: hlir.store into [[R1I_6]] : {{[^%]+}}, [[I_3]]
+/// * (?<R3I_1>$t) = hlir.load $R3I
+/// + (?<R2I_2>$t) = hlir.load $R3I_1
+/// + (?<R1I_6>$t) = hlir.load $R2I_2
+/// + (?<R2I_3>$t) = hlir.load $R2I
+/// + (?<R1I_7>$t) = hlir.load $R2I_3
+/// + (?<I_3>$t) = hlir.load $R1I_7
+/// + hlir.store into $R1I_6 : [^%]+, $I_3
 r3i = r2i;
 
-/// CHECK: [[R3I_2:%[0-9]+]] = hlir.load [[R3I]]
-/// CHECK-NEXT: [[R2I_4:%[0-9]+]] = hlir.load [[R3I_2]]
-/// CHECK-NEXT: [[R1I_8:%[0-9]+]] = hlir.load [[R2I_4]]
-/// CHECK-NEXT: [[R1I_9:%[0-9]+]] = hlir.load [[R1I]]
-/// CHECK-NEXT: [[I_4:%[0-9]+]] = hlir.load [[R1I_9]]
-/// CHECK-NEXT: hlir.store into [[R1I_8]] : {{[^%]+}}, [[I_4]]
+/// * (?<R3I_2>$t) = hlir.load $R3I
+/// + (?<R2I_4>$t) = hlir.load $R3I_2
+/// + (?<R1I_8>$t) = hlir.load $R2I_4
+/// + (?<R1I_9>$t) = hlir.load $R1I
+/// + (?<I_4>$t) = hlir.load $R1I_9
+/// + hlir.store into $R1I_8 : [^%]+, $I_4
 r3i = r1i;
 
-/// CHECK: [[R2J_2:%[0-9]+]] = hlir.load [[R2J]]
-/// CHECK-NEXT: [[R1J_4:%[0-9]+]] = hlir.load [[R2J_2]]
-/// CHECK-NEXT: [[R1J_5:%[0-9]+]] = hlir.load [[R1J]]
-/// CHECK-NEXT: [[J_4:%[0-9]+]] = hlir.load [[R1J_5]]
-/// CHECK-NEXT: hlir.store into [[R1J_4]] : {{[^%]+}}, [[J_4]]
+/// * (?<R2J_2>$t) = hlir.load $R2J
+/// + (?<R1J_4>$t) = hlir.load $R2J_2
+/// + (?<R1J_5>$t) = hlir.load $R1J
+/// + (?<J_4>$t) = hlir.load $R1J_5
+/// + hlir.store into $R1J_4 : [^%]+, $J_4
 r2j = r1j;
 
 /// ===== Multi-level Rebinding =====
-/// CHECK: hlir.store into [[R2I]] : {{[^%]+}}, [[R1J]]
-/// CHECK-NEXT: hlir.store into [[R3J]] : {{[^%]+}}, [[R2I]]
+/// * hlir.store into $R2I : [^%]+, $R1J
+/// + hlir.store into $R3J : [^%]+, $R2I
 r2i => r1j;
 r3j => r2i;
 
 /// ===== Indirect Rebinding =====
-/// CHECK: [[R2I_5:%[0-9]+]] = hlir.load [[R2I]]
-/// CHECK-NEXT: hlir.store into [[R2I_5]] : {{[^%]+}}, [[I]]
+/// * (?<R2I_5>$t) = hlir.load $R2I
+/// + hlir.store into $R2I_5 : [^%]+, $I
 *r2i => i;
 
-/// CHECK: [[R3J_1:%[0-9]+]] = hlir.load [[R3J]]
-/// CHECK-NEXT: hlir.store into [[R3J_1]] : {{[^%]+}}, [[R1I]]
+/// * (?<R3J_1>$t) = hlir.load $R3J
+/// + hlir.store into $R3J_1 : [^%]+, $R1I
 *r3j => r1i;
 
-/// CHECK: [[R3I_3:%[0-9]+]] = hlir.load [[R3I]]
-/// CHECK-NEXT: [[R2I_6:%[0-9]+]] = hlir.load [[R3I_3]]
-/// CHECK-NEXT: hlir.store into [[R2I_6]] : {{[^%]+}}, [[J]]
+/// * (?<R3I_3>$t) = hlir.load $R3I
+/// + (?<R2I_6>$t) = hlir.load $R3I_3
+/// + hlir.store into $R2I_6 : [^%]+, $J
 **r3i => j;
 
-/// CHECK: [[R3J_2:%[0-9]+]] = hlir.load [[R3J]]
-/// CHECK-NEXT: [[R2J_3:%[0-9]+]] = hlir.load [[R3J_2]]
-/// CHECK-NEXT: [[R3I_4:%[0-9]+]] = hlir.load [[R3I]]
-/// CHECK-NEXT: [[R2I_7:%[0-9]+]] = hlir.load [[R3I_4]]
-/// CHECK-NEXT: [[R1I_10:%[0-9]+]] = hlir.load [[R2I_7]]
-/// CHECK-NEXT: hlir.store into [[R2J_3]] : {{[^%]+}}, [[R1I_10]]
+/// * (?<R3J_2>$t) = hlir.load $R3J
+/// + (?<R2J_3>$t) = hlir.load $R3J_2
+/// + (?<R3I_4>$t) = hlir.load $R3I
+/// + (?<R2I_7>$t) = hlir.load $R3I_4
+/// + (?<R1I_10>$t) = hlir.load $R2I_7
+/// + hlir.store into $R2J_3 : [^%]+, $R1I_10
 **r3j => r3i;

@@ -1,50 +1,53 @@
-/// RUN: %srcc --hlir %s | FileCheck %s
+/// R ./srcc --hlir %s
 
-/// CHECK: [[A:%[0-9]+]] = hlir.local_var
+/// d t %[a-zA-Z0-9_]+
+/// d b \^bb[0-9]+
+
+/// * (?<A>$t) = hlir.local_var
 int a;
 
-/// CHECK: [[B:%[0-9]+]] = hlir.local_var
-/// CHECK-NEXT: [[T_1:%[a-z0-9_]+]] = arith.constant true
-/// CHECK-NEXT: cf.cond_br [[T_1]], [[TRUE_1:\^bb[0-9]+]], [[FALSE_1:\^bb[0-9]+]]
-/// CHECK-NEXT: [[TRUE_1]]:
-/// CHECK-NEXT: [[A_1:%[0-9]+]] = hlir.load [[A]]
-/// CHECK-NEXT: cf.br [[JOIN_1:\^bb[0-9]+]]([[A_1]]
-/// CHECK-NEXT: [[FALSE_1]]:
-/// CHECK-NEXT: [[CONST_42:%[a-z0-9_]+]] = arith.constant 42 : i64
-/// CHECK-NEXT: cf.br [[JOIN_1]]([[CONST_42]]
-/// CHECK-NEXT: [[JOIN_1]]([[IF_1:%[a-z0-9_]+]]
-/// CHECK-NEXT: hlir.store into [[B]] : {{[^%]+}}, [[IF_1]]
+/// * (?<B>$t) = hlir.local_var
+/// + (?<T_1>$t) = arith.constant true
+/// + cf.cond_br $T_1, (?<TRUE_1>$b), (?<FALSE_1>$b)
+/// + $TRUE_1:
+/// + (?<A_1>$t) = hlir.load $A
+/// + cf.br (?<JOIN_1>$b)($A_1
+/// + $FALSE_1:
+/// + (?<CONST_42>$t) = arith.constant 42 : i64
+/// + cf.br $JOIN_1($CONST_42
+/// + $JOIN_1((?<IF_1>$t)
+/// + hlir.store into $B : [^%]+, $IF_1
 int b = if true then a else 42;
 
-/// CHECK: [[C:%[0-9]+]] = hlir.local_var
-/// CHECK-NEXT: [[T_2:%[a-z0-9_]+]] = arith.constant true
-/// CHECK-NEXT: cf.cond_br [[T_2]], [[TRUE_2:\^bb[0-9]+]], [[FALSE_2:\^bb[0-9]+]]
-/// CHECK-NEXT: [[TRUE_2]]:
-/// CHECK-NEXT: [[CONST_42_2:%[a-z0-9_]+]] = arith.constant 42 : i64
-/// CHECK-NEXT: cf.br [[JOIN_2:\^bb[0-9]+]]([[CONST_42_2]]
-/// CHECK-NEXT: [[FALSE_2]]:
-/// CHECK-NEXT: [[A_2:%[0-9]+]] = hlir.load [[A]]
-/// CHECK-NEXT: cf.br [[JOIN_2]]([[A_2]]
-/// CHECK-NEXT: [[JOIN_2]]([[IF_2:%[a-z0-9_]+]]
-/// CHECK-NEXT: hlir.store into [[C]] : {{[^%]+}}, [[IF_2]]
+/// * (?<C>$t) = hlir.local_var
+/// + (?<T_2>$t) = arith.constant true
+/// + cf.cond_br $T_2, (?<TRUE_2>$b), (?<FALSE_2>$b)
+/// + $TRUE_2:
+/// + (?<CONST_42_2>$t) = arith.constant 42 : i64
+/// + cf.br (?<JOIN_2>$b)($CONST_42_2
+/// + $FALSE_2:
+/// + (?<A_2>$t) = hlir.load $A
+/// + cf.br $JOIN_2($A_2
+/// + $JOIN_2((?<IF_2>$t)
+/// + hlir.store into $C : [^%]+, $IF_2
 int c = if true { 42 } else { a };
 
-/// CHECK: [[D:%[0-9]+]] = hlir.local_var
-/// CHECK-NEXT: [[T_3:%[a-z0-9_]+]] = arith.constant false
-/// CHECK-NEXT: cf.cond_br [[T_3]], [[TRUE_3:\^bb[0-9]+]], [[FALSE_3:\^bb[0-9]+]]
-/// CHECK-NEXT: [[TRUE_3]]:
-/// CHECK-NEXT: cf.br [[JOIN_3:\^bb[0-9]+]]([[B]]
-/// CHECK-NEXT: [[FALSE_3]]:
-/// CHECK-NEXT: cf.br [[JOIN_3]]([[C]]
-/// CHECK-NEXT: [[JOIN_3]]([[IF_3:%[a-z0-9_]+]]
-/// CHECK-NEXT: hlir.store into [[D]] : {{[^%]+}}, [[IF_3]]
+/// * (?<D>$t) = hlir.local_var
+/// + (?<T_3>$t) = arith.constant false
+/// + cf.cond_br $T_3, (?<TRUE_3>$b), (?<FALSE_3>$b)
+/// + $TRUE_3:
+/// + cf.br (?<JOIN_3>$b)($B
+/// + $FALSE_3:
+/// + cf.br $JOIN_3($C
+/// + $JOIN_3((?<IF_3>$t)
+/// + hlir.store into $D : [^%]+, $IF_3
 int& d = if false { b } else { c };
 
-/// CHECK-NEXT: [[T_4:%[a-z0-9_]+]] = arith.constant true
-/// CHECK-NEXT: cf.cond_br [[T_4]], [[TRUE_4:\^bb[0-9]+]], [[JOIN_4:\^bb[0-9]+]]
-/// CHECK-NEXT: [[TRUE_4]]:
-/// CHECK-NEXT: [[A_3:%[0-9]+]] = hlir.load [[A]]
-/// CHECK-NEXT: hlir.store into [[A]] : {{[^%]+}}, [[A_3]]
-/// CHECK-NEXT: cf.br [[JOIN_4]]
-/// CHECK-NEXT: [[JOIN_4]]:
+/// + (?<T_4>$t) = arith.constant true
+/// + cf.cond_br $T_4, (?<TRUE_4>$b), (?<JOIN_4>$b)
+/// + $TRUE_4:
+/// + (?<A_3>$t) = hlir.load $A
+/// + hlir.store into $A : [^%]+, $A_3
+/// + cf.br $JOIN_4
+/// + $JOIN_4:
 if true then a = a;

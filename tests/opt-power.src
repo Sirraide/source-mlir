@@ -1,15 +1,17 @@
-/// RUN: %srcc -O3 %s --llvm | FileCheck %s
+/// R ./srcc -O3 %s --llvm
 
 /// This test ensures that the optimiser performs proper strength
 /// reduction on `**`. If this ever fails, we will have to move
 /// these optimisations into codegen instead.
 
+/// d t %[a-zA-Z0-9_]+
+
 proc j extern -> int;
 proc consume(int) extern;
 
-int i = j();    /// CHECK: [[TMP:%[0-9]+]] = tail call [[INT:i[0-9]+]] @j()
+int i = j();    /// * (?<TMP>$t) = tail call (?<INT>i[0-9]+) @j()
 
-consume i ** 0; /// CHECK: call void @consume([[INT]] 1)
-consume i ** 1; /// CHECK: call void @consume([[INT]] [[TMP]])
-consume i ** 2; /// CHECK: [[PROD:%[0-9]+]] = mul [[INT]] [[TMP]], [[TMP]]
-                /// CHECK: call void @consume([[INT]] [[PROD]])
+consume i ** 0; /// * call void @consume($INT 1)
+consume i ** 1; /// * call void @consume($INT $TMP)
+consume i ** 2; /// * (?<PROD>$t) = mul $INT $TMP, $TMP
+                /// * call void @consume($INT $PROD)

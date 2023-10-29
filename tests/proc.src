@@ -1,30 +1,32 @@
-/// RUN: %srcc %s --hlir | FileCheck %s
+/// R ./srcc %s --hlir
 proc discard (int a) extern;
 
-/// CHECK:      func.func private @takes_int
+/// d t %[a-zA-Z0-9_]+
+
+/// * func.func private @takes_int
 proc takes_int (int a) {
-    /// CHECK-NEXT: [[A:%[0-9]+]] = hlir.local_var
-    /// CHECK-NEXT: hlir.store into [[A]]
-    /// CHECK: [[A1:%[0-9]+]] = hlir.load [[A]]
-    /// CHECK-NEXT: [[A2:%[0-9]+]] = hlir.load [[A]]
-    /// CHECK-NEXT: [[SUM:%[0-9]+]] = arith.addi [[A1]], [[A2]]
-    /// CHECK-NEXT: call_indirect
+    /// + (?<A>$t) = hlir.local_var
+    /// + hlir.store into $A
+    /// * (?<A1>$t) = hlir.load $A
+    /// + (?<A2>$t) = hlir.load $A
+    /// + (?<SUM>$t) = arith.addi $A1, $A2
+    /// + call_indirect
     discard a + a;
 }
 
-/// CHECK:      func.func private @invoke
+/// * func.func private @invoke
 proc invoke() {
-    /// CHECK:      arith.constant 1
-    /// CHECK-NEXT: call_indirect
-    /// CHECK:      arith.constant 2
-    /// CHECK-NEXT: call_indirect
+    /// *      arith.constant 1
+    /// + call_indirect
+    /// *      arith.constant 2
+    /// + call_indirect
     takes_int 1;
     takes_int 2;
 
-    /// CHECK:      arith.constant 3
-    /// CHECK-NEXT: call_indirect
-    /// CHECK:      arith.constant 4
-    /// CHECK-NEXT: call_indirect
+    /// *      arith.constant 3
+    /// + call_indirect
+    /// *      arith.constant 4
+    /// + call_indirect
     takes_int(3);
     takes_int(4);
 }

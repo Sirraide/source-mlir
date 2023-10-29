@@ -1,6 +1,6 @@
-/// RUN: %srcc %s --sema |& FileCheck %s
+/// R ./srcc %s --sema 2>&1
 
 /// Make sure that the error is reported only once in a single expression.
-/// CHECK: Unknown symbol 'a'
-/// CHECK-NOT: Unknown symbol 'b'
+/// * Unknown symbol 'a'
+/// ! Unknown symbol 'b'
 a + b;

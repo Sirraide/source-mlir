@@ -1,6 +1,7 @@
 /// R ./srcc %s --hlir
 
-/// p lit ^
+/// d t %[a-zA-Z0-9_]+
+/// d b \^bb[0-9]+
 
 proc a() extern;
 proc b() extern;
@@ -14,9 +15,6 @@ proc i() extern;
 proc j() extern;
 proc k() extern;
 proc l() extern;
-
-/// d t %[a-zA-Z0-9_]+
-/// d b ^bb[0-9]+
 /// * (?<T>$t) = hlir.local_var
 bool t = true;
 
