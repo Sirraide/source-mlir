@@ -1,6 +1,7 @@
 #ifndef HLIR_DIALECT_TD
 #define HLIR_DIALECT_TD
 
+include "mlir/Dialect/LLVMIR/LLVMOpBase.td"
 include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/CastInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -83,6 +84,7 @@ def HLIR_Type : AnyTypeOf<[
     HLIR_SliceType,
     HLIR_ArrayType,
     HLIR_ReferenceType,
+    LLVM_AnyStruct,
 //    HLIR_StaticChainPointerType,
 ]>;
 

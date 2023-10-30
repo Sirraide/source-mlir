@@ -229,7 +229,6 @@ auto src::Location::seek(const Context* ctx) const -> LocInfo {
 
     /// Seek forward to the end of the line.
     const char* const end = data + f->size();
-    const auto end_of_location = data + pos + len;
     info.line_end = data + pos;
     while (info.line_end < end and *info.line_end != '\n') info.line_end++;
 

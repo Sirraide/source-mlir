@@ -123,12 +123,17 @@ endif()
 
 ## Debug/Release flags.
 if (NOT MSVC)
+#[[
+    target_compile_definitions(options INTERFACE
+        $<$<CONFIG:DEBUG>:_GLIBCXX_DEBUG>
+    )
+]]
     target_compile_options(options INTERFACE
         $<$<CONFIG:DEBUG>:-O0 -g -glldb -funwind-tables>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
     target_link_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g -glldb -funwind-tables>
+        $<$<CONFIG:DEBUG>:-O0 -g -glldb -Wl,-export-dynamic -funwind-tables>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
 else()
@@ -342,8 +347,8 @@ target_precompile_headers(srcc PRIVATE
 
 ## Tests
 include(CTest)
-set(FCHK_FORCE_RELEASE ON)
-add_subdirectory(fchk)
+include(fchk/cmake/FCHKDiscoverTests.cmake)
+set(FCHK_EXE_PATH "${PROJECT_SOURCE_DIR}/fchk/out/fchk")
 FCHKAddAllTestsInDir(
     IN tests
     PATTERN "*.src"

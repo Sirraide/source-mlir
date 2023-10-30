@@ -202,13 +202,15 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::StructType: {
             auto s = cast<StructType>(e);
             usz padding_count = 0;
+            u32 index = 0;
 
             /// Create a padding field at the given location to serve as padding.
             const auto CreatePaddingField = [&](isz padding, auto insert_before) {
-                auto ty = new (mod) ArrayType(Type::I8, new (mod) IntLitExpr(padding / 8, s->location), s->location);
+                auto ty = ArrayType::GetByteArray(mod, padding / 8);
                 StructType::Field f({fmt::format("#padding{}", padding_count++), ty});
                 f.offset = s->stored_size;
                 f.padding = true;
+                f.index = index++;
                 s->all_fields.insert(insert_before, f);
                 s->stored_size += padding;
             };
@@ -243,6 +245,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 auto align = s->all_fields[i].type->as_type.align(mod->context);
                 AlignField(align, i);
                 s->all_fields[i].offset = s->stored_size;
+                s->all_fields[i].index = index++;
                 s->stored_alignment = std::max<isz>(s->stored_alignment, align);
                 s->stored_size += s->all_fields[i].type->as_type.size(mod->context);
             }

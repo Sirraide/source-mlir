@@ -1,11 +1,37 @@
+/// R %srcc --hlir %s
+
+/// d t %[0-9a-zA-Z_]+
+
 struct S {
     i8 a;
-    i8 b;
-    i64 c;
+    i64 b;
+    i8 c;
     i32 d;
 }
 
-proc foo (S& a, S b) = a.a + b.a;
+/// * func.func public @__src_main
+/// + (?<S>$t) = hlir.local_var
+/// + hlir.zeroinitialiser $S
+/// + (?<F>$t) = constant @foo
+/// + (?<S1>$t) = hlir.load $S
+/// + call_indirect $F($S, $S1)
+/// + return
 
 S s;
 foo s, s;
+
+/// Note: Index of `.a` is 0; index of `.c` is 3, because padding.
+/// * func.func private @foo
+/// + (?<A>$t) = hlir.local_var
+/// + hlir.store $A
+/// + (?<B>$t) = hlir.local_var
+/// + hlir.store $B
+/// + (?<Aref>$t) = hlir.load $A
+/// + (?<AAref>$t) = hlir.structgep $Aref, 0
+/// + (?<AA>$t) = hlir.load $AAref
+/// + (?<Bref>$t) = hlir.load $B
+/// + (?<BBref>$t) = hlir.structgep $Bref, 3
+/// + (?<BB>$t) = hlir.load $BBref
+/// + (?<Sum>$t) = hlir.add $AA, $BB
+/// + return $Sum
+proc foo (S& a, S b) = a.a + b.c;

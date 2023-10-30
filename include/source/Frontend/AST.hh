@@ -865,6 +865,7 @@ public:
         std::string name;
         Expr* type;
         isz offset{};
+        u32 index{};
         bool padding{};
     };
 

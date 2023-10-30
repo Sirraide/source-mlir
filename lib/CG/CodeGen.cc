@@ -588,10 +588,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::SliceType:
         case Expr::Kind::OptionalType:
         case Expr::Kind::ProcType:
-        case Expr::Kind::StructType:
         case Expr::Kind::ArrayType:
         case Expr::Kind::SugaredType:
             Unreachable();
+
+        /// Struct decls are no-ops.
+        case Expr::Kind::StructType:
+            break;
 
         case Expr::Kind::InvokeExpr: {
             /// Emit callee.
@@ -674,7 +677,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// The object may be an lvalue; if so, yield the address
             /// rather than loading the entire object.
             if (e->object->is_lvalue) {
-                Todo("Access member of lvalue");
+                Assert(e->is_lvalue, "Accessing a member of an lvalue should yield an lvalue");
+                Assert(e->field, "Struct field not set for member access");
+                e->mlir = Create<hlir::StructGEPOp>(
+                    e->location.mlir(ctx),
+                    e->object->mlir,
+                    e->field->index
+                );
             }
 
             /// Object is an rvalue.
