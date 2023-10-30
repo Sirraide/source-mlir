@@ -1,4 +1,4 @@
-/// R ./srcc %s --hlir
+/// R %srcc %s --hlir
 proc discard (int a) extern;
 
 /// d t %[a-zA-Z0-9_]+

@@ -1,4 +1,4 @@
-/// R ./srcc --hlir %s
+/// R %srcc --hlir %s
 
 /// d t %[0-9a-zA-Z_]+
 /// d b \^bb[0-9]+

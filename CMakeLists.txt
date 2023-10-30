@@ -154,6 +154,21 @@ if (NOT DEFINED fmt_FOUND)
 	FetchContent_MakeAvailable(fmtlib)
 endif()
 
+## Find clopts.
+include(CheckIncludeFileCXX)
+check_include_file_cxx(clopts.hh HAVE_CLOPTS_HH)
+if (NOT HAVE_CLOPTS_HH)
+    include(FetchContent)
+	message(STATUS "Clopts not found, downloading ...")
+	FetchContent_Declare(clopts
+		GIT_REPOSITORY https://github.com/Sirraide/clopts.git
+		GIT_TAG v2.0.2
+		SOURCE_DIR "${CMAKE_CURRENT_BINARY_DIR}/libs/clopts"
+    )
+	FetchContent_MakeAvailable(clopts)
+    target_include_directories(options INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/libs/clopts/include")
+endif()
+
 ## Link against libfmt.
 target_link_libraries(options INTERFACE fmt)
 
@@ -334,6 +349,6 @@ FCHKAddAllTestsInDir(
     PATTERN "*.src"
     PREFIX  "///"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    ARGS -P re -P nocap -l .
+    ARGS -P re -P nocap -l . -D "srcc=$<TARGET_FILE:srcc>"
     RECURSIVE
 )

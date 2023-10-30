@@ -1,5 +1,5 @@
-/// R ./srcc %s --hlir
-/// TODO: ./srcc %s --llvm -O3
+/// R %srcc %s --hlir
+/// TODO: %srcc %s --llvm -O3
 
 /// p nolit .
 /// d any .*

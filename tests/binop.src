@@ -1,4 +1,4 @@
-/// R ./srcc %s --hlir
+/// R %srcc %s --hlir
 proc i extern -> i64;
 proc consume (i64) extern;
 

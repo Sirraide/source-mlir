@@ -1,4 +1,4 @@
-/// R ./srcc -O3 %s --llvm
+/// R %srcc -O3 %s --llvm
 
 /// This test ensures that the optimiser performs proper strength
 /// reduction on `**`. If this ever fails, we will have to move

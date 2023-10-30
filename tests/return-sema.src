@@ -1,4 +1,4 @@
-/// R ./srcc --sema %s 2>&1
+/// R %srcc --sema %s 2>&1
 
 /// ! Procedure 'trivial' does not return a value on all paths
 /// ! Procedure 'abbr' does not return a value on all paths
