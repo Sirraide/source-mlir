@@ -42,6 +42,7 @@ using options = clopts< // clang-format off
     flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
     flag<"--debug-llvm", "Debug LLVM lowering process">,
     flag<"--llvm", "Print the LLVM IR of the module">,
+    flag<"--exports", "Show exported declarations">,
     flag<"--no-verify", "Disable MLIR verification; CAUTION: this may lead to miscompilations">,
     experimental::short_option<"-O", "Optimisation level", values<0, 1, 2, 3>>,
     help<>
@@ -76,6 +77,19 @@ int main(int argc, char** argv) {
         std::exit(0);
     }
 
+    /// Print exports if requested.
+    if (opts.get<"--exports">()) {
+        if (not mod->is_logical_module) src::Diag::Fatal(
+            "Cannot print exports: not a logical module"
+        );
+
+        for (auto& exps : mod->exports)
+            for (auto e : exps.second)
+                e->print(false);
+
+        std::exit(0);
+    }
+
     /// Generate HLIR. If this fails, that’s an ICE, so no
     /// need for error checking here.
     src::CodeGen::Generate(mod.get(), opts.get<"--no-verify">());
@@ -91,6 +105,11 @@ int main(int argc, char** argv) {
     if (opts.get<"--llvm">()) {
         mod->print_llvm(int(opts.get_or<"-O">(0)));
         std::exit(0);
+    }
+
+    /// Emit the module if it is one.
+    if (mod->is_logical_module) {
+        Todo();
     }
 
     /// Run the code.

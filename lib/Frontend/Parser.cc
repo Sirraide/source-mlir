@@ -98,6 +98,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Break:
         case Tk::Continue:
         case Tk::Defer:
+        case Tk::Export:
         case Tk::False:
         case Tk::Identifier:
         case Tk::If:
@@ -274,6 +275,14 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::While:
             lhs = ParseWhile();
             break;
+
+        /// <expr-export> ::= EXPORT <expr>
+        case Tk::Export: {
+            auto start = Next();
+            lhs = ParseExpr();
+            if (IsError(lhs)) return lhs.diag;
+            lhs = new (mod) ExportExpr(*lhs, {start, lhs->location});
+        } break;
 
         /// <expr-return> ::= RETURN [ <expr> ]
         case Tk::Return: {
@@ -485,10 +494,22 @@ auto src::Parser::ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>
     return {};
 }
 
-/// <file> ::= { <expr> | ";" }
+/// <file> ::= <module-part> <exprs>
+/// <module-part> ::= [ MODULE IDENTIFIER ";" ]
 void src::Parser::ParseFile() {
     /// Parse preamble; this also creates the module.
-    mod_ptr = std::make_unique<Module>(ctx, "");
+    if (At(Tk::Identifier) and tok.text == "module") {
+        auto loc = Next();
+        if (not At(Tk::Identifier)) Error("Expected identifier");
+        auto module_name = tok.text;
+        Next();
+        if (not Consume(Tk::Semicolon)) Error("Expected ';'");
+
+        mod_ptr = std::make_unique<Module>(ctx, std::move(module_name), loc);
+    } else {
+        mod_ptr = std::make_unique<Module>(ctx, "");
+    }
+
     mod = mod_ptr.get();
     curr_func = mod->top_level_func;
 

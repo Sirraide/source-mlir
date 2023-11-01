@@ -750,6 +750,47 @@ bool src::Sema::Analyse(Expr*& e) {
             Analyse(w->body);
         } break;
 
+        /// Export.
+        case Expr::Kind::ExportExpr: {
+            auto exp = cast<ExportExpr>(e);
+
+            /// The type of an export expression is always void, so
+            /// we mark this as analysed even if sema fails for the
+            /// exported expression.
+            if (not Analyse(exp->expr)) return true;
+
+            /// Non-modules cannot export anything.
+            if (not mod->is_logical_module) return Error(
+                exp->location,
+                "'export' cannot be used outside of modules"
+            );
+
+            /// Check that an expression is exportable.
+            auto Exportable = [&]([[maybe_unused]] Scope* sc, StringRef name, StringRef entity_kind) {
+                if (name.empty()) return Error(
+                    exp->location,
+                    "Cannot export anonymous {}",
+                    entity_kind
+                );
+
+                return true;
+            };
+
+            /// Structs can be exported.
+            if (auto s = dyn_cast<StructType>(exp->expr)) {
+                if (not Exportable(s->scope, s->name, "struct")) return true;
+                mod->exports[s->name].push_back(s);
+                break;
+            }
+
+            /// Procedures can be exported.
+            if (auto p = dyn_cast<ProcDecl>(exp->expr)) {
+                if (not Exportable(p->body->scope, p->name, "struct")) return true;
+                mod->exports[p->name].push_back(p);
+                break;
+            }
+        } break;
+
         /// Unary expressions.
         case Expr::Kind::UnaryPrefixExpr: {
             auto u = cast<UnaryPrefixExpr>(e);

@@ -561,6 +561,9 @@ void src::Diag::print() {
     if (kind == Kind::Error and ctx)
         ctx->set_error(); /// Separate line so we can put a breakpoint here.
 
+    /// First, reset the colour.
+    fmt::print(stderr, "\033[m");
+
     /// If there is no context, then there is also no location info.
     if (not ctx) {
         PrintDiagWithoutLocation();

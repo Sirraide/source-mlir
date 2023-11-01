@@ -206,6 +206,9 @@ struct TempsetStage1 {
 
 } // namespace detail
 
+template <typename T, typename ...Us>
+concept is_same = (std::is_same_v<T, Us> or ...);
+
 /// More rarely used functions go here so as to not pollute
 /// the global namespace too much.
 namespace utils {

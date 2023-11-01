@@ -71,6 +71,7 @@ public:
         ReturnExpr,
         DeferExpr,
         WhileExpr,
+        ExportExpr,
         LoopControlExpr,
 
         /// TypedExpr [begin]
@@ -213,7 +214,7 @@ public:
     readonly(TypeHandle, as_type, return TypeHandle(this));
 
     /// Print this expression to stdout.
-    void print() const;
+    void print(bool print_children = true) const;
 };
 
 class AssertExpr : public Expr {
@@ -307,6 +308,19 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::LoopControlExpr; }
+};
+
+class ExportExpr : public Expr {
+public:
+    /// The expression being exported.
+    Expr* expr;
+
+    ExportExpr(Expr* expr, Location loc)
+        : Expr(Kind::ExportExpr, loc),
+          expr(expr) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ExportExpr; }
 };
 
 /// ===========================================================================

@@ -1,4 +1,6 @@
-<file> ::= <exprs>
+<file> ::= <module-part> <exprs>
+
+<module-part> ::= [ MODULE IDENTIFIER ";" ]
 
 /// ===========================================================================
 ///  Expressions
@@ -21,6 +23,7 @@
          | <expr-while>
          | <expr-labelled>
          | <expr-loop-ctrl>
+         | <expr-export>
          | <type-struct>
          | <decl>
 
@@ -40,6 +43,7 @@
 <expr-while>     ::= WHILE <expr> <do>
 <expr-labelled>  ::= IDENTIFIER ":" <expr>
 <expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
+<expr-export>    ::= EXPORT <expr>
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
@@ -58,7 +62,8 @@
 /// ===========================================================================
 ///  Declarations
 /// ==========================================================================
-<decl>           ::= <proc-named> | <proc-extern> | <param-decl> | <var-decl>
+<decl>           ::= <linkage-decl>
+<linkage-decl>   ::= <proc-named> | <proc-extern> | <var-decl>
 <var-decl>       ::= <type> IDENTIFIER [ "=" <expr> ]
 <type-struct>    ::= STRUCT <name> <struct-rest>
 <struct-anon>    ::= STRUCT <struct-rest>

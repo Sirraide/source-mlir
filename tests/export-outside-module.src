@@ -1,0 +1,4 @@
+/// R %srcc --sema %s 2>&1
+
+/// * 'export' cannot be used outside of modules
+export struct X {}

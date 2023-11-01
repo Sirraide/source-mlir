@@ -1,0 +1,9 @@
+module foo;
+
+export struct X {
+    i8 a;
+    int b;
+    i32 c;
+}
+
+export struct Y {}

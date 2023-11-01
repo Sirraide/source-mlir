@@ -349,6 +349,13 @@ public:
 
     /// Execute the module. Implemented in HLIRLowering.cc.
     int run(int opt_level);
+
+    /// Serialise the module to a description that can be saved and
+    /// loaded later. Implemented in Endec.cc.
+    auto serialise() -> std::vector<u8>;
+
+    /// Deserialise a module from a module description. Implemented in Endec.cc.
+    static auto Deserialise(Context* ctx, std::span<const u8> description) -> std::unique_ptr<Module>;
 };
 
 /// A diagnostic. The diagnostic is issued when the destructor is called.

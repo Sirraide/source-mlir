@@ -64,6 +64,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::AssertExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
+        case Kind::ExportExpr:
             return Type::Void;
 
         /// Typed exprs.
@@ -116,7 +117,7 @@ src::StructType::StructType(Module* mod, SmallString<32> sname, SmallVector<Fiel
       all_fields(std::move(fields)),
       name(std::move(sname)),
       scope(scope) {
-      if (not name.empty()) mod->named_structs.push_back(this);
+    if (not name.empty()) mod->named_structs.push_back(this);
 }
 
 auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
@@ -169,6 +170,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::ProcType:
             Unreachable(".align accessed on function type");
 
+        case Kind::ExportExpr:
         case Kind::DeclRefExpr:
         case Kind::LocalRefExpr:
         case Kind::AssertExpr:
@@ -278,6 +280,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::ProcType:
             Unreachable(".size accessed on function type");
 
+        case Kind::ExportExpr:
         case Kind::DeclRefExpr:
         case Kind::LocalRefExpr:
         case Kind::AssertExpr:
@@ -406,6 +409,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::AssertExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
+        case Kind::ExportExpr:
             return Type::Void->as_type.str(use_colour);
 
         case Kind::ReturnExpr:
@@ -518,6 +522,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
             return StructType::LayoutCompatible(sa, sb);
         }
 
+        case Kind::ExportExpr:
         case Kind::AssertExpr:
         case Kind::ConstExpr:
         case Kind::ReturnExpr:
@@ -582,7 +587,12 @@ struct ASTPrinter {
     bool use_colour = true;
     utils::Colours C{use_colour};
 
-    ASTPrinter(Module* mod, bool use_colour) : mod{mod}, use_colour{use_colour} {}
+    ASTPrinter(Module* mod, bool use_colour, bool print_children)
+        : mod{mod},
+          print_children_of_children{print_children},
+          use_colour{use_colour} {
+    }
+
     ~ASTPrinter() {
         if (not out.empty()) fmt::print("{}{}", out, C(Reset));
     }
@@ -811,11 +821,13 @@ struct ASTPrinter {
                 }
                 return;
             }
+
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
             case K::DeferExpr: PrintBasicNode("DeferExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
             case K::ConstExpr: PrintBasicNode("ConstExpr", e, e->type); return;
+            case K::ExportExpr: PrintBasicNode("ExportExpr", e, e->type); return;
 
             case K::UnaryPrefixExpr: {
                 auto u = cast<UnaryPrefixExpr>(e);
@@ -1001,6 +1013,10 @@ struct ASTPrinter {
                 if (r->target) PrintChildren(r->target, leading_text);
             } break;
 
+            case K::ExportExpr:
+                PrintChildren(cast<ExportExpr>(e)->expr, leading_text);
+                break;
+
             case K::ConstExpr:
                 PrintChildren(cast<ConstExpr>(e)->expr, leading_text);
                 break;
@@ -1050,12 +1066,12 @@ struct ASTPrinter {
 } // namespace
 } // namespace src
 
-void src::Expr::print() const {
+void src::Expr::print(bool print_children) const {
     /// Ok because ASTPrinter does not attempt to mutate this.
-    ASTPrinter{nullptr, true}(const_cast<Expr*>(this));
+    ASTPrinter{nullptr, true, print_children}(const_cast<Expr*>(this));
 }
 
 void src::Module::print_ast() const {
     /// Ok because ASTPrinter does not attempt to mutate this.
-    ASTPrinter{const_cast<Module*>(this), true}.print();
+    ASTPrinter{const_cast<Module*>(this), true, true}.print();
 }

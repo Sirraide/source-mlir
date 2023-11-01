@@ -295,6 +295,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
             return s->mlir;
         }
 
+        case Expr::Kind::ExportExpr:
         case Expr::Kind::AssertExpr:
         case Expr::Kind::ConstExpr:
         case Expr::Kind::ReturnExpr:
@@ -816,6 +817,12 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 loc,
                 l->is_continue ? tgt->cond_block : tgt->join_block
             );
+        } break;
+
+        /// Nothing to do here other than emitting the underlying decl.
+        case Expr::Kind::ExportExpr: {
+            auto e = cast<ExportExpr>(expr);
+            Generate(e->expr);
         } break;
 
         case Expr::Kind::ReturnExpr: {
