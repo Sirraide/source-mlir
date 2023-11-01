@@ -35,6 +35,7 @@ namespace detail {
 using namespace command_line_options;
 using options = clopts< // clang-format off
     positional<"file", "The file to compile">,
+    flag<"-r", "JIT-compile and run the program after compiling">,
     flag<"--syntax-only", "Skip the semantic analysis step">,
     flag<"--ast", "Print the AST of the module after parsing">,
     flag<"--sema", "Run sema only">,
@@ -44,7 +45,7 @@ using options = clopts< // clang-format off
     flag<"--llvm", "Print the LLVM IR of the module">,
     flag<"--exports", "Show exported declarations">,
     flag<"--no-verify", "Disable MLIR verification; CAUTION: this may lead to miscompilations">,
-    experimental::short_option<"-O", "Optimisation level", values<0, 1, 2, 3>>,
+    experimental::short_option<"-O", "Optimisation level", values<0, 1, 2, 3, 4>>,
     help<>
 >; // clang-format on
 }
@@ -107,13 +108,15 @@ int main(int argc, char** argv) {
         std::exit(0);
     }
 
-    /// Emit the module if it is one.
-    if (mod->is_logical_module) {
-        Todo();
+    /// Run the code if requested.
+    if (opts.get<"-r">()) {
+        if (mod->is_logical_module) src::Diag::Fatal("'-r' flag is invalid: cannot execute module");
+        return mod->run(int(opts.get_or<"-O">(0)));
     }
 
-    /// Run the code.
-    return mod->run(int(opts.get_or<"-O">(0)));
+    /// Emit the module to disk.
+    mod->emit_object_file(int(opts.get_or<"-O">(0)), auto{f.path()}.filename().replace_extension(".o"));
+
 
     /*    /// Notes:
         /// - ‘freeze’ keyword that makes a value const rather than forcing

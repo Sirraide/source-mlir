@@ -285,12 +285,27 @@ auto AllocateAndRegister(usz sz, auto& owner) -> void* {
     return ptr;
 }
 
+/// Compress data and append it to a vector.
+///
+/// Any data already present in the vector is retained.
+void Compress(
+    SmallVectorImpl<u8>& into,
+    ArrayRef<u8> data,
+    int compression_level = 12
+);
+
 /// Used to delete an object allocated by AllocateAndRegister.
 template <typename Class>
 void Deallocate(Class* ptr) {
     if (not ptr) return;
     __builtin_operator_delete(ptr);
 }
+
+/// Decompress data and append it to a vector.
+void Decompress(
+    SmallVectorImpl<u8>& into,
+    ArrayRef<u8> data
+);
 
 /// Compute the maximum value of an n-bit integer.
 constexpr usz MaxBitValue(usz bits) {

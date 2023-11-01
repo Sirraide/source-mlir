@@ -316,6 +316,9 @@ public:
     /// Location of the module declaration.
     Location module_decl_location;
 
+    /// Generate LLVM IR for this module.
+    void GenerateLLVMIR(int opt_level);
+
 public:
     /// Whether this is a logical module.
     readonly(bool, is_logical_module, return not name.empty());
@@ -337,6 +340,9 @@ public:
     /// Add a function to this module.
     void add_function(ProcDecl* func) { functions.push_back(func); }
 
+    /// Emit code to an object file. Implemented in Emit.cc
+    void emit_object_file(int opt_level, const fs::path& location);
+
     /// Print the AST of the module to stdout. Implemented
     /// in AST.cc
     void print_ast() const;
@@ -352,7 +358,7 @@ public:
 
     /// Serialise the module to a description that can be saved and
     /// loaded later. Implemented in Endec.cc.
-    auto serialise() -> std::vector<u8>;
+    auto serialise() -> SmallVector<u8>;
 
     /// Deserialise a module from a module description. Implemented in Endec.cc.
     static auto Deserialise(Context* ctx, std::span<const u8> description) -> std::unique_ptr<Module>;

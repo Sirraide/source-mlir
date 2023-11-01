@@ -1,15 +1,14 @@
+#include <llvm/Support/Compression.h>
 #include <source/Core.hh>
 #include <source/Frontend/AST.hh>
+#include <zstd.h>
 
 namespace src {
 namespace {
 using magic_t = std::array<u8, 3>;
 
-/// Module description header.
-struct Header {
-    u8 version;     ///< Version number for backwards-compatibility.
-    magic_t magic;  ///< Magic number.
-    u32 name_len;   ///< Module name length.
+struct CompressedHeader {
+    u64 name_len;   ///< Module name length.
     u64 type_count; ///< Number of types in the module.
     u64 decl_count; ///< Number of declarations in the module.
 };
@@ -55,6 +54,14 @@ concept serialisable_enum = is_same<T, SerialisedDeclTag, SerialisedTypeTag>;
 static constexpr u8 current_version = 0;
 static constexpr magic_t src_magic{'S', 'R', 'C'};
 
+
+/// Module description header.
+struct {
+    u8 version;    ///< Version number for backwards-compatibility.
+    magic_t magic; ///< Magic number.
+} UncomprHdr{current_version, src_magic};
+
+
 /// ===========================================================================
 ///  Serialiser.
 /// ===========================================================================
@@ -77,16 +84,15 @@ struct Serialiser {
     /// Map from types to indices.
     std::unordered_map<Type*, TD, std::hash<Type*>, CompareTypes> type_map{};
 
-    Header hdr{
-        .version = current_version,
-        .magic = src_magic,
+    /// Larger section of the header.
+    CompressedHeader hdr{
         .name_len = u32(mod->name.size()),
         .type_count = 0,
         .decl_count = 0,
     };
 
     /// Entry.
-    auto serialise() -> std::vector<u8>&& {
+    auto serialise() -> SmallVector<u8> {
         *this << hdr;
         *this << mod->name;
 
@@ -100,7 +106,19 @@ struct Serialiser {
             for (auto e : vec)
                 Serialise(e);
 
-        return std::move(out);
+        /// Update compressed header.
+        std::memcpy(out.data(), &hdr, sizeof(CompressedHeader));
+
+        /// Write uncompressed header.
+        SmallVector<u8> compressed{};
+        compressed.resize_for_overwrite(sizeof(UncomprHdr));
+        std::memcpy(compressed.data(), &UncomprHdr, sizeof(UncomprHdr));
+
+        /// Compress the types, exports, compressed header, and name.
+        utils::Compress(compressed, out);
+
+        /// Done!
+        return compressed;
     }
 
     /// Serialise a type.
@@ -208,7 +226,8 @@ struct Serialiser {
                 out.resize(offs + s->all_fields.size() * sizeof(TD));
 
                 /// Write field data, excluding the type.
-                for (auto& f : s->all_fields) *this << f.padding << f.offset << f.name;
+                for (auto& f : s->all_fields)
+                    *this << f.padding << f.offset << (f.padding ? StringRef{} : f.name);
 
                 /// Write field types.
                 for (const auto& [i, f] : vws::enumerate(s->all_fields)) {
@@ -262,7 +281,8 @@ struct Serialiser {
 
         /// Fix usz and isz to u64.
         if constexpr (std::is_same_v<Ty, usz> or std::is_same_v<Ty, isz>) {
-            *this << u64(t);
+            out.resize(out.size() + sizeof(u64));
+            std::memcpy(out.data() + out.size() - sizeof(u64), std::addressof(t), sizeof(u64));
             return *this;
         }
 
@@ -281,6 +301,6 @@ struct Serialiser {
 } // namespace
 } // namespace src
 
-auto src::Module::serialise() -> std::vector<u8> {
+auto src::Module::serialise() -> SmallVector<u8> {
     return Serialiser{this}.serialise();
 }

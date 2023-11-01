@@ -5,10 +5,12 @@
 #include <llvm/TargetParser/Host.h>
 #include <mlir/InitAllDialects.h>
 #include <mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h>
+#include <mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h>
 #include <random>
 #include <source/Core.hh>
 #include <source/Frontend/AST.hh>
 #include <thread>
+#include <zstd.h>
 
 #ifndef _WIN32
 #    include <fcntl.h>
@@ -20,7 +22,6 @@
 
 #ifdef __linux__
 #    include <execinfo.h>
-#    include <mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h>
 #endif
 
 /// ===========================================================================
@@ -645,6 +646,30 @@ void src::Diag::print() {
 /// ===========================================================================
 ///  Utils
 /// ===========================================================================
+void src::utils::Compress(
+    SmallVectorImpl<u8>& into,
+    ArrayRef<u8> data,
+    int compression_level
+) {
+    const auto oldsz = into.size();
+    const auto bound = ::ZSTD_compressBound(data.size());
+    into.resize_for_overwrite(bound + oldsz);
+
+    /// We invoke ZSTD manually here instead of using the
+    /// LLVM wrapper since that one clears the buffer before
+    /// writing to it, which is not what we want.
+    const usz compressed_size = ::ZSTD_compress(
+        into.data() + oldsz,
+        bound,
+        data.data(),
+        data.size(),
+        compression_level
+    );
+
+    if (::ZSTD_isError(compressed_size)) Diag::Fatal("MD compression failed");
+    into.resize(oldsz + compressed_size);
+}
+
 void src::utils::ReplaceAll(
     std::string& str,
     std::string_view from,
