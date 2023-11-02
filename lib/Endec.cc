@@ -11,6 +11,106 @@
 /// - isz and usz are written as u64.
 
 namespace src {
+/// ===========================================================================
+///  Mangler.
+/// ===========================================================================
+auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
+    auto FormatSEType = [&] (Expr* t, std::string_view prefix) {
+        auto se = cast<SingleElementTypeBase>(t);
+        return fmt::format("{}{}", prefix, se->elem->as_type.mangled_name(ctx));
+    };
+
+    switch (ptr->kind) {
+        case Expr::Kind::BuiltinType:
+            switch (cast<BuiltinType>(ptr)->builtin_kind) {
+                case BuiltinTypeKind::Unknown: return "<invalid>";
+                case BuiltinTypeKind::Void: return "v";
+                case BuiltinTypeKind::Int: return "i";
+                case BuiltinTypeKind::Bool: return "b";
+                case BuiltinTypeKind::NoReturn: return "n";
+            }
+
+            Unreachable();
+
+        /// Need to keep these since we allow overloading on them.
+        case Expr::Kind::FFIType: {
+            switch (cast<FFIType>(ptr)->ffi_kind) {
+                case FFITypeKind::CChar: return "Fc";
+                case FFITypeKind::CInt: return "Fi";
+            }
+
+            Unreachable();
+        }
+
+        case Expr::Kind::IntType: return fmt::format("I{}", cast<IntType>(ptr)->bits);
+
+        case Expr::Kind::ReferenceType: return FormatSEType(ptr, "R");
+        case Expr::Kind::ScopedPointerType: return FormatSEType(ptr, "U");
+        case Expr::Kind::SliceType: return FormatSEType(ptr, "S");
+        case Expr::Kind::ArrayType: return FormatSEType(ptr, "A");
+        case Expr::Kind::OptionalType: return FormatSEType(ptr, "O");
+        case Expr::Kind::SugaredType: return cast<SugaredType>(ptr)->elem->as_type.mangled_name(ctx);
+
+        case Expr::Kind::ProcType: {
+            auto p = cast<ProcType>(ptr);
+            Assert(not p->static_chain_parent, "Cannot mangle local function type");
+
+            /// We don’t include the return type since you can’t
+            /// overload on that anyway.
+            std::string name{"P"};
+            name += fmt::format("{}", p->param_types.size());
+            for (auto a : p->param_types) name += a->as_type.mangled_name(ctx);
+            return name;
+        }
+
+        /// Context may be null in this case only.
+        case Expr::Kind::StructType: {
+            auto s = cast<StructType>(ptr);
+            if (s->mangled_name.empty()) {
+                if (not s->module or not s->module->is_logical_module) {
+                    s->mangled_name = fmt::format("{}{}", s->name.size(), s->name);
+                } else {
+                    s->mangled_name = fmt::format(
+                        "M{}{}{}{}",
+                        s->module->name.size(),
+                        s->module->name,
+                        s->name.size(),
+                        s->name
+                    );
+                }
+            }
+
+            return s->mangled_name;
+        }
+
+        case Expr::Kind::AssertExpr:
+        case Expr::Kind::ReturnExpr:
+        case Expr::Kind::DeferExpr:
+        case Expr::Kind::WhileExpr:
+        case Expr::Kind::ExportExpr:
+        case Expr::Kind::LoopControlExpr:
+        case Expr::Kind::BlockExpr:
+        case Expr::Kind::InvokeExpr:
+        case Expr::Kind::ConstExpr:
+        case Expr::Kind::CastExpr:
+        case Expr::Kind::MemberAccessExpr:
+        case Expr::Kind::UnaryPrefixExpr:
+        case Expr::Kind::IfExpr:
+        case Expr::Kind::BinaryExpr:
+        case Expr::Kind::DeclRefExpr:
+        case Expr::Kind::LocalRefExpr:
+        case Expr::Kind::BoolLiteralExpr:
+        case Expr::Kind::IntegerLiteralExpr:
+        case Expr::Kind::StringLiteralExpr:
+        case Expr::Kind::LocalDecl:
+        case Expr::Kind::ProcDecl:
+            Unreachable("Not a type");
+    }
+}
+
+/// ===========================================================================
+///  Serialisation Format.
+/// ===========================================================================
 namespace {
 using magic_t = std::array<u8, 3>;
 
@@ -57,8 +157,8 @@ enum struct SerialisedTypeTag : u8 {
 template <typename T>
 concept serialisable_enum = is_same<T, SerialisedDeclTag, SerialisedTypeTag>;
 
-static constexpr u8 current_version = 0;
-static constexpr magic_t src_magic{'S', 'R', 'C'};
+constexpr u8 current_version = 0;
+constexpr magic_t src_magic{'S', 'R', 'C'};
 
 /// Module description header.
 struct UncompressedHeader {
@@ -343,6 +443,9 @@ struct Serialiser {
     }
 };
 
+/// ===========================================================================
+///  Deserialiser.
+/// ===========================================================================
 struct Deserialiser {
     Context* ctx;
     Location loc;

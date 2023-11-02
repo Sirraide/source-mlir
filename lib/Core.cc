@@ -658,7 +658,7 @@ void src::utils::Compress(
     /// We invoke ZSTD manually here instead of using the
     /// LLVM wrapper since that one clears the buffer before
     /// writing to it, which is not what we want.
-    const usz compressed_size = ::ZSTD_compress(
+    const usz sz = ::ZSTD_compress(
         into.data() + oldsz,
         bound,
         data.data(),
@@ -666,8 +666,8 @@ void src::utils::Compress(
         compression_level
     );
 
-    if (::ZSTD_isError(compressed_size)) Diag::Fatal("MD compression failed");
-    into.resize(oldsz + compressed_size);
+    if (::ZSTD_isError(sz)) Diag::Fatal("compression failed: {}", sz);
+    into.resize(oldsz + sz);
 }
 
 void src::utils::Decompress(
@@ -685,7 +685,7 @@ void src::utils::Decompress(
         data.size()
     );
 
-    if (::ZSTD_isError(sz)) Diag::Fatal("MD decompression failed");
+    if (::ZSTD_isError(sz)) Diag::Fatal("decompression failed: {}", sz);
     if (sz != uncompressed_size) Diag::Fatal("Invalid uncompressed size");
 }
 

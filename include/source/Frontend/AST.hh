@@ -144,6 +144,11 @@ public:
         /// Get the type stripped of any sugar.
         readonly_decl(TypeHandle, desugared);
 
+        /// Get the mangled name of this type.
+        ///
+        /// Context may be null if this is a struct type.
+        auto mangled_name(Context* ctx) -> std::string;
+
         /// Check if this is any integer type.
         bool is_int(bool bool_is_int);
 
@@ -871,6 +876,9 @@ public:
     FFIType(FFITypeKind kind, Location loc)
         : Type(Kind::FFIType, loc), ffi_kind(kind) {}
 
+    /// Get the underlying type.
+    auto underlying(Context* ctx) const -> Type*;
+
     static auto CChar(Module* m, Location loc = {}) -> FFIType* { return Create(m, FFITypeKind::CChar, loc); }
     static auto CInt(Module* m, Location loc = {}) -> FFIType* { return Create(m, FFITypeKind::CInt, loc); }
 
@@ -879,6 +887,12 @@ public:
 };
 
 class StructType : public Type {
+    /// Needs to access mangled name.
+    friend Expr::TypeHandle;
+
+    /// Cached so we don’t need to recompute it.
+    std::string mangled_name;
+
 public:
     struct Field {
         std::string name;
@@ -887,6 +901,9 @@ public:
         u32 index{};
         bool padding{};
     };
+
+    /// The parent module.
+    Module* module;
 
     /// The fields of this struct.
     SmallVector<Field> all_fields;

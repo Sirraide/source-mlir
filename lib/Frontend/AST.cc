@@ -124,6 +124,7 @@ bool src::ProcDecl::_takes_static_chain() {
 /// ===========================================================================
 src::StructType::StructType(Module* mod, std::string sname, SmallVector<Field> fields, Scope* scope, Location loc)
     : Type(Kind::StructType, loc),
+      module(mod),
       all_fields(std::move(fields)),
       name(std::move(sname)),
       scope(scope) {
@@ -872,9 +873,13 @@ struct ASTPrinter {
                 if (auto s = cast<StructType>(e); not s->name.empty()) {
                     PrintBasicHeader("StructDecl", e);
                     out += fmt::format(
-                        " {}{} {}{}{}/{}{}\n",
+                        " {}{} {}[{}{}{}] {}{}{}/{}{}\n",
                         C(Cyan),
                         s->name,
+                        C(Red),
+                        C(Cyan),
+                        s->as_type.mangled_name(mod ? mod->context : nullptr),
+                        C(Red),
                         C(Yellow),
                         s->sema.ok ? std::to_string(s->stored_size) : "?",
                         C(Red),
