@@ -32,8 +32,8 @@ foo s, s;
 /// + (?<Aref>$t) = hlir.load $A
 /// + (?<AAref>$t) = hlir.structgep $Aref $any>>, 0
 /// + (?<AA>$t) = hlir.load $AAref
-/// + (?<BBref>$t) = hlir.structgep $B $any>>, 3
-/// + (?<BB>$t) = hlir.load $BBref
-/// + (?<Sum>$t) = arith.addi $AA, $BB
+/// + (?<BCref>$t) = hlir.structgep $B $any>>, 3
+/// + (?<BC>$t) = hlir.load $BCref
+/// + (?<Sum>$t) = arith.addi $AA, $BC
 /// + return $Sum
 proc foo (S& a, S b) = a.a + b.c;

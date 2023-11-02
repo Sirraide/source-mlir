@@ -4,6 +4,7 @@
 .cache/
 
 ## Build files.
+/.tmp/
 /out/
 /srcc
 

@@ -36,18 +36,19 @@ using namespace command_line_options;
 using options = clopts< // clang-format off
     positional<"file", "The file to compile">,
     option<"--colour", "Enable coloured output (default: auto)", values<"always", "auto", "never">>,
-    flag<"-r", "JIT-compile and run the program after compiling">,
-    flag<"--describe-module", "Load file as a module and print its exports">,
-    flag<"--syntax-only", "Skip the semantic analysis step">,
-    flag<"--ast", "Print the AST of the module after parsing">,
-    flag<"--sema", "Run sema only">,
-    flag<"--hlir", "Print the HLIR of the module">,
-    flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
-    flag<"--debug-llvm", "Debug LLVM lowering process">,
-    flag<"--llvm", "Print the LLVM IR of the module">,
-    flag<"--exports", "Show exported declarations">,
-    flag<"--no-verify", "Disable MLIR verification; CAUTION: this may lead to miscompilations">,
+    option<"--dir", "Set module output directory">,
     experimental::short_option<"-O", "Optimisation level", values<0, 1, 2, 3, 4>>,
+    flag<"-r", "JIT-compile and run the program after compiling">,
+    flag<"--ast", "Print the AST of the module after parsing">,
+    flag<"--debug-llvm", "Debug LLVM lowering process">,
+    flag<"--describe-module", "Load file as a module and print its exports">,
+    flag<"--exports", "Show exported declarations">,
+    flag<"--hlir", "Print the HLIR of the module">,
+    flag<"--llvm", "Print the LLVM IR of the module">,
+    flag<"--no-verify", "Disable MLIR verification; CAUTION: this may lead to miscompilations">,
+    flag<"--sema", "Run sema only">,
+    flag<"--syntax-only", "Skip the semantic analysis step">,
+    flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
     help<>
 >; // clang-format on
 }
@@ -143,7 +144,8 @@ int main(int argc, char** argv) {
     }
 
     /// Emit the module to disk.
-    mod->emit_object_file(int(opts.get_or<"-O">(0)), fmt::format("{}.o", mod->name));
+    auto dir = opts.get_or<"--dir">(std::filesystem::current_path());
+    mod->emit_object_file(int(opts.get_or<"-O">(0)), fmt::format("{}/{}.o", dir, mod->name));
 
     /*    /// Notes:
         /// - ‘freeze’ keyword that makes a value const rather than forcing

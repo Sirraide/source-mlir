@@ -1,0 +1,1 @@
+/// R mkdir -p .tmp && %srcc tests/module.src --dir .tmp && %srcc %s --hlir
