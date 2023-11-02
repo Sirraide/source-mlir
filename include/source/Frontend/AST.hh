@@ -693,7 +693,7 @@ public:
     /// The parent function. Null if this is the top-level function.
     ProcDecl* parent;
 
-    /// The function parameter decls.
+    /// The function parameter decls. Empty if this is a declaration.
     SmallVector<LocalDecl*> params;
 
     /// Body of the function.

@@ -3,7 +3,6 @@
 #include <llvm/Support/MemoryBufferRef.h>
 #include <source/Core.hh>
 #include <source/Frontend/AST.hh>
-#include <zstd.h>
 
 /// === INVARIANTS ===
 ///
@@ -15,7 +14,7 @@ namespace src {
 ///  Mangler.
 /// ===========================================================================
 auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
-    auto FormatSEType = [&] (Expr* t, std::string_view prefix) {
+    auto FormatSEType = [&](Expr* t, std::string_view prefix) {
         auto se = cast<SingleElementTypeBase>(t);
         return fmt::format("{}{}", prefix, se->elem->as_type.mangled_name(ctx));
     };
@@ -124,6 +123,12 @@ struct CompressedHeaderV0 {
 /// number.
 enum struct SerialisedDeclTag : u8 {
     StructType,
+    Procedure,
+};
+
+enum struct SerialisedMangling : u8 {
+    None,
+    Source,
 };
 
 enum struct SerialisedTypeTag : u8 {
@@ -155,7 +160,11 @@ enum struct SerialisedTypeTag : u8 {
 };
 
 template <typename T>
-concept serialisable_enum = is_same<T, SerialisedDeclTag, SerialisedTypeTag>;
+concept serialisable_enum = is_same<
+    T,
+    SerialisedMangling,
+    SerialisedDeclTag,
+    SerialisedTypeTag>;
 
 constexpr u8 current_version = 0;
 constexpr magic_t src_magic{'S', 'R', 'C'};
@@ -393,6 +402,25 @@ struct Serialiser {
             return;
         }
 
+        if (auto p = dyn_cast<ProcDecl>(e)) {
+            hdr.decl_count++;
+            *this << SerialisedDeclTag::Procedure;
+            *this << ConvertMangling(p->mangling);
+            *this << p->name;
+            *this << type_map[cast<Type>(p->type)];
+            return;
+        }
+
+        Unreachable();
+    }
+
+    /// Convert mangling scheme to serialised mangling scheme.
+    auto ConvertMangling(Mangling m) -> SerialisedMangling {
+        switch (m) {
+            case Mangling::None: return SerialisedMangling::None;
+            case Mangling::Source: return SerialisedMangling::Source;
+        }
+
         Unreachable();
     }
 
@@ -419,7 +447,7 @@ struct Serialiser {
 
     /// Write bytes to a vector.
     template <typename T>
-    requires (std::is_trivially_copyable_v<T>)
+    requires std::is_trivially_copyable_v<T>
     auto operator<<(const T& t) -> Serialiser& {
         using Ty = std::remove_cvref_t<T>;
 
@@ -687,6 +715,35 @@ struct Deserialiser {
                 mod->exports[cast<StructType>(ty)->name].push_back(ty);
                 return;
             }
+
+            case SerialisedDeclTag::Procedure: {
+                auto m = ConvertMangling(rd<SerialisedMangling>());
+                auto name = rd<std::string>();
+                auto ty = Map(rd<TD>());
+                auto p = new (&*mod) ProcDecl(
+                    &*mod,
+                    mod->top_level_func,
+                    std::move(name),
+                    ty,
+                    {},
+                    Linkage::Imported,
+                    m,
+                    {}
+                );
+
+                mod->exports[p->name].push_back(p);
+                return;
+            }
+        }
+
+        Unreachable();
+    }
+
+    /// Convert serialised mangling scheme to mangling scheme.
+    auto ConvertMangling(SerialisedMangling m) -> Mangling {
+        switch (m) {
+            case SerialisedMangling::None: return Mangling::None;
+            case SerialisedMangling::Source: return Mangling::Source;
         }
 
         Unreachable();
@@ -700,9 +757,17 @@ struct Deserialiser {
         return t;
     };
 
+
+    /// Disallow reading pointers and enums.
+    ///
+    /// See the Serialiser API for more information on this.
+    template <typename T>
+    requires (std::is_pointer_v<T> or (std::is_enum_v<T> and not serialisable_enum<T>))
+    auto operator>>(T&) -> Serialiser& = delete;
+
     /// Read a type.
     template <typename T>
-    requires (std::is_trivially_copyable_v<T> and not std::is_pointer_v<T>)
+    requires std::is_trivially_copyable_v<T>
     auto operator>>(T& t) -> Deserialiser& {
         if (description.size() < sizeof(T)) {
             Diag::Fatal(

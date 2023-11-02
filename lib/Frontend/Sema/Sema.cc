@@ -785,10 +785,14 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Procedures can be exported.
             if (auto p = dyn_cast<ProcDecl>(exp->expr)) {
-                if (not Exportable(p->body->scope, p->name, "struct")) return true;
+                if (not Exportable(p->body->scope, p->name, "procedure")) return true;
+                p->linkage = p->linkage == Linkage::Imported ? Linkage::Reexported : Linkage::Exported;
                 mod->exports[p->name].push_back(p);
                 break;
             }
+
+            /// Anything else is invalid.
+            return Error(exp->location, "'export' must qualify a declaration");
         } break;
 
         /// Unary expressions.

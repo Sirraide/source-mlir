@@ -7,3 +7,5 @@ export struct X {
 }
 
 export struct Y {}
+
+export proc x(int, int) -> int = 42;
