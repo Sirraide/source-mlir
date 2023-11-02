@@ -7,9 +7,14 @@ src::BuiltinType UnknownTypeInstance{src::BuiltinTypeKind::Unknown, {}};
 src::BuiltinType VoidTypeInstance{src::BuiltinTypeKind::Void, {}};
 src::BuiltinType BoolTypeInstance{src::BuiltinTypeKind::Bool, {}};
 src::BuiltinType NoReturnTypeInstance{src::BuiltinTypeKind::NoReturn, {}};
-src::IntType IntType8Instance{8, {}};
 src::ReferenceType VoidRefTypeInstance{&VoidTypeInstance, {}};
 src::ReferenceType VoidRefRefTypeInstance{&VoidTypeInstance, {}};
+src::IntType IntType8Instance{8, {}};
+src::IntType IntType16Instance{16, {}};
+src::IntType IntType32Instance{32, {}};
+src::IntType IntType64Instance{64, {}};
+src::FFIType FFITypeCCharInstance{src::FFITypeKind::CChar, {}};
+src::FFIType FFITypeCIntInstance{src::FFITypeKind::CInt, {}};
 } // namespace
 src::Expr* const src::detail::UnknownType = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Int = &IntTypeInstance;
@@ -17,9 +22,14 @@ src::BuiltinType* const src::Type::Void = &VoidTypeInstance;
 src::BuiltinType* const src::Type::Unknown = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Bool = &BoolTypeInstance;
 src::BuiltinType* const src::Type::NoReturn = &NoReturnTypeInstance;
-src::IntType* const src::Type::I8 = &IntType8Instance;
 src::ReferenceType* const src::Type::VoidRef = &VoidRefTypeInstance;
 src::ReferenceType* const src::Type::VoidRefRef = &VoidRefRefTypeInstance;
+src::IntType* const src::Type::I8 = &IntType8Instance;
+src::IntType* const src::Type::I16 = &IntType16Instance;
+src::IntType* const src::Type::I32 = &IntType32Instance;
+src::IntType* const src::Type::I64 = &IntType64Instance;
+src::FFIType* const src::Type::CChar = &FFITypeCCharInstance;
+src::FFIType* const src::Type::CInt = &FFITypeCIntInstance;
 
 /// ===========================================================================
 ///  Expressions
@@ -112,7 +122,7 @@ bool src::ProcDecl::_takes_static_chain() {
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
-src::StructType::StructType(Module* mod, SmallString<32> sname, SmallVector<Field> fields, Scope* scope, Location loc)
+src::StructType::StructType(Module* mod, std::string sname, SmallVector<Field> fields, Scope* scope, Location loc)
     : Type(Kind::StructType, loc),
       all_fields(std::move(fields)),
       name(std::move(sname)),
@@ -389,7 +399,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
             auto s = cast<StructType>(ptr);
             out += fmt::format("{}struct ", C(Red));
             if (not s->name.empty()) {
-                out += fmt::format("{}{}", C(Cyan), s->name.str());
+                out += fmt::format("{}{}", C(Cyan), s->name);
             } else {
                 out += fmt::format(
                     "<anonymous {}{}{} at {}{}{}:{}{}{}>",
@@ -864,7 +874,7 @@ struct ASTPrinter {
                     out += fmt::format(
                         " {}{} {}{}{}/{}{}\n",
                         C(Cyan),
-                        s->name.str(),
+                        s->name,
                         C(Yellow),
                         s->sema.ok ? std::to_string(s->stored_size) : "?",
                         C(Red),

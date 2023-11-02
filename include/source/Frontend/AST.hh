@@ -784,6 +784,11 @@ public:
     static ReferenceType* const VoidRef;
     static ReferenceType* const VoidRefRef;
     static IntType* const I8;
+    static IntType* const I16;
+    static IntType* const I32;
+    static IntType* const I64;
+    static FFIType* const CChar;
+    static FFIType* const CInt;
 
     /// It is too goddamn easy to forget to dereference at least
     /// one of the expressions when comparing them w/ operator==,
@@ -887,7 +892,7 @@ public:
     SmallVector<Field> all_fields;
 
     /// The name of this struct.
-    SmallString<32> name;
+    std::string name;
 
     /// Scope associated with this struct.
     Scope* scope;
@@ -901,7 +906,7 @@ public:
 
     StructType(
         Module* mod,
-        SmallString<32> name,
+        std::string name,
         SmallVector<Field> fields,
         Scope* scope,
         Location loc

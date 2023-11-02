@@ -36,6 +36,7 @@ using namespace command_line_options;
 using options = clopts< // clang-format off
     positional<"file", "The file to compile">,
     flag<"-r", "JIT-compile and run the program after compiling">,
+    flag<"--describe-module", "Load file as a module and print its exports">,
     flag<"--syntax-only", "Skip the semantic analysis step">,
     flag<"--ast", "Print the AST of the module after parsing">,
     flag<"--sema", "Run sema only">,
@@ -58,6 +59,25 @@ int main(int argc, char** argv) {
     /// Create context.
     src::Context ctx;
     auto& f = ctx.get_or_load_file(*opts.get<"file">());
+
+    /// Describe module, if requested.
+    if (opts.get<"--describe-module">()) {
+        auto mod = src::Module::Deserialise(
+            &ctx,
+            auto{f.path()}.filename().replace_extension(""),
+            {},
+            llvm::ArrayRef(
+                reinterpret_cast<const src::u8*>(f.data()),
+                f.size()
+            )
+        );
+
+        /// Check for errors.
+        for (auto& exps : mod->exports)
+            for (auto e : exps.second)
+                e->print(false);
+        std::exit(1);
+    }
 
     /// Parse the file. Exit on error since, in that case, the
     /// parser returns nullptr.
@@ -115,8 +135,7 @@ int main(int argc, char** argv) {
     }
 
     /// Emit the module to disk.
-    mod->emit_object_file(int(opts.get_or<"-O">(0)), auto{f.path()}.filename().replace_extension(".o"));
-
+    mod->emit_object_file(int(opts.get_or<"-O">(0)), fmt::format("{}.o", mod->name));
 
     /*    /// Notes:
         /// - ‘freeze’ keyword that makes a value const rather than forcing

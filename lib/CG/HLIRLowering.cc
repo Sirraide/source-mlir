@@ -510,7 +510,7 @@ void src::Module::GenerateLLVMIR(int opt_level) {
         /// Write module description.
         if (is_logical_module) {
             auto md = serialise();
-            auto nm = fmt::format(".__src_module__description__.{}", name);
+            auto nm = description_section_name();
             auto ty = llvm::ArrayType::get(llvm::IntegerType::getInt8Ty(llvm->getContext()), md.size());
             auto cst = llvm::ConstantDataArray::get(context->llvm, md);
             llvm->getOrInsertGlobal(

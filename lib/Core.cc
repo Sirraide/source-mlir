@@ -670,6 +670,25 @@ void src::utils::Compress(
     into.resize(oldsz + compressed_size);
 }
 
+void src::utils::Decompress(
+    SmallVectorImpl<u8>& into,
+    ArrayRef<u8> data,
+    usz uncompressed_size
+) {
+    const auto oldsz = into.size();
+    into.resize_for_overwrite(oldsz + uncompressed_size);
+
+    auto sz = ::ZSTD_decompress(
+        into.data() + oldsz,
+        uncompressed_size,
+        data.data(),
+        data.size()
+    );
+
+    if (::ZSTD_isError(sz)) Diag::Fatal("MD decompression failed");
+    if (sz != uncompressed_size) Diag::Fatal("Invalid uncompressed size");
+}
+
 void src::utils::ReplaceAll(
     std::string& str,
     std::string_view from,

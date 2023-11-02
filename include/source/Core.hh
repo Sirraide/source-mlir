@@ -1,8 +1,8 @@
 #ifndef SOURCE_INCLUDE_CONTEXT_HH
 #define SOURCE_INCLUDE_CONTEXT_HH
 
-#include <llvm/MC/TargetRegistry.h>
 #include <llvm/IR/Module.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <mlir/IR/BuiltinDialect.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/MLIRContext.h>
@@ -89,7 +89,7 @@ class Context {
     const llvm::Target* tgt;
 
     /// Contexts.
-    public:
+public:
     mlir::MLIRContext mlir;
     llvm::LLVMContext llvm;
 
@@ -340,6 +340,11 @@ public:
     /// Add a function to this module.
     void add_function(ProcDecl* func) { functions.push_back(func); }
 
+    /// Get the name to use for the module description section in the object file.
+    [[nodiscard]] auto description_section_name() const -> std::string {
+        return fmt::format(".__src_module__description__.{}", name);
+    }
+
     /// Emit code to an object file. Implemented in Emit.cc
     void emit_object_file(int opt_level, const fs::path& location);
 
@@ -361,7 +366,12 @@ public:
     auto serialise() -> SmallVector<u8>;
 
     /// Deserialise a module from a module description. Implemented in Endec.cc.
-    static auto Deserialise(Context* ctx, std::span<const u8> description) -> std::unique_ptr<Module>;
+    static auto Deserialise(
+        Context* ctx,
+        std::string module_name,
+        Location loc,
+        ArrayRef<u8> description
+    ) -> std::unique_ptr<Module>;
 };
 
 /// A diagnostic. The diagnostic is issued when the destructor is called.

@@ -1,14 +1,20 @@
+#include <llvm/Object/ObjectFile.h>
 #include <llvm/Support/Compression.h>
+#include <llvm/Support/MemoryBufferRef.h>
 #include <source/Core.hh>
 #include <source/Frontend/AST.hh>
 #include <zstd.h>
+
+/// === INVARIANTS ===
+///
+/// - All strings are written as u64 names + u8[] data.
+/// - isz and usz are written as u64.
 
 namespace src {
 namespace {
 using magic_t = std::array<u8, 3>;
 
-struct CompressedHeader {
-    u64 name_len;   ///< Module name length.
+struct CompressedHeaderV0 {
     u64 type_count; ///< Number of types in the module.
     u64 decl_count; ///< Number of declarations in the module.
 };
@@ -54,13 +60,16 @@ concept serialisable_enum = is_same<T, SerialisedDeclTag, SerialisedTypeTag>;
 static constexpr u8 current_version = 0;
 static constexpr magic_t src_magic{'S', 'R', 'C'};
 
-
 /// Module description header.
-struct {
+struct UncompressedHeader {
     u8 version;    ///< Version number for backwards-compatibility.
     magic_t magic; ///< Magic number.
-} UncomprHdr{current_version, src_magic};
+    u64 size;      ///< Size of the uncompressed module description, excluding the header.
 
+    UncompressedHeader() = default;
+    UncompressedHeader(usz uncompressed_description_size)
+        : version{current_version}, magic{src_magic}, size{uncompressed_description_size} {}
+};
 
 /// ===========================================================================
 ///  Serialiser.
@@ -69,24 +78,50 @@ struct CompareTypes {
     static bool operator()(Type* a, Type* b) { return Type::Equal(a, b); }
 };
 
+/// Type descriptor.
+///
+/// Builtin types are allocated between 0 and 255, so we
+/// have to subtract 255 from the type index to get the
+/// actual index in the type descriptor table.
+class TD {
+    static constexpr u64 StartVal = 256;
+    static constexpr u64 InvalidVal = ~0zu;
+
+public:
+    u64 raw;
+
+    constexpr TD() : raw{InvalidVal} {}
+    constexpr TD(u64 idx) : raw{idx + StartVal} {}
+    constexpr TD(SerialisedTypeTag tag) : raw{static_cast<u64>(tag)} {}
+
+    constexpr auto operator<=>(const TD&) const = default;
+    constexpr bool operator==(const TD&) const = default;
+
+    /// Check if this is a builtin type.
+    [[nodiscard]] constexpr bool is_builtin() const { return raw < StartVal; }
+
+    /// Get the builtin type tag.
+    [[nodiscard]] constexpr auto builtin_tag() const -> SerialisedTypeTag {
+        Assert(is_builtin());
+        return static_cast<SerialisedTypeTag>(raw);
+    }
+
+    /// Get the type index.
+    [[nodiscard]] constexpr auto index() const -> u64 {
+        Assert(not is_builtin());
+        return raw - StartVal;
+    }
+};
+
 struct Serialiser {
     Module* const mod;
     std::vector<u8> out{};
-
-    /// Type descriptor.
-    ///
-    /// Builtin types are allocated between 0 and 255, so we
-    /// have to subtract 255 from the type index to get the
-    /// actual index in the type descriptor table.
-    using TD = u64;
-    static constexpr TD TDStart = 256, TDInvalid = ~TD(0);
 
     /// Map from types to indices.
     std::unordered_map<Type*, TD, std::hash<Type*>, CompareTypes> type_map{};
 
     /// Larger section of the header.
-    CompressedHeader hdr{
-        .name_len = u32(mod->name.size()),
+    CompressedHeaderV0 hdr{
         .type_count = 0,
         .decl_count = 0,
     };
@@ -104,15 +139,16 @@ struct Serialiser {
         /// Serialise the exports themselves.
         for (auto& [_, vec] : mod->exports)
             for (auto e : vec)
-                Serialise(e);
+                SerialiseDecl(e);
 
         /// Update compressed header.
-        std::memcpy(out.data(), &hdr, sizeof(CompressedHeader));
+        std::memcpy(out.data(), &hdr, sizeof(CompressedHeaderV0));
 
         /// Write uncompressed header.
+        UncompressedHeader uhdr{out.size()};
         SmallVector<u8> compressed{};
-        compressed.resize_for_overwrite(sizeof(UncomprHdr));
-        std::memcpy(compressed.data(), &UncomprHdr, sizeof(UncomprHdr));
+        compressed.resize_for_overwrite(sizeof(uhdr));
+        std::memcpy(compressed.data(), &uhdr, sizeof(uhdr));
 
         /// Compress the types, exports, compressed header, and name.
         utils::Compress(compressed, out);
@@ -128,8 +164,8 @@ struct Serialiser {
             if (auto td = type_map.find(t); td != type_map.end()) return td->second;
 
             /// Type still has to be serialised.
-            type_map[t] = TDStart + hdr.type_count++;
-            return TDInvalid;
+            type_map[t] = hdr.type_count++;
+            return TD{};
         };
 
         switch (t->kind) {
@@ -169,7 +205,7 @@ struct Serialiser {
                     case 64: return TD(SerialisedTypeTag::I64);
                 }
 
-                if (auto td = AllocateTD(); td != TDInvalid) return td;
+                if (auto td = AllocateTD(); td != TD{}) return td;
                 *this << SerialisedTypeTag::SizedInteger;
                 *this << i->bits;
                 return type_map[t];
@@ -180,7 +216,7 @@ struct Serialiser {
             case Expr::Kind::SliceType:
             case Expr::Kind::ArrayType:
             case Expr::Kind::OptionalType: {
-                if (auto td = AllocateTD(); td != TDInvalid) return td;
+                if (auto td = AllocateTD(); td != TD{}) return td;
                 auto elem = SerialiseType(cast<Type>(cast<SingleElementTypeBase>(t)->elem));
                 switch (t->kind) {
                     default: Unreachable();
@@ -191,12 +227,16 @@ struct Serialiser {
                     case Expr::Kind::OptionalType: *this << SerialisedTypeTag::Optional; break;
                 }
                 *this << elem;
+
+                /// Also write the size, if applicable.
+                if (auto a = dyn_cast<ArrayType>(t)) *this << u64(a->dimension());
+
                 return type_map[t];
             }
 
             /// TODO: Do we at all care about the static chain here?
             case Expr::Kind::ProcType: {
-                if (auto td = AllocateTD(); td != TDInvalid) return td;
+                if (auto td = AllocateTD(); td != TD{}) return td;
                 auto p = cast<ProcType>(t);
 
                 auto ret = SerialiseType(cast<Type>(p->ret_type));
@@ -210,7 +250,7 @@ struct Serialiser {
             }
 
             case Expr::Kind::StructType: {
-                if (auto td = AllocateTD(); td != TDInvalid) return td;
+                if (auto td = AllocateTD(); td != TD{}) return td;
                 auto s = cast<StructType>(t);
 
                 /// Write name, size, alignment, and number of fields.
@@ -226,8 +266,10 @@ struct Serialiser {
                 out.resize(offs + s->all_fields.size() * sizeof(TD));
 
                 /// Write field data, excluding the type.
-                for (auto& f : s->all_fields)
-                    *this << f.padding << f.offset << (f.padding ? StringRef{} : f.name);
+                for (auto& f : s->all_fields) {
+                    *this << f.padding << f.offset;
+                    if (not f.padding) *this << f.name;
+                }
 
                 /// Write field types.
                 for (const auto& [i, f] : vws::enumerate(s->all_fields)) {
@@ -241,7 +283,7 @@ struct Serialiser {
     }
 
     /// Serialise an export.
-    void Serialise(Expr* e) {
+    void SerialiseDecl(Expr* e) {
         /// Exported types have already been serialised; just
         /// point to the type descriptor here.
         if (auto t = dyn_cast<StructType>(e)) {
@@ -250,6 +292,8 @@ struct Serialiser {
             *this << type_map[t];
             return;
         }
+
+        Unreachable();
     }
 
     /// Insert data at a certain offset.
@@ -298,9 +342,319 @@ struct Serialiser {
         return *this;
     }
 };
+
+struct Deserialiser {
+    Context* ctx;
+    Location loc;
+    ArrayRef<u8> description;
+    std::unique_ptr<Module> mod{};
+    UncompressedHeader uhdr;
+
+    SmallVector<std::pair<Expr**, TD>> type_fixup_list;
+    SmallVector<Type*> types;
+
+    Deserialiser(Context* ctx, std::string module_name, Location loc, ArrayRef<u8> description)
+        : ctx{ctx}, loc{loc}, description{description} {
+        mod = std::make_unique<Module>(ctx, std::move(module_name), loc);
+    }
+
+    /// Abort due to ill-formed module description.
+    template <typename... Args>
+    [[noreturn]] void Fatal(fmt::format_string<Args...> fmt, Args&&... args) {
+        std::string s = fmt::format("Module description for '{}' is ill-formed: ", mod->name);
+        s += fmt::format(fmt, std::forward<Args>(args)...);
+        Diag::Fatal("{}", s);
+    }
+
+    /// Entry.
+    auto deserialise() -> std::unique_ptr<Module> {
+        auto data = StringRef{reinterpret_cast<const char*>(description.data()), description.size()};
+        auto obj_contents = llvm::MemoryBufferRef{data, mod->name};
+        auto expected_obj = llvm::object::ObjectFile::createObjectFile(obj_contents);
+        if (auto err = expected_obj.takeError())
+            Fatal("not a valid object file: {}", llvm::toString(std::move(err)));
+
+        /// Get the section containing the module description.
+        auto name = mod->description_section_name();
+        auto obj = expected_obj->get();
+        auto sect = std::find_if(obj->section_begin(), obj->section_end(), [&](const llvm::object::SectionRef& s) {
+            auto sect_name = s.getName();
+            if (sect_name.takeError()) return false;
+            return *sect_name == name;
+        });
+
+        /// Make sure it exists.
+        if (sect == obj->section_end()) Fatal("description section not found");
+
+        /// Get the section contents.
+        auto sect_contents = sect->getContents();
+        if (auto err = sect_contents.takeError()) Fatal(
+            "failed to get contents of description section: {}",
+            llvm::toString(std::move(err))
+        );
+
+        /// Read from the section from now on.
+        description = {reinterpret_cast<const u8*>(sect_contents->data()), sect_contents->size()};
+
+        /// Read uncompressed header.
+        *this >> uhdr;
+        if (uhdr.magic != src_magic) Fatal("invalid magic number");
+
+        /// Decode versioned description.
+        switch (uhdr.version) {
+            default: Fatal(
+                "unsupported version '{}'; the latest supported version is '{}'",
+                uhdr.version,
+                current_version
+            );
+
+            case 0: DeserialiseV0(); break;
+        }
+
+        /// If we get here, everything went well.
+        return std::move(mod);
+    }
+
+    /// Version 0.
+    void DeserialiseV0() {
+        /// Uncompress the header.
+        SmallVector<u8> data{};
+        utils::Decompress(data, description, uhdr.size);
+        description = data;
+
+        /// Extract header and name.
+        auto hdr = rd<CompressedHeaderV0>();
+        auto name = rd<std::string>();
+        if (name != mod->name) Fatal("module name mismatch");
+
+        /// Read types.
+        ///
+        /// The types are stored in a list since some types contain
+        /// forward references to types defined later on, so we have
+        /// to be able to map type descriptors (= indices, roughly) to
+        /// types later on.
+        for (usz i = 0; i < hdr.type_count; i++) {
+            types.push_back(DeserialiseType());
+            types.back()->sema.set_done();
+        }
+
+        /// Fixup types.
+        for (auto [t, td] : type_fixup_list) *t = Map(td);
+
+        /// Read decls.
+        for (usz i = 0; i < hdr.decl_count; i++) DeserialiseDecl();
+    }
+
+    template <std::derived_from<SingleElementTypeBase> T>
+    auto CreateSEType() -> Type* {
+        return new (&*mod) T(Map(rd<TD>()), {});
+    }
+
+    /// Map a type descriptor to an already deserialised type.
+    auto Map(TD t) -> Type* {
+        if (t.is_builtin()) {
+            switch (t.builtin_tag()) {
+                default: Unreachable();
+                case SerialisedTypeTag::Void: return Type::Void;
+                case SerialisedTypeTag::Int: return Type::Int;
+                case SerialisedTypeTag::Bool: return Type::Bool;
+                case SerialisedTypeTag::NoReturn: return Type::NoReturn;
+                case SerialisedTypeTag::I8: return Type::I8;
+                case SerialisedTypeTag::I16: return Type::I16;
+                case SerialisedTypeTag::I32: return Type::I32;
+                case SerialisedTypeTag::I64: return Type::I64;
+                case SerialisedTypeTag::CChar: return Type::CChar;
+                case SerialisedTypeTag::CInt: return Type::CInt;
+            }
+        }
+
+        Assert(t.index() < types.size());
+        return types[t.index()];
+    }
+
+    auto DeserialiseType() -> Type* {
+        auto tag = rd<SerialisedTypeTag>();
+        switch (tag) {
+            /// Unfortunately, we have to deserialise these and
+            /// store them in the type list if they’ve actually
+            /// been written to the description since the indices
+            /// of types later on need to be correct.
+            case SerialisedTypeTag::Void: return Type::Void;
+            case SerialisedTypeTag::Int: return Type::Int;
+            case SerialisedTypeTag::Bool: return Type::Bool;
+            case SerialisedTypeTag::NoReturn: return Type::NoReturn;
+            case SerialisedTypeTag::I8: return Type::I8;
+            case SerialisedTypeTag::I16: return Type::I16;
+            case SerialisedTypeTag::I32: return Type::I32;
+            case SerialisedTypeTag::I64: return Type::I64;
+            case SerialisedTypeTag::CChar: return Type::CChar;
+            case SerialisedTypeTag::CInt: return Type::CInt;
+
+            case SerialisedTypeTag::SizedInteger: {
+                auto bits = rd<u64>();
+                switch (bits) {
+                    default: break;
+                    case 8: return Type::I8;
+                    case 16: return Type::I16;
+                    case 32: return Type::I32;
+                    case 64: return Type::I64;
+                }
+
+                return new (&*mod) IntType(isz(bits), {});
+            }
+
+            case SerialisedTypeTag::Reference: return CreateSEType<ReferenceType>();
+            case SerialisedTypeTag::ScopedPointer: return CreateSEType<ScopedPointerType>();
+            case SerialisedTypeTag::Slice: return CreateSEType<SliceType>();
+            case SerialisedTypeTag::Optional: return CreateSEType<OptionalType>();
+
+            case SerialisedTypeTag::Array: {
+                auto elem = Map(rd<TD>());
+                auto dim = isz(rd<u64>());
+                return new (&*mod) ArrayType(
+                    elem,
+                    new (&*mod) ConstExpr(new (&*mod) IntLitExpr(dim, {}), EvalResult{dim}, {}),
+                    {}
+                );
+            }
+
+            case SerialisedTypeTag::Procedure: {
+                Type* ret = Map(rd<TD>());
+                u64 params = rd<u64>();
+
+                SmallVector<Expr*> param_types{};
+                param_types.resize(params);
+                for (auto& t : param_types) t = Map(rd<TD>());
+
+                return new (&*mod) ProcType(std::move(param_types), ret, {});
+            }
+
+            case SerialisedTypeTag::Struct: {
+                auto name = rd<std::string>();
+                auto size = rd<u64>();
+                auto align = rd<u64>();
+                auto field_count = rd<u64>();
+
+                /// Read field types.
+                SmallVector<StructType::Field> fields{};
+                SmallVector<Type*> field_types{};
+                fields.resize(field_count);
+                field_types.resize(field_count);
+                for (usz i = 0; i < field_count; i++) {
+                    /// TD may refer to type that was serialised later on.
+                    if (auto td = rd<TD>(); td.is_builtin() or td.index() < types.size()) field_types[i] = Map(td);
+                    else type_fixup_list.push_back({&fields[i].type, td});
+                    fields[i].index = u32(i);
+                }
+
+                /// Read fields.
+                for (auto& f : fields) {
+                    f.padding = rd<bool>();
+                    f.offset = isz(rd<u64>());
+                    if (not f.padding) f.name = rd<std::string>();
+                    f.type = field_types[f.index];
+                }
+
+                /// Create the struct.
+                auto s = new (&*mod) StructType(
+                    &*mod,
+                    std::move(name),
+                    std::move(fields),
+                    new (&*mod) Scope(mod->global_scope, &*mod),
+                    {}
+                );
+
+                /// Set size and alignment.
+                s->stored_alignment = isz(align);
+                s->stored_size = isz(size);
+                return s;
+            }
+        }
+
+        Unreachable();
+    }
+
+    void DeserialiseDecl() {
+        auto tag = rd<SerialisedDeclTag>();
+        switch (tag) {
+            /// This has already been deserialised as a type,
+            /// so just get the TD, and that’s it.
+            case SerialisedDeclTag::StructType: {
+                auto ty = Map(rd<TD>());
+                mod->exports[cast<StructType>(ty)->name].push_back(ty);
+                return;
+            }
+        }
+
+        Unreachable();
+    }
+
+    /// Equivalent to `T t; *this >> t;`
+    template <typename T>
+    auto rd() -> T {
+        T t;
+        *this >> t;
+        return t;
+    };
+
+    /// Read a type.
+    template <typename T>
+    requires (std::is_trivially_copyable_v<T> and not std::is_pointer_v<T>)
+    auto operator>>(T& t) -> Deserialiser& {
+        if (description.size() < sizeof(T)) {
+            Diag::Fatal(
+                "expected {} bytes, got {}",
+                sizeof(T),
+                description.size()
+            );
+        }
+
+        std::memcpy(std::addressof(t), description.data(), sizeof(T));
+        description = description.drop_front(sizeof(T));
+        return *this;
+    }
+
+    /// Read a span of characters.
+    template <typename T>
+    requires (std::is_trivially_copyable_v<T> and not std::is_pointer_v<T>)
+    auto operator>>(std::span<T> data) -> Deserialiser& {
+        if (description.size() < data.size_bytes()) {
+            Diag::Fatal(
+                "expected {} bytes, got {}",
+                data.size_bytes(),
+                description.size()
+            );
+        }
+
+        std::memcpy(data.data(), description.data(), data.size_bytes());
+        description = description.drop_front(data.size_bytes());
+        return *this;
+    }
+
+    /// Read a string.
+    auto operator>>(std::string& str) -> Deserialiser& {
+        u64 sz;
+        *this >> sz;
+        str.resize_and_overwrite(sz, [this](char* data, usz sz) {
+            *this >> std::span<u8>(reinterpret_cast<u8*>(data), sz);
+            return sz;
+        });
+        return *this;
+    }
+};
+
 } // namespace
 } // namespace src
 
 auto src::Module::serialise() -> SmallVector<u8> {
     return Serialiser{this}.serialise();
+}
+
+auto src::Module::Deserialise(
+    Context* ctx,
+    std::string module_name,
+    Location loc,
+    ArrayRef<u8> description
+) -> std::unique_ptr<Module> {
+    return Deserialiser{ctx, std::move(module_name), loc, description}.deserialise();
 }

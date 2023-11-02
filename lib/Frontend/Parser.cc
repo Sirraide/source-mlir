@@ -763,7 +763,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
     auto start = Next();
 
     /// Parse name if there is one.
-    SmallString<32> name;
+    std::string name;
     if (At(Tk::Identifier)) {
         name = tok.text;
         Next();

@@ -304,7 +304,8 @@ void Deallocate(Class* ptr) {
 /// Decompress data and append it to a vector.
 void Decompress(
     SmallVectorImpl<u8>& into,
-    ArrayRef<u8> data
+    ArrayRef<u8> data,
+    usz uncompressed_size
 );
 
 /// Compute the maximum value of an n-bit integer.
