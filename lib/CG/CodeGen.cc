@@ -240,8 +240,9 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
             return hlir::ArrayType::get(Ty(ty->elem), usz(ty->dimension()));
         }
 
-        case Expr::Kind::SugaredType: {
-            auto ty = cast<SugaredType>(type);
+        case Expr::Kind::SugaredType:
+        case Expr::Kind::ScopedType: {
+            auto ty = cast<SingleElementTypeBase>(type);
             return Ty(ty->elem);
         }
 
@@ -303,7 +304,9 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
         case Expr::Kind::BlockExpr:
         case Expr::Kind::InvokeExpr:
         case Expr::Kind::MemberAccessExpr:
+        case Expr::Kind::ScopeAccessExpr:
         case Expr::Kind::DeclRefExpr:
+        case Expr::Kind::ModuleRefExpr:
         case Expr::Kind::LocalRefExpr:
         case Expr::Kind::BoolLiteralExpr:
         case Expr::Kind::IntegerLiteralExpr:
@@ -590,10 +593,12 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::ProcType:
         case Expr::Kind::ArrayType:
         case Expr::Kind::SugaredType:
+        case Expr::Kind::ScopedType:
             Unreachable();
 
-        /// Struct decls are no-ops.
+        /// Struct decls and modules are no-ops.
         case Expr::Kind::StructType:
+        case Expr::Kind::ModuleRefExpr:
             break;
 
         case Expr::Kind::InvokeExpr: {
@@ -708,6 +713,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     Unreachable();
                 }
             }
+        } break;
+
+        case Expr::Kind::ScopeAccessExpr: {
+            auto sa = cast<ScopeAccessExpr>(expr);
+            Generate(sa->object);
+            Generate(sa->resolved);
+            sa->mlir = sa->resolved->mlir;
         } break;
 
         case Expr::Kind::CastExpr: {

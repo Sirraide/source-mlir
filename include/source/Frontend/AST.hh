@@ -64,6 +64,7 @@ public:
         ArrayType,
         OptionalType,
         SugaredType,
+        ScopedType,
         ProcType,
         /// Type [end]
 
@@ -80,10 +81,12 @@ public:
         ConstExpr,
         CastExpr,
         MemberAccessExpr,
+        ScopeAccessExpr,
         UnaryPrefixExpr,
         IfExpr,
         BinaryExpr,
         DeclRefExpr,
+        ModuleRefExpr,
         LocalRefExpr,
         BoolLiteralExpr,
         IntegerLiteralExpr,
@@ -209,14 +212,18 @@ public:
         return utils::AllocateAndRegister<Expr>(sz, mod->exprs);
     }
 
-    /// Get the type of this expression; returns void if
-    /// this expression has no type.
-    readonly_decl(TypeHandle, type);
-
     /// Get this expression as a type handle; this is different
     /// from `type` which returns a handle to the type of this
     /// expression.
     readonly(TypeHandle, as_type, return TypeHandle(this));
+
+    /// Get a string representation of the name of the scope of
+    /// this expression, if it has one.
+    readonly_decl(std::string, scope_name);
+
+    /// Get the type of this expression; returns void if
+    /// this expression has no type.
+    readonly_decl(TypeHandle, type);
 
     /// Print this expression to stdout.
     void print(bool print_children = true) const;
@@ -326,6 +333,21 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ExportExpr; }
+};
+
+class ModuleRefExpr : public Expr {
+public:
+    /// The module being referenced.
+    Module* module;
+
+    ModuleRefExpr(Module* module, Location loc)
+        : Expr(Kind::ModuleRefExpr, loc),
+          module(module) {
+        sema.set_done();
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ModuleRefExpr; }
 };
 
 /// ===========================================================================
@@ -508,6 +530,26 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::BinaryExpr; }
+};
+
+class ScopeAccessExpr : public TypedExpr {
+public:
+    /// The name of the element being accessed.
+    std::string element;
+
+    /// The object being accessed.
+    Expr* object;
+
+    /// The resolved reference.
+    Expr* resolved{};
+
+    ScopeAccessExpr(Expr* object, std::string element, Location loc)
+        : TypedExpr(Kind::ScopeAccessExpr, detail::UnknownType, loc),
+          element(std::move(element)),
+          object(object) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ScopeAccessExpr; }
 };
 
 class DeclRefExpr : public TypedExpr {
@@ -1035,6 +1077,26 @@ public:
 
     SugaredType(std::string name, Expr* underlying, Location loc)
         : SingleElementTypeBase(Kind::SugaredType, underlying, loc),
+          name(std::move(name)) {
+        sema.set_done();
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::SugaredType; }
+};
+
+/// Like ScopeAccessExpr, but for types.
+class ScopedType : public SingleElementTypeBase {
+public:
+    /// Expression being accessed.
+    Expr* object;
+
+    /// The name of the type this was looked up as.
+    std::string name;
+
+    ScopedType(std::string name, Expr* object, Expr* resolved, Location loc)
+        : SingleElementTypeBase(Kind::ScopedType, resolved, loc),
+          object(object),
           name(std::move(name)) {
         sema.set_done();
     }

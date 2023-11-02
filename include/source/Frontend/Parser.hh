@@ -11,7 +11,6 @@ class Parser : Lexer {
     using SVI = SmallVectorImpl<T>;
 
     Module* mod{};
-    std::unique_ptr<Module> mod_ptr{};
     std::vector<Scope*> scope_stack;
 
     /// Current function.
@@ -24,7 +23,7 @@ class Parser : Lexer {
 
 public:
     /// Parse a file into a module.
-    static auto Parse(Context& ctx, File& f) -> std::unique_ptr<Module>;
+    static auto Parse(Context& ctx, File& f) -> Module*;
 
 private:
     friend class MatchedDelimiterTracker;

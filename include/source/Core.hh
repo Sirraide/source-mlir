@@ -88,16 +88,20 @@ class Context {
     /// The target we’re compiling for.
     const llvm::Target* tgt;
 
-    /// Contexts.
 public:
+    /// Contexts.
     mlir::MLIRContext mlir;
     llvm::LLVMContext llvm;
 
-private:
+    /// Import paths.
+    std::vector<fs::path> import_paths;
+
     /// Modules in the context.
     std::vector<std::unique_ptr<Module>> modules;
 
 public:
+    friend Module;
+
     /// Create a context for the host target.
     explicit Context();
 
@@ -316,10 +320,6 @@ public:
     /// Location of the module declaration.
     Location module_decl_location;
 
-    /// Generate LLVM IR for this module.
-    void GenerateLLVMIR(int opt_level);
-
-public:
     /// Whether this is a logical module.
     readonly(bool, is_logical_module, return not name.empty());
 
@@ -371,7 +371,11 @@ public:
         std::string module_name,
         Location loc,
         ArrayRef<u8> description
-    ) -> std::unique_ptr<Module>;
+    ) -> Module*;
+
+private:
+    /// Generate LLVM IR for this module.
+    void GenerateLLVMIR(int opt_level);
 };
 
 /// A diagnostic. The diagnostic is issued when the destructor is called.

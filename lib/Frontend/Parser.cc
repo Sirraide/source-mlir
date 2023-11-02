@@ -12,6 +12,9 @@ namespace src {
 namespace {
 constexpr int BinaryOrPostfixPrecedence(Tk t) {
     switch (t) {
+        case Tk::ColonColon:
+            return 100'000;
+
         case Tk::Dot:
             return 10'000;
 
@@ -133,10 +136,10 @@ constexpr inline int NakedInvokePrecedence = BinaryOrPostfixPrecedence(Tk::RPare
 /// ===========================================================================
 ///  Parse Functions
 /// ===========================================================================
-auto src::Parser::Parse(Context& ctx, File& f) -> std::unique_ptr<Module> {
+auto src::Parser::Parse(Context& ctx, File& f) -> Module* {
     Parser p{&ctx, f};
     p.ParseFile();
-    return ctx.has_error() ? nullptr : std::move(p.mod_ptr);
+    return ctx.has_error() ? nullptr : p.mod;
 }
 
 /// <expr-assert> ::= ASSERT <expr> [ ","  <expr> ]
@@ -349,7 +352,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
                 /// Only allow invoking certain kinds of expressions.
                 /// TODO: Allow invoking invoke expressions so `deque int a;` works.
-                if (not isa<Type, DeclRefExpr, MemberAccessExpr>(*lhs)) break;
+                if (not isa<Type, DeclRefExpr, MemberAccessExpr, ScopeAccessExpr>(*lhs)) break;
 
                 /// We specifically disallow blocks in this position so that, e.g.
                 /// in `if a {`, `a {` does not get parsed as an invoke expression.
@@ -445,6 +448,14 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 continue;
             }
 
+            /// Scope access.
+            case Tk::ColonColon: {
+                Next();
+                if (not At(Tk::Identifier)) Error("Expected identifier");
+                lhs = new (mod) ScopeAccessExpr(*lhs, tok.text, {lhs->location, Next()});
+                continue;
+            }
+
             /// Explicit cast.
             case Tk::As:
             case Tk::AsBang: {
@@ -495,7 +506,7 @@ auto src::Parser::ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>
 }
 
 /// <file> ::= <module-part> <exprs>
-/// <module-part> ::= [ MODULE IDENTIFIER ";" ]
+/// <module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT IDENTIFIER }
 void src::Parser::ParseFile() {
     /// Parse preamble; this also creates the module.
     if (At(Tk::Identifier) and tok.text == "module") {
@@ -505,12 +516,35 @@ void src::Parser::ParseFile() {
         Next();
         if (not Consume(Tk::Semicolon)) Error("Expected ';'");
 
-        mod_ptr = std::make_unique<Module>(ctx, std::move(module_name), loc);
+        ctx->modules.push_back(std::make_unique<Module>(ctx, std::move(module_name), loc));
     } else {
-        mod_ptr = std::make_unique<Module>(ctx, "");
+        ctx->modules.push_back(std::make_unique<Module>(ctx, ""));
     }
 
-    mod = mod_ptr.get();
+    mod = ctx->modules.back().get();
+
+    /// Parse imports.
+    while (At(Tk::Identifier) and tok.text == "import") {
+        auto start = Next();
+        if (not At(Tk::Identifier)) Error("Expected identifier");
+
+        /// Skip duplicate imports.
+        if (rgs::contains(mod->imports, tok.text, &ImportedModuleRef::linkage_name)) {
+            Diag::Warning(ctx, start, "Duplicate import '{}' ignored", tok.text);
+        } else {
+            mod->imports.emplace_back(
+                tok.text,
+                tok.text,
+                Location{start, tok.location},
+                false,
+                false
+            );
+        }
+
+        Next();
+        if (not Consume(Tk::Semicolon)) Error("Expected ';'");
+    }
+
     curr_func = mod->top_level_func;
 
     /// Set up scopes.

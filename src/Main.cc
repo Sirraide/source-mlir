@@ -37,6 +37,7 @@ using options = clopts< // clang-format off
     positional<"file", "The file to compile">,
     option<"--colour", "Enable coloured output (default: auto)", values<"always", "auto", "never">>,
     option<"--dir", "Set module output directory">,
+    multiple<option<"-I", "Add module import directory">>,
     experimental::short_option<"-O", "Optimisation level", values<0, 1, 2, 3, 4>>,
     flag<"-r", "JIT-compile and run the program after compiling">,
     flag<"--ast", "Print the AST of the module after parsing">,
@@ -69,6 +70,13 @@ int main(int argc, char** argv) {
     src::Context ctx;
     auto& f = ctx.get_or_load_file(*opts.get<"file">());
 
+    /// Add import paths.
+    for (auto& path : *opts.get<"-I">()) {
+        std::filesystem::path p{path};
+        if (p.is_relative()) p = std::filesystem::current_path() / p;
+        ctx.import_paths.push_back(std::move(p));
+    }
+
     /// Describe module, if requested.
     if (opts.get<"--describe-module">()) {
         auto mod = src::Module::Deserialise(
@@ -100,7 +108,7 @@ int main(int argc, char** argv) {
     }
 
     /// Perform semantic analysis.
-    src::Sema::Analyse(mod.get());
+    src::Sema::Analyse(mod);
     if (ctx.has_error()) std::exit(1);
     if (opts.get<"--ast">() or opts.get<"--sema">()) {
         if (opts.get<"--ast">()) mod->print_ast(use_colour);
@@ -122,7 +130,7 @@ int main(int argc, char** argv) {
 
     /// Generate HLIR. If this fails, that’s an ICE, so no
     /// need for error checking here.
-    src::CodeGen::Generate(mod.get(), opts.get<"--no-verify">());
+    src::CodeGen::Generate(mod, opts.get<"--no-verify">());
     if (ctx.has_error()) std::exit(1);
     if (opts.get<"--hlir">()) {
         mod->print_hlir(opts.get<"--use-generic-assembly-format">());
@@ -130,7 +138,7 @@ int main(int argc, char** argv) {
     }
 
     /// Lower HLIR to LLVM IR.
-    src::LowerToLLVM(mod.get(), opts.get<"--debug-llvm">(), opts.get<"--no-verify">());
+    src::LowerToLLVM(mod, opts.get<"--debug-llvm">(), opts.get<"--no-verify">());
     if (ctx.has_error()) std::exit(1);
     if (opts.get<"--llvm">()) {
         mod->print_llvm(int(opts.get_or<"-O">(0)));

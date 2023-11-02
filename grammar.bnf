@@ -1,6 +1,6 @@
 <file> ::= <module-part> <exprs>
 
-<module-part> ::= [ MODULE IDENTIFIER ";" ]
+<module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT IDENTIFIER }
 
 /// ===========================================================================
 ///  Expressions
@@ -24,6 +24,7 @@
          | <expr-labelled>
          | <expr-loop-ctrl>
          | <expr-export>
+         | <expr-qual-name>
          | <type-struct>
          | <decl>
 
@@ -44,6 +45,7 @@
 <expr-labelled>  ::= IDENTIFIER ":" <expr>
 <expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
 <expr-export>    ::= EXPORT <expr>
+<expr-qual-name> ::= <expr> "::" IDENTIFIER
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>

@@ -1,1 +1,5 @@
-/// R mkdir -p .tmp && %srcc tests/module.src --dir .tmp && %srcc %s --hlir
+/// R mkdir -p .tmp && %srcc tests/module.src --dir .tmp && %srcc %s --hlir -I .tmp
+
+import foo;
+
+foo::x 3, 4;

@@ -48,7 +48,10 @@ auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
         case Expr::Kind::SliceType: return FormatSEType(ptr, "S");
         case Expr::Kind::ArrayType: return FormatSEType(ptr, "A");
         case Expr::Kind::OptionalType: return FormatSEType(ptr, "O");
-        case Expr::Kind::SugaredType: return cast<SugaredType>(ptr)->elem->as_type.mangled_name(ctx);
+
+        case Expr::Kind::SugaredType:
+        case Expr::Kind::ScopedType:
+            return cast<SingleElementTypeBase>(ptr)->elem->as_type.mangled_name(ctx);
 
         case Expr::Kind::ProcType: {
             auto p = cast<ProcType>(ptr);
@@ -93,10 +96,12 @@ auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
         case Expr::Kind::ConstExpr:
         case Expr::Kind::CastExpr:
         case Expr::Kind::MemberAccessExpr:
+        case Expr::Kind::ScopeAccessExpr:
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::IfExpr:
         case Expr::Kind::BinaryExpr:
         case Expr::Kind::DeclRefExpr:
+        case Expr::Kind::ModuleRefExpr:
         case Expr::Kind::LocalRefExpr:
         case Expr::Kind::BoolLiteralExpr:
         case Expr::Kind::IntegerLiteralExpr:
@@ -823,6 +828,8 @@ auto src::Module::Deserialise(
     std::string module_name,
     Location loc,
     ArrayRef<u8> description
-) -> std::unique_ptr<Module> {
-    return Deserialiser{ctx, std::move(module_name), loc, description}.deserialise();
+) -> Module* {
+    auto m = Deserialiser{ctx, std::move(module_name), loc, description}.deserialise();
+    ctx->modules.push_back(std::move(m));
+    return ctx->modules.back().get();
 }
