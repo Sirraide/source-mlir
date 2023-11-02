@@ -1,5 +1,13 @@
 /// R mkdir -p .tmp && %srcc tests/module.src --dir .tmp && %srcc %s --hlir -I .tmp
 
+/// d t %[a-zA-Z0-9_]+
+
 import foo;
 
+/// * func.func private @x
+/// + func.func public @__src_main
+/// + (?<x>$t) = constant @x
+/// + (?<three>$t) = arith.constant 3
+/// + (?<four>$t) = arith.constant 4
+/// + $t = call_indirect $x($three, $four)
 foo::x 3, 4;

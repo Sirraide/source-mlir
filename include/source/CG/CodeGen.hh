@@ -153,6 +153,8 @@ private:
     template <typename T, typename... Args>
     auto Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
 
+    auto EmitReference(mlir::Location loc, Expr* decl) -> mlir::Value;
+
     template <typename Op>
     void GenerateBinOp(BinaryExpr* b);
 

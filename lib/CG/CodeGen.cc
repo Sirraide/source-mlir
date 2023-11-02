@@ -65,6 +65,17 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
     return builder.create<T>(loc, std::forward<Args>(args)...);
 }
 
+auto src::CodeGen::EmitReference(mlir::Location loc, src::Expr* decl) -> mlir::Value {
+    /// If the operand is a function, create a function constant.
+    if (auto p = dyn_cast<ProcDecl>(decl)) return Create<mlir::func::ConstantOp>(
+        loc,
+        Ty(p->type),
+        mlir::SymbolRefAttr::get(mctx, p->name)
+    );
+
+    Unreachable();
+}
+
 void src::CodeGen::InitStaticChain(ProcDecl* proc, mlir::func::FuncOp func) {
     if (proc->captured_locals.empty() and not proc->takes_static_chain) return;
 
@@ -633,19 +644,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::DeclRefExpr: {
             auto e = cast<DeclRefExpr>(expr);
-
-            /// If the operand is a function, create a function constant.
-            if (auto p = dyn_cast<ProcDecl>(e->decl)) {
-                e->mlir = Create<mlir::func::ConstantOp>(
-                    e->location.mlir(ctx),
-                    Ty(p->type),
-                    mlir::SymbolRefAttr::get(mctx, p->name)
-                );
-            }
-
-            else {
-                Unreachable();
-            }
+            e->mlir = EmitReference(e->location.mlir(ctx), e->decl);
         } break;
 
         case Expr::Kind::LocalRefExpr: {
@@ -719,7 +718,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto sa = cast<ScopeAccessExpr>(expr);
             Generate(sa->object);
             Generate(sa->resolved);
-            sa->mlir = sa->resolved->mlir;
+            sa->mlir = EmitReference(sa->location.mlir(ctx), sa->resolved);
         } break;
 
         case Expr::Kind::CastExpr: {
@@ -1156,6 +1155,17 @@ void src::CodeGen::GenerateModule() {
             StringRef(s.data(), s.size()),
             APInt(64, u64(i))
         );
+    }
+
+    /// Codegen imports.
+    builder.setInsertionPointToEnd(mod->mlir.getBody());
+    for (auto& m : mod->imports) {
+        for (auto& exp : m.mod->exports) {
+            for (auto e : exp.second) {
+                if (auto p = dyn_cast<ProcDecl>(e)) GenerateProcedure(p);
+                else Generate(e);
+            }
+        }
     }
 
     /// Codegen functions.
