@@ -1,5 +1,8 @@
 /// R %srcc --hlir %s
 
+/// p nolit .
+/// d any .*?
+/// p lit .
 /// d t %[0-9a-zA-Z_]+
 
 struct S {
@@ -23,15 +26,14 @@ foo s, s;
 /// Note: Index of `.a` is 0; index of `.c` is 3, because padding.
 /// * func.func private @foo
 /// + (?<A>$t) = hlir.local_var
-/// + hlir.store $A
+/// + hlir.store into $A
 /// + (?<B>$t) = hlir.local_var
-/// + hlir.store $B
+/// + hlir.store into $B
 /// + (?<Aref>$t) = hlir.load $A
-/// + (?<AAref>$t) = hlir.structgep $Aref, 0
+/// + (?<AAref>$t) = hlir.structgep $Aref $any>>, 0
 /// + (?<AA>$t) = hlir.load $AAref
-/// + (?<Bref>$t) = hlir.load $B
-/// + (?<BBref>$t) = hlir.structgep $Bref, 3
+/// + (?<BBref>$t) = hlir.structgep $B $any>>, 3
 /// + (?<BB>$t) = hlir.load $BBref
-/// + (?<Sum>$t) = hlir.add $AA, $BB
+/// + (?<Sum>$t) = arith.addi $AA, $BB
 /// + return $Sum
 proc foo (S& a, S b) = a.a + b.c;

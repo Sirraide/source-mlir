@@ -1086,7 +1086,7 @@ void src::Expr::print(bool print_children) const {
     ASTPrinter{nullptr, true, print_children}(const_cast<Expr*>(this));
 }
 
-void src::Module::print_ast() const {
+void src::Module::print_ast(bool use_colour) const {
     /// Ok because ASTPrinter does not attempt to mutate this.
-    ASTPrinter{const_cast<Module*>(this), true, true}.print();
+    ASTPrinter{const_cast<Module*>(this), use_colour, true}.print();
 }

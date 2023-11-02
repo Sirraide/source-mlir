@@ -35,6 +35,7 @@ namespace detail {
 using namespace command_line_options;
 using options = clopts< // clang-format off
     positional<"file", "The file to compile">,
+    option<"--colour", "Enable coloured output (default: auto)", values<"always", "auto", "never">>,
     flag<"-r", "JIT-compile and run the program after compiling">,
     flag<"--describe-module", "Load file as a module and print its exports">,
     flag<"--syntax-only", "Skip the semantic analysis step">,
@@ -55,6 +56,13 @@ using detail::options;
 int main(int argc, char** argv) {
     llvm::EnablePrettyStackTrace();
     auto opts = options::parse(argc, argv, [](auto&& s) -> bool { src::Diag::Fatal("{}", s); });
+
+    /// Check if we want to use colours.
+    bool use_colour = isatty(fileno(stdout));
+    if (auto c = opts.get<"--colour">()) {
+        if (*c == "always") use_colour = true;
+        else if (*c == "never") use_colour = false;
+    }
 
     /// Create context.
     src::Context ctx;
@@ -86,7 +94,7 @@ int main(int argc, char** argv) {
 
     /// Print the AST of the module, if requested.
     if (opts.get<"--syntax-only">()) {
-        if (opts.get<"--ast">()) mod->print_ast();
+        if (opts.get<"--ast">()) mod->print_ast(use_colour);
         std::exit(0);
     }
 
@@ -94,7 +102,7 @@ int main(int argc, char** argv) {
     src::Sema::Analyse(mod.get());
     if (ctx.has_error()) std::exit(1);
     if (opts.get<"--ast">() or opts.get<"--sema">()) {
-        if (opts.get<"--ast">()) mod->print_ast();
+        if (opts.get<"--ast">()) mod->print_ast(use_colour);
         std::exit(0);
     }
 

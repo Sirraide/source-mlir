@@ -1,11 +1,19 @@
+/// R %srcc %s --ast
+
 module foo;
 
+/// * ExportExpr
+/// + StructDecl
 export struct X {
     i8 a;
     int b;
     i32 c;
 }
 
+/// * ExportExpr
+/// + StructDecl
 export struct Y {}
 
+/// * ExportExpr
+/// + Exported ProcDecl
 export proc x(int, int) -> int = 42;

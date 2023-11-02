@@ -350,7 +350,7 @@ public:
 
     /// Print the AST of the module to stdout. Implemented
     /// in AST.cc
-    void print_ast() const;
+    void print_ast(bool use_colour) const;
 
     /// Print the HLIR of the module. Implemented in CodeGen.cc.
     void print_hlir(bool use_generic_assembly_format) const;
