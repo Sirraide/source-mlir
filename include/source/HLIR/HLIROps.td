@@ -362,6 +362,32 @@ def ChainExtractLocalOp : HLIR_Op<"extractlocal"> {
     ];
 }
 
+def MakeClosureOp : HLIR_Op<"makeclosure"> {
+    let summary = "Make a closure";
+    let arguments = (ins
+        HLIR_Type:$closure,
+        Optional<HLIR_Type>:$env
+    );
+    let results = (outs HLIR_ClosureType);
+
+    let assemblyFormat = [{
+        $closure `:` type($closure) `(` $env `)` attr-dict `:` functional-type($env, results)
+    }];
+}
+
+def InvokeClosureOp : HLIR_Op<"invokeclosure"> {
+    let summary = "Invoke a closure";
+    let arguments = (ins
+        HLIR_ClosureType:$closure,
+        Variadic<HLIR_Type>:$args
+    );
+    let results = (outs HLIR_Type);
+
+    let assemblyFormat = [{
+        $closure `:` type($closure) `(` $args `:` type($args) `)` attr-dict `:` type(results)
+    }];
+}
+
 // def LocalEscapeOp : HLIR_Op<"localescape"> {
 //     let summary = "Make a local variables visible in nested functions";
 //     let arguments = (ins Variadic<HLIR_ReferenceType>:$vars);

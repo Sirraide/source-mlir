@@ -64,6 +64,7 @@ class HLIR_SingleElementType<string name, string type_mnemonic, list<Trait> trai
 
 def HLIR_SliceType : HLIR_SingleElementType<"Slice", "slice">;
 def HLIR_ReferenceType : HLIR_SingleElementType<"Reference", "ref">;
+def HLIR_ClosureType : HLIR_SingleElementType<"Closure", "closure">;
 
 def HLIR_ArrayType : HLIR_SingleElementType<"Array", "array"> {
     let parameters = (ins "Type":$elem, "std::size_t":$size);
@@ -77,14 +78,16 @@ def HLIR_ArrayType : HLIR_SingleElementType<"Array", "array"> {
 
 
 def HLIR_Type : AnyTypeOf<[
+    Builtin_Integer,
+    FunctionType,
+    LLVM_AnyStruct,
     HLIR_Void,
     HLIR_Int,
-    Builtin_Integer,
+    HLIR_ClosureType,
     HLIR_Bool,
     HLIR_SliceType,
     HLIR_ArrayType,
     HLIR_ReferenceType,
-    LLVM_AnyStruct,
 //    HLIR_StaticChainPointerType,
 ]>;
 

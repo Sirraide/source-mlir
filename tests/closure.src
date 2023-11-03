@@ -1,7 +1,11 @@
-proc a = 42;
+proc a = 22;
 
-proc b (proc c -> int, proc d -> int) {
-    c() + d();
+proc b (proc c -> int) = c();
+
+proc caller() -> int {
+    int x = 20;
+    proc c = x;
+    return b(a) + b(c);
 }
 
-b a, a;
+caller()

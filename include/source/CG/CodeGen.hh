@@ -171,7 +171,7 @@ private:
     /// Perform preprocessing on locals to support nested procedures.
     void InitStaticChain(ProcDecl* proc, mlir::func::FuncOp f);
 
-    auto Ty(Expr* type) -> mlir::Type;
+    auto Ty(Expr* type, bool for_closure = false) -> mlir::Type;
 };
 } // namespace src
 

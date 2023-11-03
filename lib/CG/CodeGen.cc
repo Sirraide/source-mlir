@@ -207,7 +207,7 @@ auto src::CodeGen::GetStaticChainPointer(ProcDecl* proc) -> mlir::Value {
     return chain;
 }
 
-auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
+auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
     Assert(isa<Type>(type), "Type is not a Type");
     switch (type->kind) {
         case Expr::Kind::BuiltinType: {
@@ -258,15 +258,17 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
         }
 
         case Expr::Kind::ClosureType:
-            Todo();
+            return hlir::ClosureType::get(Ty(cast<ClosureType>(type)->proc_type, true));
 
         case Expr::Kind::ProcType: {
             auto ty = cast<ProcType>(type);
             SmallVector<mlir::Type> params;
             for (auto p : ty->param_types) params.push_back(Ty(p));
 
-            /// Add an extra parameter for the static chain pointer.
-            if (ty->static_chain_parent) {
+            /// Add an extra parameter for the static chain pointer, unless
+            /// this is for a closure type, in which case the environment
+            /// will already be added anyway.
+            if (not for_closure and ty->static_chain_parent) {
                 Assert(ty->static_chain_parent->captured_locals_type);
                 params.push_back(hlir::ReferenceType::get(Ty(ty->static_chain_parent->captured_locals_type)));
             }
@@ -629,22 +631,39 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 args.push_back(a->mlir);
             }
 
-            /// If the callee takes a static chain pointer, retrieve
-            /// it and add it to the argument list.
-            if (auto chain = cast<ProcType>(e->callee->type)->static_chain_parent)
-                args.push_back(GetStaticChainPointer(chain));
+            /// If the callee is a closure, then use a special operation for that.
+            if (auto c = dyn_cast<ClosureType>(e->callee->type)) {
+                auto call_op = Create<hlir::InvokeClosureOp>(
+                    e->location.mlir(ctx),
+                    e->type.yields_value ? mlir::TypeRange{Ty(e->type)} : mlir::TypeRange{},
+                    e->callee->mlir,
+                    args
+                );
 
-            /// We emit every call as an indirect call.
-            auto call_op = Create<mlir::func::CallIndirectOp>(
-                e->location.mlir(ctx),
-                e->callee->mlir.getType().cast<mlir::FunctionType>().getResults(),
-                e->callee->mlir,
-                args
-            );
+                /// The operation only has a result if the function’s
+                /// return type is not void.
+                if (e->type.yields_value) e->mlir = call_op.getResult();
+            }
 
-            /// The operation only has a result if the function’s
-            /// return type is not void.
-            if (e->type.yields_value) e->mlir = call_op.getResult(0);
+            /// Otherwise, this is a regular call.
+            else {
+                /// If the callee takes a static chain pointer, retrieve
+                /// it and add it to the argument list.
+                if (auto chain = cast<ProcType>(e->callee->type)->static_chain_parent)
+                    args.push_back(GetStaticChainPointer(chain));
+
+                /// We emit every call as an indirect call.
+                auto call_op = Create<mlir::func::CallIndirectOp>(
+                    e->location.mlir(ctx),
+                    e->callee->mlir.getType().cast<mlir::FunctionType>().getResults(),
+                    e->callee->mlir,
+                    args
+                );
+
+                /// The operation only has a result if the function’s
+                /// return type is not void.
+                if (e->type.yields_value) e->mlir = call_op.getResult(0);
+            }
         } break;
 
         case Expr::Kind::DeclRefExpr: {
@@ -760,11 +779,20 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     /// No-op.
                     if (Type::Equal(c->operand->type, c->type)) {
                         c->mlir = c->operand->mlir;
-                        break;
+                    }
+
+                    /// Procedure to closure casts.
+                    else if (isa<ProcType>(c->operand->type) and isa<ClosureType>(c->type)) {
+                        /// TODO: Environment.
+                        c->mlir = Create<hlir::MakeClosureOp>(
+                            c->location.mlir(ctx),
+                            Ty(c->type),
+                            c->operand->mlir
+                        );
                     }
 
                     /// Integer-to-integer casts.
-                    if (c->operand->type.is_int(true) and c->type.is_int(true)) {
+                    else if (c->operand->type.is_int(true) and c->type.is_int(true)) {
                         auto from_size = c->operand->type.size(ctx);
                         auto to_size = c->type.size(ctx);
 

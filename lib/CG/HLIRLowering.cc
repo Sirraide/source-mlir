@@ -398,6 +398,87 @@ struct ChainExtractLocalOpLowering : public ConversionPattern {
     }
 };
 
+struct MakeClosureOpLowering : public ConversionPattern {
+    explicit MakeClosureOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::MakeClosureOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto loc = op->getLoc();
+        auto make_closure = cast<hlir::MakeClosureOp>(op);
+        hlir::MakeClosureOpAdaptor adaptor(args);
+
+        /// This involves creating a struct w/ two pointers: the
+        /// function pointer and the closure data; the data pointer
+        /// may be absent.
+        auto lit = rewriter.create<LLVM::UndefOp>(loc, getTypeConverter()->convertType(make_closure.getType()));
+
+        /// Store the function pointer.
+        auto lit2 = rewriter.create<LLVM::InsertValueOp>(loc, lit, adaptor.getClosure(), ArrayRef<i64>{0});
+
+        /// Store the data pointer, if there is one.
+        if (args.size() == 2) {
+            auto lit3 = rewriter.create<LLVM::InsertValueOp>(loc, lit2, adaptor.getEnv(), ArrayRef<i64>{1});
+            rewriter.replaceOp(op, lit3);
+        } else {
+            auto null = rewriter.create<LLVM::NullOp>(loc, LLVM::LLVMPointerType::get(getContext()));
+            auto lit3 = rewriter.create<LLVM::InsertValueOp>(loc, lit2, null, ArrayRef<i64>{1});
+            rewriter.replaceOp(op, lit3);
+        }
+
+        return success();
+    }
+};
+
+struct InvokeClosureOpLowering : public ConversionPattern {
+    explicit InvokeClosureOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::InvokeClosureOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto loc = op->getLoc();
+        auto invoke_closure = cast<hlir::InvokeClosureOp>(op);
+        hlir::InvokeClosureOpAdaptor adaptor(args);
+
+        /// Extract function pointer and env.
+        auto fn_ptr = rewriter.create<LLVM::ExtractValueOp>(
+            loc,
+            LLVM::LLVMPointerType::get(getContext()),
+            adaptor.getClosure(),
+            ArrayRef<i64>{0}
+        );
+
+        auto env = rewriter.create<LLVM::ExtractValueOp>(
+            loc,
+            LLVM::LLVMPointerType::get(getContext()),
+            adaptor.getClosure(),
+            ArrayRef<i64>{1}
+        );
+
+        /// Invoke the function pointer.
+        SmallVector<mlir::Value, 8> invoke_args;
+        invoke_args.push_back(fn_ptr);
+        for (auto a : args | vws::drop(1)) invoke_args.push_back(a);
+        invoke_args.push_back(env);
+        auto invoke = rewriter.create<LLVM::CallOp>(
+            loc,
+            getTypeConverter()->convertType(invoke_closure.getType()),
+            invoke_args
+        );
+
+        rewriter.replaceOp(op, invoke.getResult());
+        return success();
+    }
+};
+
 struct HLIRToLLVMLoweringPass
     : public PassWrapper<HLIRToLLVMLoweringPass, OperationPass<ModuleOp>> {
     void getDependentDialects(DialectRegistry& registry) const override {
@@ -426,6 +507,15 @@ struct HLIRToLLVMLoweringPass
             return LLVM::LLVMStructType::getLiteral(
                 &getContext(),
                 {LLVM::LLVMPointerType::get(elem), tc.getIndexType()}
+            );
+        });
+
+        /// Convert closures to { ptr, ptr }.
+        tc.addConversion([&](hlir::ClosureType) {
+            auto ptr = LLVM::LLVMPointerType::get(&getContext());
+            return LLVM::LLVMStructType::getLiteral(
+                &getContext(),
+                {ptr, ptr}
             );
         });
 
@@ -475,7 +565,9 @@ struct HLIRToLLVMLoweringPass
             LocalVarOpLowering,
             ZeroInitOpLowering,
             StructGepOpLowering,
-            ChainExtractLocalOpLowering
+            ChainExtractLocalOpLowering,
+            MakeClosureOpLowering,
+            InvokeClosureOpLowering
         >(&getContext(), tc);
         // clang-format on
 
