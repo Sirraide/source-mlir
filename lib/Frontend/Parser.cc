@@ -628,8 +628,8 @@ auto src::Parser::ParseImplicitBlock() -> Result<BlockExpr*> {
     else return new (mod) BlockExpr(sc.scope, {*res}, {res->location}, true);
 }
 
-/// <proc-args>  ::= "(" <param-decl> { "," <param-decl> } ")"
-/// <param-decl> ::= <type> [ IDENTIFIER ]
+/// <proc-params> ::= "(" <param-decl> { "," <param-decl> } ")"
+/// <param-decl>  ::= <type> [ IDENTIFIER ] | PROC [ IDENTIFIER ] <proc-signature>
 auto src::Parser::ParseParamDeclList(
     SVI<LocalDecl*>& param_decls,
     SVI<Expr*>& param_types
@@ -642,29 +642,45 @@ auto src::Parser::ParseParamDeclList(
 
     /// Parse param decls.
     do {
-        auto param_type = ParseType();
-        if (IsError(param_type)) {
-            /// Skip to comma or ')'.
-            Synchronise(Tk::Comma, Tk::RParen);
-            continue;
+        /// Procedure.
+        if (At(Tk::Proc)) {
+            auto sig = ParseSignature();
+            param_decls.push_back(new (mod) LocalDecl(
+                nullptr,
+                std::move(sig.name),
+                sig.type,
+                nullptr,
+                sig.loc
+            ));
+            param_types.push_back(sig.type);
         }
 
-        /// Name is optional.
-        std::string name;
-        if (At(Tk::Identifier)) {
-            name = tok.text;
-            Next();
-        }
+        /// Regular type.
+        else {
+            auto param_type = ParseType();
+            if (IsError(param_type)) {
+                /// Skip to comma or ')'.
+                Synchronise(Tk::Comma, Tk::RParen);
+                continue;
+            }
 
-        /// TODO: Default values go in their own scope.
-        param_decls.push_back(new (mod) LocalDecl(
-            nullptr,
-            std::move(name),
-            *param_type,
-            nullptr,
-            tok.location
-        ));
-        param_types.push_back(*param_type);
+            /// Name is optional.
+            std::string name;
+            if (At(Tk::Identifier)) {
+                name = tok.text;
+                Next();
+            }
+
+            /// TODO: Default values go in their own scope.
+            param_decls.push_back(new (mod) LocalDecl(
+                nullptr,
+                std::move(name),
+                *param_type,
+                nullptr,
+                tok.location
+            ));
+            param_types.push_back(*param_type);
+        }
     } while (Consume(Tk::Comma));
 
     /// Parse closing paren.
@@ -718,8 +734,8 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
     if (not infer_return_type and Type::Equal(sig.type->ret_type, Type::Unknown))
         sig.type->ret_type = Type::Void;
 
-    /// Add it to the current scope.
-    curr_scope->declare(curr_func->name, curr_func);
+    /// Add it to the current scope if it is named.
+    if (not curr_func->name.empty()) curr_scope->declare(curr_func->name, curr_func);
     return curr_func;
 }
 
@@ -735,11 +751,8 @@ auto src::Parser::ParseSignature() -> Signature {
     sig.loc = curr_loc;
     Assert(Consume(Tk::Proc));
 
-    /// We currently only have named procedures.
-    if (not At(Tk::Identifier)) {
-        Error("Expected identifier");
-        sig.name = "<error>";
-    } else {
+    /// Parse name, if there is one.
+    if (At(Tk::Identifier)) {
         sig.name = tok.text;
         Next();
     }

@@ -42,6 +42,14 @@ bool src::Sema::Convert(Expr*& e, Expr* type) {
     to = type->as_type;
     if (Type::Equal(from, to)) return true;
 
+    /// Procedures are convertible to closures, but *not* the other way around.
+    if (isa<ProcType>(from) and isa<ClosureType>(to)) {
+        if (not Type::Equal(from, cast<ClosureType>(to)->proc_type)) return false;
+        e = new (mod) CastExpr(CastKind::Implicit, e, type, e->location);
+        Analyse(e);
+        return true;
+    }
+
     /// Smaller integer types can be converted to larger integer types.
     if (from.is_int(true) and to.is_int(true)) {
         auto from_size = from.size(mod->context);
@@ -100,8 +108,8 @@ bool src::Sema::MakeDeclType(Expr*& e) {
         else return Error(e, "Cannot declare a variable of type 'void'");
     }
 
-    /// IDEA: `proc&` is a function pointer, `proc^` a closure.
-    if (isa<ProcType>(e)) return Error(e, "Sorry, closures are not supported yet");
+    /// Procedure types decay to closures.
+    if (auto p = dyn_cast<ProcType>(e)) e = new (mod) ClosureType(p);
     return true;
 }
 
@@ -162,6 +170,7 @@ bool src::Sema::Analyse(Expr*& e) {
             break;
 
         /// Array size must be a valid constant expression.
+        /// TODO: Type inference and checking that we don’t have e.g. `void[]`.
         case Expr::Kind::ArrayType: {
             auto arr = cast<ArrayType>(e);
             if (not Analyse(arr->dim_expr)) return e->sema.set_errored();
@@ -181,7 +190,7 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::ScopedPointerType:
         case Expr::Kind::OptionalType:
         case Expr::Kind::SliceType:
-            /// TODO: Type inference and checking that we don’t have e.g. `void[]`.
+        case Expr::Kind::ClosureType:
             Analyse(cast<SingleElementTypeBase>(e)->elem);
             break;
 
@@ -418,7 +427,12 @@ bool src::Sema::Analyse(Expr*& e) {
             /// so until we have that, the rules are:
             /// - The result of an invoke expression is an rvalue.
             /// - The operands of an invoke expressions must be rvalues.
-            if (auto ptype = dyn_cast<ProcType>(invoke->callee->type); ptype and not isa<Type>(invoke->callee)) {
+            if (isa<ProcType, ClosureType>(invoke->callee->type) and not isa<Type>(invoke->callee)) {
+                auto ptype = invoke->callee->type.callable;
+
+                /// Callee must be an rvalue.
+                InsertLValueToRValueConversion(invoke->callee);
+
                 /// Analyse the arguments.
                 for (auto& arg : invoke->args)
                     if (not Analyse(arg))

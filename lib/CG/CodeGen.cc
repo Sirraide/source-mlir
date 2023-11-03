@@ -257,6 +257,9 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
             return Ty(ty->elem);
         }
 
+        case Expr::Kind::ClosureType:
+            Todo();
+
         case Expr::Kind::ProcType: {
             auto ty = cast<ProcType>(type);
             SmallVector<mlir::Type> params;
@@ -275,6 +278,7 @@ auto src::CodeGen::Ty(Expr* type) -> mlir::Type {
 
         case Expr::Kind::ScopedPointerType:
         case Expr::Kind::OptionalType:
+            Todo();
 
         case Expr::Kind::StructType: {
             auto s = cast<StructType>(type);
@@ -602,6 +606,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::SliceType:
         case Expr::Kind::OptionalType:
         case Expr::Kind::ProcType:
+        case Expr::Kind::ClosureType:
         case Expr::Kind::ArrayType:
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:

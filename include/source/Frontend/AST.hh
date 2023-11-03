@@ -12,6 +12,7 @@ class Type;
 class FunctionDecl;
 class LocalDecl;
 class StructType;
+class ProcType;
 
 namespace detail {
 extern Expr* const UnknownType;
@@ -65,6 +66,7 @@ public:
         OptionalType,
         SugaredType,
         ScopedType,
+        ClosureType,
         ProcType,
         /// Type [end]
 
@@ -143,6 +145,9 @@ public:
 
         /// Get the alignment of this type, in bits.
         auto align(Context* ctx) -> isz;
+
+        /// Get the procedure type from a closure or proc.
+        readonly_decl(ProcType*, callable);
 
         /// Get the type stripped of any sugar.
         readonly_decl(TypeHandle, desugared);
@@ -1123,6 +1128,20 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ProcType; }
+};
+
+class ClosureType : public SingleElementTypeBase {
+public:
+    ClosureType(ProcType* proc_type)
+        : SingleElementTypeBase(Kind::ClosureType, proc_type, proc_type->location) {
+        Assert(not proc_type->sema.in_progress);
+        sema = proc_type->sema;
+    }
+
+    readonly(ProcType*, proc_type, return cast<ProcType>(elem));
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ClosureType; }
 };
 
 /// ===========================================================================

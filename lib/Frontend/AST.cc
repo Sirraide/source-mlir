@@ -76,6 +76,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::ArrayType:
         case Kind::OptionalType:
         case Kind::ProcType:
+        case Kind::ClosureType:
         case Kind::AssertExpr:
         case Kind::ReturnExpr:
         case Kind::DeferExpr:
@@ -174,6 +175,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::ScopedPointerType:
         case Kind::OptionalType:
         case Kind::ProcType:
+        case Kind::ClosureType:
         case Kind::IntType:
         case Kind::SliceType:
         case Kind::StructType:
@@ -246,6 +248,9 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::StructType:
             return cast<StructType>(ptr)->stored_alignment;
 
+        case Kind::ClosureType:
+            return 64; /// FIXME: Use context.
+
         case Kind::OptionalType:
             Todo();
 
@@ -280,6 +285,12 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
     }
 
     Unreachable();
+}
+
+auto src::Expr::TypeHandle::_callable() -> ProcType* {
+    if (auto p = dyn_cast<ProcType>(ptr)) return p;
+    if (auto p = dyn_cast<ClosureType>(ptr)) return p->proc_type;
+    Unreachable("Type '{}' is not callable", str(true));
 }
 
 auto src::Expr::TypeHandle::_desugared() -> TypeHandle {
@@ -345,6 +356,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
             return 64; /// FIXME: Use context.
 
         case Kind::SliceType:
+        case Kind::ClosureType:
             return 128; /// FIXME: Use context.
 
         case Kind::SugaredType:
@@ -453,6 +465,12 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
                 a->dimension(),
                 C(Red)
             );
+        } break;
+
+        case Kind::ClosureType: {
+            auto c = cast<ClosureType>(ptr);
+            out += fmt::format("{}closure ", C(Red));
+            out += c->proc_type->type.str(use_colour);
         } break;
 
         case Kind::ProcType: {
@@ -583,7 +601,8 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::ReferenceType:
         case Kind::ScopedPointerType:
         case Kind::SliceType:
-        case Kind::OptionalType: {
+        case Kind::OptionalType:
+        case Kind::ClosureType: {
             return Type::Equal(
                 cast<SingleElementTypeBase>(a)->elem,
                 cast<SingleElementTypeBase>(b)->elem
@@ -1007,6 +1026,7 @@ struct ASTPrinter {
 
             /// We don’t print any other types here.
             case K::ProcType:
+            case K::ClosureType:
             case K::ArrayType:
             case K::BuiltinType:
             case K::FFIType:
@@ -1040,6 +1060,7 @@ struct ASTPrinter {
             /// We don’t print types here.
             case K::BuiltinType:
             case K::ProcType:
+            case K::ClosureType:
             case K::FFIType:
             case K::ReferenceType:
             case K::ScopedPointerType:

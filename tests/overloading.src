@@ -1,0 +1,33 @@
+/// R %srcc %s --hlir
+
+/// My overloading stress test.
+///
+/// This is a complicated one, the situation is basically this:
+/// the rows of the table below are the possible overloads of a
+/// call whose arguments are all overload sets themselves, and the
+/// columns are the possible overloads for the arguments.
+///
+/// Given a call `f(a, b, c)` and the following situation (an x indicates
+/// that there is a valid overload (of a, b, or c) for that parameter
+/// of a specific overload of f.
+///
+///    a  b  c
+/// f1 x
+/// f2 x  x
+/// f3 x  x  x
+/// f4    x  x
+/// f5       x
+///
+/// Here, overload f3 must be selected.
+
+proc a {};
+proc a (int x) {};
+proc a (int& x) -> int = 0;
+
+proc f (proc,                  proc          -> int&, proc          -> int&) -> int = 1;
+proc f (proc (int x),          proc,                  proc          -> int&) -> int = 2;
+proc f (proc (int& x) -> int,  proc (int x),          proc                 ) -> int = 3;
+proc f (proc          -> int&, proc (int& x) -> int,  proc (int x)         ) -> int = 4;
+proc f (proc          -> int&, proc          -> int&, proc (int& x) -> int ) -> int = 5;
+
+f a, a, a;

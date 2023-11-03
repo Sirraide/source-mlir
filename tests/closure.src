@@ -1,0 +1,7 @@
+proc a = 42;
+
+proc b (proc c -> int, proc d -> int) {
+    c() + d();
+}
+
+b a, a;

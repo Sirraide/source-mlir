@@ -48,6 +48,7 @@ auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
         case Expr::Kind::SliceType: return FormatSEType(ptr, "S");
         case Expr::Kind::ArrayType: return FormatSEType(ptr, "A");
         case Expr::Kind::OptionalType: return FormatSEType(ptr, "O");
+        case Expr::Kind::ClosureType: return FormatSEType(ptr, "C");
 
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
