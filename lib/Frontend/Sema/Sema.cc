@@ -1151,41 +1151,26 @@ void src::Sema::AnalyseProcedure(src::ProcDecl* proc) {
     /// ret type would have already been inferred and would no longer
     /// be `unknown`, so we could never get here in that case.
     if (proc->body->implicit) {
+        Assert(proc->body->exprs.size() == 1);
+        Expr*& e = proc->body->exprs[0];
+
         /// Infer type.
         if (Type::Equal(proc->ret_type, Type::Unknown))
             cast<ProcType>(proc->stored_type)->ret_type = body->type;
 
         /// Check that the type is valid.
-        else {
-            Scope* sc = proc->body->scope;
-            Expr* e = proc->body;
-            if (not Convert(e, proc->ret_type)) {
-                Error(
-                    e,
-                    "Cannot convert '{}' to return type '{}'",
-                    e->type,
-                    proc->ret_type
-                );
-                return;
-            }
-
-            /// If the conversion changed the expression, we need to add
-            /// another implicit block since the body of a procedure must
-            /// be a block. This is kind of scuffed, so maybe consider
-            /// dropping this requirement at some point?
-            if (e != proc->body) {
-                e = new (mod) BlockExpr(
-                    sc,
-                    {e},
-                    e->location,
-                    true
-                );
-
-                Analyse(e);
-                Assert(isa<BlockExpr>(e));
-                proc->body = cast<BlockExpr>(e);
-            }
+        else if (not Convert(e, proc->ret_type)) {
+            Error(
+                e,
+                "Cannot convert '{}' to return type '{}'",
+                e->type,
+                proc->ret_type
+            );
+            return;
         }
+
+        /// Return value must be an rvalue.
+        InsertLValueToRValueConversion(e);
     }
 
     /// Make sure all paths return a value.
