@@ -371,7 +371,7 @@ def MakeClosureOp : HLIR_Op<"makeclosure"> {
     let results = (outs HLIR_ClosureType);
 
     let assemblyFormat = [{
-        $closure `:` type($closure) `(` $env `)` attr-dict `:` functional-type($env, results)
+        $closure `:` type($closure) `,` $env `:` type($env) attr-dict `:` type(results)
     }];
 }
 

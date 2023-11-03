@@ -783,12 +783,28 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
                     /// Procedure to closure casts.
                     else if (isa<ProcType>(c->operand->type) and isa<ClosureType>(c->type)) {
-                        /// TODO: Environment.
-                        c->mlir = Create<hlir::MakeClosureOp>(
-                            c->location.mlir(ctx),
-                            Ty(c->type),
-                            c->operand->mlir
-                        );
+                        auto proc = cast<ProcType>(c->operand->type);
+
+                        /// If the procedure is a nested function that takes a static
+                        /// chain, retrieve the appropriate chain pointer.
+                        if (proc->static_chain_parent) {
+                            auto chain = GetStaticChainPointer(proc->static_chain_parent);
+                            c->mlir = Create<hlir::MakeClosureOp>(
+                                c->location.mlir(ctx),
+                                Ty(c->type),
+                                mlir::ValueRange{c->operand->mlir, chain}
+                            );
+                        }
+
+                        /// Otherwise, leave the data pointer empty; the backend will
+                        /// set it to null during lowering.
+                        else {
+                            c->mlir = Create<hlir::MakeClosureOp>(
+                                c->location.mlir(ctx),
+                                Ty(c->type),
+                                c->operand->mlir
+                            );
+                        }
                     }
 
                     /// Integer-to-integer casts.

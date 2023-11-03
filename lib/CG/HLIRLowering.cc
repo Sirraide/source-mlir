@@ -248,6 +248,7 @@ struct ArrayDecayOpLowering : public ConversionPattern {
         auto gep = rewriter.create<LLVM::GEPOp>(
             loc,
             getTypeConverter()->convertType(bitcast.getType()),
+            getTypeConverter()->convertType(bitcast.getOperand().getType().getElem()),
             operands[0],
             ArrayRef{mlir::LLVM::GEPArg(0), mlir::LLVM::GEPArg(0)},
             true
@@ -283,7 +284,8 @@ struct LocalVarOpLowering : public ConversionPattern {
         /// Create the alloca.
         auto alloca = rewriter.create<LLVM::AllocaOp>(
             loc,
-            getTypeConverter()->convertType(var.getType()),
+            LLVM::LLVMPointerType::get(getContext()),
+            getTypeConverter()->convertType(var.getType().getElem()),
             one,
             var.getAlignment().getValue().getZExtValue()
         );
@@ -350,6 +352,7 @@ struct StructGepOpLowering : public ConversionPattern {
         auto gep_op = rewriter.create<LLVM::GEPOp>(
             loc,
             getTypeConverter()->convertType(gep.getType()),
+            getTypeConverter()->convertType(gep.getStructRef().getType().getElem()),
             adaptor.getStructRef(),
             ArrayRef{LLVM::GEPArg(0), LLVM::GEPArg(i32(adaptor.getIdx().getValue().getZExtValue()))},
             true
@@ -380,6 +383,7 @@ struct ChainExtractLocalOpLowering : public ConversionPattern {
         auto gep_op = rewriter.create<LLVM::GEPOp>(
             loc,
             getTypeConverter()->convertType(hlir::ReferenceType::get(extract.getType())),
+            getTypeConverter()->convertType(extract.getStructRef().getType().getElem()),
             adaptor.getStructRef(),
             ArrayRef{LLVM::GEPArg(0), LLVM::GEPArg(i32(adaptor.getIdx().getValue().getZExtValue()))},
             true
@@ -501,12 +505,10 @@ struct HLIRToLLVMLoweringPass
         LLVMConversionTarget target{getContext()};
         LLVMTypeConverter tc{&getContext()};
         RewritePatternSet patterns{&getContext()};
-        tc.addConversion([&](hlir::SliceType t) {
-            auto elem = tc.convertType(t.getElem());
-            Assert(elem, "Slice type has invalid element type", (t.dump(), 0));
+        tc.addConversion([&](hlir::SliceType) {
             return LLVM::LLVMStructType::getLiteral(
                 &getContext(),
-                {LLVM::LLVMPointerType::get(elem), tc.getIndexType()}
+                {LLVM::LLVMPointerType::get(&getContext()), tc.getIndexType()}
             );
         });
 
@@ -520,10 +522,8 @@ struct HLIRToLLVMLoweringPass
         });
 
         /// Convert reference types to ptr.
-        tc.addConversion([&](hlir::ReferenceType ref) {
-            auto elem = tc.convertType(ref.getElem());
-            Assert(elem, "Reference type has invalid element type", (ref.dump(), 0));
-            return LLVM::LLVMPointerType::get(elem);
+        tc.addConversion([&](hlir::ReferenceType) {
+            return LLVM::LLVMPointerType::get(&getContext());
         });
 
         /// Convert array types to arrays.
