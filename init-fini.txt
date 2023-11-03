@@ -1,0 +1,41 @@
+Notes on initalisation and destruction:
+
+INITIALISATION:
+Ensure that a variable V is initialised before its first use: collect all blocks B_u
+that contain a non-initialising use of V. The variable must be initialised in
+all closest ancestors A of B_u such that A is post-dominated by all B_u. If an A is
+not dominated by a block that initialises V, emit a default initialiser for V
+in A, or error if there is no default initialiser.
+
+
+DESTRUCTION:
+Let B_i be the set of blocks that contain an initialising use of V.
+To determine where to place destructor calls for a variable V, collect all blocks
+that already contain an (implicit) destructor call for V.
+
+CASE 1: There are no such destructor calls.
+
+Place a destructor call at every exit block dominated by B_i. Let B_n be the
+set of blocks not *strictly* dominated by B_i. Place a destructor call at each
+edge from a block dominated by B_i to a block in B_n.
+
+*Strictly* is crucial in case we branch *to* an init block from inside
+the initialised region: That is, if an init block B is branched to, then, if B is
+dominated by another init block, it has to call the destructor anyway, so a block
+branching to it does not have to do that; however, if it is not *strictly*
+dominated by an init block, then it won’t call the destructor, so the code
+branching to it has to do that instead.
+
+(Note: because of how branches work,
+this *should* be equivalent to leaving a scope, since, in a well-formed program,
+we can’t cross from a region where a variable is initialised to a region where it
+isn’t w/o a scope boundary—or destructor call, of which there are none in this
+case).
+
+CASE 2: There are such destructor calls.
+
+Let the set of those blocks be B_d. Collect all blocks B_dead that are
+*reachable* from B_d without crossing an initialisation of V. Then, collect
+all blocks B_live that are dominated by B_i and not part of B_dead. For any edge
+from a block in B_live to a block of B_dead, place a destructor call before that
+edge.
