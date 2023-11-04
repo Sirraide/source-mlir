@@ -317,6 +317,9 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
         case Expr::Kind::ConstExpr:
         case Expr::Kind::ReturnExpr:
         case Expr::Kind::LoopControlExpr:
+        case Expr::Kind::GotoExpr:
+        case Expr::Kind::LabelExpr:
+        case Expr::Kind::EmptyExpr:
         case Expr::Kind::DeferExpr:
         case Expr::Kind::BlockExpr:
         case Expr::Kind::InvokeExpr:
@@ -614,9 +617,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::ScopedType:
             Unreachable();
 
-        /// Struct decls and modules are no-ops.
+        /// These are no-ops.
         case Expr::Kind::StructType:
         case Expr::Kind::ModuleRefExpr:
+        case Expr::Kind::EmptyExpr:
             break;
 
         case Expr::Kind::InvokeExpr: {
@@ -877,6 +881,14 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 l->is_continue ? tgt->cond_block : tgt->join_block
             );
         } break;
+
+        case Expr::Kind::GotoExpr: {
+            Todo();
+        }
+
+        case Expr::Kind::LabelExpr: {
+            Todo();
+        }
 
         /// Nothing to do here other than emitting the underlying decl.
         case Expr::Kind::ExportExpr: {

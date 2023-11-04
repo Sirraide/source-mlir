@@ -59,6 +59,13 @@ src::LocalRefExpr::LocalRefExpr(ProcDecl* parent, LocalDecl* decl, Location loc)
     is_lvalue = true;
 }
 
+src::LabelExpr::LabelExpr(ProcDecl* in_procedure, std::string label, Expr* expr, Location loc)
+    : Expr(Kind::LabelExpr, loc),
+      label(std::move(label)),
+      expr(expr) {
+    in_procedure->add_label(this->label, this);
+}
+
 void src::LocalDecl::set_captured() {
     if (is_captured) return;
     is_captured = true;
@@ -82,6 +89,9 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::DeferExpr:
         case Kind::WhileExpr:
         case Kind::LoopControlExpr:
+        case Kind::GotoExpr:
+        case Kind::LabelExpr:
+        case Kind::EmptyExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::ConstExpr:
@@ -140,6 +150,7 @@ auto src::Expr::_type() -> TypeHandle {
     switch (kind) {
         case Kind::ReturnExpr:
         case Kind::LoopControlExpr:
+        case Kind::GotoExpr:
             return Type::NoReturn;
 
         case Kind::AssertExpr:
@@ -147,6 +158,8 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::WhileExpr:
         case Kind::ExportExpr:
         case Kind::ModuleRefExpr:
+        case Kind::LabelExpr:
+        case Kind::EmptyExpr:
             return Type::Void;
 
         /// Typed exprs.
@@ -266,6 +279,9 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::ReturnExpr:
         case Kind::ConstExpr:
         case Kind::LoopControlExpr:
+        case Kind::GotoExpr:
+        case Kind::LabelExpr:
+        case Kind::EmptyExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
         case Kind::BlockExpr:
@@ -387,6 +403,9 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::ReturnExpr:
         case Kind::ConstExpr:
         case Kind::LoopControlExpr:
+        case Kind::GotoExpr:
+        case Kind::LabelExpr:
+        case Kind::EmptyExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
         case Kind::BlockExpr:
@@ -523,10 +542,13 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::WhileExpr:
         case Kind::ModuleRefExpr:
         case Kind::ExportExpr:
+        case Kind::LabelExpr:
+        case Kind::EmptyExpr:
             return Type::Void->as_type.str(use_colour);
 
         case Kind::ReturnExpr:
         case Kind::LoopControlExpr:
+        case Kind::GotoExpr:
             return Type::NoReturn->as_type.str(use_colour);
 
         /// Typed exprs.
@@ -644,6 +666,9 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::ConstExpr:
         case Kind::ReturnExpr:
         case Kind::LoopControlExpr:
+        case Kind::GotoExpr:
+        case Kind::LabelExpr:
+        case Kind::EmptyExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
         case Kind::BlockExpr:
@@ -951,6 +976,28 @@ struct ASTPrinter {
                 return;
             }
 
+            case K::GotoExpr: {
+                auto l = cast<GotoExpr>(e);
+                PrintBasicHeader("GotoExpr", e);
+                out += fmt::format(
+                    " {}{}\n",
+                    C(Yellow),
+                    l->label
+                );
+                return;
+            }
+
+            case K::LabelExpr: {
+                auto l = cast<LabelExpr>(e);
+                PrintBasicHeader("LabelExpr", e);
+                out += fmt::format(
+                    " {}{}\n",
+                    C(Yellow),
+                    l->label
+                );
+                return;
+            }
+
             case K::WhileExpr: {
                 auto w = cast<WhileExpr>(e);
                 PrintBasicHeader("WhileExpr", e);
@@ -969,6 +1016,7 @@ struct ASTPrinter {
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
             case K::DeferExpr: PrintBasicNode("DeferExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
+            case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
             case K::ConstExpr: PrintBasicNode("ConstExpr", e, e->type); return;
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, e->type); return;
@@ -1055,6 +1103,7 @@ struct ASTPrinter {
             case K::IntegerLiteralExpr:
             case K::StringLiteralExpr:
             case K::ModuleRefExpr:
+            case K::EmptyExpr:
                 break;
 
             /// We don’t print types here.
@@ -1170,6 +1219,16 @@ struct ASTPrinter {
                 auto r = cast<LoopControlExpr>(e);
                 if (r->target) PrintChildren(r->target, leading_text);
             } break;
+
+            case K::GotoExpr: {
+                tempset print_children_of_children = false;
+                auto r = cast<GotoExpr>(e);
+                if (r->target) PrintChildren(r->target, leading_text);
+            } break;
+
+            case K::LabelExpr:
+                PrintChildren(cast<LabelExpr>(e)->expr, leading_text);
+                break;
 
             case K::ExportExpr:
                 PrintChildren(cast<ExportExpr>(e)->expr, leading_text);

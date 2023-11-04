@@ -23,6 +23,7 @@
          | <expr-while>
          | <expr-labelled>
          | <expr-loop-ctrl>
+         | <expr-jump>
          | <expr-export>
          | <expr-qual-name>
          | <type-struct>
@@ -44,6 +45,7 @@
 <expr-while>     ::= WHILE <expr> <do>
 <expr-labelled>  ::= IDENTIFIER ":" <expr>
 <expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
+<expr-jump>      ::= GOTO IDENTIFIER
 <expr-export>    ::= EXPORT <expr>
 <expr-qual-name> ::= <expr> "::" IDENTIFIER
 
@@ -79,4 +81,4 @@
 <type-prim>      ::= INTEGER_TYPE | INT
 <type-named>     ::= IDENTIFIER
 <type-qualified> ::= <type> { <type-qual> }
-<type-qual>      ::= "&"
+<type-qual>      ::= "&" | "^"

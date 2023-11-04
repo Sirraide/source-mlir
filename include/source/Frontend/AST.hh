@@ -75,6 +75,9 @@ public:
         DeferExpr,
         WhileExpr,
         ExportExpr,
+        LabelExpr,
+        GotoExpr,
+        EmptyExpr,
         LoopControlExpr,
 
         /// TypedExpr [begin]
@@ -325,6 +328,47 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::LoopControlExpr; }
+};
+
+class LabelExpr : public Expr {
+public:
+    /// The label of this expression.
+    std::string label;
+
+    /// The expression labelled by this label.
+    Expr* expr;
+
+    LabelExpr(ProcDecl* in_procedure, std::string label, Expr* expr, Location loc);
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::LabelExpr; }
+};
+
+class GotoExpr : public Expr {
+public:
+    /// The label to jump to.
+    std::string label;
+
+    /// The resolved labelled expression.
+    LabelExpr* target{};
+
+    GotoExpr(std::string label, Location loc)
+        : Expr(Kind::GotoExpr, loc),
+          label(std::move(label)) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::GotoExpr; }
+};
+
+class EmptyExpr : public Expr {
+public:
+    EmptyExpr(Location loc)
+        : Expr(Kind::EmptyExpr, loc) {
+        sema.set_done();
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::EmptyExpr; }
 };
 
 class ExportExpr : public Expr {
@@ -747,7 +791,7 @@ public:
     BlockExpr* body;
 
     /// Labels are global per procedure.
-    StringMap<Expr*> labels;
+    StringMap<LabelExpr*> labels;
 
     /// Captured variables.
     SmallVector<LocalDecl*> captured_locals;
@@ -775,8 +819,8 @@ public:
     /// \param label The label to register.
     /// \param expr The expression that the label points at.
     /// \return The expression, or an error.
-    auto add_label(std::string label, Expr* expr) -> Result<Expr*> {
-        if (labels.contains(label)) return Diag::Error(
+    auto add_label(std::string label, LabelExpr* expr) {
+        if (labels.contains(label)) Diag::Error(
             module->context,
             expr->location,
             "Label '{}' is already defined",
@@ -784,7 +828,6 @@ public:
         );
 
         labels[label] = expr;
-        return expr;
     }
 
     /// Whether this is a nested procedure.

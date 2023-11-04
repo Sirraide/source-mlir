@@ -103,6 +103,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Defer:
         case Tk::Export:
         case Tk::False:
+        case Tk::Goto:
         case Tk::Identifier:
         case Tk::If:
         case Tk::Int:
@@ -211,6 +212,9 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             lhs = ParseType();
             break;
 
+        case Tk::Semicolon:
+            return new (mod) EmptyExpr(curr_loc);
+
         /// Struct type or decl.
         ///
         /// Note that a named struct decl cannot be used directly as a type,
@@ -299,6 +303,13 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             lhs = new (mod) ReturnExpr(*value, {start, *value ? value->location : start});
         } break;
 
+        /// <expr-jump> ::= GOTO IDENTIFIER
+        case Tk::Goto: {
+            auto start = Next();
+            if (not At(Tk::Identifier)) return Error("Expected identifier");
+            lhs = new (mod) GotoExpr(tok.text, {start, Next()});
+        } break;
+
         /// <expr-defer> ::= DEFER <implicit-block>
         case Tk::Defer: {
             auto start = Next();
@@ -365,6 +376,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                         Tk::Continue,
                         Tk::Break,
                         Tk::For,
+                        Tk::Goto,
                         Tk::If,
                         Tk::Match,
                         Tk::Return,
@@ -563,15 +575,11 @@ auto src::Parser::ParseIdentExpr() -> Result<Expr*> {
 
     /// If the next token is `:`, then this is a label.
     if (Consume(Tk::Colon)) {
-        const auto DefineLabel = [this](Expr* e) {
-            return curr_func->add_label(cast<WhileExpr>(e)->label, e);
+        const auto Label = [&](Expr* e) {
+            return new (mod) LabelExpr(curr_func, std::move(text), e, start);
         };
 
-        /// Currently, we can only label loops.
-        if (not At(Tk::While)) return Error(start, "A label is not allowed here");
-
-        /// Parse the while loop and attach the label.
-        return ParseWhile(std::move(text)) >> DefineLabel;
+        return ParseExpr() >> Label;
     }
 
     /// Otherwise, this is a regular name.
@@ -855,7 +863,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 /// <type-prim>      ::= INTEGER_TYPE | INT
 /// <type-named>     ::= IDENTIFIER
 /// <type-qualified> ::= <type> { <type-qual> }
-/// <type-qual>      ::= "&"
+/// <type-qual>      ::= "&" | "^"
 auto src::Parser::ParseType() -> Result<Expr*> {
     /// Parse base type.
     Expr* base_type = nullptr;
@@ -900,12 +908,21 @@ auto src::Parser::ParseType() -> Result<Expr*> {
     }
 
     /// Parse qualifiers.
-    while (At(Tk::Ampersand)) {
-        base_type = new (mod) ReferenceType(base_type, {base_type->location, curr_loc});
-        Next();
-    }
+    for (;;) {
+        switch (tok.type) {
+            default: return base_type;
 
-    return base_type;
+            case Tk::Ampersand:
+                base_type = new (mod) ReferenceType(base_type, {base_type->location, curr_loc});
+                Next();
+                break;
+
+            case Tk::Caret:
+                base_type = new (mod) ScopedPointerType(base_type, {base_type->location, curr_loc});
+                Next();
+                break;
+        }
+    }
 }
 
 /// <expr-while> ::= WHILE <expr> [ DO ] <implicit-block>

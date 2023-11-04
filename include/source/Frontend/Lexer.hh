@@ -33,6 +33,7 @@ enum struct Tk {
     With,
     Try,
     Return,
+    Goto,
     Defer,
     Break,
     Continue,

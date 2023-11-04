@@ -34,7 +34,7 @@ class Sema {
     Scope* curr_scope{};
 
     /// Loops that we’re currently analysing.
-    SmallVector<Expr*, 10> loop_stack;
+    SmallVector<WhileExpr*, 10> loop_stack;
 
 public:
     /// Use Context::has_error to check for errors.

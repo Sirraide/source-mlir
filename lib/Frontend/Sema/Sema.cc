@@ -135,6 +135,10 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::ConstExpr:
             Unreachable();
 
+        /// Marked as type checked in the constructor.
+        case Expr::Kind::EmptyExpr:
+            Unreachable();
+
         /// Bools are of type bool.
         case Expr::Kind::BoolLiteralExpr:
             cast<BoolLitExpr>(e)->stored_type = BuiltinType::Bool(mod, e->location);
@@ -266,43 +270,28 @@ bool src::Sema::Analyse(Expr*& e) {
             if (pad != 0) CreatePaddingField(pad, s->all_fields.end());
         } break;
 
-        /// Deferred expression.
-        case Expr::Kind::DeferExpr: {
-            /// Defer expressions have nothing to typecheck really, so
-            /// we just check the operand and leave it at that. Even
-            /// nested `defer defer` expressions, albeit degenerate, are
-            /// accepted.
+        /// Defer expressions have nothing to typecheck really, so
+        /// we just check the operand and leave it at that. Even
+        /// nested `defer defer` expressions, albeit degenerate, are
+        /// accepted.
+        case Expr::Kind::DeferExpr:
             Analyse(cast<DeferExpr>(e)->expr);
-        } break;
+            break;
+
+        /// For labelled expressions, the labels’ uniqueness has already
+        /// been checked at parse time, so just check the labelled expr
+        /// here; note that a labelled expression always returns void so
+        /// as to disallow branching into the middle of a full-expression.
+        case Expr::Kind::LabelExpr:
+            Analyse(cast<LabelExpr>(e)->expr);
+            break;
 
         /// Loop control expressions.
         case Expr::Kind::LoopControlExpr: {
             auto l = cast<LoopControlExpr>(e);
 
-            /// Find the label if there is one.
-            if (not l->label.empty()) {
-                auto target = curr_proc->labels.find(l->label);
-                if (target == curr_proc->labels.end()) {
-                    Error(l->location, "Unknown label '{}'", l->label);
-                    break;
-                }
-
-                /// Set the target to the label and make sure we’re
-                /// actually inside that loop.
-                l->target = target->getValue();
-                for (auto loop : vws::reverse(loop_stack))
-                    if (cast<WhileExpr>(loop)->label == l->label)
-                        goto done;
-                Error(
-                    l->target,
-                    "Cannot {} to label '{}' from outside loop",
-                    l->is_continue ? "continue" : "break",
-                    l->label
-                );
-            }
-
-            /// Otherwise, the target is the parent.
-            else {
+            /// No label means branch to the parent.
+            if (l->label.empty()) {
                 /// No loop to break out of or continue.
                 if (loop_stack.empty()) {
                     Error(
@@ -310,12 +299,42 @@ bool src::Sema::Analyse(Expr*& e) {
                         "'{}' is invalid outside of loops",
                         l->is_continue ? "continue" : "break"
                     );
-                    break;
+                } else {
+                    l->target = loop_stack.back();
                 }
 
-                l->target = loop_stack.back();
+                break;
             }
+
+            /// Make sure the label exists.
+            auto target = curr_proc->labels.find(l->label);
+            if (target == curr_proc->labels.end()) {
+                Error(l->location, "Unknown label '{}'", l->label);
+                break;
+            }
+
+            /// Make sure the label labels a loop.
+            auto loop = dyn_cast<WhileExpr>(target->second->expr);
+            if (not loop) {
+                Error(l->location, "Label '{}' does not label a loop", l->label);
+                break;
+            }
+
+            /// Set the target to the label and make sure we’re
+            /// actually inside that loop.
+            l->target = loop;
+            if (not rgs::contains(loop_stack, l->label, &WhileExpr::label)) Error(
+                l->target,
+                "Cannot {} to label '{}' from outside loop",
+                l->is_continue ? "continue" : "break",
+                l->label
+            );
         } break;
+
+        /// Unconditional branch.
+        case Expr::Kind::GotoExpr: {
+            Todo();
+        }
 
         /// Return expressions.
         case Expr::Kind::ReturnExpr: {
@@ -1063,7 +1082,6 @@ bool src::Sema::Analyse(Expr*& e) {
         }
     }
 
-done:
     /// Can’t check for 'ok' as that may not be set yet.
     return not e->sema.errored;
 }

@@ -1,8 +1,8 @@
-proc a;
-proc b;
-proc q -> bool;
+proc a extern;
+proc b extern;
+proc q extern -> bool;
 
-var i = q();
+bool i = q();
 
 /// `x` is not declared here, so this code does
 /// not need to call its destructor.
@@ -21,7 +21,7 @@ if i return;
 /// Initialisation of x. Explicit initialisation is
 /// required for `x` since scoped pointers have no
 /// default initialiser.
-init: x => new int;
+first_init: x => new int;
 
 /// However, the int `d` is initialised implicitly.
 use: x = d; /// Use of x.
@@ -43,7 +43,7 @@ else {
         /// intervening use (this is a branch into
         /// a region not *strictly* dominated by an
         /// init block)
-        goto init;
+        goto first_init;
     }
 
     if i {
@@ -64,7 +64,7 @@ if i return;
 
 /// More blocks.
 if i then a();
-else foo: /// Jump to here has to destroy `x`.
+else foo:; /// Jump to here has to destroy `x`.
 
 /// Destructor has already been called. No need to
 /// do that here (implicit return).

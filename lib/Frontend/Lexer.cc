@@ -38,6 +38,7 @@ const StringMap<Tk> keywords = {
     {"with", Tk::With},
     {"try", Tk::Try},
     {"return", Tk::Return},
+    {"goto", Tk::Goto},
     {"defer", Tk::Defer},
     {"break", Tk::Break},
     {"continue", Tk::Continue},
@@ -956,6 +957,7 @@ auto src::Spelling(Tk t) -> std::string_view {
         case Tk::With: return "with";
         case Tk::Try: return "try";
         case Tk::Return: return "return";
+        case Tk::Goto: return "goto";
         case Tk::Defer: return "defer";
         case Tk::Break: return "break";
         case Tk::Continue: return "continue";
@@ -1086,6 +1088,7 @@ bool src::operator==(const Token& a, const Token& b) {
         case Tk::With:
         case Tk::Try:
         case Tk::Return:
+        case Tk::Goto:
         case Tk::Defer:
         case Tk::Break:
         case Tk::Continue:
