@@ -59,10 +59,16 @@ src::LocalRefExpr::LocalRefExpr(ProcDecl* parent, LocalDecl* decl, Location loc)
     is_lvalue = true;
 }
 
-src::LabelExpr::LabelExpr(ProcDecl* in_procedure, std::string label, Expr* expr, Location loc)
-    : Expr(Kind::LabelExpr, loc),
-      label(std::move(label)),
-      expr(expr) {
+src::LabelExpr::LabelExpr(
+    ProcDecl* in_procedure,
+    std::string label,
+    Scope* parent,
+    Expr* expr,
+    Location loc
+) : Expr(Kind::LabelExpr, loc),
+    label(std::move(label)),
+    parent(parent),
+    expr(expr) {
     in_procedure->add_label(this->label, this);
 }
 

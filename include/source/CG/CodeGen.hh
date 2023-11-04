@@ -10,6 +10,7 @@ class WhileExpr;
 class BinaryExpr;
 class LocalDecl;
 class LabelExpr;
+class BlockExpr;
 
 class CodeGen {
     Module* const mod;
@@ -45,7 +46,8 @@ class CodeGen {
         /// Stack of stacklets for an entire scope.
         struct Stack {
             SmallVector<Stacklet> stacklets{1};
-            WhileExpr* scope_tag{};
+            Scope* scope;
+            Stack(Scope* sc) : scope(sc) {}
         };
 
         /// Codegen context.
@@ -74,7 +76,7 @@ class CodeGen {
             mlir::Location location;
 
         public:
-            BlockGuard(DeferInfo& DI, mlir::Location loc);
+            BlockGuard(DeferInfo& DI, Scope* sc, mlir::Location loc);
             ~BlockGuard();
         };
 
@@ -100,7 +102,7 @@ class CodeGen {
         void AddLocal(mlir::Value val);
 
         /// Emit all defer stacks up to a labelled expression.
-        void EmitDeferStacksUpTo(Expr* stop_at);
+        void EmitDeferStacksUpTo(Scope* scope, LabelExpr* stacklet);
 
         /// Emit all defer stacks for a return expression.
         void Return(bool last_instruction_in_function);
@@ -123,7 +125,7 @@ class CodeGen {
         void Emit(Stacklet& s);
 
         /// Iterate over all defer stacks, in reverse.
-        auto Iterate(Expr* stop_at);
+        auto Iterate(Scope* stop_at);
     };
 
     /// Defer stack.

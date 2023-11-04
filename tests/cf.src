@@ -120,19 +120,31 @@ while t {
                 int w;
                 defer i();
 
+                /// Simple forward goto.
+                /// + (?<Tg2>$t) = hlir.load i1 from $T
+                /// + cf.cond_br $Tg2, (?<THENg2>$b), (?<ELSEg2>$b)
+                /// + $THENg2:
+                /// + cf.br (?<LABEL3>$b)
+                if t then goto forward;
+                /// + $ELSEg2:
+
                 /// This one is a bit more painful; we jump back across a
                 /// deferred expression, which means we need to emit it when
                 /// we branch.
                 /// 3 executes i()
                 /// 4 executes h()
-                /// + (?<Tg2>$t) = hlir.load i1 from $T
-                /// + cf.cond_br $Tg2, (?<THENg2>$b), (?<ELSEg2>$b)
-                /// + $THENg2:
+                /// + (?<Tg3>$t) = hlir.load i1 from $T
+                /// + cf.cond_br $Tg3, (?<THENg3>$b), (?<ELSEg3>$b)
+                /// + $THENg3:
                 /// + call @__src_defer_proc_3($T, $Q, $W)
                 /// + call @__src_defer_proc_4($T, $Q)
                 /// + cf.br $LABEL2
                 if t then goto one_scope_up;
-                /// + $ELSEg2:
+
+                /// + $ELSEg3:
+                /// + cf.br $LABEL3
+                /// + $LABEL3:
+                forward:
 
                 /// 3 executes i()
                 /// 4 executes h()

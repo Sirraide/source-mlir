@@ -839,7 +839,9 @@ bool src::Sema::Analyse(Expr*& e) {
             /// itself can never fail.
             loop_stack.push_back(w);
             defer { loop_stack.pop_back(); };
-            Analyse(w->body);
+            Expr* b = w->body;
+            Analyse(b);
+            Assert(b == w->body, "Body of while expression must be a block");
         } break;
 
         /// Export.

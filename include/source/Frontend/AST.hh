@@ -13,6 +13,7 @@ class FunctionDecl;
 class LocalDecl;
 class StructType;
 class ProcType;
+class BlockExpr;
 
 namespace detail {
 extern Expr* const UnknownType;
@@ -302,13 +303,13 @@ public:
     Expr* cond;
 
     /// The body of this while loop.
-    Expr* body;
+    BlockExpr* body;
 
     /// For the backend.
     mlir::Block* cond_block{};
     mlir::Block* join_block{};
 
-    WhileExpr(Expr* cond, Expr* body, Location loc)
+    WhileExpr(Expr* cond, BlockExpr* body, Location loc)
         : Expr(Kind::WhileExpr, loc),
           cond(cond),
           body(body) {}
@@ -344,6 +345,9 @@ public:
     /// The label of this expression.
     std::string label;
 
+    /// Parent scope. This is required for forward gotos.
+    Scope* parent;
+
     /// The expression labelled by this label.
     Expr* expr;
 
@@ -353,7 +357,13 @@ public:
     /// Whether this label is ever branched to.
     bool used = false;
 
-    LabelExpr(ProcDecl* in_procedure, std::string label, Expr* expr, Location loc);
+    LabelExpr(
+        ProcDecl* in_procedure,
+        std::string label,
+        Scope* parent,
+        Expr* expr,
+        Location loc
+    );
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::LabelExpr; }

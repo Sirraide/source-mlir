@@ -353,10 +353,10 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
 /// ===========================================================================
 ///  Defer Handling.
 /// ===========================================================================
-auto src::CodeGen::DeferInfo::Iterate(src::Expr* stop_at) {
+auto src::CodeGen::DeferInfo::Iterate(Scope* stop_at) {
     class Iterator {
         DeferInfo& DI;
-        Expr* stop_at = nullptr;
+        Scope* stop_at = nullptr;
 
         /// Index to avoid iterator invalidation.
         usz it;
@@ -365,7 +365,7 @@ auto src::CodeGen::DeferInfo::Iterate(src::Expr* stop_at) {
         enum : usz { end = std::numeric_limits<usz>::max() };
 
     public:
-        Iterator(DeferInfo& DI, Expr* stop_at)
+        Iterator(DeferInfo& DI, Scope* stop_at)
             : DI(DI),
               stop_at(stop_at),
               it(DI.stacks.size() - 1) {
@@ -380,7 +380,7 @@ auto src::CodeGen::DeferInfo::Iterate(src::Expr* stop_at) {
             Assert(it != end, "Defer stack underflow");
 
             /// Stop iterating if we’ve reached the stack we should stop at.
-            if (operator*().scope_tag and operator*().scope_tag == stop_at) {
+            if (operator*().scope and operator*().scope == stop_at) {
                 it = end;
                 return *this;
             }
@@ -395,7 +395,7 @@ auto src::CodeGen::DeferInfo::Iterate(src::Expr* stop_at) {
 
     struct IteratorRange {
         DeferInfo& DI;
-        Expr* stop_at;
+        Scope* stop_at;
         decltype(auto) begin() { return Iterator{DI, stop_at}; }
         decltype(auto) end() { return std::default_sentinel; }
     };
@@ -417,13 +417,26 @@ void src::CodeGen::DeferInfo::AddLocal(mlir::Value val) {
     vars.push_back(val);
 }
 
-void src::CodeGen::DeferInfo::EmitDeferStacksUpTo(Expr* stop_at) {
-    for (auto& scope_stack : Iterate(stop_at)) {
-        if (Emit(scope_stack, true, stop_at)) return;
+void src::CodeGen::DeferInfo::EmitDeferStacksUpTo(Scope* scope, LabelExpr* stacklet) {
+    for (auto& s : Iterate(scope)) {
+        /// If this is the scope that we should stop at, and there is
+        /// a stacklet we are looking for, but that stacklet does not
+        /// exist in this scope, then that means this is a forward goto,
+        /// and the corresponding stacklet has not been emitted yet; do
+        /// not emit any stacklets.
+        const bool stop = s.scope and scope and s.scope == scope;
+        if (stop and stacklet and not rgs::contains(s.stacklets, stacklet, &Stacklet::label)) return;
+
+        /// Stop if the target stacklet is in this scope.
+        if (Emit(s, true, stacklet)) return;
 
         /// Stop after the scope if this is the scope we’re looking for.
-        if (scope_stack.scope_tag and stop_at and scope_stack.scope_tag == stop_at) return;
+        if (stop) return;
     }
+
+    /// If we didn’t find the expression we wanted to stop at, then
+    /// that is an error.
+    Assert(not scope, "Entry not found in defer stack");
 }
 
 void src::CodeGen::DeferInfo::CallCleanupFunc(mlir::func::FuncOp func) {
@@ -470,11 +483,11 @@ void src::CodeGen::DeferInfo::Return(bool last_instruction_in_function) {
     }
 }
 
-src::CodeGen::DeferInfo::BlockGuard::BlockGuard(DeferInfo& DI, mlir::Location loc)
+src::CodeGen::DeferInfo::BlockGuard::BlockGuard(DeferInfo& DI, Scope* sc, mlir::Location loc)
     : DI(DI),
       vars_count(DI.vars.size()),
       location(loc) {
-    DI.stacks.emplace_back();
+    DI.stacks.emplace_back(sc);
 }
 
 src::CodeGen::DeferInfo::BlockGuard::~BlockGuard() {
@@ -489,11 +502,11 @@ src::CodeGen::DeferInfo::BlockGuard::~BlockGuard() {
 }
 
 src::CodeGen::DeferInfo::LoopGuard::LoopGuard(DeferInfo& DI, WhileExpr* loop) : DI(DI) {
-    DI.stacks.push_back({.scope_tag = loop});
+    DI.stacks.emplace_back(loop->body->scope);
 }
 
 src::CodeGen::DeferInfo::LoopGuard::~LoopGuard() {
-    Assert(DI.stacks.back().scope_tag, "Defer stack corrupted");
+    Assert(DI.stacks.back().scope, "Defer stack corrupted");
     DI.stacks.pop_back();
 }
 
@@ -853,7 +866,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// or continuing.
             auto l = cast<LoopControlExpr>(expr);
             const auto loc = expr->location.mlir(ctx);
-            DI.EmitDeferStacksUpTo(l->target);
+            DI.EmitDeferStacksUpTo(l->target->body->scope, nullptr);
 
             /// Emit the branch.
             Create<mlir::cf::BranchOp>(
@@ -865,7 +878,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::GotoExpr: {
             /// Emit material deferred after the label we’re branching to.
             auto g = cast<GotoExpr>(expr);
-            DI.EmitDeferStacksUpTo(g->target);
+            DI.EmitDeferStacksUpTo(g->target->parent, g->target);
             Create<mlir::cf::BranchOp>(
                 g->location.mlir(ctx),
                 g->target->block
@@ -927,7 +940,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::BlockExpr: {
-            DeferInfo::BlockGuard guard{DI, expr->location.mlir(ctx)};
+            auto e = cast<BlockExpr>(expr);
+            DeferInfo::BlockGuard guard{DI, e->scope, expr->location.mlir(ctx)};
 
             /// Add all function parameters if this is a function body.
             if (curr_proc->body == expr)
@@ -935,7 +949,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     DI.AddLocal(param->mlir);
 
             /// Emit the block expression.
-            auto e = cast<BlockExpr>(expr);
             for (auto s : e->exprs) Generate(s);
             if (not e->exprs.empty()) e->mlir = e->exprs.back()->mlir;
         } break;

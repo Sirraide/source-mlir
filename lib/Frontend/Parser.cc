@@ -576,7 +576,7 @@ auto src::Parser::ParseIdentExpr() -> Result<Expr*> {
     /// If the next token is `:`, then this is a label.
     if (Consume(Tk::Colon)) {
         const auto Label = [&](Expr* e) {
-            return new (mod) LabelExpr(curr_func, std::move(text), e, start);
+            return new (mod) LabelExpr(curr_func, std::move(text), curr_scope, e, start);
         };
 
         return ParseExpr() >> Label;
@@ -932,7 +932,7 @@ auto src::Parser::ParseWhile() -> Result<Expr*> {
 
     /// Parse condition and body.
     auto cond = ParseExpr();
-    auto body = Result<Expr*>::Null();
+    auto body = Result<BlockExpr*>::Null();
     if (IsError(cond)) return Diag();
     Consume(Tk::Do);
     body = ParseImplicitBlock();
