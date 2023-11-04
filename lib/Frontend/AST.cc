@@ -1037,12 +1037,20 @@ struct ASTPrinter {
 
             case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
-            case K::DeferExpr: PrintBasicNode("DeferExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
             case K::ConstExpr: PrintBasicNode("ConstExpr", e, e->type); return;
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, e->type); return;
+
+            case K::DeferExpr: {
+                auto d = cast<DeferExpr>(e);
+                PrintBasicHeader("DeferExpr", e);
+                if (d->contains_deferred_material)
+                    out += fmt::format(" {}complex", C(Yellow));
+                out += "\n";
+                return;
+            }
 
             case K::UnaryPrefixExpr: {
                 auto u = cast<UnaryPrefixExpr>(e);

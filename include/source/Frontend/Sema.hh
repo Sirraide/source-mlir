@@ -36,6 +36,9 @@ class Sema {
     /// Loops that we’re currently analysing.
     SmallVector<WhileExpr*, 10> loop_stack;
 
+    /// The defer expression whose contents we are currently analysing.
+    DeferExpr* curr_defer{};
+
 public:
     /// Use Context::has_error to check for errors.
     static void Analyse(Module* mod) {

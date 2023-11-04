@@ -274,9 +274,11 @@ bool src::Sema::Analyse(Expr*& e) {
         /// we just check the operand and leave it at that. Even
         /// nested `defer defer` expressions, albeit degenerate, are
         /// accepted.
-        case Expr::Kind::DeferExpr:
-            Analyse(cast<DeferExpr>(e)->expr);
-            break;
+        case Expr::Kind::DeferExpr: {
+            if (curr_defer) curr_defer->contains_deferred_material = true;
+            tempset curr_defer = cast<DeferExpr>(e);
+            Analyse(curr_defer->expr);
+        } break;
 
         /// For labelled expressions, the labels’ uniqueness has already
         /// been checked at parse time, so just check the labelled expr

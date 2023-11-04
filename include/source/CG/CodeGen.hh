@@ -19,51 +19,48 @@ class CodeGen {
     bool no_verify;
     usz anon_structs = 0;
 
-    /// Everything related to defer goes here.
+    /// \brief Subsystem for managing deferred material and destructors.
+    ///
+    /// This ‘defer stack’ is actual not a single stack, but rather
+    /// a *stack of stacks of stacks*: at the top-level, a stack holds
+    /// entries for each scope in a function. This outermost stack
+    /// is ‘the defer stack’.
+    ///
+    /// Each scope is further divided into regions, delineated by
+    /// labels that are branched to by `goto`s, each of which is
+    /// associated with a ‘stacklet’ that holds deferred material
+    /// for that region. The former stacks are called ‘scope stacks’.
+    ///
+    /// Below, ‘the procedure proper’ refers to the parts of a proc
+    /// that are not part of a deferred expression.
     class DeferInfo {
-        /// Loop marker.
-        struct Loop {
-            WhileExpr* loop;
+        /// Stacklet for a region that holds deferred material.
+        struct Stacklet {
+            LabelExpr* label{};
+            SmallVector<Expr*> deferred_material{};
+            mlir::func::FuncOp compacted{};
+            usz vars_count{};
         };
 
-        /// Label marker.
-        struct Label {
-            LabelExpr* label;
-        };
-
-        /// Deferred expression + number of variables
-        /// that were in scope when the expression was
-        /// added.
-        struct DeferredMaterial {
-            Expr* expr;
-            usz vars_count;
-        };
-
-        /// Defer stack associated with a scope.
-        using Entry = std::variant<DeferredMaterial, Label, mlir::func::FuncOp>;
+        /// Stack of stacklets for an entire scope.
         struct Stack {
-            SmallVector<Entry, 10> entries;
-
-            void add(Entry e) { entries.push_back(e); }
-            void add(LabelExpr* l) { entries.push_back(Label{l}); }
-            void compact(DeferInfo& DI, Expr* stop_at);
-            bool emit(DeferInfo& DI, Expr* stop_at);
+            SmallVector<Stacklet> stacklets{1};
+            WhileExpr* scope_tag{};
         };
 
         /// Codegen context.
         CodeGen& CG;
 
-        /// Stack of defer stacks.
-        SmallVector<std::variant<Stack, Loop>, 10> stacks;
-
-        /// Local variables that are currently in scope.
-        SmallVector<mlir::Value> vars;
+        /// Stack of defer stacks for an entire function. This
+        /// is a deque because we may end up creating new defer
+        /// stacks while we’re emitting content stored in others.
+        std::deque<Stack> stacks;
 
         /// Counter for emitting procedures.
         usz defer_procs{};
 
-        /// Sanity check to check for iterator invalidation.
-        bool may_compact = false;
+        /// Variables that have been emitted so far.
+        SmallVector<mlir::Value> vars;
 
     public:
         /// RAII guard for entering a new block.
@@ -112,23 +109,30 @@ class CodeGen {
         /// Call a function that executes deferred expressions.
         void CallCleanupFunc(mlir::func::FuncOp func);
 
+        /// Compact a stacklet to allow executing it multiple times.
+        void Compact(Stacklet& s);
+
         /// Get the current defer stack.
         auto CurrentStack() -> Stack&;
 
-        /// Iterate over the defer stacks in reverse.
-        ///
-        /// \param stop_at If this is not nullptr, iteration will
-        ///     stop once the given expression is reached in
-        ///     the stack.
-        /// \param may_compact Whether to allow Stack::compact() calls
-        ///     in the loop. This requires an extra stack that is created
-        ///     by Iterate() if this flag is true.
-        /// \return An iterator range that can be used to iterate over
-        ///     the defer stacks.
-        auto Iterate(Expr* stop_at, bool may_compact);
+        /// Emit the contents of a stack.
+        void Emit(Stack& s, bool compact, Expr* stop_at);
+
+        /// Emit the contents of a stacklet.
+        void Emit(Stacklet& s);
+
+        /// Iterate over all defer stacks, in reverse.
+        auto Iterate(Expr* stop_at);
     };
 
+    /// Defer stack.
+    ///
+    /// We only need one because nested defer blocks will simply
+    /// continue using this one because a defer block is always a
+    /// nested scope.
     DeferInfo DI{*this};
+
+    /// Procedure we’re currently emitting.
     ProcDecl* curr_proc{};
 
     CodeGen(Module* mod, bool no_verify)
