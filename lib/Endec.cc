@@ -97,6 +97,7 @@ auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
         case Expr::Kind::EmptyExpr:
         case Expr::Kind::BlockExpr:
         case Expr::Kind::InvokeExpr:
+        case Expr::Kind::InvokeBuiltinExpr:
         case Expr::Kind::ConstExpr:
         case Expr::Kind::CastExpr:
         case Expr::Kind::MemberAccessExpr:

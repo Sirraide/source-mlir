@@ -94,6 +94,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::EmptyExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
+        case Kind::InvokeBuiltinExpr:
         case Kind::ConstExpr:
         case Kind::CastExpr:
         case Kind::MemberAccessExpr:
@@ -165,6 +166,7 @@ auto src::Expr::_type() -> TypeHandle {
         /// Typed exprs.
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
+        case Kind::InvokeBuiltinExpr:
         case Kind::ConstExpr:
         case Kind::MemberAccessExpr:
         case Kind::ScopeAccessExpr:
@@ -286,6 +288,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::WhileExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
+        case Kind::InvokeBuiltinExpr:
         case Kind::CastExpr:
         case Kind::MemberAccessExpr:
         case Kind::ScopeAccessExpr:
@@ -410,6 +413,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::WhileExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
+        case Kind::InvokeBuiltinExpr:
         case Kind::CastExpr:
         case Kind::MemberAccessExpr:
         case Kind::ScopeAccessExpr:
@@ -554,6 +558,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         /// Typed exprs.
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
+        case Kind::InvokeBuiltinExpr:
         case Kind::ConstExpr:
         case Kind::MemberAccessExpr:
         case Kind::ScopeAccessExpr:
@@ -673,6 +678,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::WhileExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
+        case Kind::InvokeBuiltinExpr:
         case Kind::MemberAccessExpr:
         case Kind::ScopeAccessExpr:
         case Kind::DeclRefExpr:
@@ -935,6 +941,31 @@ struct ASTPrinter {
                 return;
 
             case K::InvokeExpr: PrintBasicNode("InvokeExpr", e, e->type); return;
+
+            case K::InvokeBuiltinExpr: {
+                static const auto String = [](Builtin b) -> std::string_view {
+                    switch (b) {
+                        case Builtin::New: return "new";
+                        case Builtin::Delete: return "delete";
+                    }
+
+                    Unreachable();
+                };
+
+                auto i = cast<InvokeBuiltinExpr>(e);
+                PrintBasicHeader("InvokeBuiltinExpr", e);
+                out += fmt::format(
+                    " {}{} {}{}{}\n",
+                    C(Green),
+                    String(i->builtin),
+                    i->type.str(use_colour),
+                    C(Blue),
+                    i->is_lvalue ? " lvalue" : ""
+                );
+
+                return;
+            }
+
             case K::MemberAccessExpr: {
                 auto m = cast<MemberAccessExpr>(e);
                 PrintBasicHeader("MemberAccessExpr", e);
@@ -998,21 +1029,7 @@ struct ASTPrinter {
                 return;
             }
 
-            case K::WhileExpr: {
-                auto w = cast<WhileExpr>(e);
-                PrintBasicHeader("WhileExpr", e);
-                if (not w->label.empty()) {
-                    out += fmt::format(
-                        " {}{}\n",
-                        C(Yellow),
-                        w->label
-                    );
-                } else {
-                    out += '\n';
-                }
-                return;
-            }
-
+            case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
             case K::DeferExpr: PrintBasicNode("DeferExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
@@ -1187,6 +1204,11 @@ struct ASTPrinter {
             case K::LocalDecl: {
                 auto v = cast<LocalDecl>(e);
                 if (v->init) PrintChildren(v->init, leading_text);
+            } break;
+
+            case K::InvokeBuiltinExpr: {
+                auto c = cast<InvokeBuiltinExpr>(e);
+                PrintChildren(c->args, leading_text);
             } break;
 
             case K::MemberAccessExpr: {

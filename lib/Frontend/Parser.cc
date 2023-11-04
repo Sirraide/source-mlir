@@ -926,7 +926,7 @@ auto src::Parser::ParseType() -> Result<Expr*> {
 }
 
 /// <expr-while> ::= WHILE <expr> [ DO ] <implicit-block>
-auto src::Parser::ParseWhile(std::string label) -> Result<Expr*> {
+auto src::Parser::ParseWhile() -> Result<Expr*> {
     auto start = curr_loc;
     Assert(Consume(Tk::While));
 
@@ -939,5 +939,5 @@ auto src::Parser::ParseWhile(std::string label) -> Result<Expr*> {
 
     /// Create the expression.
     if (IsError(body)) return body;
-    return new (mod) WhileExpr(*cond, *body, std::move(label), {start, curr_loc});
+    return new (mod) WhileExpr(*cond, *body, {start, curr_loc});
 }

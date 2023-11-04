@@ -164,7 +164,7 @@ private:
     auto ParseSignature() -> Signature;
     auto ParseStruct() -> Result<StructType*>;
     auto ParseType() -> Result<Expr*>;
-    auto ParseWhile(std::string label = "") -> Result<Expr*>;
+    auto ParseWhile() -> Result<Expr*>;
 
     /// Synchronise in case of errors.
     void Synchronise(Tk token = Tk::Semicolon, std::same_as<Tk> auto... tks) {

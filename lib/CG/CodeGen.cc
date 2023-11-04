@@ -323,6 +323,7 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
         case Expr::Kind::DeferExpr:
         case Expr::Kind::BlockExpr:
         case Expr::Kind::InvokeExpr:
+        case Expr::Kind::InvokeBuiltinExpr:
         case Expr::Kind::MemberAccessExpr:
         case Expr::Kind::ScopeAccessExpr:
         case Expr::Kind::DeclRefExpr:
@@ -669,6 +670,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 if (e->type.yields_value) e->mlir = call_op.getResult(0);
             }
         } break;
+
+        case Expr::Kind::InvokeBuiltinExpr: {
+            Todo();
+        }
 
         case Expr::Kind::DeclRefExpr: {
             auto e = cast<DeclRefExpr>(expr);

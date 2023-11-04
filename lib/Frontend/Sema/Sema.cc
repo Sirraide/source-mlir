@@ -323,7 +323,7 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Set the target to the label and make sure we’re
             /// actually inside that loop.
             l->target = loop;
-            if (not rgs::contains(loop_stack, l->label, &WhileExpr::label)) Error(
+            if (not rgs::contains(loop_stack, loop)) Error(
                 l->target,
                 "Cannot {} to label '{}' from outside loop",
                 l->is_continue ? "continue" : "break",
@@ -436,8 +436,38 @@ bool src::Sema::Analyse(Expr*& e) {
         /// An invoke expression may be a procedure call, or a declaration.
         case Expr::Kind::InvokeExpr: {
             /// Analyse the callee first.
+            ///
+            /// If it is a DeclRefExpr, we recognise builtins here,
+            /// so the decl ref being undefined is not an error.
             auto invoke = cast<InvokeExpr>(e);
-            if (not Analyse(invoke->callee)) return e->sema.set_errored();
+            if (isa<DeclRefExpr>(invoke->callee)) {
+                AnalyseDeclRefExpr<true>(invoke->callee);
+
+                /// Check for builtins.
+                if (auto d = dyn_cast<DeclRefExpr>(invoke->callee); d and not d->decl) {
+                    auto b = llvm::StringSwitch<std::optional<Builtin>>(d->name) // clang-format off
+                        .Case("new", Builtin::New)
+                        .Case("delete", Builtin::Delete)
+                        .Default(std::nullopt);
+
+                    /// Found a builtin.
+                    if (b.has_value()) {
+                        e = new (mod) InvokeBuiltinExpr(
+                            *b,
+                            std::move(invoke->args),
+                            invoke->location
+                        );
+                        return Analyse(e);
+                    }
+
+                    /// Unknown symbol.
+                    Error(invoke->callee, "Unknown symbol '{}'", d->name);
+                    return e->sema.set_errored();
+                } // clang-format on
+            }
+
+            /// Otherwise, the callee must be a valid symbol.
+            else if (not Analyse(invoke->callee)) { return e->sema.set_errored(); }
 
             /// If the callee is of function type, and not a type itself,
             /// then this is a function call.
@@ -531,6 +561,9 @@ bool src::Sema::Analyse(Expr*& e) {
                 Error(invoke->callee, "Expected procedure or type");
             }
         } break;
+
+        /// Builtins are handled out of line.
+        case Expr::Kind::InvokeBuiltinExpr: return AnalyseInvokeBuiltin(e);
 
         /// Cast expression.
         case Expr::Kind::CastExpr: {
@@ -660,57 +693,9 @@ bool src::Sema::Analyse(Expr*& e) {
         }
 
         /// Perform name lookup in scope.
-        case Expr::Kind::DeclRefExpr: {
-            auto* d = cast<DeclRefExpr>(e);
-            d->scope->visit(d->name, false, [&](auto&& decls) {
-                Assert(not decls.empty(), "Ill-formed symbol table entry");
-
-                /// If there are multiple declarations, take the last.
-                Analyse(decls.back());
-                d->decl = decls.back();
-                return utils::StopIteration;
-            });
-
-            /// Check if this is a module name.
-            if (not d->decl) {
-                auto m = rgs::find(mod->imports, d->name, &ImportedModuleRef::logical_name);
-                if (m != mod->imports.end()) {
-                    e = new (mod) ModuleRefExpr(m->mod, d->location);
-                    return true;
-                }
-
-                /// Lastly, check if this is our name.
-                if (mod->is_logical_module and d->name == mod->name) {
-                    e = new (mod) ModuleRefExpr(mod, d->location);
-                    return true;
-                }
-            }
-
-            /// If we didn’t find anything, then this is an error.
-            if (not d->decl) return Error(e, "Unknown symbol '{}'", d->name);
-
-            /// The type of this is the type of the referenced expression.
-            if (d->decl->sema.errored) return d->sema.set_errored();
-
-            /// If this is a type, replace it w/ a sugared type.
-            if (isa<Type>(d->decl)) {
-                e->sema.unset(); /// Other instances of this will have to be replaced w/ this again.
-                e = new (mod) SugaredType(d->name, d->decl, d->location);
-            }
-
-            /// If it is a variable declaration, replace it w/ a variable reference.
-            else if (isa<LocalDecl>(d->decl)) {
-                e->sema.unset(); /// Other instances of this will have to be replaced w/ this again.
-                e = new (mod) LocalRefExpr(curr_proc, cast<LocalDecl>(d->decl), d->location);
-                return Analyse(e);
-            }
-
-            /// Otherwise, this stays as a DeclRefExpr.
-            else {
-                d->stored_type = d->decl->type;
-                d->is_lvalue = false;
-            }
-        } break;
+        case Expr::Kind::DeclRefExpr:
+            AnalyseDeclRefExpr<false>(e);
+            break;
 
         /// Determine the static chain offset from a variable reference to
         /// its declaration. Type and lvalueness is already set by the ctor.
@@ -1092,6 +1077,65 @@ bool src::Sema::AnalyseAsType(Expr*& e) {
     return e->sema.ok;
 }
 
+template <bool allow_undefined>
+bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
+    auto d = cast<DeclRefExpr>(e);
+    d->scope->visit(d->name, false, [&](auto&& decls) {
+        Assert(not decls.empty(), "Ill-formed symbol table entry");
+
+        /// If there are multiple declarations, take the last.
+        Analyse(decls.back());
+        d->decl = decls.back();
+        return utils::StopIteration;
+    });
+
+    /// If we couldn’t find a definition, check if this is a module name.
+    if (not d->decl) {
+        /// Check if this is an imported module.
+        auto m = rgs::find(mod->imports, d->name, &ImportedModuleRef::logical_name);
+        if (m != mod->imports.end()) {
+            e = new (mod) ModuleRefExpr(m->mod, d->location);
+            return true;
+        }
+
+        /// Check if this is this module.
+        if (mod->is_logical_module and d->name == mod->name) {
+            e = new (mod) ModuleRefExpr(mod, d->location);
+            return true;
+        }
+    }
+
+    /// Not defined.
+    if (not d->decl) {
+        if constexpr (allow_undefined) return true;
+        else return Error(e, "Unknown symbol '{}'", d->name);
+    }
+
+    /// The type of this is the type of the referenced expression.
+    if (d->decl->sema.errored) return d->sema.set_errored();
+
+    /// If this is a type, replace it w/ a sugared type.
+    if (isa<Type>(d->decl)) {
+        e->sema.unset(); /// Other instances of this will have to be replaced w/ this again.
+        e = new (mod) SugaredType(d->name, d->decl, d->location);
+    }
+
+    /// If it is a variable declaration, replace it w/ a variable reference.
+    else if (isa<LocalDecl>(d->decl)) {
+        e->sema.unset(); /// Other instances of this will have to be replaced w/ this again.
+        e = new (mod) LocalRefExpr(curr_proc, cast<LocalDecl>(d->decl), d->location);
+        return Analyse(e);
+    }
+
+    /// Otherwise, this stays as a DeclRefExpr.
+    else {
+        d->stored_type = d->decl->type;
+        d->is_lvalue = false;
+    }
+
+    return true;
+}
+
 void src::Sema::AnalyseExplicitCast(Expr*& e, [[maybe_unused]] bool is_hard) {
     auto c = cast<CastExpr>(e);
 
@@ -1124,7 +1168,59 @@ void src::Sema::AnalyseExplicitCast(Expr*& e, [[maybe_unused]] bool is_hard) {
     );
 }
 
-void src::Sema::AnalyseProcedure(src::ProcDecl* proc) {
+bool src::Sema::AnalyseInvokeBuiltin(Expr*& e) {
+    auto invoke = cast<InvokeBuiltinExpr>(e);
+    switch (invoke->builtin) {
+        /// Allocate a scoped pointer.
+        case Builtin::New: {
+            /// New takes one operand.
+            if (invoke->args.size() != 1) return Error(
+                e,
+                "Expected 1 argument, but got {}",
+                invoke->args.size()
+            );
+
+            /// Operand must be a type.
+            if (not AnalyseAsType(invoke->args[0])) return e->sema.set_errored();
+
+            /// Type is a scoped pointer to the allocated type.
+            invoke->stored_type = new (mod) ScopedPointerType(
+                invoke->args[0],
+                invoke->location
+            );
+
+            return true;
+        }
+
+        /// Call a destructor.
+        case Builtin::Delete: {
+            /// Delete takes one operand.
+            if (invoke->args.size() != 1) return Error(
+                e,
+                "Expected 1 argument, but got {}",
+                invoke->args.size()
+            );
+
+            if (not Analyse(invoke->args[0])) return e->sema.set_errored();
+
+            /// Currently, only scoped pointers can be deleted.
+            if (not isa<ScopedPointerType>(invoke->args[0]->type.strip_refs)) Diag::Warning(
+                mod->context,
+                invoke->location,
+                "Deleting a '{}' has no effect",
+                invoke->args[0]->type.str(true)
+            );
+
+            /// Delete returns nothing.
+            invoke->stored_type = Type::Void;
+            return true;
+        }
+    }
+
+    Unreachable();
+}
+
+void src::Sema::AnalyseProcedure(ProcDecl* proc) {
     tempset curr_proc = proc;
 
     /// Validate the function type.

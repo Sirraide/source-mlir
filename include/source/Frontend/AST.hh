@@ -48,6 +48,11 @@ enum struct Mangling {
     Source, ///< Use Source mangling.
 };
 
+enum struct Builtin {
+    Delete,
+    New,
+};
+
 /// ===========================================================================
 ///  Special Expressions
 /// ===========================================================================
@@ -83,6 +88,7 @@ public:
         /// TypedExpr [begin]
         BlockExpr,
         InvokeExpr,
+        InvokeBuiltinExpr,
         ConstExpr,
         CastExpr,
         MemberAccessExpr,
@@ -291,18 +297,14 @@ public:
     /// The body of this while loop.
     Expr* body;
 
-    /// Optional label.
-    std::string label;
-
     /// For the backend.
     mlir::Block* cond_block{};
     mlir::Block* join_block{};
 
-    WhileExpr(Expr* cond, Expr* body, std::string label, Location loc)
+    WhileExpr(Expr* cond, Expr* body, Location loc)
         : Expr(Kind::WhileExpr, loc),
           cond(cond),
-          body(body),
-          label(std::move(label)) {}
+          body(body) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::WhileExpr; }
@@ -483,6 +485,23 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::InvokeExpr; }
+};
+
+class InvokeBuiltinExpr : public TypedExpr {
+public:
+    /// The arguments to the builtin.
+    SmallVector<Expr*> args;
+
+    /// The builtin being invoked.
+    Builtin builtin;
+
+    InvokeBuiltinExpr(Builtin builtin, SmallVector<Expr*> args, Location loc)
+        : TypedExpr(Kind::InvokeBuiltinExpr, detail::UnknownType, loc),
+          args(std::move(args)),
+          builtin(builtin) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::InvokeBuiltinExpr; }
 };
 
 class ConstExpr : public TypedExpr {
