@@ -44,6 +44,11 @@ void hlir::ChainExtractLocalOp::print(OpAsmPrinter& p) {
 
 auto hlir::ChainExtractLocalOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
+void hlir::DeleteOp::print(OpAsmPrinter& p) {
+    p << " " << getObject();
+}
+
+auto hlir::DeleteOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 auto hlir::FuncOp::parse(OpAsmParser& parser, OperationState& result) -> ParseResult {
     /// Dispatch to function op interface.
@@ -124,6 +129,12 @@ void hlir::MakeClosureOp::print(OpAsmPrinter& p) {
 }
 
 auto hlir::MakeClosureOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+void hlir::NewOp::print(OpAsmPrinter& p) {
+    p << " " << getResult().getType().getElem();
+}
+
+auto hlir::NewOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::SliceDataOp::print(OpAsmPrinter& p) {
     p << " ref " << getType().getElem() << " " << getOperand();

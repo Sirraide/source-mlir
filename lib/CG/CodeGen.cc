@@ -1,4 +1,5 @@
 #include <llvm/Support/OptimizedStructLayout.h>
+#include <ranges>
 #include <source/CG/CodeGen.hh>
 #include <source/Frontend/AST.hh>
 #include <source/HLIR/HLIRDialect.hh>
@@ -74,6 +75,10 @@ auto src::CodeGen::EmitReference(mlir::Location loc, src::Expr* decl) -> mlir::V
     );
 
     Unreachable();
+}
+
+auto src::CodeGen::EndLifetime([[maybe_unused]] LocalDecl* decl) {
+    Todo();
 }
 
 void src::CodeGen::InitStaticChain(ProcDecl* proc, mlir::func::FuncOp func) {
@@ -241,8 +246,9 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
             return hlir::SliceType::get(Ty(ty->elem));
         }
 
-        case Expr::Kind::ReferenceType: {
-            auto ty = cast<ReferenceType>(type);
+        case Expr::Kind::ReferenceType:
+        case Expr::Kind::ScopedPointerType: {
+            auto ty = cast<SingleElementTypeBase>(type);
             return hlir::ReferenceType::get(Ty(ty->elem));
         }
 
@@ -278,7 +284,6 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
             else return mlir::FunctionType::get(mctx, params, Ty(ty->ret_type));
         }
 
-        case Expr::Kind::ScopedPointerType:
         case Expr::Kind::OptionalType:
             Todo();
 
@@ -432,14 +437,18 @@ void src::CodeGen::DeferInfo::AddDeferredExpression(Expr* e) {
     CurrentStack().add(DeferredMaterial{e, vars.size()});
 }
 
+void src::CodeGen::DeferInfo::AddLabel(LabelExpr* e) {
+    CurrentStack().add(e);
+}
+
 void src::CodeGen::DeferInfo::AddLocal(mlir::Value val) {
     vars.push_back(val);
 }
 
 void src::CodeGen::DeferInfo::EmitDeferStacksUpTo(Expr* stop_at) {
     for (auto& stack : Iterate(stop_at, true)) {
-        stack.compact(*this);
-        stack.emit(*this);
+        stack.compact(*this, stop_at);
+        if (stack.emit(*this, stop_at)) break;
     }
 }
 
@@ -462,8 +471,8 @@ void src::CodeGen::DeferInfo::Return(bool last_instruction_in_function) {
     const bool needs_compact = not last_instruction_in_function;
     for (auto& stack : Iterate(nullptr, needs_compact)) {
         if (CG.Closed()) break;
-        if (needs_compact) stack.compact(*this);
-        stack.emit(*this);
+        if (needs_compact) stack.compact(*this, nullptr);
+        stack.emit(*this, nullptr);
     }
 }
 
@@ -483,7 +492,7 @@ src::CodeGen::DeferInfo::BlockGuard::~BlockGuard() {
     auto st = std::get<Stack>(DI.stacks.back());
 
     /// Emit defer stack.
-    if (not DI.CG.Closed()) st.emit(DI);
+    if (not DI.CG.Closed()) st.emit(DI, nullptr);
 
     /// Remove our stack.
     DI.vars.resize(vars_count);
@@ -499,62 +508,61 @@ src::CodeGen::DeferInfo::LoopGuard::~LoopGuard() {
     DI.stacks.pop_back();
 }
 
+/// Process the contents of a defer stack so (parts of) it can be
+/// emitted multiple times without actually requiring us to be able
+/// to codegen expressions multiple times.
+///
 /// If emitted multiple times, each defer block becomes a separate
-/// function that is called every time a scope is exited.
-///
-/// ALL allocas that have been emitted up to that point are passed
-/// to that function, which means that, while we are emitting the
-/// contents of the defer block into a separate function, we can
-/// simply ‘remap’ the LocalDecl nodes to map to the function arguments
-/// rather than to their allocas.
-///
-/// Since we always compact all expressions in the entire stack,
-/// if we encounter a function on the stack, we know that 1. there
-/// are no other expressions below that, and 2. that it must be
-/// the only other function on the stack.
-void src::CodeGen::DeferInfo::Stack::compact(DeferInfo& DI) {
+/// function (or several functions) that are called every time the
+/// scope is exited.
+void src::CodeGen::DeferInfo::Stack::compact(DeferInfo& DI, Expr* stop_at) {
     /// Check if we need to compact at all.
-    if (
-        entries.empty() or
-        std::holds_alternative<mlir::func::FuncOp>(entries.back())
-    ) return;
+    ///
+    /// We always compact all adjacent deferred material and function into
+    /// a function; however, since we may need to split the stack into several
+    /// functions because of the presence of labels at arbitrary positions
+    /// in the scope, we may end up with multiple functions and labels on
+    /// a stack.
+    ///
+    /// Thus, search the stack, starting at the back, for any deferred material
+    /// that has not yet been emitted; if we find the label we’re looking for
+    /// or a function, then we can stop.
+    ///
+    /// The reason for the latter is that a function means that everything
+    /// below on the stack has already been compacted.
+    bool needs_compact = false;
+    for (auto& e : vws::reverse(entries)) {
+        if (std::holds_alternative<DeferredMaterial>(e)) {
+            needs_compact = true;
+            break;
+        } else if (std::holds_alternative<mlir::func::FuncOp>(e)) {
+            return;
+        } else if (auto l = std::get_if<Label>(&e)) {
+            if (l->label == stop_at) return;
+        }
+    }
 
-    /// Determine the maximum number of arguments to pass in.
-    const auto max_args = rgs::fold_left( // clang-format off
-        entries | vws::transform([](auto& op) -> usz {
-            if (auto d = std::get_if<DeferredMaterial>(&op)) return d->vars_count;
-            else return std::get<mlir::func::FuncOp>(op).getNumArguments();
-        }),
-        usz(0), [](usz a, usz b) { return std::max(a, b); }
-    ); // clang-format on
+    /// Stack contains no deferred material.
+    if (not needs_compact) return;
 
-    /// Perform compaction. First, create the function.
-    auto& CG = DI.CG;
-    auto& builder = CG.builder;
-    mlir::OpBuilder::InsertionGuard guard(builder);
-    SmallVector<mlir::Type> params;
-    for (auto p : DI.vars | vws::take(max_args)) params.push_back(p.getType());
-    auto func_type = mlir::FunctionType::get(CG.mctx, params, {});
+    /// The code below will temporarily overwrite the local variables
+    /// vector, so save it and restore it when we’re done.
+    tempset DI.vars = decltype(DI.vars){};
 
+    /// We know that we need to compact, so prepare everything we need
+    /// to be able to create a procedure to emit material into.
+    mlir::OpBuilder::InsertionGuard guard(DI.CG.builder);
     mlir::NamedAttribute attrs[] = {
         mlir::NamedAttribute{
-            builder.getStringAttr("sym_visibility"),
-            builder.getStringAttr("private"),
+            DI.CG.builder.getStringAttr("sym_visibility"),
+            DI.CG.builder.getStringAttr("private"),
         },
 
         mlir::NamedAttribute{
-            builder.getStringAttr("llvm.linkage"),
-            mlir::LLVM::LinkageAttr::get(CG.mctx, mlir::LLVM::Linkage::Private),
+            DI.CG.builder.getStringAttr("llvm.linkage"),
+            mlir::LLVM::LinkageAttr::get(DI.CG.mctx, mlir::LLVM::Linkage::Private),
         },
     };
-
-    builder.setInsertionPointToEnd(CG.mod->mlir.getBody());
-    auto func = CG.Create<mlir::func::FuncOp>(
-        builder.getUnknownLoc(),
-        fmt::format("__src_defer_proc_{}", DI.defer_procs++),
-        func_type,
-        ArrayRef<mlir::NamedAttribute>{attrs}
-    );
 
     /// Note that compacting requires an extra defer stack just
     /// in case the user is clinically insane and put a defer inside
@@ -574,27 +582,124 @@ void src::CodeGen::DeferInfo::Stack::compact(DeferInfo& DI) {
     auto& extra_stack = std::get<Stack>(DI.stacks.back());
     extra_stack.entries.clear();
 
-    /// Override the local vars to point to our function arguments.
-    auto entry = func.addEntryBlock();
-    tempset DI.vars = decltype(DI.vars){func.getArguments().take_front(max_args)};
+    /// Do not create a procedure just yet.
+    mlir::func::FuncOp proc{};
 
-    /// Then, emit all expressions into the function.
-    /// Also emit the new defer stack we just created.
-    builder.setInsertionPointToEnd(entry);
-    emit(DI);
-    extra_stack.emit(DI);
-    if (not CG.Closed()) CG.Create<mlir::func::ReturnOp>(builder.getUnknownLoc());
+    /// Create a new defer procedure.
+    auto CreateProc = [&](usz idx) {
+        /// Determine the maximum number of arguments to pass in.
+        ///
+        /// ALL allocas that have been emitted up to this point are passed
+        /// to deferred functions, which means that, while we are emitting the
+        /// contents of the defer block into a separate function, we can
+        /// simply ‘remap’ the LocalDecl nodes to map to the function arguments
+        /// rather than to their allocas.
+        usz args = 0;
+        while (idx != std::numeric_limits<usz>::max()) {
+            auto& e = entries[idx];
+            if (std::holds_alternative<Label>(e)) break;
+            else if (auto d = std::get_if<DeferredMaterial>(&e)) args = std::max(args, d->vars_count);
+            else args = std::max<usz>(args, std::get<mlir::func::FuncOp>(e).getNumArguments());
+        }
 
-    /// Clear the stack and push the function onto it.
-    entries.clear();
-    entries.push_back(func);
+        /// Create the appropriate function type for the function.
+        SmallVector<mlir::Type> params;
+        for (auto p : DI.vars | vws::take(args)) params.push_back(p.getType());
+        auto func_type = mlir::FunctionType::get(DI.CG.mctx, params, {});
+
+        /// Actually create the function.
+        DI.CG.builder.setInsertionPointToEnd(DI.CG.mod->mlir.getBody());
+        proc = DI.CG.Create<mlir::func::FuncOp>(
+            DI.CG.builder.getUnknownLoc(),
+            fmt::format("__src_defer_proc_{}", DI.defer_procs++),
+            func_type,
+            ArrayRef<mlir::NamedAttribute>{attrs}
+        );
+
+        /// Override the local vars to point to our function arguments.
+        auto entry = proc.addEntryBlock();
+        DI.CG.builder.setInsertionPointToEnd(entry);
+        DI.vars = decltype(DI.vars){proc.getArguments().take_front(args)};
+    };
+
+    /// Finish emitting a defer procedure.
+    auto FinaliseProc = [&] {
+        extra_stack.emit(DI, nullptr);
+        extra_stack.entries.clear();
+        if (not DI.CG.Closed()) DI.CG.Create<mlir::func::ReturnOp>(DI.CG.builder.getUnknownLoc());
+    };
+
+    /// Then, emit all expressions into the function; note that if
+    /// we’re performing a goto, we may only want to emit part of the
+    /// current stack, so take care to stop at the label we’re branching
+    /// to if that is the case. This also means that we must not compact
+    /// across a label.
+    ///
+    /// The stack may contain multiple sequences of deferred material,
+    /// each separated by a label; one of those labels may be the one
+    /// we’re looking for.
+    ///
+    /// We use indices to iterate to avoid iterator invalidation.
+    usz idx = entries.size() - 1;
+    for (; idx != std::numeric_limits<usz>::max(); idx--) {
+        auto EraseCurrent = [&] { entries.erase(entries.begin() + idx); };
+
+        /// Skip to the next instance of deferred material; stop if we
+        /// find the label we’re looking for.
+        auto& e = entries[idx];
+
+        /// If we find a label, and we are compacting, insert the
+        /// current procedure in the stack after the label.
+        if (auto l = std::get_if<Label>(&e)) {
+            if (proc) {
+                FinaliseProc();
+                entries.insert(entries.begin() + idx + 1, proc);
+                proc = {};
+            }
+
+            /// Stop if this is the label we’re looking for.
+            if (l->label == stop_at) break;
+            continue;
+        }
+
+        /// If we find a procedure, call it if we’re compacting
+        /// and do nothing otherwise.
+        if (auto f = std::get_if<mlir::func::FuncOp>(&e)) {
+            if (proc) {
+                DI.CallCleanupFunc(*f);
+                EraseCurrent();
+            }
+
+            continue;
+        }
+
+        /// Otherwise, we’ve found deferred material. Create a
+        /// function if there currently is none and emit it.
+        if (not proc) CreateProc(idx);
+        DI.CG.Generate(std::get<DeferredMaterial>(e).expr);
+        EraseCurrent();
+    }
+
+    /// If we were emitting a procedure, finish it. If we stopped
+    /// at a label, insert the procedure after it; otherwise, put
+    /// it at the very bottom of the stack.
+    const bool stopped_early = idx != std::numeric_limits<usz>::max();
+    if (proc) {
+        FinaliseProc();
+        if (stopped_early) entries.insert(entries.begin() + idx + 1, proc);
+        else entries.insert(entries.begin(), proc);
+    }
 }
 
-void src::CodeGen::DeferInfo::Stack::emit(DeferInfo& DI) {
-    for (auto& op : vws::reverse(entries)) {
-        if (auto d = std::get_if<DeferredMaterial>(&op)) DI.CG.Generate(d->expr);
-        else DI.CallCleanupFunc(std::get<mlir::func::FuncOp>(op));
+bool src::CodeGen::DeferInfo::Stack::emit(DeferInfo& DI, Expr* stop_at) {
+    for (auto& e : vws::reverse(entries)) {
+        if (auto d = std::get_if<DeferredMaterial>(&e)) DI.CG.Generate(d->expr);
+        else if (auto f = std::get_if<mlir::func::FuncOp>(&e)) DI.CallCleanupFunc(*f);
+        else if (std::get<Label>(e).label == stop_at) return true;
     }
+
+    /// We didn’t find the label we were looking for.
+    return false;
 }
 
 /// ===========================================================================
@@ -672,7 +777,26 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::InvokeBuiltinExpr: {
-            Todo();
+            auto i = cast<InvokeBuiltinExpr>(expr);
+            switch (i->builtin) {
+                case Builtin::New: {
+                    i->mlir = Create<hlir::NewOp>(
+                        i->location.mlir(ctx),
+                        hlir::ReferenceType::get(Ty(i->args[0]))
+                    );
+                    return;
+                }
+
+                /// Delete calls the destructor of an object.
+                case Builtin::Delete: {
+                    Generate(i->args[0]);
+                    auto var = cast<LocalRefExpr>(i->args[0])->decl;
+                    EndLifetime(var);
+                    return;
+                }
+            }
+
+            Unreachable();
         }
 
         case Expr::Kind::DeclRefExpr: {
@@ -880,24 +1004,40 @@ void src::CodeGen::Generate(src::Expr* expr) {
             DI.EmitDeferStacksUpTo(l->target);
 
             /// Emit the branch.
-            auto tgt = cast<WhileExpr>(l->target);
             Create<mlir::cf::BranchOp>(
                 loc,
-                l->is_continue ? tgt->cond_block : tgt->join_block
+                l->is_continue ? l->target->cond_block : l->target->join_block
             );
         } break;
 
         case Expr::Kind::GotoExpr: {
-            Todo();
-        }
+            /// Emit material deferred after the label we’re branching to.
+            auto g = cast<GotoExpr>(expr);
+            DI.EmitDeferStacksUpTo(g->target);
+            Create<mlir::cf::BranchOp>(
+                g->location.mlir(ctx),
+                g->target->block
+            );
+        } break;
 
         case Expr::Kind::LabelExpr: {
             auto l = cast<LabelExpr>(expr);
-            if (auto w = cast<WhileExpr>(l->expr)) {
-                Generate(w);
-            } else {
-                Todo();
+
+            /// Insert the block that we’ve already created for this label.
+            if (l->used) {
+                DI.AddLabel(l);
+
+                Create<mlir::cf::BranchOp>(
+                    l->location.mlir(ctx),
+                    l->block
+                );
+
+                builder.getBlock()->getParent()->push_back(l->block);
+                builder.setInsertionPointToEnd(l->block);
             }
+
+            /// Emit the labelled expression.
+            Generate(l->expr);
         } break;
 
         /// Nothing to do here other than emitting the underlying decl.
@@ -1283,6 +1423,11 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
     if (proc->body) {
         /// Entry block must be created first so we can access parameter values.
         builder.setInsertionPointToEnd(func.addEntryBlock());
+
+        /// Create, but do not insert, blocks for all labels that are actually branched to.
+        for (auto& [_, l] : proc->labels)
+            if (l->used)
+                l->block = new mlir::Block;
 
         /// Perform the transformations required to make local variables
         /// declared in this procedure accessible to its nested procedures.

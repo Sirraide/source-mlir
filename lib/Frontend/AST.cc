@@ -952,7 +952,7 @@ struct ASTPrinter {
                 static const auto String = [](Builtin b) -> std::string_view {
                     switch (b) {
                         case Builtin::New: return "new";
-                        case Builtin::Delete: return "delete";
+                        case Builtin::Delete: return "__builtin_delete";
                     }
 
                     Unreachable();

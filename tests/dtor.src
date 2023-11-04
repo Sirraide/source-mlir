@@ -34,7 +34,7 @@ x => new int;
 if i goto foo; /// This crosses a potential deletion.
 elif i goto bar; /// This does not.
 
-if i then delete x;
+if i then __builtin_delete x;
 else {
     if i then a()
     else {

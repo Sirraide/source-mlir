@@ -384,6 +384,18 @@ def InvokeClosureOp : HLIR_Op<"invokeclosure"> {
     let hasCustomAssemblyFormat = 1;
 }
 
+def NewOp : HLIR_Op<"new"> {
+    let summary = "Allocate an object on the heap";
+    let results = (outs HLIR_ReferenceType);
+    let hasCustomAssemblyFormat = 1;
+}
+
+def DeleteOp : HLIR_Op<"delete"> {
+    let summary = "Free an object allocated on the heap";
+    let arguments = (ins HLIR_ReferenceType:$object);
+    let hasCustomAssemblyFormat = 1;
+}
+
 // def LocalEscapeOp : HLIR_Op<"localescape"> {
 //     let summary = "Make a local variables visible in nested functions";
 //     let arguments = (ins Variadic<HLIR_ReferenceType>:$vars);

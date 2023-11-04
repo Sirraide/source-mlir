@@ -344,6 +344,7 @@ bool src::Sema::Analyse(Expr*& e) {
             );
 
             g->target = l->second;
+            l->second->used = true;
         } break;
 
         /// Return expressions.
@@ -457,7 +458,8 @@ bool src::Sema::Analyse(Expr*& e) {
                 if (auto d = dyn_cast<DeclRefExpr>(invoke->callee); d and not d->decl) {
                     auto b = llvm::StringSwitch<std::optional<Builtin>>(d->name) // clang-format off
                         .Case("new", Builtin::New)
-                        .Case("delete", Builtin::Delete)
+                        .Case("__builtin_new", Builtin::New)
+                        .Case("__builtin_delete", Builtin::Delete)
                         .Default(std::nullopt);
 
                     /// Found a builtin.
@@ -1213,14 +1215,11 @@ bool src::Sema::AnalyseInvokeBuiltin(Expr*& e) {
                 invoke->args.size()
             );
 
+            /// The operand must be an lvalue.
             if (not Analyse(invoke->args[0])) return e->sema.set_errored();
-
-            /// Currently, only scoped pointers can be deleted.
-            if (not isa<ScopedPointerType>(invoke->args[0]->type.strip_refs)) Diag::Warning(
-                mod->context,
-                invoke->location,
-                "Deleting a '{}' has no effect",
-                invoke->args[0]->type.str(true)
+            if (not isa<LocalRefExpr>(invoke->args[0])) return Error(
+                e,
+                "Operand of __builtin_delete must be a local variable."
             );
 
             /// Delete returns nothing.

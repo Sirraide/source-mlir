@@ -9,6 +9,8 @@ namespace src {
 class WhileExpr;
 class BinaryExpr;
 class LocalDecl;
+class LabelExpr;
+
 class CodeGen {
     Module* const mod;
     Context* const ctx;
@@ -24,6 +26,11 @@ class CodeGen {
             WhileExpr* loop;
         };
 
+        /// Label marker.
+        struct Label {
+            LabelExpr* label;
+        };
+
         /// Deferred expression + number of variables
         /// that were in scope when the expression was
         /// added.
@@ -33,13 +40,14 @@ class CodeGen {
         };
 
         /// Defer stack associated with a scope.
-        using Entry = std::variant<DeferredMaterial, mlir::func::FuncOp>;
+        using Entry = std::variant<DeferredMaterial, Label, mlir::func::FuncOp>;
         struct Stack {
             SmallVector<Entry, 10> entries;
 
             void add(Entry e) { entries.push_back(e); }
-            void compact(DeferInfo& DI);
-            void emit(DeferInfo& DI);
+            void add(LabelExpr* l) { entries.push_back(Label{l}); }
+            void compact(DeferInfo& DI, Expr* stop_at);
+            bool emit(DeferInfo& DI, Expr* stop_at);
         };
 
         /// Codegen context.
@@ -87,6 +95,9 @@ class CodeGen {
 
         /// Add an expression to be executed at the end of the scope.
         void AddDeferredExpression(Expr* e);
+
+        /// Add a label to the stack.
+        void AddLabel(LabelExpr* e);
 
         /// Add a local variable.
         void AddLocal(mlir::Value val);
@@ -154,6 +165,8 @@ private:
     auto Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
 
     auto EmitReference(mlir::Location loc, Expr* decl) -> mlir::Value;
+
+    auto EndLifetime(LocalDecl* decl);
 
     template <typename Op>
     void GenerateBinOp(BinaryExpr* b);

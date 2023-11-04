@@ -320,7 +320,7 @@ public:
 
     /// Resolved expression. This is set to the parent
     /// if there is no label. This is resolved in Sema.
-    Expr* target{};
+    WhileExpr* target{};
 
     /// Whether this is a continue or break.
     bool is_continue;
@@ -342,6 +342,12 @@ public:
 
     /// The expression labelled by this label.
     Expr* expr;
+
+    /// Block that is represented by this label.
+    mlir::Block* block{};
+
+    /// Whether this label is ever branched to.
+    bool used = false;
 
     LabelExpr(ProcDecl* in_procedure, std::string label, Expr* expr, Location loc);
 
