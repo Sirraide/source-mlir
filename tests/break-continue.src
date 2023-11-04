@@ -15,14 +15,14 @@ proc i() extern;
 proc j() extern;
 proc k() extern;
 proc l() extern;
-/// * (?<T>$t) = hlir.local_var
+/// * (?<T>$t) = hlir.local
 bool t = true;
 
 defer a();
 
 /// * cf.br (?<COND1>$b)
 /// + $COND1:
-/// + (?<T1>$t) = hlir.load $T
+/// + (?<T1>$t) = hlir.load i1 from $T
 /// + cf.cond_br $T1, (?<BODY1>$b), (?<EXIT1>$b)
 /// + $BODY1:
 while t {
@@ -31,18 +31,18 @@ while t {
 
     /// + cf.br (?<COND2>$b)
     /// + $COND2:
-    /// + (?<T2>$t) = hlir.load $T
+    /// + (?<T2>$t) = hlir.load i1 from $T
     /// + cf.cond_br $T2, (?<BODY2>$b), (?<EXIT2>$b)
     /// + $BODY2:
     loop: while t {
-        /// + (?<Q>$t) = hlir.local_var
+        /// + (?<Q>$t) = hlir.local
         /// + hlir.zeroinitialiser
         int q;
         defer d();
 
         /// + cf.br (?<COND3>$b)
         /// + $COND3:
-        /// + (?<T3>$t) = hlir.load $T
+        /// + (?<T3>$t) = hlir.load i1 from $T
         /// + cf.cond_br $T3, (?<BODY3>$b), (?<EXIT3>$b)
         /// + $BODY3:
         loop2: while t {
@@ -50,14 +50,14 @@ while t {
 
             /// + cf.br (?<COND4>$b)
             /// + $COND4:
-            /// + (?<T4>$t) = hlir.load $T
+            /// + (?<T4>$t) = hlir.load i1 from $T
             /// + cf.cond_br $T4, (?<BODY4>$b), (?<EXIT4>$b)
             /// + $BODY4:
             while t {
                 defer f();
 
                 /// 0 executes f()
-                /// + (?<T5>$t) = hlir.load $T
+                /// + (?<T5>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T5, (?<THEN1>$b), (?<ELSE1>$b)
                 /// + $THEN1:
                 /// + call @__src_defer_proc_0($T, $Q)
@@ -69,7 +69,7 @@ while t {
 
                 /// 1 executes g(), f()
                 /// 2 executes e()
-                /// + (?<T6>$t) = hlir.load $T
+                /// + (?<T6>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T6, (?<THEN2>$b), (?<ELSE2>$b)
                 /// + $THEN2:
                 /// + call @__src_defer_proc_1($T, $Q)
@@ -88,11 +88,11 @@ while t {
 
             /// + cf.br (?<COND5>$b)
             /// + $COND5:
-            /// + (?<T7>$t) = hlir.load $T
+            /// + (?<T7>$t) = hlir.load i1 from $T
             /// + cf.cond_br $T7, (?<BODY5>$b), (?<EXIT5>$b)
             /// + $BODY5:
             while t {
-                /// + (?<W>$t) = hlir.local_var
+                /// + (?<W>$t) = hlir.local
                 /// + hlir.zeroinitialiser
                 int w;
                 defer i();
@@ -100,7 +100,7 @@ while t {
                 /// 3 executes i()
                 /// 4 executes h(), e()
                 /// 5 executes d()
-                /// + (?<T8>$t) = hlir.load $T
+                /// + (?<T8>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T8, (?<THEN3>$b), (?<ELSE3>$b)
                 /// + $THEN3:
                 /// + call @__src_defer_proc_3($T, $Q, $W)
@@ -117,14 +117,14 @@ while t {
             /// + $EXIT5:
             /// + cf.br (?<COND6>$b)
             /// + $COND6:
-            /// + (?<T9>$t) = hlir.load $T
+            /// + (?<T9>$t) = hlir.load i1 from $T
             /// + cf.cond_br $T9, (?<BODY6>$b), (?<EXIT6>$b)
             /// + $BODY6:
             while t {
                 defer j();
 
                 /// 6 executes j()
-                /// + (?<T10>$t) = hlir.load $T
+                /// + (?<T10>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T10, (?<THEN4>$b), (?<ELSE4>$b)
                 /// + $THEN4:
                 /// + call @__src_defer_proc_6($T, $Q)
@@ -133,7 +133,7 @@ while t {
                 /// + $ELSE4:
 
                 /// 6 executes j()
-                /// + (?<T11>$t) = hlir.load $T
+                /// + (?<T11>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T11, (?<THEN5>$b), (?<ELSE5>$b)
                 /// + $THEN5:
                 /// + call @__src_defer_proc_6($T, $Q)
@@ -146,7 +146,7 @@ while t {
                 /// 5 executes d()
                 /// 7 executes c(), b()
                 /// 8 executes a()
-                /// + (?<T12>$t) = hlir.load $T
+                /// + (?<T12>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T12, (?<THEN6>$b), (?<ELSE6>$b)
                 /// + $THEN6:
                 /// + call @__src_defer_proc_6($T, $Q)
@@ -164,7 +164,7 @@ while t {
                 /// 9 executes k(), j()
                 /// 4 executes h(), e()
                 /// 5 executes d()
-                /// + (?<T13>$t) = hlir.load $T
+                /// + (?<T13>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T13, (?<THEN7>$b), (?<ELSE7>$b)
                 /// + $THEN7:
                 /// + call @__src_defer_proc_9($T, $Q)
@@ -176,7 +176,7 @@ while t {
 
                 /// 9 executes k(), j()
                 /// 4 executes h(), e()
-                /// + (?<T14>$t) = hlir.load $T
+                /// + (?<T14>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T14, (?<THEN8>$b), (?<ELSE8>$b)
                 /// + $THEN8:
                 /// + call @__src_defer_proc_9($T, $Q)
@@ -200,7 +200,7 @@ while t {
         defer l();
 
         /// 10 executes l(), d()
-        /// + (?<T15>$t) = hlir.load $T
+        /// + (?<T15>$t) = hlir.load i1 from $T
         /// + cf.cond_br $T15, (?<THEN9>$b), (?<ELSE9>$b)
         /// + $THEN9:
         /// + call @__src_defer_proc_10($T, $Q)

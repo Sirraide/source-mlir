@@ -260,9 +260,9 @@ struct ArrayDecayOpLowering : public ConversionPattern {
 };
 
 /// Lowering for var decls.
-struct LocalVarOpLowering : public ConversionPattern {
-    explicit LocalVarOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
-        : ConversionPattern(tc, hlir::LocalVarOp::getOperationName(), 1, ctx) {
+struct LocalOpLowering : public ConversionPattern {
+    explicit LocalOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::LocalOp::getOperationName(), 1, ctx) {
     }
 
     auto matchAndRewrite(
@@ -271,7 +271,7 @@ struct LocalVarOpLowering : public ConversionPattern {
         ConversionPatternRewriter& rewriter
     ) const -> LogicalResult override {
         auto loc = op->getLoc();
-        auto var = cast<hlir::LocalVarOp>(op);
+        auto var = cast<hlir::LocalOp>(op);
 
         /// We always pass the entire type to the alloca, so
         /// the ‘array size’ is always 1.
@@ -562,7 +562,7 @@ struct HLIRToLLVMLoweringPass
             StoreOpLowering,
             LiteralOpLowering,
             ArrayDecayOpLowering,
-            LocalVarOpLowering,
+            LocalOpLowering,
             ZeroInitOpLowering,
             StructGepOpLowering,
             ChainExtractLocalOpLowering,

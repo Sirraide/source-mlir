@@ -32,7 +32,7 @@ auto src::CodeGen::AllocateLocalVar(src::LocalDecl* decl) -> mlir::Value {
         decl->capture_index
     );
 
-    return Create<hlir::LocalVarOp>(
+    return Create<hlir::LocalOp>(
         decl->location.mlir(ctx),
         Ty(decl->type),
         decl->type.align(ctx) / 8
@@ -161,7 +161,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, mlir::func::FuncOp func) {
 
     /// Associate it with the procedure and create the vars area.
     proc->captured_locals_type = s;
-    proc->captured_locals_ptr = Create<hlir::LocalVarOp>(
+    proc->captured_locals_ptr = Create<hlir::LocalOp>(
         builder.getUnknownLoc(),
         Ty(s),
         s->stored_alignment
@@ -892,8 +892,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
         }
 
         case Expr::Kind::LabelExpr: {
-            Todo();
-        }
+            auto l = cast<LabelExpr>(expr);
+            if (auto w = cast<WhileExpr>(l->expr)) {
+                Generate(w);
+            } else {
+                Todo();
+            }
+        } break;
 
         /// Nothing to do here other than emitting the underlying decl.
         case Expr::Kind::ExportExpr: {

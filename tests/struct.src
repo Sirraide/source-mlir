@@ -13,10 +13,10 @@ struct S {
 }
 
 /// * func.func public @__src_main
-/// + (?<S>$t) = hlir.local_var
+/// + (?<S>$t) = hlir.local
 /// + hlir.zeroinitialiser $S
 /// + (?<F>$t) = constant @foo
-/// + (?<S1>$t) = hlir.load $S
+/// + (?<S1>$t) = hlir.load $any from $S
 /// + call_indirect $F($S, $S1)
 /// + return
 
@@ -25,15 +25,15 @@ foo s, s;
 
 /// Note: Index of `.a` is 0; index of `.c` is 3, because padding.
 /// * func.func private @foo
-/// + (?<A>$t) = hlir.local_var
+/// + (?<A>$t) = hlir.local
 /// + hlir.store into $A
-/// + (?<B>$t) = hlir.local_var
+/// + (?<B>$t) = hlir.local
 /// + hlir.store into $B
-/// + (?<Aref>$t) = hlir.load $A
-/// + (?<AAref>$t) = hlir.structgep $Aref $any>>, 0
-/// + (?<AA>$t) = hlir.load $AAref
-/// + (?<BCref>$t) = hlir.structgep $B $any>>, 3
-/// + (?<BC>$t) = hlir.load $BCref
+/// + (?<Aref>$t) = hlir.load $any from $A
+/// + (?<AAref>$t) = hlir.structgep $Aref, 0
+/// + (?<AA>$t) = hlir.load i8 from $AAref
+/// + (?<BCref>$t) = hlir.structgep $B, 3
+/// + (?<BC>$t) = hlir.load i8 from $BCref
 /// + (?<Sum>$t) = arith.addi $AA, $BC
 /// + return $Sum
 proc foo (S& a, S b) = a.a + b.c;

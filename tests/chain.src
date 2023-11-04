@@ -13,14 +13,14 @@ proc exit (i32) extern -> noreturn;
 
 /// * func.func private @p1
 proc p1 -> int {
-    /// + (?<CHAIN1>$t) = hlir.local_var <!llvm.struct<"struct.anon.0"
-    /// + (?<A>$t) = hlir.structgep $CHAIN1 $any, 0 : i32
+    /// + (?<CHAIN1>$t) = hlir.local !llvm.struct<"struct.anon.0"
+    /// + (?<A>$t) = hlir.structgep $CHAIN1, 0 -> ref i64
     /// + hlir.zeroinitialiser $A
     int a;
     int c;
 
     /// * (?<CONST_1>$t) = arith.constant 4 : i64
-    /// + hlir.store into $A : [^%]+, $CONST_1
+    /// + hlir.store into $A, i64 $CONST_1
     a = 4;
 
     /// * (?<P2>$t) = constant @p2
@@ -30,13 +30,13 @@ proc p1 -> int {
 
     /// * func.func private @p2
     proc p2(int b) {
-        /// + (?<CHAIN2>$t) = hlir.local_var <!llvm.struct<"struct.anon.1"
+        /// + (?<CHAIN2>$t) = hlir.local !llvm.struct<"struct.anon.1"
         /// + hlir.store into $CHAIN2
 
-        /// * (?<CHAIN1_1>$t) = hlir.extractlocal $CHAIN2 $any, 0 : i32
-        /// + (?<A1>$t) = hlir.structgep $CHAIN1_1 $any, 0 : i32
+        /// * (?<CHAIN1_1>$t) = hlir.extractlocal chain $CHAIN2, 0
+        /// + (?<A1>$t) = hlir.structgep $CHAIN1_1, 0 -> ref i64
         /// * (?<CONST_3>$t) = arith.constant 3 : i64
-        /// + hlir.store into $A1 : [^%]+, $CONST_3
+        /// + hlir.store into $A1, i64 $CONST_3
         a = 3;
 
         /// + (?<P3>$t) = constant @p3
@@ -45,12 +45,12 @@ proc p1 -> int {
 
         /// * func.func private @p3
         proc p3() {
-            /// + (?<CHAIN3>$t) = hlir.local_var <!llvm.struct<"struct.anon.2"
+            /// + (?<CHAIN3>$t) = hlir.local !llvm.struct<"struct.anon.2"
             /// + hlir.store into $CHAIN3
-            /// * (?<CHAIN2_1>$t) = hlir.extractlocal $CHAIN3 $any, 0 : i32
-            /// + (?<B1>$t) = hlir.structgep $CHAIN2_1 $any, 1 : i32
+            /// * (?<CHAIN2_1>$t) = hlir.extractlocal chain $CHAIN3, 0
+            /// + (?<B1>$t) = hlir.structgep $CHAIN2_1, 1 -> ref i64
             /// * (?<CONST_4>$t) = arith.constant 4 : i64
-            /// + hlir.store into $B1 : [^%]+, $CONST_4
+            /// + hlir.store into $B1, i64 $CONST_4
             b = 4;
 
             /// + (?<P4>$t) = constant @p4
@@ -60,27 +60,27 @@ proc p1 -> int {
             /// + (?<P5>$t) = constant @p5
             /// + (?<CONST_5>$t) = arith.constant 2 : i64
             /// + (?<CONST_6>$t) = arith.constant 3 : i64
-            /// + (?<CHAIN2_X>$t) = hlir.extractlocal $CHAIN3 $any, 0 : i32
+            /// + (?<CHAIN2_X>$t) = hlir.extractlocal chain $CHAIN3, 0
             /// + call_indirect $P5($CONST_5, $CONST_6, $CHAIN2_X)
             p5(2, 3);
 
             /// * func.func private @p4
             proc p4 {
-                /// + (?<CHAIN4>$t) = hlir.local_var <!llvm.struct<"struct.anon.3"
+                /// + (?<CHAIN4>$t) = hlir.local !llvm.struct<"struct.anon.3"
                 /// + hlir.store into $CHAIN4
-                /// + (?<CHAIN3_1>$t) = hlir.extractlocal $CHAIN4 $any, 0 : i32
-                /// + (?<CHAIN2_2>$t) = hlir.extractlocal $CHAIN3_1 $any, 0 : i32
-                /// + (?<CHAIN1_2>$t) = hlir.extractlocal $CHAIN2_2 $any, 0 : i32
-                /// + (?<A2>$t) = hlir.structgep $CHAIN1_2 $any, 0 : i32
+                /// + (?<CHAIN3_1>$t) = hlir.extractlocal chain $CHAIN4, 0
+                /// + (?<CHAIN2_2>$t) = hlir.extractlocal chain $CHAIN3_1, 0
+                /// + (?<CHAIN1_2>$t) = hlir.extractlocal chain $CHAIN2_2, 0
+                /// + (?<A2>$t) = hlir.structgep $CHAIN1_2, 0 -> ref i64
                 /// + (?<CONST_7>$t) = arith.constant 8 : i64
-                /// + hlir.store into $A2 : [^%]+, $CONST_7
+                /// + hlir.store into $A2, i64 $CONST_7
                 a = 8;
 
                 /// + (?<P5_2>$t) = constant @p5
                 /// + (?<CONST_8>$t) = arith.constant 4 : i64
                 /// + (?<CONST_9>$t) = arith.constant 5 : i64
-                /// + (?<CHAIN3_2>$t) = hlir.extractlocal $CHAIN4 $any, 0 : i32
-                /// + (?<CHAIN2_3>$t) = hlir.extractlocal $CHAIN3_2 $any, 0 : i32
+                /// + (?<CHAIN3_2>$t) = hlir.extractlocal chain $CHAIN4, 0
+                /// + (?<CHAIN2_3>$t) = hlir.extractlocal chain $CHAIN3_2, 0
                 /// + call_indirect $P5_2($CONST_8, $CONST_9, $CHAIN2_3)
                 p5(4, 5);
             }
@@ -88,20 +88,20 @@ proc p1 -> int {
 
         /// * func.func private @p5
         proc p5(int, int) {
-            /// + (?<CHAIN5>$t) = hlir.local_var <!llvm.struct<"struct.anon.4"
+            /// + (?<CHAIN5>$t) = hlir.local !llvm.struct<"struct.anon.4"
             /// + hlir.store into $CHAIN5
 
-            /// * (?<CHAIN2_4>$t) = hlir.extractlocal $CHAIN5 $any, 0 : i32
-            /// + (?<CHAIN1_3>$t) = hlir.extractlocal $CHAIN2_4 $any, 0 : i32
-            /// + (?<A3>$t) = hlir.structgep $CHAIN1_3 $any, 0 : i32
+            /// * (?<CHAIN2_4>$t) = hlir.extractlocal chain $CHAIN5, 0
+            /// + (?<CHAIN1_3>$t) = hlir.extractlocal chain $CHAIN2_4, 0
+            /// + (?<A3>$t) = hlir.structgep $CHAIN1_3, 0 -> ref i64
             /// + (?<CONST_10>$t) = arith.constant 42 : i64
-            /// + hlir.store into $A3 : [^%]+, $CONST_10
+            /// + hlir.store into $A3, i64 $CONST_10
             a = 42;
 
-            /// * (?<CHAIN2_5>$t) = hlir.extractlocal $CHAIN5 $any, 0 : i32
-            /// + (?<B2>$t) = hlir.structgep $CHAIN2_5 $any, 1 : i32
+            /// * (?<CHAIN2_5>$t) = hlir.extractlocal chain $CHAIN5, 0
+            /// + (?<B2>$t) = hlir.structgep $CHAIN2_5, 1 -> ref i64
             /// + (?<CONST_11>$t) = arith.constant 6 : i64
-            /// + hlir.store into $B2 : [^%]+, $CONST_11
+            /// + hlir.store into $B2, i64 $CONST_11
             b = 6;
         }
     }

@@ -3,30 +3,34 @@
 /// p nolit ^
 /// d t %[a-zA-Z0-9_]+
 
+/// p nolit .
+/// d any .*?
+/// p lit .
+
 proc a = 22;
 
 /// * func.func private @b
-/// + (?<c>$t) = hlir.local_var
+/// + (?<c>$t) = hlir.local
 /// + hlir.store into $c
-/// + (?<cval>$t) = hlir.load $c
-/// + (?<ret>$t) = hlir.invokeclosure $cval
+/// + (?<cval>$t) = hlir.load $any from $c
+/// + (?<ret>$t) = hlir.invokeclosure $cval()
 /// + return $ret
 proc b (proc c -> int) = c();
 
 /// u c
 /// u ret
 /// * func.func private @caller
-/// + (?<vars>$t) = hlir.local_var
+/// + (?<vars>$t) = hlir.local
 /// + (?<x>$t) = hlir.structgep $vars
 /// + (?<twenty>$t) = arith.constant 20
-/// + hlir.store into $x [^%]+? $twenty
+/// + hlir.store into $x, i64 $twenty
 /// + (?<b1>$t) = constant @b
 /// + (?<a>$t) = constant @a
-/// + (?<cl1>$t) = hlir.makeclosure $a
+/// + (?<cl1>$t) = hlir.makeclosure { $a, null }
 /// + (?<b1ret>$t) = call_indirect $b1($cl1)
 /// + (?<b2>$t) = constant @b
 /// + (?<c>$t) = constant @c
-/// + (?<cl2>$t) = hlir.makeclosure $c [^%]+? $vars
+/// + (?<cl2>$t) = hlir.makeclosure { $c, $vars }
 /// + (?<b2ret>$t) = call_indirect $b2($cl2)
 /// + (?<ret>$t) = arith.addi $b1ret, $b2ret
 /// + return $ret

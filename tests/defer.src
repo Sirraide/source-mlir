@@ -12,14 +12,14 @@ proc f extern;
 proc cond() extern -> bool;
 
 /// * func.func public @__src_main
-/// * (?<I>$t) = hlir.local_var
+/// * (?<I>$t) = hlir.local
 int i = 4;
 
 defer a();
 defer b();
 
 if cond() {
-    /// * (?<J>$t) = hlir.local_var
+    /// * (?<J>$t) = hlir.local
     int j = 5;
     defer c();
 
@@ -39,7 +39,7 @@ if cond() {
     /// + call @__src_defer_proc_0($I, $J)
 }
 
-/// * (?<K>$t) = hlir.local_var
+/// * (?<K>$t) = hlir.local
 int k = 6;
 defer e();
 

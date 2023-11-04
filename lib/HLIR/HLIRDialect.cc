@@ -13,7 +13,12 @@
 #define GET_OP_CLASSES
 #include <source/HLIR/HLIROps.cpp.inc>
 
+#include <source/Support/Utils.hh>
+
 // clang-format on
+
+using u64 = std::uint64_t;
+using i64 = std::int64_t;
 
 void hlir::HLIRDialect::initialize() {
     addTypes<
@@ -26,6 +31,19 @@ void hlir::HLIRDialect::initialize() {
 #include <source/HLIR/HLIROps.cpp.inc>
         >();
 }
+
+void hlir::ArrayDecayOp::print(OpAsmPrinter& p) {
+    p << " " << getOperand() << " to ref " << getType().getElem();
+}
+
+auto hlir::ArrayDecayOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+void hlir::ChainExtractLocalOp::print(OpAsmPrinter& p) {
+    p << " chain " << getStructRef() << ", " << getIdx().getValue().getZExtValue();
+}
+
+auto hlir::ChainExtractLocalOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
 
 auto hlir::FuncOp::parse(OpAsmParser& parser, OperationState& result) -> ParseResult {
     /// Dispatch to function op interface.
@@ -49,7 +67,7 @@ auto hlir::FuncOp::parse(OpAsmParser& parser, OperationState& result) -> ParseRe
     );
 }
 
-void hlir::FuncOp::print(::mlir::OpAsmPrinter& p) {
+void hlir::FuncOp::print(OpAsmPrinter& p) {
     /// Dispatch to function op interface.
     function_interface_impl::printFunctionOp(
         p,
@@ -59,6 +77,86 @@ void hlir::FuncOp::print(::mlir::OpAsmPrinter& p) {
         getArgAttrsAttrName(),
         getResAttrsAttrName()
     );
+}
+
+void hlir::InvokeClosureOp::print(OpAsmPrinter& p) {
+    p << " " << getClosure() << "(";
+    bool first = true;
+    for (auto a : getArgs()) {
+        if (first) first = false;
+        else p << ", ";
+        p << a;
+    }
+    p << ") -> " << getType();
+}
+
+auto hlir::InvokeClosureOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+
+void hlir::LiteralOp::print(OpAsmPrinter& p) {
+    if (auto s = dyn_cast<SliceType>(getType())) {
+        p << " slice ref " << s.getElem() << " " << getOperand(0);
+        p << ", " << getOperand(1);
+    } else {
+        Unreachable();
+    }
+}
+
+auto hlir::LiteralOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+void hlir::LoadOp::print(OpAsmPrinter& p) {
+    p << " " << getType().getType() << " from " << getOperand();
+}
+
+auto hlir::LoadOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+void hlir::LocalOp::print(OpAsmPrinter& p) {
+    p << " " << getType().getElem();
+    p << ", align " << getAlignment().getValue().getZExtValue();
+}
+
+auto hlir::LocalOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+void hlir::MakeClosureOp::print(OpAsmPrinter& p) {
+    p << " { " << getClosure();
+    if (auto env = getEnv()) p << ", " << env << " }";
+    else p << ", null }";
+}
+
+auto hlir::MakeClosureOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+void hlir::SliceDataOp::print(OpAsmPrinter& p) {
+    p << " ref " << getType().getElem() << " " << getOperand();
+}
+
+auto hlir::SliceDataOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
+    Todo();
+}
+
+void hlir::StoreOp::print(OpAsmPrinter& p) {
+    p << " into " << getAddr() << ", " << getValue().getType() << " " << getValue();
+    p << ", align " << getAlignment().getValue().getZExtValue();
+}
+
+auto hlir::StoreOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
+    Todo();
+}
+
+void hlir::StructGEPOp::print(OpAsmPrinter& p) {
+    p << " " << getStructRef() << ", " << getIdx().getValue().getZExtValue();
+    p << " -> ref " << getType().getElem();
+}
+
+auto hlir::StructGEPOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
+    Todo();
+}
+
+void hlir::ZeroinitialiserOp::print(OpAsmPrinter& p) {
+    p << " " << getOperand();
+}
+
+auto hlir::ZeroinitialiserOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
+    Todo();
 }
 
 /// Copied from mlir::CallOp::verifySymbolUses().

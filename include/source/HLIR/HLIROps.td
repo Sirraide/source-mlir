@@ -115,7 +115,7 @@ def SliceDataOp : HLIR_Op<"slice_data"> {
     let summary = "Get the data pointer of a slice";
     let arguments = (ins HLIR_SliceType:$operand);
     let results = (outs HLIR_ReferenceType:$res);
-    let assemblyFormat = "$operand attr-dict `:` type($res) `of` type($operand)";
+    let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
 
     let builders = [
@@ -150,7 +150,7 @@ def LoadOp : HLIR_Op<"load"> {
     let summary = "Load a value from a reference";
     let arguments = (ins HLIR_ReferenceType:$operand);
     let results = (outs HLIR_Type:$type);
-    let assemblyFormat = "$operand attr-dict `:` type($type) `from` type($operand)";
+    let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
 
     let builders = [
@@ -172,7 +172,7 @@ def StoreOp : HLIR_Op<"store"> {
         HLIR_Type:$value,
         Builtin_IntegerAttr:$alignment
     );
-    let assemblyFormat = "`into` $addr `:` type($addr) `,` $value `:` type($value) attr-dict";
+    let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
 
     let builders = [
@@ -196,7 +196,7 @@ def LiteralOp : HLIR_Op<"literal"> {
     let summary = "Literal value";
     let arguments = (ins Variadic<HLIR_Type>:$args);
     let results = (outs HLIR_Type:$value);
-    let assemblyFormat = "`(` $args `)` attr-dict `:` type($args) `,` type($value)";
+    let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
 
     let builders = [
@@ -218,7 +218,7 @@ def LiteralOp : HLIR_Op<"literal"> {
 def ZeroinitialiserOp : HLIR_Op<"zeroinitialiser"> {
     let summary = "Zeroinitialiser";
     let arguments = (ins HLIR_ReferenceType:$operand, Builtin_IntegerAttr:$bytes);
-    let assemblyFormat = "$operand `:` type($operand) attr-dict";
+    let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
 
     let builders = [
@@ -238,7 +238,7 @@ def ArrayDecayOp : HLIR_Op<"array_decay"> {
     let summary = "Decay a reference to an array to a reference to its first element";
     let arguments = (ins HLIR_ReferenceType:$operand);
     let results = (outs HLIR_ReferenceType:$res);
-    let assemblyFormat = "$operand attr-dict `:` type($operand) `to` type($res)";
+    let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
 
     let builders = [
@@ -263,12 +263,12 @@ def ArrayDecayOp : HLIR_Op<"array_decay"> {
     ];
 }
 
-def HLIR_LocalVarOp : HLIR_Op<"local_var"> {
+def HLIR_LocalOp : HLIR_Op<"local"> {
     let summary = "Local variable";
     let arguments = (ins Builtin_IntegerAttr:$alignment);
     let results = (outs HLIR_ReferenceType:$res);
-    let assemblyFormat = "type($res) attr-dict";
     let hasVerifier = 0;
+    let hasCustomAssemblyFormat = 1;
     let skipDefaultBuilders = 1;
 
     let builders = [
@@ -310,7 +310,7 @@ def StructGEPOp : HLIR_Op<"structgep"> {
     let summary = "Get a pointer to a struct element by offsetting from a struct pointer";
     let arguments = (ins HLIR_ReferenceType:$struct_ref, Builtin_IntegerAttr:$idx);
     let results = (outs HLIR_ReferenceType:$res);
-    let assemblyFormat = "$struct_ref `:` type($struct_ref) `,` $idx attr-dict `:` type($res)";
+    let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
 
     let builders = [
@@ -338,7 +338,7 @@ def ChainExtractLocalOp : HLIR_Op<"extractlocal"> {
     let summary = "Extract a local variable from a static chain area";
     let arguments = (ins HLIR_ReferenceType:$struct_ref, Builtin_IntegerAttr:$idx);
     let results = (outs HLIR_Type:$res);
-    let assemblyFormat = "$struct_ref `:` type($struct_ref) `,` $idx attr-dict `:` type($res)";
+    let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
 
     let builders = [
@@ -370,9 +370,7 @@ def MakeClosureOp : HLIR_Op<"makeclosure"> {
     );
     let results = (outs HLIR_ClosureType);
 
-    let assemblyFormat = [{
-        $closure `:` type($closure) `,` $env `:` type($env) attr-dict `:` type(results)
-    }];
+    let hasCustomAssemblyFormat = 1;
 }
 
 def InvokeClosureOp : HLIR_Op<"invokeclosure"> {
@@ -383,9 +381,7 @@ def InvokeClosureOp : HLIR_Op<"invokeclosure"> {
     );
     let results = (outs HLIR_Type);
 
-    let assemblyFormat = [{
-        $closure `:` type($closure) `(` $args `:` type($args) `)` attr-dict `:` type(results)
-    }];
+    let hasCustomAssemblyFormat = 1;
 }
 
 // def LocalEscapeOp : HLIR_Op<"localescape"> {

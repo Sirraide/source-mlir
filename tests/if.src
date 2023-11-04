@@ -3,36 +3,36 @@
 /// d t %[a-zA-Z0-9_]+
 /// d b \^bb[0-9]+
 
-/// * (?<A>$t) = hlir.local_var
+/// * (?<A>$t) = hlir.local i64
 int a;
 
-/// * (?<B>$t) = hlir.local_var
+/// * (?<B>$t) = hlir.local i64
 /// + (?<T_1>$t) = arith.constant true
 /// + cf.cond_br $T_1, (?<TRUE_1>$b), (?<FALSE_1>$b)
 /// + $TRUE_1:
-/// + (?<A_1>$t) = hlir.load $A
+/// + (?<A_1>$t) = hlir.load i64 from $A
 /// + cf.br (?<JOIN_1>$b)($A_1
 /// + $FALSE_1:
 /// + (?<CONST_42>$t) = arith.constant 42 : i64
 /// + cf.br $JOIN_1($CONST_42
 /// + $JOIN_1((?<IF_1>$t)
-/// + hlir.store into $B : [^%]+, $IF_1
+/// + hlir.store into $B, i64 $IF_1
 int b = if true then a else 42;
 
-/// * (?<C>$t) = hlir.local_var
+/// * (?<C>$t) = hlir.local i64
 /// + (?<T_2>$t) = arith.constant true
 /// + cf.cond_br $T_2, (?<TRUE_2>$b), (?<FALSE_2>$b)
 /// + $TRUE_2:
 /// + (?<CONST_42_2>$t) = arith.constant 42 : i64
 /// + cf.br (?<JOIN_2>$b)($CONST_42_2
 /// + $FALSE_2:
-/// + (?<A_2>$t) = hlir.load $A
+/// + (?<A_2>$t) = hlir.load i64 from $A
 /// + cf.br $JOIN_2($A_2
 /// + $JOIN_2((?<IF_2>$t)
-/// + hlir.store into $C : [^%]+, $IF_2
+/// + hlir.store into $C, i64 $IF_2
 int c = if true { 42 } else { a };
 
-/// * (?<D>$t) = hlir.local_var
+/// * (?<D>$t) = hlir.local !hlir.ref<i64>
 /// + (?<T_3>$t) = arith.constant false
 /// + cf.cond_br $T_3, (?<TRUE_3>$b), (?<FALSE_3>$b)
 /// + $TRUE_3:
@@ -40,14 +40,14 @@ int c = if true { 42 } else { a };
 /// + $FALSE_3:
 /// + cf.br $JOIN_3($C
 /// + $JOIN_3((?<IF_3>$t)
-/// + hlir.store into $D : [^%]+, $IF_3
+/// + hlir.store into $D, !hlir.ref<i64> $IF_3
 int& d = if false { b } else { c };
 
 /// + (?<T_4>$t) = arith.constant true
 /// + cf.cond_br $T_4, (?<TRUE_4>$b), (?<JOIN_4>$b)
 /// + $TRUE_4:
-/// + (?<A_3>$t) = hlir.load $A
-/// + hlir.store into $A : [^%]+, $A_3
+/// + (?<A_3>$t) = hlir.load i64 from $A
+/// + hlir.store into $A, i64 $A_3
 /// + cf.br $JOIN_4
 /// + $JOIN_4:
 if true then a = a;
