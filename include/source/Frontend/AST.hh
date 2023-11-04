@@ -190,6 +190,9 @@ public:
         /// Strip all references from this type.
         readonly_decl(TypeHandle, strip_refs);
 
+        /// Strip all references and pointers from this type.
+        readonly_decl(TypeHandle, strip_refs_and_pointers);
+
         /// Check if this type logically yields a value, i.e. is not
         /// void or noreturn.
         readonly_decl(bool, yields_value);

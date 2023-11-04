@@ -338,8 +338,8 @@ auto src::Expr::TypeHandle::_ref_depth() -> isz {
     isz depth = 0;
     for (
         auto th = *this;
-        isa<ReferenceType>(th);
-        th = cast<ReferenceType>(th)->elem
+        isa<ReferenceType, ScopedPointerType>(th);
+        th = cast<SingleElementTypeBase>(th)->elem
     ) depth++;
     return depth;
 }
@@ -583,6 +583,12 @@ done:
 
 auto src::Expr::TypeHandle::_strip_refs() -> TypeHandle {
     if (auto r = dyn_cast<ReferenceType>(ptr)) return r->elem->as_type.strip_refs;
+    return *this;
+}
+
+auto src::Expr::TypeHandle::_strip_refs_and_pointers() -> TypeHandle {
+    if (isa<ReferenceType, ScopedPointerType>(ptr))
+        return cast<SingleElementTypeBase>(ptr)->elem->as_type.strip_refs;
     return *this;
 }
 

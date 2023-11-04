@@ -14,9 +14,9 @@ bool src::Sema::Convert(Expr*& e, Expr* type) {
     /// Place conversions involving reference first, as we may
     /// have to chain several conversions to get e.g. from an
     /// `i32&` to an `i64`.
-    if (isa<ReferenceType>(from) or isa<ReferenceType>(to)) {
+    if (isa<ReferenceType, ScopedPointerType>(from) or isa<ReferenceType>(to)) {
         /// Base types are equal.
-        if (Type::Equal(from.strip_refs, to.strip_refs)) {
+        if (Type::Equal(from.strip_refs_and_pointers, to.strip_refs)) {
             auto from_depth = from.ref_depth;
             auto to_depth = to.ref_depth;
 
@@ -333,8 +333,18 @@ bool src::Sema::Analyse(Expr*& e) {
 
         /// Unconditional branch.
         case Expr::Kind::GotoExpr: {
-            Todo();
-        }
+            /// Only check if the label exists; more sophisticated
+            /// validation will be performed later on in HLIR.
+            auto g = cast<GotoExpr>(e);
+            auto l = curr_proc->labels.find(g->label);
+            if (l == curr_proc->labels.end()) return Error(
+                e,
+                "Unknown label '{}'",
+                g->label
+            );
+
+            g->target = l->second;
+        } break;
 
         /// Return expressions.
         case Expr::Kind::ReturnExpr: {
@@ -579,7 +589,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// once, yielding an lvalue.
                 case CastKind::ReferenceToLValue:
                     if (m->operand->is_lvalue) m->cast_kind = CastKind::LValueRefToLValue;
-                    m->stored_type = cast<ReferenceType>(m->operand->type)->elem;
+                    m->stored_type = cast<SingleElementTypeBase>(m->operand->type)->elem;
                     m->is_lvalue = true;
                     break;
 
@@ -611,7 +621,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Dereference the object until we get an lvalue.
             InsertImplicitDereference(m->object, m->object->type.ref_depth);
-            auto desugared = m->object->type.desugared.strip_refs;
+            auto desugared = m->object->type.desugared.strip_refs_and_pointers;
 
             /// A slice type has a `data` and a `size` member.
             ///
@@ -1009,9 +1019,11 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// Reference assignment.
                 ///
                 /// See [expr.binary.refassign] for an explanation of the algorithm below.
+                /// TODO: Investigate how references and scoped pointers interact here and
+                ///       whether all possible interactions are actually valid.
                 case Tk::RDblArrow: {
                     /// 1.
-                    if (not isa<ReferenceType>(b->lhs->type)) return Error(
+                    if (not isa<ReferenceType, ScopedPointerType>(b->lhs->type)) return Error(
                         b,
                         "LHS of reference binding must be a reference, but was '{}'",
                         b->lhs->type
@@ -1023,7 +1035,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
                     /// 2/3.
                     if (not b->lhs->is_lvalue) InsertImplicitDereference(b->lhs, 1);
-                    if (not isa<ReferenceType>(b->lhs->type)) return Error(
+                    if (not isa<ReferenceType, ScopedPointerType>(b->lhs->type)) return Error(
                         b,
                         "LHS of reference binding is not an lvalue",
                         b->lhs->type

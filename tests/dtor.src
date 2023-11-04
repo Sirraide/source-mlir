@@ -32,7 +32,7 @@ x => new int;
 /// Goto is needed to generate the spaghetti code
 /// required to test this properly.
 if i goto foo; /// This crosses a potential deletion.
-else goto bar; /// This does not.
+elif i goto bar; /// This does not.
 
 if i then delete x;
 else {
