@@ -26,8 +26,10 @@ defer a();
 /// + cf.cond_br $T1, (?<BODY1>$b), (?<EXIT1>$b)
 /// + $BODY1:
 while t {
+    /// `foobar` is never branched to and it should thus
+    /// not affect codegen at all.
     defer b();
-    defer c();
+    foobar: defer c();
 
     /// + cf.br (?<COND2>$b)
     /// + $COND2:
@@ -56,6 +58,11 @@ while t {
             while t {
                 defer f();
 
+                /// Label is branched to and thus creates a new block.
+                /// + cf.br (?<LABEL1>$b)
+                /// + $LABEL1:
+                same_region:
+
                 /// 0 executes f()
                 /// + (?<T5>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T5, (?<THEN1>$b), (?<ELSE1>$b)
@@ -65,25 +72,41 @@ while t {
                 if t then break;
                 /// + $ELSE1:
 
+                /// Branch upwards in the same region without crossing
+                /// deferred material is simply a branch.
+                /// + (?<Tg1>$t) = hlir.load i1 from $T
+                /// + cf.cond_br $Tg1, (?<THENg1>$b), (?<ELSEg1>$b)
+                /// + $THENg1:
+                /// + cf.br $LABEL1
+                if t then goto same_region;
+                /// + $ELSEg1:
+
                 defer g();
 
-                /// 1 executes g(), f()
+                /// 0 executes f()
+                /// 1 executes g()
                 /// 2 executes e()
                 /// + (?<T6>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T6, (?<THEN2>$b), (?<ELSE2>$b)
                 /// + $THEN2:
                 /// + call @__src_defer_proc_1($T, $Q)
+                /// + call @__src_defer_proc_0($T, $Q)
                 /// + call @__src_defer_proc_2($T, $Q)
                 /// + cf.br $EXIT3
                 if t then break loop2;
                 /// + $ELSE2:
 
-                /// 1 executes g(), f()
+                /// 0 executes f()
+                /// 1 executes g()
                 /// + call @__src_defer_proc_1($T, $Q)
+                /// + call @__src_defer_proc_0($T, $Q)
                 /// + cf.br $COND4
             }
 
             /// + $EXIT4:
+            /// + cf.br (?<LABEL2>$b)
+            /// + $LABEL2:
+            one_scope_up:
             defer h();
 
             /// + cf.br (?<COND5>$b)
@@ -97,14 +120,30 @@ while t {
                 int w;
                 defer i();
 
+                /// This one is a bit more painful; we jump back across a
+                /// deferred expression, which means we need to emit it when
+                /// we branch.
                 /// 3 executes i()
-                /// 4 executes h(), e()
+                /// 4 executes h()
+                /// + (?<Tg2>$t) = hlir.load i1 from $T
+                /// + cf.cond_br $Tg2, (?<THENg2>$b), (?<ELSEg2>$b)
+                /// + $THENg2:
+                /// + call @__src_defer_proc_3($T, $Q, $W)
+                /// + call @__src_defer_proc_4($T, $Q)
+                /// + cf.br $LABEL2
+                if t then goto one_scope_up;
+                /// + $ELSEg2:
+
+                /// 3 executes i()
+                /// 4 executes h()
+                /// 2 executes e()
                 /// 5 executes d()
                 /// + (?<T8>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T8, (?<THEN3>$b), (?<ELSE3>$b)
                 /// + $THEN3:
                 /// + call @__src_defer_proc_3($T, $Q, $W)
                 /// + call @__src_defer_proc_4($T, $Q)
+                /// + call @__src_defer_proc_2($T, $Q)
                 /// + call @__src_defer_proc_5($T, $Q)
                 /// + cf.br $COND2
                 if t then continue loop;
@@ -142,7 +181,8 @@ while t {
                 /// + $ELSE5:
 
                 /// 6 executes j()
-                /// 4 executes h(), e()
+                /// 4 executes h()
+                /// 2 executes e()
                 /// 5 executes d()
                 /// 7 executes c(), b()
                 /// 8 executes a()
@@ -151,6 +191,7 @@ while t {
                 /// + $THEN6:
                 /// + call @__src_defer_proc_6($T, $Q)
                 /// + call @__src_defer_proc_4($T, $Q)
+                /// + call @__src_defer_proc_2($T, $Q)
                 /// + call @__src_defer_proc_5($T, $Q)
                 /// + call @__src_defer_proc_7($T)
                 /// + call @__src_defer_proc_8($T)
@@ -162,25 +203,29 @@ while t {
                 defer k();
 
                 /// 9 executes k(), j()
-                /// 4 executes h(), e()
+                /// 4 executes h()
+                /// 2 executes e()
                 /// 5 executes d()
                 /// + (?<T13>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T13, (?<THEN7>$b), (?<ELSE7>$b)
                 /// + $THEN7:
                 /// + call @__src_defer_proc_9($T, $Q)
                 /// + call @__src_defer_proc_4($T, $Q)
+                /// + call @__src_defer_proc_2($T, $Q)
                 /// + call @__src_defer_proc_5($T, $Q)
                 /// + cf.br $EXIT2
                 if t break loop;
                 /// + $ELSE7:
 
                 /// 9 executes k(), j()
-                /// 4 executes h(), e()
+                /// 4 executes h()
+                /// 2 executes e()
                 /// + (?<T14>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T14, (?<THEN8>$b), (?<ELSE8>$b)
                 /// + $THEN8:
                 /// + call @__src_defer_proc_9($T, $Q)
                 /// + call @__src_defer_proc_4($T, $Q)
+                /// + call @__src_defer_proc_2($T, $Q)
                 /// + cf.br $COND3
                 if t continue loop2;
                 /// + $ELSE8:
@@ -190,9 +235,11 @@ while t {
                 /// + cf.br $COND6
             }
 
-            /// 4 executes h(), e()
+            /// 2 executes e()
+            /// 4 executes h()
             /// + $EXIT6:
             /// + call @__src_defer_proc_4($T, $Q)
+            /// + call @__src_defer_proc_2($T, $Q)
             /// + cf.br $COND3
         }
 
@@ -231,11 +278,10 @@ while t {
 /// + call_indirect $F
 /// + return
 
-/// 1 executes g(), f()
+/// 1 executes g()
 /// * func.func private @__src_defer_proc_1
 /// + (?<G>$t) = constant @g
 /// + call_indirect $G
-/// + call @__src_defer_proc_0
 /// + return
 
 /// 2 executes e()
@@ -250,11 +296,10 @@ while t {
 /// + call_indirect $I
 /// + return
 
-/// 4 executes h(), e()
+/// 4 executes h()
 /// * func.func private @__src_defer_proc_4
 /// + (?<H>$t) = constant @h
 /// + call_indirect $H
-/// + call @__src_defer_proc_2
 /// + return
 
 /// 5 executes d()

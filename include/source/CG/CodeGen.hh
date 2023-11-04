@@ -115,8 +115,9 @@ class CodeGen {
         /// Get the current defer stack.
         auto CurrentStack() -> Stack&;
 
-        /// Emit the contents of a stack.
-        void Emit(Stack& s, bool compact, Expr* stop_at);
+        /// Emit the contents of a stack. Returns whether the
+        /// expression we should stop at was found.
+        bool Emit(Stack& s, bool compact, Expr* stop_at);
 
         /// Emit the contents of a stacklet.
         void Emit(Stacklet& s);

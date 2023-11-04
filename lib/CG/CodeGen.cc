@@ -410,7 +410,7 @@ void src::CodeGen::DeferInfo::AddDeferredExpression(Expr* e) {
 }
 
 void src::CodeGen::DeferInfo::AddLabel(LabelExpr* e) {
-    CurrentStack().stacklets.emplace_back(Stacklet{.label = e});
+    CurrentStack().stacklets.push_back(Stacklet{.label = e});
 }
 
 void src::CodeGen::DeferInfo::AddLocal(mlir::Value val) {
@@ -419,7 +419,7 @@ void src::CodeGen::DeferInfo::AddLocal(mlir::Value val) {
 
 void src::CodeGen::DeferInfo::EmitDeferStacksUpTo(Expr* stop_at) {
     for (auto& scope_stack : Iterate(stop_at)) {
-        Emit(scope_stack, true, stop_at);
+        if (Emit(scope_stack, true, stop_at)) return;
 
         /// Stop after the scope if this is the scope we’re looking for.
         if (scope_stack.scope_tag and stop_at and scope_stack.scope_tag == stop_at) return;
@@ -439,14 +439,17 @@ auto src::CodeGen::DeferInfo::CurrentStack() -> Stack& {
     return stacks.back();
 }
 
-void src::CodeGen::DeferInfo::Emit(Stack& s, bool compact, Expr* stop_at) {
-    for (auto& stacklet : s.stacklets) {
+bool src::CodeGen::DeferInfo::Emit(Stack& s, bool compact, Expr* stop_at) {
+    for (auto& stacklet : vws::reverse(s.stacklets)) {
         if (compact) Compact(stacklet);
         Emit(stacklet);
 
         /// Stop after this stacklet if this is the label we’re looking for.
-        if (stacklet.label and stop_at and stacklet.label == stop_at) return;
+        if (stacklet.label and stop_at and stacklet.label == stop_at) return true;
     }
+
+    /// Label was not found.
+    return false;
 }
 
 void src::CodeGen::DeferInfo::Emit(Stacklet& s) {
@@ -460,7 +463,7 @@ void src::CodeGen::DeferInfo::Return(bool last_instruction_in_function) {
     /// later anyway in that case.
     const bool needs_compact = not last_instruction_in_function;
     for (auto& stack : Iterate(nullptr)) {
-        for (auto& stacklet : stack.stacklets) {
+        for (auto& stacklet : vws::reverse(stack.stacklets)) {
             if (needs_compact) Compact(stacklet);
             Emit(stacklet);
         }
