@@ -141,10 +141,18 @@ while t {
                 /// + cf.br $LABEL2
                 if t then goto one_scope_up;
 
+                /// This is the same as the previous goto, but it jumps
+                /// out of the scope and forward.
                 /// + $ELSEg3:
                 /// + cf.br $LABEL3
                 /// + $LABEL3:
-                forward:
+                /// + (?<Tg4>$t) = hlir.load i1 from $T
+                /// + cf.cond_br $Tg4, (?<THENg4>$b), (?<ELSEg4>$b)
+                /// + $THENg4:
+                /// + call @__src_defer_proc_3($T, $Q, $W)
+                /// + cf.br (?<LABEL4>$b)
+                forward: if t then goto forward2;
+                /// + $ELSEg4
 
                 /// 3 executes i()
                 /// 4 executes h()
@@ -166,6 +174,10 @@ while t {
             }
 
             /// + $EXIT5:
+            /// + cf.br $LABEL4
+            /// + $LABEL4:
+            forward2:
+
             /// + cf.br (?<COND6>$b)
             /// + $COND6:
             /// + (?<T9>$t) = hlir.load i1 from $T
