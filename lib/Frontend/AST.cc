@@ -947,10 +947,23 @@ struct ASTPrinter {
                 return;
             }
 
-            case K::BlockExpr:
-                if (cast<BlockExpr>(e)->implicit) out += fmt::format("{}Implicit ", C(Red));
-                PrintBasicNode("BlockExpr", e, e->type);
+            case K::BlockExpr: {
+                auto b = cast<BlockExpr>(e);
+                if (b->implicit) out += fmt::format("{}Implicit ", C(Red));
+                out += fmt::format(
+                    "{}BlockExpr {}{}{}:{}{} {}<{}> {}\n",
+                    C(Red),
+                    C(Blue),
+                    fmt::ptr(e),
+                    C(Red),
+                    C(Blue),
+                    fmt::ptr(b->scope),
+                    C(Magenta),
+                    e->location.pos,
+                    b->type.str(use_colour)
+                );
                 return;
+            }
 
             case K::InvokeExpr: PrintBasicNode("InvokeExpr", e, e->type); return;
 

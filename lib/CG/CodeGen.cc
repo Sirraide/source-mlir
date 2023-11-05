@@ -417,7 +417,7 @@ void src::CodeGen::DeferInfo::AddLocal(mlir::Value val) {
     vars.push_back(val);
 }
 
-void src::CodeGen::DeferInfo::EmitDeferStacksUpTo(Scope* scope, LabelExpr* stacklet) {
+void src::CodeGen::DeferInfo::EmitDeferStacksUpTo(Scope* scope, void* stacklet) {
     for (auto& s : Iterate(scope)) {
         /// If this is the scope that we should stop at, and there is
         /// a stacklet we are looking for, but that stacklet does not
@@ -452,7 +452,7 @@ auto src::CodeGen::DeferInfo::CurrentStack() -> Stack& {
     return stacks.back();
 }
 
-bool src::CodeGen::DeferInfo::Emit(Stack& s, bool compact, Expr* stop_at) {
+bool src::CodeGen::DeferInfo::Emit(Stack& s, bool compact, void* stop_at) {
     for (auto& stacklet : vws::reverse(s.stacklets)) {
         if (compact) Compact(stacklet);
         Emit(stacklet);
@@ -470,6 +470,24 @@ void src::CodeGen::DeferInfo::Emit(Stacklet& s) {
     if (s.compacted) CallCleanupFunc(s.compacted);
 }
 
+bool src::CodeGen::DeferInfo::HasStackFor(Scope* sc) {
+    return rgs::contains(stacks, sc, &Stack::scope);
+}
+
+void src::CodeGen::DeferInfo::Print() {
+    for (auto& stack : stacks) {
+        fmt::print("Stack for {}\n", fmt::ptr(stack.scope));
+        for (auto& stacklet : stack.stacklets) {
+            fmt::print("  Stacklet for {}\n", fmt::ptr(stacklet.label));
+            if (stacklet.compacted) fmt::print("    {}\n", stacklet.compacted.getName());
+            for (auto& e : stacklet.deferred_material) {
+                fmt::print("    ");
+                e->print(false);
+            }
+        }
+    }
+}
+
 void src::CodeGen::DeferInfo::Return(bool last_instruction_in_function) {
     /// Compact only if this is not the last expression
     /// in the function, as we won’t be needing the stacks
@@ -483,11 +501,12 @@ void src::CodeGen::DeferInfo::Return(bool last_instruction_in_function) {
     }
 }
 
-src::CodeGen::DeferInfo::BlockGuard::BlockGuard(DeferInfo& DI, Scope* sc, mlir::Location loc)
+src::CodeGen::DeferInfo::BlockGuard::BlockGuard(DeferInfo& DI, BlockExpr* b, mlir::Location loc)
     : DI(DI),
       vars_count(DI.vars.size()),
       location(loc) {
-    DI.stacks.emplace_back(sc);
+    if (not DI.Empty()) DI.CurrentStack().stacklets.push_back({.label = b->scope});
+    DI.stacks.emplace_back(b->scope);
 }
 
 src::CodeGen::DeferInfo::BlockGuard::~BlockGuard() {
@@ -498,15 +517,6 @@ src::CodeGen::DeferInfo::BlockGuard::~BlockGuard() {
 
     /// Remove our stack.
     DI.vars.resize(vars_count);
-    DI.stacks.pop_back();
-}
-
-src::CodeGen::DeferInfo::LoopGuard::LoopGuard(DeferInfo& DI, WhileExpr* loop) : DI(DI) {
-    DI.stacks.emplace_back(loop->body->scope);
-}
-
-src::CodeGen::DeferInfo::LoopGuard::~LoopGuard() {
-    Assert(DI.stacks.back().scope, "Defer stack corrupted");
     DI.stacks.pop_back();
 }
 
@@ -876,9 +886,32 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::GotoExpr: {
-            /// Emit material deferred after the label we’re branching to.
             auto g = cast<GotoExpr>(expr);
-            DI.EmitDeferStacksUpTo(g->target->parent, g->target);
+
+            /// Cross jumps back into a scope that has already been processed
+            /// need to be handled differently since that scope will no longer
+            /// be on the stack. However, since we’ve created a stacklet for
+            /// every subscope, we should be able to find its parent and unwind
+            /// back to it.
+            Scope* parent = g->target->parent;
+            void* stacklet = g->target;
+            if (not DI.HasStackFor(g->target->parent)) {
+                auto p = g->target->parent;
+                for (; p->parent; p = p->parent) {
+                    if (DI.HasStackFor(p->parent)) {
+                        parent = p->parent;
+                        stacklet = p;
+                        break;
+                    }
+                }
+
+                /// If we couldn’t find a single parent, then there’s something
+                /// very wrong here.
+                Assert(p->parent, "Invalid cross jump");
+            }
+
+            /// Emit material deferred after the label we’re branching to.
+            DI.EmitDeferStacksUpTo(parent, stacklet);
             Create<mlir::cf::BranchOp>(
                 g->location.mlir(ctx),
                 g->target->block
@@ -941,7 +974,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::BlockExpr: {
             auto e = cast<BlockExpr>(expr);
-            DeferInfo::BlockGuard guard{DI, e->scope, expr->location.mlir(ctx)};
+            DeferInfo::BlockGuard guard{DI, e, expr->location.mlir(ctx)};
 
             /// Add all function parameters if this is a function body.
             if (curr_proc->body == expr)
@@ -1104,7 +1137,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::WhileExpr: {
             auto w = cast<WhileExpr>(expr);
-            DeferInfo::LoopGuard guard{DI, w};
 
             /// Create a new block for the condition so we can branch
             /// to it and emit the condition there.

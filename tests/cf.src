@@ -56,6 +56,9 @@ while t {
             /// + cf.cond_br $T4, (?<BODY4>$b), (?<EXIT4>$b)
             /// + $BODY4:
             while t {
+                /// + cf.br (?<LABEL5>$b)
+                /// + $LABEL5:
+                { { { nested:; } } }
                 defer f();
 
                 /// Label is branched to and thus creates a new block.
@@ -152,7 +155,17 @@ while t {
                 /// + call @__src_defer_proc_3($T, $Q, $W)
                 /// + cf.br (?<LABEL4>$b)
                 forward: if t then goto forward2;
+
+                /// Cross jump back into a different while loop.
                 /// + $ELSEg4
+                /// + (?<Tg5>$t) = hlir.load i1 from $T
+                /// + cf.cond_br $Tg5, (?<THENg5>$b), (?<ELSEg5>$b)
+                /// + $THENg5:
+                /// + call @__src_defer_proc_3($T, $Q, $W)
+                /// + call @__src_defer_proc_4($T, $Q)
+                /// + cf.br $LABEL5
+                if t then goto nested;
+                /// + $ELSEg5:
 
                 /// 3 executes i()
                 /// 4 executes h()
@@ -226,7 +239,8 @@ while t {
 
                 defer k();
 
-                /// 9 executes k(), j()
+                /// 6 executes j()
+                /// 9 executes k(),
                 /// 4 executes h()
                 /// 2 executes e()
                 /// 5 executes d()
@@ -234,6 +248,7 @@ while t {
                 /// + cf.cond_br $T13, (?<THEN7>$b), (?<ELSE7>$b)
                 /// + $THEN7:
                 /// + call @__src_defer_proc_9($T, $Q)
+                /// + call @__src_defer_proc_6($T, $Q)
                 /// + call @__src_defer_proc_4($T, $Q)
                 /// + call @__src_defer_proc_2($T, $Q)
                 /// + call @__src_defer_proc_5($T, $Q)
@@ -241,21 +256,24 @@ while t {
                 if t break loop;
                 /// + $ELSE7:
 
-                /// 9 executes k(), j()
+                /// 6 executes j()
+                /// 9 executes k()
                 /// 4 executes h()
                 /// 2 executes e()
                 /// + (?<T14>$t) = hlir.load i1 from $T
                 /// + cf.cond_br $T14, (?<THEN8>$b), (?<ELSE8>$b)
                 /// + $THEN8:
                 /// + call @__src_defer_proc_9($T, $Q)
+                /// + call @__src_defer_proc_6($T, $Q)
                 /// + call @__src_defer_proc_4($T, $Q)
                 /// + call @__src_defer_proc_2($T, $Q)
                 /// + cf.br $COND3
                 if t continue loop2;
                 /// + $ELSE8:
 
-                /// 9 executes k(), j()
+                /// 9 executes k()
                 /// + call @__src_defer_proc_9($T, $Q)
+                /// + call @__src_defer_proc_6($T, $Q)
                 /// + cf.br $COND6
             }
 
@@ -270,17 +288,21 @@ while t {
         /// + $EXIT3:
         defer l();
 
-        /// 10 executes l(), d()
+        /// 5 executes d()
+        /// 10 executes l()
         /// + (?<T15>$t) = hlir.load i1 from $T
         /// + cf.cond_br $T15, (?<THEN9>$b), (?<ELSE9>$b)
         /// + $THEN9:
         /// + call @__src_defer_proc_10($T, $Q)
+        /// + call @__src_defer_proc_5($T, $Q)
         /// + cf.br $EXIT2
         if t then break;
         /// + $ELSE9:
 
-        /// 10 executes l(), d()
+        /// 5 executes d()
+        /// 10 executes l()
         /// + call @__src_defer_proc_10($T, $Q)
+        /// + call @__src_defer_proc_5($T, $Q)
         /// + cf.br $COND2
     }
 
@@ -352,16 +374,14 @@ while t {
 /// + call_indirect $A
 /// + return
 
-/// 9 executes k(), j()
+/// 9 executes k()
 /// * func.func private @__src_defer_proc_9
 /// + (?<K>$t) = constant @k
 /// + call_indirect $K
-/// + call @__src_defer_proc_6
 /// + return
 
-/// 10 executes l(), d()
+/// 10 executes l()
 /// * func.func private @__src_defer_proc_10
 /// + (?<L>$t) = constant @l
 /// + call_indirect $L
-/// + call @__src_defer_proc_5
 /// + return

@@ -47,6 +47,7 @@ defer e();
 /// + cf.cond_br $C2, (?<TRUE_2>$b)
 /// + $TRUE_2:
 /// + call @__src_defer_proc_2($I, $K)
+/// + call @__src_defer_proc_1($I)
 /// + return
 if cond() return;
 defer f();
@@ -54,6 +55,7 @@ defer f();
 /// * (?<F>$t) = constant @f
 /// + call_indirect $F
 /// + call @__src_defer_proc_2($I, $K)
+/// + call @__src_defer_proc_1($I)
 /// + return
 
 
@@ -70,4 +72,3 @@ defer f();
 /// * func.func private @__src_defer_proc_2
 /// * (?<E>$t) = constant @e
 /// + call_indirect $E
-/// + call @__src_defer_proc_1

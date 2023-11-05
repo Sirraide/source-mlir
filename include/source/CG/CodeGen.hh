@@ -32,12 +32,16 @@ class CodeGen {
     /// associated with a ‘stacklet’ that holds deferred material
     /// for that region. The former stacks are called ‘scope stacks’.
     ///
+    /// Since nested scopes can be arbitrarily complex and contain
+    /// labels that we might want to branch to, each subscope also
+    /// gets its own region.
+    ///
     /// Below, ‘the procedure proper’ refers to the parts of a proc
     /// that are not part of a deferred expression.
     class DeferInfo {
         /// Stacklet for a region that holds deferred material.
         struct Stacklet {
-            LabelExpr* label{};
+            void* label{}; /// LabelExpr* or Scope*
             SmallVector<Expr*> deferred_material{};
             mlir::func::FuncOp compacted{};
             usz vars_count{};
@@ -76,17 +80,8 @@ class CodeGen {
             mlir::Location location;
 
         public:
-            BlockGuard(DeferInfo& DI, Scope* sc, mlir::Location loc);
+            BlockGuard(DeferInfo& DI, BlockExpr* b, mlir::Location loc);
             ~BlockGuard();
-        };
-
-        /// RAII guard for entering a loop.
-        class LoopGuard {
-            DeferInfo& DI;
-
-        public:
-            LoopGuard(DeferInfo& DI, WhileExpr* loop);
-            ~LoopGuard();
         };
 
         /// Initialise defer info.
@@ -102,7 +97,16 @@ class CodeGen {
         void AddLocal(mlir::Value val);
 
         /// Emit all defer stacks up to a labelled expression.
-        void EmitDeferStacksUpTo(Scope* scope, LabelExpr* stacklet);
+        void EmitDeferStacksUpTo(Scope* scope, void* stacklet);
+
+        /// Check if the defer stack is empty.
+        bool Empty() { return stacks.empty(); }
+
+        /// Check if there is a stack for a scope on the defer stack.
+        bool HasStackFor(Scope* sc);
+
+        /// Print the defer stack.
+        void Print();
 
         /// Emit all defer stacks for a return expression.
         void Return(bool last_instruction_in_function);
@@ -119,7 +123,7 @@ class CodeGen {
 
         /// Emit the contents of a stack. Returns whether the
         /// expression we should stop at was found.
-        bool Emit(Stack& s, bool compact, Expr* stop_at);
+        bool Emit(Stack& s, bool compact, void* stop_at);
 
         /// Emit the contents of a stacklet.
         void Emit(Stacklet& s);
