@@ -38,6 +38,30 @@ void hlir::ArrayDecayOp::print(OpAsmPrinter& p) {
 
 auto hlir::ArrayDecayOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
+void hlir::CallOp::print(OpAsmPrinter& p) {
+    if (getInlineCall()) p << " inline";
+    if (auto cc = getCc().getCallingConv(); cc != LLVM::CConv::C)
+        p << " " << LLVM::cconv::stringifyCConv(cc);
+    p << " @" << getCallee();
+
+    auto args = getOperands();
+    if (not args.empty()) {
+        p << "(";
+        bool first = true;
+        for (auto arg : args) {
+            if (first) first = false;
+            else p << ", ";
+            p << arg;
+        }
+        p << ")";
+    }
+
+    auto res = getYield();
+    if (res != Value{}) p << " -> " << res.getType();
+}
+
+auto hlir::CallOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
 void hlir::ChainExtractLocalOp::print(OpAsmPrinter& p) {
     p << " chain " << getStructRef() << ", " << getIdx().getValue().getZExtValue();
 }
@@ -50,8 +74,12 @@ void hlir::DeleteOp::print(OpAsmPrinter& p) {
 
 auto hlir::DeleteOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
-auto hlir::FuncOp::parse(OpAsmParser& parser, OperationState& result) -> ParseResult {
-    /// Dispatch to function op interface.
+auto hlir::FuncOp::parse(
+    [[maybe_unused]] OpAsmParser& parser,
+    [[maybe_unused]] OperationState& result
+) -> ParseResult {
+    Todo();
+    /*/// Dispatch to function op interface.
     static const auto build_func_type =
         [](
             Builder& builder,
@@ -69,19 +97,47 @@ auto hlir::FuncOp::parse(OpAsmParser& parser, OperationState& result) -> ParseRe
         build_func_type,
         getArgAttrsAttrName(result.name),
         getResAttrsAttrName(result.name)
-    );
+    );*/
 }
 
 void hlir::FuncOp::print(OpAsmPrinter& p) {
-    /// Dispatch to function op interface.
-    function_interface_impl::printFunctionOp(
+    p << " " << LLVM::linkage::stringifyLinkage(getLinkage().getLinkage()) << " ";
+    if (getCc().getCallingConv() != LLVM::CConv::C)
+        p << LLVM::cconv::stringifyCConv(getCc().getCallingConv()) << " ";
+
+    p.printSymbolName(getName());
+
+    auto ftype = getFunctionType();
+    if (auto params = ftype.getNumInputs()) {
+        p << "(";
+        for (unsigned i = 0; i < params; i++) {
+            if (i != 0) p << ", ";
+            p << ftype.getInput(i);
+        }
+        p << ")";
+
+        if (ftype.getNumResults()) {
+            Assert(ftype.getNumResults() == 1);
+            p << " -> " << ftype.getResult(0);
+        }
+    }
+
+    function_interface_impl::printFunctionAttributes(
         p,
         *this,
-        false,
-        getFunctionTypeAttrName(),
-        getArgAttrsAttrName(),
-        getResAttrsAttrName()
+        {
+            getFunctionTypeAttrName(),
+            getArgAttrsAttrName(),
+            getResAttrsAttrName(),
+            getLinkageAttrName(),
+            getCcAttrName(),
+        }
     );
+
+    if (auto& body = getBody(); not body.empty()) {
+        p << " ";
+        p.printRegion(body, false, true);
+    }
 }
 
 void hlir::InvokeClosureOp::print(OpAsmPrinter& p) {
@@ -96,7 +152,6 @@ void hlir::InvokeClosureOp::print(OpAsmPrinter& p) {
 }
 
 auto hlir::InvokeClosureOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
-
 
 void hlir::LiteralOp::print(OpAsmPrinter& p) {
     if (auto s = dyn_cast<SliceType>(getType())) {
@@ -192,16 +247,12 @@ auto hlir::CallOp::verifySymbolUses(SymbolTableCollection& symbolTable) -> Logic
                 << fnType.getInput(i) << ", but provided "
                 << getOperand(i).getType() << " for operand number " << i;
 
-    if (fnType.getNumResults() != getNumResults())
-        return emitOpError("incorrect number of results for callee");
-
-    for (unsigned i = 0, e = fnType.getNumResults(); i != e; ++i)
-        if (getResult(i).getType() != fnType.getResult(i)) {
-            auto diag = emitOpError("result type mismatch at index ") << i;
-            diag.attachNote() << "      op result types: " << getResultTypes();
-            diag.attachNote() << "function result types: " << fnType.getResults();
-            return diag;
-        }
+    if (getYield() and getYield().getType() != fnType.getResult(0)) {
+        auto diag = emitOpError("result type mismatch");
+        diag.attachNote() << "      op result types: " << getYield().getType();
+        diag.attachNote() << "function result types: " << fnType.getResults();
+        return diag;
+    }
 
     return success();
 }

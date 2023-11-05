@@ -2,80 +2,80 @@
 
 /// d t %[0-9a-zA-Z_]+
 
-/// * func.func public @__src_main
-/// + (?<A>$t) = hlir.local i64
+/// * hlir.func external @__src_main
+/// + (?<A>$t) = local i64
 i64 a = 42;
 
 /// ===== TRUNCATING CASTS  =====
-/// * (?<B>$t) = hlir.local i8
-/// + (?<A_1>$t) = hlir.load i64 from $A
+/// * (?<B>$t) = local i8
+/// + (?<A_1>$t) = load i64 from $A
 /// + (?<ATRUNC_1>$t) = arith.trunci $A_1 : i64 to i8
-/// + hlir.store into $B, i8 $ATRUNC_1
+/// + store into $B, i8 $ATRUNC_1
 i8 b = a as i8;
 
-/// * (?<C>$t) = hlir.local i16
-/// + (?<A_2>$t) = hlir.load i64 from $A
+/// * (?<C>$t) = local i16
+/// + (?<A_2>$t) = load i64 from $A
 /// + (?<ATRUNC_2>$t) = arith.trunci $A_2 : i64 to i16
-/// + hlir.store into $C, i16 $ATRUNC_2
+/// + store into $C, i16 $ATRUNC_2
 i16 c = a as i16;
 
-/// * (?<D>$t) = hlir.local i32
-/// + (?<A_3>$t) = hlir.load i64 from $A
+/// * (?<D>$t) = local i32
+/// + (?<A_3>$t) = load i64 from $A
 /// + (?<ATRUNC_3>$t) = arith.trunci $A_3 : i64 to i32
-/// + hlir.store into $D, i32 $ATRUNC_3
+/// + store into $D, i32 $ATRUNC_3
 i32 d = a as i32;
 
-/// * (?<E>$t) = hlir.local i64
-/// + (?<A_4>$t) = hlir.load i64 from $A
-/// + hlir.store into $E, i64 $A_4
+/// * (?<E>$t) = local i64
+/// + (?<A_4>$t) = load i64 from $A
+/// + store into $E, i64 $A_4
 i64 e = a as i64;
 
-/// * (?<F>$t) = hlir.local i1
-/// + (?<A_5>$t) = hlir.load i64 from $A
+/// * (?<F>$t) = local i1
+/// + (?<A_5>$t) = load i64 from $A
 /// + (?<ATRUNC_5>$t) = arith.trunci $A_5 : i64 to i1
-/// + hlir.store into $F, i1 $ATRUNC_5
+/// + store into $F, i1 $ATRUNC_5
 bool f = a as bool;
 
 /// ===== SIGN-EXTENDING CASTS  =====
-/// * (?<G>$t) = hlir.local i8
+/// * (?<G>$t) = local i8
 i8 g = 42 as i8;
 
-/// * (?<H>$t) = hlir.local i16
-/// + (?<G_1>$t) = hlir.load i8 from $G
+/// * (?<H>$t) = local i16
+/// + (?<G_1>$t) = load i8 from $G
 /// + (?<GSEXT_1>$t) = arith.extsi $G_1 : i8 to i16
-/// + hlir.store into $H, i16 $GSEXT_1
+/// + store into $H, i16 $GSEXT_1
 i16 h = g as i16;
 
-/// * (?<I>$t) = hlir.local i32
-/// + (?<G_2>$t) = hlir.load i8 from $G
+/// * (?<I>$t) = local i32
+/// + (?<G_2>$t) = load i8 from $G
 /// + (?<GSEXT_2>$t) = arith.extsi $G_2 : i8 to i32
-/// + hlir.store into $I, i32 $GSEXT_2
+/// + store into $I, i32 $GSEXT_2
 i32 i = g as i32;
 
-/// * (?<J>$t) = hlir.local i64
-/// + (?<G_3>$t) = hlir.load i8 from $G
+/// * (?<J>$t) = local i64
+/// + (?<G_3>$t) = load i8 from $G
 /// + (?<GSEXT_3>$t) = arith.extsi $G_3 : i8 to i64
-/// + hlir.store into $J, i64 $GSEXT_3
+/// + store into $J, i64 $GSEXT_3
 i64 j = g as i64;
 
 /// ===== ZERO-EXTENDING CASTS  =====
 /// Casts from `bool` and `i1` must ALWAYS zero-extend since
 /// sign-extension would cause 1 to become -1.
 
-/// * (?<K>$t) = hlir.local i1
+/// * (?<K>$t) = local i1
 bool k = true;
 
-/// * (?<L>$t) = hlir.local i1
+/// * (?<L>$t) = local i1
 i1 l = true;
 
-/// * (?<M>$t) = hlir.local i64
-/// + (?<K_1>$t) = hlir.load i1 from $K
+/// * (?<M>$t) = local i64
+/// + (?<K_1>$t) = load i1 from $K
 /// + (?<KZEXT_1>$t) = arith.extui $K_1 : i1 to i64
-/// + hlir.store into $M, i64 $KZEXT_1
+/// + store into $M, i64 $KZEXT_1
 i64 m = k as i64;
 
-/// * (?<N>$t) = hlir.local i64
-/// + (?<L_1>$t) = hlir.load i1 from $L
+/// * (?<N>$t) = local i64
+/// + (?<L_1>$t) = load i1 from $L
 /// + (?<LZEXT_1>$t) = arith.extui $L_1 : i1 to i64
-/// + hlir.store into $N, i64 $LZEXT_1
+/// + store into $N, i64 $LZEXT_1
 i64 n = l as i64;

@@ -81,7 +81,7 @@ auto src::CodeGen::EndLifetime([[maybe_unused]] LocalDecl* decl) {
     Todo();
 }
 
-void src::CodeGen::InitStaticChain(ProcDecl* proc, mlir::func::FuncOp func) {
+void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     if (proc->captured_locals.empty() and not proc->takes_static_chain) return;
 
     /// Collect all captured variables; static chain is first.
@@ -439,10 +439,12 @@ void src::CodeGen::DeferInfo::EmitDeferStacksUpTo(Scope* scope, void* stacklet) 
     Assert(not scope, "Entry not found in defer stack");
 }
 
-void src::CodeGen::DeferInfo::CallCleanupFunc(mlir::func::FuncOp func) {
-    CG.Create<mlir::func::CallOp>(
+void src::CodeGen::DeferInfo::CallCleanupFunc(hlir::FuncOp func) {
+    CG.Create<hlir::CallOp>(
         CG.builder.getUnknownLoc(),
         func,
+        true,
+        func.getCc().getCallingConv(),
         mlir::ValueRange{vars}.take_front(func.getNumArguments())
     );
 }
@@ -534,17 +536,6 @@ void src::CodeGen::DeferInfo::Compact(Stacklet& s) {
     /// We know that we need to compact, so prepare everything we need
     /// to be able to create a procedure to emit material into.
     mlir::OpBuilder::InsertionGuard guard(CG.builder);
-    mlir::NamedAttribute attrs[] = {
-        mlir::NamedAttribute{
-            CG.builder.getStringAttr("sym_visibility"),
-            CG.builder.getStringAttr("private"),
-        },
-
-        mlir::NamedAttribute{
-            CG.builder.getStringAttr("llvm.linkage"),
-            mlir::LLVM::LinkageAttr::get(CG.mctx, mlir::LLVM::Linkage::Private),
-        },
-    };
 
     /// ALL allocas that have been emitted up to this point are passed to
     /// deferred functions, which means that, while we are emitting the
@@ -559,20 +550,21 @@ void src::CodeGen::DeferInfo::Compact(Stacklet& s) {
 
     /// Actually create the function.
     CG.builder.setInsertionPointToEnd(CG.mod->mlir.getBody());
-    auto proc = CG.Create<mlir::func::FuncOp>(
+    auto proc = CG.Create<hlir::FuncOp>(
         CG.builder.getUnknownLoc(),
         fmt::format("__src_defer_proc_{}", defer_procs++),
-        func_type,
-        ArrayRef<mlir::NamedAttribute>{attrs}
+        mlir::LLVM::Linkage::Private,
+        mlir::LLVM::CConv::Fast,
+        func_type
     );
 
-    auto entry = proc.addEntryBlock();
+    auto entry = &proc.front();
     CG.builder.setInsertionPointToEnd(entry);
     tempset vars = decltype(vars){proc.getArguments().take_front(s.vars_count)};
 
     /// Compact stacklet.
     Emit(s);
-    if (not CG.Closed()) CG.Create<mlir::func::ReturnOp>(CG.builder.getUnknownLoc());
+    if (not CG.Closed()) CG.Create<hlir::ReturnOp>(CG.builder.getUnknownLoc(), mlir::Value{});
     s.deferred_material.clear();
     s.compacted = proc;
 }
@@ -605,9 +597,12 @@ void src::CodeGen::Generate(src::Expr* expr) {
             break;
 
         case Expr::Kind::InvokeExpr: {
-            /// Emit callee.
             auto e = cast<InvokeExpr>(expr);
-            Generate(e->callee);
+            auto d = dyn_cast<DeclRefExpr>(e->callee);
+            auto direct_call = d and isa<ProcDecl>(d->decl);
+
+            /// Emit callee only if this is not a direct call.
+            if (not direct_call) Generate(e->callee);
 
             /// Emit args.
             SmallVector<mlir::Value> args;
@@ -616,8 +611,38 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 args.push_back(a->mlir);
             }
 
+            /// Helper to emit a call operation.
+            auto EmitCall = [&](auto&& op_source) {
+                /// If the callee takes a static chain pointer, retrieve
+                /// it and add it to the argument list.
+                if (auto chain = cast<ProcType>(e->callee->type)->static_chain_parent)
+                    args.push_back(GetStaticChainPointer(chain));
+
+                /// We emit every call as an indirect call.
+                auto call_op = std::invoke(std::forward<decltype(op_source)>(op_source));
+
+                /// The operation only has a result if the function’s
+                /// return type is not void.
+                if (e->type.yields_value) e->mlir = call_op.getYield();
+            };
+
+            /// If the callee is a procedure decl, call it directly.
+            if (direct_call) {
+                EmitCall([&] { //
+                    auto proc = cast<ProcDecl>(d->decl);
+                    return Create<hlir::CallOp>(
+                        e->location.mlir(ctx),
+                        Type::Equal(proc->ret_type, Type::Void) ? mlir::TypeRange{} : Ty(proc->ret_type),
+                        proc->name,
+                        false,
+                        mlir::LLVM::CConvAttr::get(mctx, mlir::LLVM::CConv::C),
+                        args
+                    );
+                });
+            }
+
             /// If the callee is a closure, then use a special operation for that.
-            if (auto c = dyn_cast<ClosureType>(e->callee->type)) {
+            else if (auto c = dyn_cast<ClosureType>(e->callee->type)) {
                 auto call_op = Create<hlir::InvokeClosureOp>(
                     e->location.mlir(ctx),
                     e->type.yields_value ? mlir::TypeRange{Ty(e->type)} : mlir::TypeRange{},
@@ -630,24 +655,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 if (e->type.yields_value) e->mlir = call_op.getResult();
             }
 
-            /// Otherwise, this is a regular call.
             else {
-                /// If the callee takes a static chain pointer, retrieve
-                /// it and add it to the argument list.
-                if (auto chain = cast<ProcType>(e->callee->type)->static_chain_parent)
-                    args.push_back(GetStaticChainPointer(chain));
-
-                /// We emit every call as an indirect call.
-                auto call_op = Create<mlir::func::CallIndirectOp>(
-                    e->location.mlir(ctx),
-                    e->callee->mlir.getType().cast<mlir::FunctionType>().getResults(),
-                    e->callee->mlir,
-                    args
-                );
-
-                /// The operation only has a result if the function’s
-                /// return type is not void.
-                if (e->type.yields_value) e->mlir = call_op.getResult(0);
+                Unreachable("Indirect calls must be closure calls.");
             }
         } break;
 
@@ -955,9 +964,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// Return the value.
             if (not Closed()) {
-                Create<mlir::func::ReturnOp>(
+                Create<hlir::ReturnOp>(
                     loc,
-                    r->value ? ArrayRef<mlir::Value>{r->value->mlir} : ArrayRef<mlir::Value>{}
+                    r->value ? r->value->mlir : mlir::Value{}
                 );
             }
         } break;
@@ -1292,34 +1301,19 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
     auto ty = Ty(proc->type);
     tempset curr_proc = proc;
 
-    mlir::NamedAttribute attrs[] = {
-        mlir::NamedAttribute{
-            builder.getStringAttr("sym_visibility"),
-            builder.getStringAttr(proc->exported ? "public" : "private"),
-        },
-
-        mlir::NamedAttribute{
-            builder.getStringAttr("llvm.linkage"),
-            mlir::LLVM::LinkageAttr::get(
-                mctx,
-                proc->exported or proc->imported
-                    ? mlir::LLVM::Linkage::External
-                    : mlir::LLVM::Linkage::Private
-            ),
-        },
-    };
-
-    auto func = Create<mlir::func::FuncOp>(
+    using L = mlir::LLVM::Linkage;
+    auto func = Create<hlir::FuncOp>(
         proc->location.mlir(ctx),
         proc->name,
-        ty.cast<mlir::FunctionType>(),
-        ArrayRef<mlir::NamedAttribute>{attrs}
+        proc->exported or proc->imported ? L::External : L::Private,
+        mlir::LLVM::CConv::C,
+        ty.cast<mlir::FunctionType>()
     );
 
     /// Generate the function body, if there is one.
     if (proc->body) {
         /// Entry block must be created first so we can access parameter values.
-        builder.setInsertionPointToEnd(func.addEntryBlock());
+        builder.setInsertionPointToEnd(&func.front());
 
         /// Create, but do not insert, blocks for all labels that are actually branched to.
         for (auto& [_, l] : proc->labels)
@@ -1354,10 +1348,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         if (func.back().empty() or not func.back().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
             /// Function returns void.
             if (Type::Equal(proc->ret_type, Type::Void)) {
-                Create<mlir::func::ReturnOp>(
-                    proc->location.mlir(ctx),
-                    ArrayRef<mlir::Value>{}
-                );
+                Create<hlir::ReturnOp>(proc->location.mlir(ctx), mlir::Value{});
             }
 
             /// Function does not return, or all paths return a value, but there
@@ -1369,11 +1360,17 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
             /// Function is a `= <expr>` function that returns its body.
             else {
                 Assert(proc->body->mlir, "Inferred procedure body must yield a value");
-                Create<mlir::func::ReturnOp>(
+                Create<hlir::ReturnOp>(
                     proc->location.mlir(ctx),
                     proc->body->mlir
                 );
             }
         }
+    }
+
+    /// Otherwise, drop the entry block.
+    else {
+        func.eraseBody();
+        func.setPrivate();
     }
 }

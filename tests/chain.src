@@ -11,16 +11,16 @@ proc exit (i32) extern -> noreturn;
 /// OPT: define void @__src_main()
 /// OPT-NEXT: tail call void @exit(i32 42)
 
-/// * func.func private @p1
+/// * hlir.func private @p1
 proc p1 -> int {
-    /// + (?<CHAIN1>$t) = hlir.local !llvm.struct<"struct.anon.0"
-    /// + (?<A>$t) = hlir.structgep $CHAIN1, 0 -> ref i64
-    /// + hlir.zeroinitialiser $A
+    /// + (?<CHAIN1>$t) = local !llvm.struct<"struct.anon.0"
+    /// + (?<A>$t) = structgep $CHAIN1, 0 -> ref i64
+    /// + zeroinitialiser $A
     int a;
     int c;
 
     /// * (?<CONST_1>$t) = arith.constant 4 : i64
-    /// + hlir.store into $A, i64 $CONST_1
+    /// + store into $A, i64 $CONST_1
     a = 4;
 
     /// * (?<P2>$t) = constant @p2
@@ -28,29 +28,29 @@ proc p1 -> int {
     /// + call_indirect $P2($CONST_2, $CHAIN1)
     p2(4);
 
-    /// * func.func private @p2
+    /// * hlir.func private @p2
     proc p2(int b) {
-        /// + (?<CHAIN2>$t) = hlir.local !llvm.struct<"struct.anon.1"
-        /// + hlir.store into $CHAIN2
+        /// + (?<CHAIN2>$t) = local !llvm.struct<"struct.anon.1"
+        /// + store into $CHAIN2
 
-        /// * (?<CHAIN1_1>$t) = hlir.extractlocal chain $CHAIN2, 0
-        /// + (?<A1>$t) = hlir.structgep $CHAIN1_1, 0 -> ref i64
+        /// * (?<CHAIN1_1>$t) = extractlocal chain $CHAIN2, 0
+        /// + (?<A1>$t) = structgep $CHAIN1_1, 0 -> ref i64
         /// * (?<CONST_3>$t) = arith.constant 3 : i64
-        /// + hlir.store into $A1, i64 $CONST_3
+        /// + store into $A1, i64 $CONST_3
         a = 3;
 
         /// + (?<P3>$t) = constant @p3
         /// + call_indirect $P3($CHAIN2)
         p3();
 
-        /// * func.func private @p3
+        /// * hlir.func private @p3
         proc p3() {
-            /// + (?<CHAIN3>$t) = hlir.local !llvm.struct<"struct.anon.2"
-            /// + hlir.store into $CHAIN3
-            /// * (?<CHAIN2_1>$t) = hlir.extractlocal chain $CHAIN3, 0
-            /// + (?<B1>$t) = hlir.structgep $CHAIN2_1, 1 -> ref i64
+            /// + (?<CHAIN3>$t) = local !llvm.struct<"struct.anon.2"
+            /// + store into $CHAIN3
+            /// * (?<CHAIN2_1>$t) = extractlocal chain $CHAIN3, 0
+            /// + (?<B1>$t) = structgep $CHAIN2_1, 1 -> ref i64
             /// * (?<CONST_4>$t) = arith.constant 4 : i64
-            /// + hlir.store into $B1, i64 $CONST_4
+            /// + store into $B1, i64 $CONST_4
             b = 4;
 
             /// + (?<P4>$t) = constant @p4
@@ -60,48 +60,48 @@ proc p1 -> int {
             /// + (?<P5>$t) = constant @p5
             /// + (?<CONST_5>$t) = arith.constant 2 : i64
             /// + (?<CONST_6>$t) = arith.constant 3 : i64
-            /// + (?<CHAIN2_X>$t) = hlir.extractlocal chain $CHAIN3, 0
+            /// + (?<CHAIN2_X>$t) = extractlocal chain $CHAIN3, 0
             /// + call_indirect $P5($CONST_5, $CONST_6, $CHAIN2_X)
             p5(2, 3);
 
-            /// * func.func private @p4
+            /// * hlir.func private @p4
             proc p4 {
-                /// + (?<CHAIN4>$t) = hlir.local !llvm.struct<"struct.anon.3"
-                /// + hlir.store into $CHAIN4
-                /// + (?<CHAIN3_1>$t) = hlir.extractlocal chain $CHAIN4, 0
-                /// + (?<CHAIN2_2>$t) = hlir.extractlocal chain $CHAIN3_1, 0
-                /// + (?<CHAIN1_2>$t) = hlir.extractlocal chain $CHAIN2_2, 0
-                /// + (?<A2>$t) = hlir.structgep $CHAIN1_2, 0 -> ref i64
+                /// + (?<CHAIN4>$t) = local !llvm.struct<"struct.anon.3"
+                /// + store into $CHAIN4
+                /// + (?<CHAIN3_1>$t) = extractlocal chain $CHAIN4, 0
+                /// + (?<CHAIN2_2>$t) = extractlocal chain $CHAIN3_1, 0
+                /// + (?<CHAIN1_2>$t) = extractlocal chain $CHAIN2_2, 0
+                /// + (?<A2>$t) = structgep $CHAIN1_2, 0 -> ref i64
                 /// + (?<CONST_7>$t) = arith.constant 8 : i64
-                /// + hlir.store into $A2, i64 $CONST_7
+                /// + store into $A2, i64 $CONST_7
                 a = 8;
 
                 /// + (?<P5_2>$t) = constant @p5
                 /// + (?<CONST_8>$t) = arith.constant 4 : i64
                 /// + (?<CONST_9>$t) = arith.constant 5 : i64
-                /// + (?<CHAIN3_2>$t) = hlir.extractlocal chain $CHAIN4, 0
-                /// + (?<CHAIN2_3>$t) = hlir.extractlocal chain $CHAIN3_2, 0
+                /// + (?<CHAIN3_2>$t) = extractlocal chain $CHAIN4, 0
+                /// + (?<CHAIN2_3>$t) = extractlocal chain $CHAIN3_2, 0
                 /// + call_indirect $P5_2($CONST_8, $CONST_9, $CHAIN2_3)
                 p5(4, 5);
             }
         }
 
-        /// * func.func private @p5
+        /// * hlir.func private @p5
         proc p5(int, int) {
-            /// + (?<CHAIN5>$t) = hlir.local !llvm.struct<"struct.anon.4"
-            /// + hlir.store into $CHAIN5
+            /// + (?<CHAIN5>$t) = local !llvm.struct<"struct.anon.4"
+            /// + store into $CHAIN5
 
-            /// * (?<CHAIN2_4>$t) = hlir.extractlocal chain $CHAIN5, 0
-            /// + (?<CHAIN1_3>$t) = hlir.extractlocal chain $CHAIN2_4, 0
-            /// + (?<A3>$t) = hlir.structgep $CHAIN1_3, 0 -> ref i64
+            /// * (?<CHAIN2_4>$t) = extractlocal chain $CHAIN5, 0
+            /// + (?<CHAIN1_3>$t) = extractlocal chain $CHAIN2_4, 0
+            /// + (?<A3>$t) = structgep $CHAIN1_3, 0 -> ref i64
             /// + (?<CONST_10>$t) = arith.constant 42 : i64
-            /// + hlir.store into $A3, i64 $CONST_10
+            /// + store into $A3, i64 $CONST_10
             a = 42;
 
-            /// * (?<CHAIN2_5>$t) = hlir.extractlocal chain $CHAIN5, 0
-            /// + (?<B2>$t) = hlir.structgep $CHAIN2_5, 1 -> ref i64
+            /// * (?<CHAIN2_5>$t) = extractlocal chain $CHAIN5, 0
+            /// + (?<B2>$t) = structgep $CHAIN2_5, 1 -> ref i64
             /// + (?<CONST_11>$t) = arith.constant 6 : i64
-            /// + hlir.store into $B2, i64 $CONST_11
+            /// + store into $B2, i64 $CONST_11
             b = 6;
         }
     }
@@ -112,15 +112,15 @@ proc p1 -> int {
 /// Check that no static chain is generated if no
 /// variable is actually captured.
 ///
-/// * func.func private @p6
-/// ! hlir.extractlocal
-/// ! hlir.structgep
+/// * hlir.func private @p6
+/// ! extractlocal
+/// ! structgep
 proc p6 {
     int a;
 
-    /// * func.func private @p7
-    /// ! hlir.extractlocal
-    /// ! hlir.structgep
+    /// * hlir.func private @p7
+    /// ! extractlocal
+    /// ! structgep
     proc p7 {
         int b;
         b = 17;

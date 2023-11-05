@@ -43,7 +43,7 @@ class CodeGen {
         struct Stacklet {
             void* label{}; /// LabelExpr* or Scope*
             SmallVector<Expr*> deferred_material{};
-            mlir::func::FuncOp compacted{};
+            hlir::FuncOp compacted{};
             usz vars_count{};
         };
 
@@ -113,7 +113,7 @@ class CodeGen {
 
     private:
         /// Call a function that executes deferred expressions.
-        void CallCleanupFunc(mlir::func::FuncOp func);
+        void CallCleanupFunc(hlir::FuncOp func);
 
         /// Compact a stacklet to allow executing it multiple times.
         void Compact(Stacklet& s);
@@ -193,7 +193,7 @@ private:
     auto GetStaticChainPointer(ProcDecl* proc) -> mlir::Value;
 
     /// Perform preprocessing on locals to support nested procedures.
-    void InitStaticChain(ProcDecl* proc, mlir::func::FuncOp f);
+    void InitStaticChain(ProcDecl* proc, hlir::FuncOp f);
 
     auto Ty(Expr* type, bool for_closure = false) -> mlir::Type;
 };

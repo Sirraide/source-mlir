@@ -4,7 +4,10 @@
 include "HLIRDialect.td"
 include "mlir/Dialect/LLVMIR/LLVMAttrDefs.td"
 
-def FuncOp : HLIR_Op<"func", [FunctionOpInterface, IsolatedFromAbove]> {
+def FuncOp : HLIR_Op<"func", [
+    AffineScope, AutomaticAllocationScope, CallableOpInterface,
+    FunctionOpInterface, IsolatedFromAbove, OpAsmOpInterface
+]> {
     let summary = "Function";
     let arguments = (ins
         SymbolNameAttr:$sym_name,
@@ -30,12 +33,55 @@ def FuncOp : HLIR_Op<"func", [FunctionOpInterface, IsolatedFromAbove]> {
         }]>
     ];
 
+    /// Most of this is copied from the func dialect’s FuncOp.
     let extraClassDeclaration = [{
+        //===------------------------------------------------------------------===//
+        // CallableOpInterface
+        //===------------------------------------------------------------------===//
+
+        /// Returns the region on the current operation that is callable. This may
+        /// return null in the case of an external callable object, e.g. an external
+        /// function.
+        ::mlir::Region *getCallableRegion() { return isExternal() ? nullptr : &getBody(); }
+
+        /// Returns the results types that the callable region produces when
+        /// executed.
+        ArrayRef<Type> getCallableResults() { return getFunctionType().getResults(); }
+
+        /// Returns the argument attributes for all callable region arguments or
+        /// null if there are none.
+        ::mlir::ArrayAttr getCallableArgAttrs() {
+          return getArgAttrs().value_or(nullptr);
+        }
+
+        /// Returns the result attributes for all callable region results or
+        /// null if there are none.
+        ::mlir::ArrayAttr getCallableResAttrs() {
+          return getResAttrs().value_or(nullptr);
+        }
+
+        //===------------------------------------------------------------------===//
+        // FunctionOpInterface Methods
+        //===------------------------------------------------------------------===//
+
         /// Returns the argument types of this function.
         ArrayRef<Type> getArgumentTypes() { return getFunctionType().getInputs(); }
 
         /// Returns the result types of this function.
         ArrayRef<Type> getResultTypes() { return getFunctionType().getResults(); }
+
+        //===------------------------------------------------------------------===//
+        // OpAsmOpInterface Methods
+        //===------------------------------------------------------------------===//
+
+        /// Allow the dialect prefix to be omitted.
+        static StringRef getDefaultDialect() { return "hlir"; }
+
+        //===------------------------------------------------------------------===//
+        // SymbolOpInterface Methods
+        //===------------------------------------------------------------------===//
+
+        bool isDeclaration() { return isExternal(); }
     }];
 
     let hasCustomAssemblyFormat = 1;
@@ -49,16 +95,30 @@ def CallOp : HLIR_Op<"call", [
 ]> {
     let summary = "call operation";
     let description = [{ Function call }];
+    let hasCustomAssemblyFormat = 1;
 
-    let arguments = (ins FlatSymbolRefAttr:$callee, Variadic<AnyType>:$operands);
-    let results = (outs Variadic<AnyType>);
+    let arguments = (ins
+        FlatSymbolRefAttr:$callee,
+        BoolAttr:$inline_call,
+        CConvAttr:$cc,
+        Variadic<HLIR_Type>:$args
+    );
+    let results = (outs Optional<HLIR_Type>:$yield);
 
     let builders = [
-    OpBuilder<(ins "::mlir::hlir::FuncOp":$callee, CArg<"ValueRange", "{}">:$operands), [{
-      $_state.addOperands(operands);
-      $_state.addAttribute("callee", SymbolRefAttr::get(callee));
-      $_state.addTypes(callee.getFunctionType().getResults());
-    }]>];
+        OpBuilder<(ins
+            "::mlir::hlir::FuncOp":$callee,
+            "bool":$inline_call,
+            "::mlir::LLVM::CConv":$cc,
+            CArg<"ValueRange", "{}">:$operands
+        ), [{
+          $_state.addOperands(operands);
+          $_state.addAttribute(getCalleeAttrName($_state.name), SymbolRefAttr::get(callee));
+          $_state.addAttribute(getCcAttrName($_state.name), mlir::LLVM::CConvAttr::get($_state.getContext(), cc));
+          $_state.addAttribute(getInlineCallAttrName($_state.name), mlir::BoolAttr::get($_state.getContext(), inline_call));
+          $_state.addTypes(callee.getFunctionType().getResults());
+        }]>
+    ];
 
     let extraClassDeclaration = [{
         FunctionType getCalleeType();
@@ -81,10 +141,16 @@ def CallOp : HLIR_Op<"call", [
             (*this)->setAttr("callee", callee.get<SymbolRefAttr>());
         }
     }];
+}
 
-    let assemblyFormat = [{
-        $callee `(` $operands `)` attr-dict `:` functional-type($operands, results)
-    }];
+def ReturnOp : HLIR_Op<"return", [
+    Pure, HasParent<"FuncOp">,
+    MemRefsNormalizable, ReturnLike, Terminator
+]> {
+    let summary = "Function return operation";
+    let assemblyFormat = "attr-dict ($operand^ `:` type($operand))?";
+    let arguments = (ins Optional<HLIR_Type>:$operand);
+    let hasVerifier = 0;
 }
 
 def StringOp : HLIR_Op<"string"> {

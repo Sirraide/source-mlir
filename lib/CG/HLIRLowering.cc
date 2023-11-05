@@ -483,6 +483,94 @@ struct InvokeClosureOpLowering : public ConversionPattern {
     }
 };
 
+struct FuncOpLowering : public ConversionPattern {
+    explicit FuncOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::FuncOp::getOperationName(), 1, ctx) {
+    }
+
+    /// See also FuncOpConversionBase in FuncToLLVM.cpp.
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value>,
+        ConversionPatternRewriter& r
+    ) const -> LogicalResult override {
+        auto func = cast<hlir::FuncOp>(op);
+        auto ftype = func.getFunctionType();
+        auto tc = getTypeConverter<LLVMTypeConverter>();
+
+        /// Convert arguments.
+        TypeConverter::SignatureConversion res{func.getNumArguments()};
+        auto converted = tc->convertFunctionSignature(ftype, false, true, res);
+        if (not converted) return failure();
+
+        /// Create the function.
+        auto linkage = func.getLinkage().getLinkage();
+        auto llvm_func = r.create<LLVM::LLVMFuncOp>(
+            func->getLoc(),
+            func.getName(),
+            converted,
+            linkage,
+            false,
+            func.getCc().getCallingConv()
+        );
+
+        /// Move the body over.
+        r.inlineRegionBefore(func.getBody(), llvm_func.getBody(), llvm_func.end());
+        if (failed(r.convertRegionTypes(&llvm_func.getBody(), *tc, &res))) return failure();
+        r.replaceOp(func, llvm_func);
+        return success();
+    }
+};
+
+struct CallOpLowering : public ConversionPattern {
+    explicit CallOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::CallOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& r
+    ) const -> LogicalResult override {
+        auto loc = op->getLoc();
+        auto call = cast<hlir::CallOp>(op);
+        hlir::CallOpAdaptor adaptor(args, op->getAttrDictionary());
+
+        /// Create the call.
+        auto llvm_call = r.create<LLVM::CallOp>(
+            loc,
+            call.getYield() ? getTypeConverter()->convertType(call.getYield().getType()) : TypeRange{},
+            adaptor.getCallee(),
+            adaptor.getArgs()
+        );
+
+
+        if (call.getYield()) r.replaceOp(op, llvm_call.getResult());
+        else r.eraseOp(op);
+        return success();
+    }
+};
+
+struct ReturnOpLowering : public ConversionPattern {
+    explicit ReturnOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::ReturnOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> arguments,
+        ConversionPatternRewriter& r
+    ) const -> LogicalResult override {
+        auto loc = op->getLoc();
+        hlir::ReturnOpAdaptor adaptor(arguments);
+
+        /// Create the return.
+        r.create<LLVM::ReturnOp>(loc, adaptor.getOperand());
+        r.eraseOp(op);
+        return success();
+    }
+};
+
 struct HLIRToLLVMLoweringPass
     : public PassWrapper<HLIRToLLVMLoweringPass, OperationPass<ModuleOp>> {
     void getDependentDialects(DialectRegistry& registry) const override {
@@ -554,20 +642,23 @@ struct HLIRToLLVMLoweringPass
 
         // clang-format off
         patterns.add<
-            StringOpLowering,
+            ArrayDecayOpLowering,
+            CallOpLowering,
+            ChainExtractLocalOpLowering,
+            FuncOpLowering,
+            GlobalRefOpLowering,
+            InvokeClosureOpLowering,
+            LiteralOpLowering,
+            LoadOpLowering,
+            LocalOpLowering,
+            MakeClosureOpLowering,
+            ReturnOpLowering,
             SliceDataOpLowering,
             SliceSizeOpLowering,
-            GlobalRefOpLowering,
-            LoadOpLowering,
             StoreOpLowering,
-            LiteralOpLowering,
-            ArrayDecayOpLowering,
-            LocalOpLowering,
-            ZeroInitOpLowering,
+            StringOpLowering,
             StructGepOpLowering,
-            ChainExtractLocalOpLowering,
-            MakeClosureOpLowering,
-            InvokeClosureOpLowering
+            ZeroInitOpLowering
         >(&getContext(), tc);
         // clang-format on
 

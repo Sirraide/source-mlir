@@ -1,5 +1,15 @@
+/// ================ Main Control-Flow Test ================
+///
+/// This file is absurdly long for a test case, simply because
+/// it tests interactions between all manner of control-flow
+/// constructs, which, due to the nature of control flow, pretty
+/// much have to be tested all together in one place to ensure
+/// they work properly with one another, so...
+///
+/// ‘Lasciate ogne speranza, voi ch’intrate’
+///      – Dante
+///
 /// R %srcc %s --hlir
-
 /// d t %[a-zA-Z0-9_]+
 /// d b \^bb[0-9]+
 
@@ -15,36 +25,37 @@ proc i() extern;
 proc j() extern;
 proc k() extern;
 proc l() extern;
-/// * (?<T>$t) = hlir.local
+
+/// * (?<T>$t) = local
 bool t = true;
 
 defer a();
 
 /// * cf.br (?<COND1>$b)
 /// + $COND1:
-/// + (?<T1>$t) = hlir.load i1 from $T
+/// + (?<T1>$t) = load i1 from $T
 /// + cf.cond_br $T1, (?<BODY1>$b), (?<EXIT1>$b)
 /// + $BODY1:
 while t {
-    /// `foobar` is never branched to and it should thus
+    /// `unused` is never branched to and should thus
     /// not affect codegen at all.
     defer b();
-    foobar: defer c();
+    unused: defer c();
 
     /// + cf.br (?<COND2>$b)
     /// + $COND2:
-    /// + (?<T2>$t) = hlir.load i1 from $T
+    /// + (?<T2>$t) = load i1 from $T
     /// + cf.cond_br $T2, (?<BODY2>$b), (?<EXIT2>$b)
     /// + $BODY2:
     loop: while t {
-        /// + (?<Q>$t) = hlir.local
-        /// + hlir.zeroinitialiser
+        /// + (?<Q>$t) = local
+        /// + zeroinitialiser
         int q;
         defer d();
 
         /// + cf.br (?<COND3>$b)
         /// + $COND3:
-        /// + (?<T3>$t) = hlir.load i1 from $T
+        /// + (?<T3>$t) = load i1 from $T
         /// + cf.cond_br $T3, (?<BODY3>$b), (?<EXIT3>$b)
         /// + $BODY3:
         loop2: while t {
@@ -52,7 +63,7 @@ while t {
 
             /// + cf.br (?<COND4>$b)
             /// + $COND4:
-            /// + (?<T4>$t) = hlir.load i1 from $T
+            /// + (?<T4>$t) = load i1 from $T
             /// + cf.cond_br $T4, (?<BODY4>$b), (?<EXIT4>$b)
             /// + $BODY4:
             while t {
@@ -67,17 +78,17 @@ while t {
                 same_region:
 
                 /// 0 executes f()
-                /// + (?<T5>$t) = hlir.load i1 from $T
+                /// + (?<T5>$t) = load i1 from $T
                 /// + cf.cond_br $T5, (?<THEN1>$b), (?<ELSE1>$b)
                 /// + $THEN1:
-                /// + call @__src_defer_proc_0($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_0($T, $Q)
                 /// + cf.br $EXIT4
                 if t then break;
                 /// + $ELSE1:
 
                 /// Branch upwards in the same region without crossing
                 /// deferred material is simply a branch.
-                /// + (?<Tg1>$t) = hlir.load i1 from $T
+                /// + (?<Tg1>$t) = load i1 from $T
                 /// + cf.cond_br $Tg1, (?<THENg1>$b), (?<ELSEg1>$b)
                 /// + $THENg1:
                 /// + cf.br $LABEL1
@@ -89,20 +100,20 @@ while t {
                 /// 0 executes f()
                 /// 1 executes g()
                 /// 2 executes e()
-                /// + (?<T6>$t) = hlir.load i1 from $T
+                /// + (?<T6>$t) = load i1 from $T
                 /// + cf.cond_br $T6, (?<THEN2>$b), (?<ELSE2>$b)
                 /// + $THEN2:
-                /// + call @__src_defer_proc_1($T, $Q)
-                /// + call @__src_defer_proc_0($T, $Q)
-                /// + call @__src_defer_proc_2($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_1($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_0($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_2($T, $Q)
                 /// + cf.br $EXIT3
                 if t then break loop2;
                 /// + $ELSE2:
 
                 /// 0 executes f()
                 /// 1 executes g()
-                /// + call @__src_defer_proc_1($T, $Q)
-                /// + call @__src_defer_proc_0($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_1($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_0($T, $Q)
                 /// + cf.br $COND4
             }
 
@@ -114,17 +125,17 @@ while t {
 
             /// + cf.br (?<COND5>$b)
             /// + $COND5:
-            /// + (?<T7>$t) = hlir.load i1 from $T
+            /// + (?<T7>$t) = load i1 from $T
             /// + cf.cond_br $T7, (?<BODY5>$b), (?<EXIT5>$b)
             /// + $BODY5:
             while t {
-                /// + (?<W>$t) = hlir.local
-                /// + hlir.zeroinitialiser
+                /// + (?<W>$t) = local
+                /// + zeroinitialiser
                 int w;
                 defer i();
 
                 /// Simple forward goto.
-                /// + (?<Tg2>$t) = hlir.load i1 from $T
+                /// + (?<Tg2>$t) = load i1 from $T
                 /// + cf.cond_br $Tg2, (?<THENg2>$b), (?<ELSEg2>$b)
                 /// + $THENg2:
                 /// + cf.br (?<LABEL3>$b)
@@ -136,11 +147,11 @@ while t {
                 /// we branch.
                 /// 3 executes i()
                 /// 4 executes h()
-                /// + (?<Tg3>$t) = hlir.load i1 from $T
+                /// + (?<Tg3>$t) = load i1 from $T
                 /// + cf.cond_br $Tg3, (?<THENg3>$b), (?<ELSEg3>$b)
                 /// + $THENg3:
-                /// + call @__src_defer_proc_3($T, $Q, $W)
-                /// + call @__src_defer_proc_4($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_3($T, $Q, $W)
+                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
                 /// + cf.br $LABEL2
                 if t then goto one_scope_up;
 
@@ -149,20 +160,20 @@ while t {
                 /// + $ELSEg3:
                 /// + cf.br $LABEL3
                 /// + $LABEL3:
-                /// + (?<Tg4>$t) = hlir.load i1 from $T
+                /// + (?<Tg4>$t) = load i1 from $T
                 /// + cf.cond_br $Tg4, (?<THENg4>$b), (?<ELSEg4>$b)
                 /// + $THENg4:
-                /// + call @__src_defer_proc_3($T, $Q, $W)
+                /// + call inline fastcc @__src_defer_proc_3($T, $Q, $W)
                 /// + cf.br (?<LABEL4>$b)
                 forward: if t then goto forward2;
 
                 /// Cross jump back into a different while loop.
                 /// + $ELSEg4
-                /// + (?<Tg5>$t) = hlir.load i1 from $T
+                /// + (?<Tg5>$t) = load i1 from $T
                 /// + cf.cond_br $Tg5, (?<THENg5>$b), (?<ELSEg5>$b)
                 /// + $THENg5:
-                /// + call @__src_defer_proc_3($T, $Q, $W)
-                /// + call @__src_defer_proc_4($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_3($T, $Q, $W)
+                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
                 /// + cf.br $LABEL5
                 if t then goto nested;
                 /// + $ELSEg5:
@@ -171,18 +182,18 @@ while t {
                 /// 4 executes h()
                 /// 2 executes e()
                 /// 5 executes d()
-                /// + (?<T8>$t) = hlir.load i1 from $T
+                /// + (?<T8>$t) = load i1 from $T
                 /// + cf.cond_br $T8, (?<THEN3>$b), (?<ELSE3>$b)
                 /// + $THEN3:
-                /// + call @__src_defer_proc_3($T, $Q, $W)
-                /// + call @__src_defer_proc_4($T, $Q)
-                /// + call @__src_defer_proc_2($T, $Q)
-                /// + call @__src_defer_proc_5($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_3($T, $Q, $W)
+                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_2($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_5($T, $Q)
                 /// + cf.br $COND2
                 if t then continue loop;
                 /// + $ELSE3:
 
-                /// + call @__src_defer_proc_3($T, $Q, $W)
+                /// + call inline fastcc @__src_defer_proc_3($T, $Q, $W)
                 /// + cf.br $COND5
             }
 
@@ -193,26 +204,26 @@ while t {
 
             /// + cf.br (?<COND6>$b)
             /// + $COND6:
-            /// + (?<T9>$t) = hlir.load i1 from $T
+            /// + (?<T9>$t) = load i1 from $T
             /// + cf.cond_br $T9, (?<BODY6>$b), (?<EXIT6>$b)
             /// + $BODY6:
             while t {
                 defer j();
 
                 /// 6 executes j()
-                /// + (?<T10>$t) = hlir.load i1 from $T
+                /// + (?<T10>$t) = load i1 from $T
                 /// + cf.cond_br $T10, (?<THEN4>$b), (?<ELSE4>$b)
                 /// + $THEN4:
-                /// + call @__src_defer_proc_6($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
                 /// + cf.br $COND6
                 if t then continue;
                 /// + $ELSE4:
 
                 /// 6 executes j()
-                /// + (?<T11>$t) = hlir.load i1 from $T
+                /// + (?<T11>$t) = load i1 from $T
                 /// + cf.cond_br $T11, (?<THEN5>$b), (?<ELSE5>$b)
                 /// + $THEN5:
-                /// + call @__src_defer_proc_6($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
                 /// + cf.br $EXIT6
                 if t then break;
                 /// + $ELSE5:
@@ -223,15 +234,15 @@ while t {
                 /// 5 executes d()
                 /// 7 executes c(), b()
                 /// 8 executes a()
-                /// + (?<T12>$t) = hlir.load i1 from $T
+                /// + (?<T12>$t) = load i1 from $T
                 /// + cf.cond_br $T12, (?<THEN6>$b), (?<ELSE6>$b)
                 /// + $THEN6:
-                /// + call @__src_defer_proc_6($T, $Q)
-                /// + call @__src_defer_proc_4($T, $Q)
-                /// + call @__src_defer_proc_2($T, $Q)
-                /// + call @__src_defer_proc_5($T, $Q)
-                /// + call @__src_defer_proc_7($T)
-                /// + call @__src_defer_proc_8($T)
+                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_2($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_5($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_7($T)
+                /// + call inline fastcc @__src_defer_proc_8($T)
                 /// + return
                 if t then return;
                 /// + $ELSE6:
@@ -244,14 +255,14 @@ while t {
                 /// 4 executes h()
                 /// 2 executes e()
                 /// 5 executes d()
-                /// + (?<T13>$t) = hlir.load i1 from $T
+                /// + (?<T13>$t) = load i1 from $T
                 /// + cf.cond_br $T13, (?<THEN7>$b), (?<ELSE7>$b)
                 /// + $THEN7:
-                /// + call @__src_defer_proc_9($T, $Q)
-                /// + call @__src_defer_proc_6($T, $Q)
-                /// + call @__src_defer_proc_4($T, $Q)
-                /// + call @__src_defer_proc_2($T, $Q)
-                /// + call @__src_defer_proc_5($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_9($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_2($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_5($T, $Q)
                 /// + cf.br $EXIT2
                 if t break loop;
                 /// + $ELSE7:
@@ -260,28 +271,28 @@ while t {
                 /// 9 executes k()
                 /// 4 executes h()
                 /// 2 executes e()
-                /// + (?<T14>$t) = hlir.load i1 from $T
+                /// + (?<T14>$t) = load i1 from $T
                 /// + cf.cond_br $T14, (?<THEN8>$b), (?<ELSE8>$b)
                 /// + $THEN8:
-                /// + call @__src_defer_proc_9($T, $Q)
-                /// + call @__src_defer_proc_6($T, $Q)
-                /// + call @__src_defer_proc_4($T, $Q)
-                /// + call @__src_defer_proc_2($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_9($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_2($T, $Q)
                 /// + cf.br $COND3
                 if t continue loop2;
                 /// + $ELSE8:
 
                 /// 9 executes k()
-                /// + call @__src_defer_proc_9($T, $Q)
-                /// + call @__src_defer_proc_6($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_9($T, $Q)
+                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
                 /// + cf.br $COND6
             }
 
             /// 2 executes e()
             /// 4 executes h()
             /// + $EXIT6:
-            /// + call @__src_defer_proc_4($T, $Q)
-            /// + call @__src_defer_proc_2($T, $Q)
+            /// + call inline fastcc @__src_defer_proc_4($T, $Q)
+            /// + call inline fastcc @__src_defer_proc_2($T, $Q)
             /// + cf.br $COND3
         }
 
@@ -290,98 +301,75 @@ while t {
 
         /// 5 executes d()
         /// 10 executes l()
-        /// + (?<T15>$t) = hlir.load i1 from $T
+        /// + (?<T15>$t) = load i1 from $T
         /// + cf.cond_br $T15, (?<THEN9>$b), (?<ELSE9>$b)
         /// + $THEN9:
-        /// + call @__src_defer_proc_10($T, $Q)
-        /// + call @__src_defer_proc_5($T, $Q)
+        /// + call inline fastcc @__src_defer_proc_10($T, $Q)
+        /// + call inline fastcc @__src_defer_proc_5($T, $Q)
         /// + cf.br $EXIT2
         if t then break;
         /// + $ELSE9:
 
         /// 5 executes d()
         /// 10 executes l()
-        /// + call @__src_defer_proc_10($T, $Q)
-        /// + call @__src_defer_proc_5($T, $Q)
+        /// + call inline fastcc @__src_defer_proc_10($T, $Q)
+        /// + call inline fastcc @__src_defer_proc_5($T, $Q)
         /// + cf.br $COND2
     }
 
     /// 7 executes c(), b()
     /// + $EXIT2:
-    /// + call @__src_defer_proc_7($T)
+    /// + call inline fastcc @__src_defer_proc_7($T)
     /// + cf.br $COND1
 }
 
 /// 8 executes a()
 /// + $EXIT1:
-/// + call @__src_defer_proc_8($T)
+/// + call inline fastcc @__src_defer_proc_8($T)
 /// + return
 
 /// =========================== FUNCTIONS ===========================
-/// 0 executes f()
-/// * func.func private @__src_defer_proc_0
-/// + (?<F>$t) = constant @f
-/// + call_indirect $F
+/// * hlir.func private fastcc @__src_defer_proc_0
+/// + call @f
 /// + return
 
-/// 1 executes g()
-/// * func.func private @__src_defer_proc_1
-/// + (?<G>$t) = constant @g
-/// + call_indirect $G
+/// * hlir.func private fastcc @__src_defer_proc_1
+/// + call @g
 /// + return
 
-/// 2 executes e()
-/// * func.func private @__src_defer_proc_2
-/// + (?<E>$t) = constant @e
-/// + call_indirect $E
+/// * hlir.func private fastcc @__src_defer_proc_2
+/// + call @e
 /// + return
 
-/// 3 executes i()
-/// * func.func private @__src_defer_proc_3
-/// + (?<I>$t) = constant @i
-/// + call_indirect $I
+/// * hlir.func private fastcc @__src_defer_proc_3
+/// + call @i
 /// + return
 
-/// 4 executes h()
-/// * func.func private @__src_defer_proc_4
-/// + (?<H>$t) = constant @h
-/// + call_indirect $H
+/// * hlir.func private fastcc @__src_defer_proc_4
+/// + call @h
 /// + return
 
-/// 5 executes d()
-/// * func.func private @__src_defer_proc_5
-/// + (?<D>$t) = constant @d
-/// + call_indirect $D
+/// * hlir.func private fastcc @__src_defer_proc_5
+/// + call @d
 /// + return
 
-/// 6 executes j()
-/// * func.func private @__src_defer_proc_6
-/// + (?<J>$t) = constant @j
-/// + call_indirect $J
+/// * hlir.func private fastcc @__src_defer_proc_6
+/// + call @j
 /// + return
 
-/// 7 executes c(), b()
-/// * func.func private @__src_defer_proc_7
-/// + (?<C>$t) = constant @c
-/// + call_indirect $C
-/// + (?<B>$t) = constant @b
-/// + call_indirect $B
+/// * hlir.func private fastcc @__src_defer_proc_7
+/// + call @c
+/// + call @b
 /// + return
 
-/// 8 executes a()
-/// * func.func private @__src_defer_proc_8
-/// + (?<A>$t) = constant @a
-/// + call_indirect $A
+/// * hlir.func private fastcc @__src_defer_proc_8
+/// + call @a
 /// + return
 
-/// 9 executes k()
-/// * func.func private @__src_defer_proc_9
-/// + (?<K>$t) = constant @k
-/// + call_indirect $K
+/// * hlir.func private fastcc @__src_defer_proc_9
+/// + call @k
 /// + return
 
-/// 10 executes l()
-/// * func.func private @__src_defer_proc_10
-/// + (?<L>$t) = constant @l
-/// + call_indirect $L
+/// * hlir.func private fastcc @__src_defer_proc_10
+/// + call @l
 /// + return
