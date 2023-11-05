@@ -20,6 +20,15 @@
 using namespace mlir;
 
 namespace src {
+namespace {
+auto TypeSize(LLVMTypeConverter* tc, Type t) -> isz {
+    if (isa<hlir::ReferenceType>(t)) return tc->getPointerBitwidth(0);
+    if (auto i = dyn_cast<IntegerType>(t)) return utils::AlignTo<isz>(i.getWidth(), 8);
+    t.dump();
+    Todo("Implement TypeSize()");
+}
+}
+
 /// Lowering for string literals.
 struct StringOpLowering : public ConversionPattern {
     explicit StringOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
@@ -499,6 +508,7 @@ struct FuncOpLowering : public ConversionPattern {
         auto func = cast<hlir::FuncOp>(op);
         auto ftype = func.getFunctionType();
         auto tc = getTypeConverter<LLVMTypeConverter>();
+        auto u = UnitAttr::get(r.getContext());
 
         /// Convert arguments.
         TypeConverter::SignatureConversion res{func.getNumArguments()};
@@ -515,6 +525,21 @@ struct FuncOpLowering : public ConversionPattern {
             false,
             func.getCc()
         );
+
+        /// Add the appropriate parameter attributes.
+        for (auto [i, t] : vws::enumerate(ftype.getInputs())) {
+            if (auto ref = dyn_cast<hlir::ReferenceType>(t)) {
+                auto sz = TypeSize(tc, ref.getElem()) / 8;
+                llvm_func.setArgAttr(u32(i), "llvm.dereferenceable", IntegerAttr::get(tc->getIndexType(), sz));
+                llvm_func.setArgAttr(u32(i), "llvm.nonnull", u);
+                llvm_func.setArgAttr(u32(i), "llvm.noundef", u);
+                llvm_func.setArgAttr(u32(i), "llvm.nofree", u);
+                llvm_func.setArgAttr(u32(i), "llvm.nocapture", u);
+            }
+        }
+
+        /// Add the appropriate function attributes.
+        llvm_func.setPassthroughAttr(r.getArrayAttr(StringAttr::get(getContext(), "nounwind")));
 
         /// Move the body over.
         r.inlineRegionBefore(func.getBody(), llvm_func.getBody(), llvm_func.end());
