@@ -66,14 +66,9 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
     return builder.create<T>(loc, std::forward<Args>(args)...);
 }
 
-auto src::CodeGen::EmitReference(mlir::Location loc, src::Expr* decl) -> mlir::Value {
-    /// If the operand is a function, create a function constant.
-    if (auto p = dyn_cast<ProcDecl>(decl)) return Create<mlir::func::ConstantOp>(
-        loc,
-        Ty(p->type),
-        mlir::SymbolRefAttr::get(mctx, p->name)
-    );
-
+auto src::CodeGen::EmitReference([[maybe_unused]] mlir::Location loc, src::Expr* decl) -> mlir::Value {
+    /// Functions can only be used in calls, builtins, and to make closures.
+    Assert(not isa<ProcDecl>(decl), "Invalid use of procedure");
     Unreachable();
 }
 
@@ -764,6 +759,45 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::CastExpr: {
             auto c = cast<CastExpr>(expr);
+
+            /// Procedure to closure casts.
+            ///
+            /// Handle this case early because it requires that we do not
+            /// emit the cast operand, unlike pretty much all other casts.
+            if (
+                c->is_converting_cast and
+                isa<ProcType>(c->operand->type) and
+                isa<ClosureType>(c->type)
+            ) {
+                auto proc = cast<ProcDecl>(cast<DeclRefExpr>(c->operand)->decl);
+                auto proc_type = cast<ProcType>(c->operand->type);
+
+                /// If the procedure is a nested function that takes a static
+                /// chain, retrieve the appropriate chain pointer.
+                if (proc_type->static_chain_parent) {
+                    auto chain = GetStaticChainPointer(proc_type->static_chain_parent);
+                    c->mlir = Create<hlir::MakeClosureOp>(
+                        c->location.mlir(ctx),
+                        proc->name,
+                        Ty(c->type),
+                        chain
+                    );
+                }
+
+                /// Otherwise, leave the data pointer empty; the backend will
+                /// set it to null during lowering.
+                else {
+                    c->mlir = Create<hlir::MakeClosureOp>(
+                        c->location.mlir(ctx),
+                        proc->name,
+                        Ty(c->type)
+                    );
+                }
+
+                break;
+            }
+
+            /// Emit the operand.
             Generate(c->operand);
 
             /// Note that some of the casts perform the same operation,
@@ -796,32 +830,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     /// No-op.
                     if (Type::Equal(c->operand->type, c->type)) {
                         c->mlir = c->operand->mlir;
-                    }
-
-                    /// Procedure to closure casts.
-                    else if (isa<ProcType>(c->operand->type) and isa<ClosureType>(c->type)) {
-                        auto proc = cast<ProcType>(c->operand->type);
-
-                        /// If the procedure is a nested function that takes a static
-                        /// chain, retrieve the appropriate chain pointer.
-                        if (proc->static_chain_parent) {
-                            auto chain = GetStaticChainPointer(proc->static_chain_parent);
-                            c->mlir = Create<hlir::MakeClosureOp>(
-                                c->location.mlir(ctx),
-                                Ty(c->type),
-                                mlir::ValueRange{c->operand->mlir, chain}
-                            );
-                        }
-
-                        /// Otherwise, leave the data pointer empty; the backend will
-                        /// set it to null during lowering.
-                        else {
-                            c->mlir = Create<hlir::MakeClosureOp>(
-                                c->location.mlir(ctx),
-                                Ty(c->type),
-                                c->operand->mlir
-                            );
-                        }
                     }
 
                     /// Integer-to-integer casts.

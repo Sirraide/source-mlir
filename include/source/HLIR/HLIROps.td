@@ -432,24 +432,38 @@ def ChainExtractLocalOp : HLIR_Op<"extractlocal"> {
 
 def MakeClosureOp : HLIR_Op<"makeclosure"> {
     let summary = "Make a closure";
+    let hasCustomAssemblyFormat = 1;
+    let results = (outs HLIR_ClosureType);
     let arguments = (ins
-        HLIR_Type:$closure,
+        FlatSymbolRefAttr:$procedure,
         Optional<HLIR_Type>:$env
     );
-    let results = (outs HLIR_ClosureType);
 
-    let hasCustomAssemblyFormat = 1;
+    let builders = [
+        OpBuilder<(ins
+            "::llvm::StringRef":$procedure,
+            "::mlir::Type":$proc_type,
+            CArg<"::mlir::Value", "{}">:$env
+        ), [{
+            build(
+                $_builder,
+                $_state,
+                proc_type,
+                SymbolRefAttr::get($_state.getContext(), procedure),
+                env
+            );
+        }]>
+    ];
 }
 
 def InvokeClosureOp : HLIR_Op<"invokeclosure"> {
     let summary = "Invoke a closure";
+    let hasCustomAssemblyFormat = 1;
+    let results = (outs HLIR_Type);
     let arguments = (ins
         HLIR_ClosureType:$closure,
         Variadic<HLIR_Type>:$args
     );
-    let results = (outs HLIR_Type);
-
-    let hasCustomAssemblyFormat = 1;
 }
 
 def NewOp : HLIR_Op<"new"> {

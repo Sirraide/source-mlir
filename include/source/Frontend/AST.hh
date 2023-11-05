@@ -560,6 +560,16 @@ public:
           cast_kind(kind),
           operand(expr) {}
 
+    /// Whether this is a cast that can perform conversions between
+    /// types rather than just e.g. LValueToRValue conversion.
+    readonly(
+        bool,
+        is_converting_cast,
+        return cast_kind == CastKind::Implicit or
+               cast_kind == CastKind::Soft or
+               cast_kind == CastKind::Hard
+    );
+
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::CastExpr; }
 };

@@ -414,15 +414,17 @@ struct MakeClosureOpLowering : public ConversionPattern {
     ) const -> LogicalResult override {
         auto loc = op->getLoc();
         auto make_closure = cast<hlir::MakeClosureOp>(op);
-        hlir::MakeClosureOpAdaptor adaptor(args);
+        auto tc = getTypeConverter();
+        hlir::MakeClosureOpAdaptor adaptor(args, make_closure->getAttrDictionary());
 
         /// This involves creating a struct w/ two pointers: the
         /// function pointer and the closure data; the data pointer
         /// may be absent.
-        auto lit = rewriter.create<LLVM::UndefOp>(loc, getTypeConverter()->convertType(make_closure.getType()));
+        auto lit = rewriter.create<LLVM::UndefOp>(loc, tc->convertType(make_closure.getType()));
 
         /// Store the function pointer.
-        auto lit2 = rewriter.create<LLVM::InsertValueOp>(loc, lit, adaptor.getClosure(), ArrayRef<i64>{0});
+        auto ref = rewriter.create<LLVM::AddressOfOp>(loc, LLVM::LLVMPointerType::get(getContext()), adaptor.getProcedure());
+        auto lit2 = rewriter.create<LLVM::InsertValueOp>(loc, lit, ref, ArrayRef<i64>{0});
 
         /// Store the data pointer, if there is one.
         if (args.size() == 2) {

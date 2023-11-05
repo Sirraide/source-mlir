@@ -178,7 +178,7 @@ void hlir::LocalOp::print(OpAsmPrinter& p) {
 auto hlir::LocalOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::MakeClosureOp::print(OpAsmPrinter& p) {
-    p << " { " << getClosure();
+    p << " { @" << getProcedure();
     if (auto env = getEnv()) p << ", " << env << " }";
     else p << ", null }";
 }

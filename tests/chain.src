@@ -23,9 +23,8 @@ proc p1 -> int {
     /// + store into $A, i64 $CONST_1
     a = 4;
 
-    /// * (?<P2>$t) = constant @p2
     /// * (?<CONST_2>$t) = arith.constant 4 : i64
-    /// + call_indirect $P2($CONST_2, $CHAIN1)
+    /// + call @p2($CONST_2, $CHAIN1)
     p2(4);
 
     /// * hlir.func private @p2
@@ -39,8 +38,7 @@ proc p1 -> int {
         /// + store into $A1, i64 $CONST_3
         a = 3;
 
-        /// + (?<P3>$t) = constant @p3
-        /// + call_indirect $P3($CHAIN2)
+        /// + call @p3($CHAIN2)
         p3();
 
         /// * hlir.func private @p3
@@ -53,15 +51,13 @@ proc p1 -> int {
             /// + store into $B1, i64 $CONST_4
             b = 4;
 
-            /// + (?<P4>$t) = constant @p4
-            /// + call_indirect $P4($CHAIN3)
+            /// + call @p4($CHAIN3)
             p4();
 
-            /// + (?<P5>$t) = constant @p5
             /// + (?<CONST_5>$t) = arith.constant 2 : i64
             /// + (?<CONST_6>$t) = arith.constant 3 : i64
             /// + (?<CHAIN2_X>$t) = extractlocal chain $CHAIN3, 0
-            /// + call_indirect $P5($CONST_5, $CONST_6, $CHAIN2_X)
+            /// + call @p5($CONST_5, $CONST_6, $CHAIN2_X)
             p5(2, 3);
 
             /// * hlir.func private @p4
@@ -76,12 +72,11 @@ proc p1 -> int {
                 /// + store into $A2, i64 $CONST_7
                 a = 8;
 
-                /// + (?<P5_2>$t) = constant @p5
                 /// + (?<CONST_8>$t) = arith.constant 4 : i64
                 /// + (?<CONST_9>$t) = arith.constant 5 : i64
                 /// + (?<CHAIN3_2>$t) = extractlocal chain $CHAIN4, 0
                 /// + (?<CHAIN2_3>$t) = extractlocal chain $CHAIN3_2, 0
-                /// + call_indirect $P5_2($CONST_8, $CONST_9, $CHAIN2_3)
+                /// + call @p5($CONST_8, $CONST_9, $CHAIN2_3)
                 p5(4, 5);
             }
         }
