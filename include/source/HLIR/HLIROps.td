@@ -97,6 +97,7 @@ def CallOp : HLIR_Op<"call", [
     let summary = "call operation";
     let description = [{ Function call }];
     let hasCustomAssemblyFormat = 1;
+    let hasCanonicalizer = 1;
 
     let arguments = (ins
         FlatSymbolRefAttr:$callee,

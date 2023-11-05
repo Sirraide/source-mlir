@@ -46,7 +46,6 @@
 #define GET_OP_CLASSES
 #include <source/HLIR/HLIROps.h.inc>
 
-
 // clang-format on
 
 namespace hlir = ::mlir::hlir;

@@ -1,6 +1,3 @@
-#include "mlir/ExecutionEngine/ExecutionEngine.h"
-#include "mlir/ExecutionEngine/OptUtils.h"
-
 #include <mlir/Conversion/AffineToStandard/AffineToStandard.h>
 #include <mlir/Conversion/ArithToLLVM/ArithToLLVM.h>
 #include <mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h>
@@ -13,6 +10,9 @@
 #include <mlir/Conversion/MathToLLVM/MathToLLVM.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
 #include <mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h>
+#include <mlir/ExecutionEngine/ExecutionEngine.h>
+#include <mlir/ExecutionEngine/OptUtils.h>
+#include <mlir/Transforms/Passes.h>
 #include <source/CG/HLIRLowering.hh>
 #include <source/HLIR/HLIRDialect.hh>
 #include <source/Support/Utils.hh>
@@ -544,7 +544,6 @@ struct CallOpLowering : public ConversionPattern {
             adaptor.getArgs()
         );
 
-
         if (call.getYield()) r.replaceOp(op, llvm_call.getResult());
         else r.eraseOp(op);
         return success();
@@ -585,7 +584,8 @@ struct HLIRToLLVMLoweringPass
         /// unnecessary libm calls.
         OpPassManager opm{"builtin.module"};
         opm.addPass(createConvertMathToFuncs());
-        opm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
+        opm.addNestedPass<hlir::FuncOp>(createCanonicalizerPass());
+        opm.addNestedPass<hlir::FuncOp>(createConvertMathToLLVMPass());
         if (failed(runPipeline(opm, getOperation())))
             return signalPassFailure();
 
