@@ -1,12 +1,15 @@
 /// R %srcc %s --hlir
 
-/// p re off
+/// d t %[a-zA-Z0-9]+
 
-/// * hlir.string 0, "Hello, world!\00"
-/// * hlir.global_ref @".str.data.0"
-/// * hlir.array_decay
-/// * call_indirect
+/// * hlir.string 0, "Hello, world!\\00"
+/// * (?<str>$t) = global_ref @".str.data.0"
+/// + (?<ptr>$t) = array_decay $str to ref i8
+/// + (?<len>$t) = index.constant 13
+/// + (?<slc>$t) = literal slice ref i8 $ptr, $len
+/// + (?<dat>$t) = slice_data ref i8 $slc
+/// + $t = call @puts($dat)
 puts "Hello, world!".data;
 
-/// * func.func private @puts
+/// * hlir.func external @puts
 proc puts (i8&) extern nomangle -> i32;

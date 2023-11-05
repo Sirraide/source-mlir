@@ -67,8 +67,13 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
 }
 
 auto src::CodeGen::EmitReference([[maybe_unused]] mlir::Location loc, src::Expr* decl) -> mlir::Value {
-    /// Functions can only be used in calls, builtins, and to make closures.
-    Assert(not isa<ProcDecl>(decl), "Invalid use of procedure");
+    /// If the operand is a function, create a function constant.
+    if (auto p = dyn_cast<ProcDecl>(decl)) return Create<mlir::func::ConstantOp>(
+        loc,
+        Ty(p->type),
+        mlir::SymbolRefAttr::get(mctx, p->name)
+    );
+
     Unreachable();
 }
 
@@ -593,11 +598,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::InvokeExpr: {
             auto e = cast<InvokeExpr>(expr);
-            auto d = dyn_cast<DeclRefExpr>(e->callee);
-            auto direct_call = d and isa<ProcDecl>(d->decl);
-
-            /// Emit callee only if this is not a direct call.
-            if (not direct_call) Generate(e->callee);
+            Generate(e->callee);
 
             /// Emit args.
             SmallVector<mlir::Value> args;
@@ -606,34 +607,26 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 args.push_back(a->mlir);
             }
 
-            /// Helper to emit a call operation.
-            auto EmitCall = [&](auto&& op_source) {
+            /// If the callee is a procedure decl, call it directly.
+            if (auto proc = dyn_cast<mlir::func::ConstantOp>(e->callee->mlir.getDefiningOp())) {
                 /// If the callee takes a static chain pointer, retrieve
                 /// it and add it to the argument list.
                 if (auto chain = cast<ProcType>(e->callee->type)->static_chain_parent)
                     args.push_back(GetStaticChainPointer(chain));
 
-                /// We emit every call as an indirect call.
-                auto call_op = std::invoke(std::forward<decltype(op_source)>(op_source));
+                /// Create the call.
+                auto call_op = Create<hlir::CallOp>(
+                    e->location.mlir(ctx),
+                    cast<mlir::FunctionType>(proc.getType()).getResults(),
+                    proc.getValue(),
+                    false,
+                    mlir::LLVM::CConvAttr::get(mctx, mlir::LLVM::CConv::C),
+                    args
+                );
 
                 /// The operation only has a result if the function’s
                 /// return type is not void.
                 if (e->type.yields_value) e->mlir = call_op.getYield();
-            };
-
-            /// If the callee is a procedure decl, call it directly.
-            if (direct_call) {
-                EmitCall([&] { //
-                    auto proc = cast<ProcDecl>(d->decl);
-                    return Create<hlir::CallOp>(
-                        e->location.mlir(ctx),
-                        Type::Equal(proc->ret_type, Type::Void) ? mlir::TypeRange{} : Ty(proc->ret_type),
-                        proc->name,
-                        false,
-                        mlir::LLVM::CConvAttr::get(mctx, mlir::LLVM::CConv::C),
-                        args
-                    );
-                });
             }
 
             /// If the callee is a closure, then use a special operation for that.
@@ -760,43 +753,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::CastExpr: {
             auto c = cast<CastExpr>(expr);
 
-            /// Procedure to closure casts.
-            ///
-            /// Handle this case early because it requires that we do not
-            /// emit the cast operand, unlike pretty much all other casts.
-            if (
-                c->is_converting_cast and
-                isa<ProcType>(c->operand->type) and
-                isa<ClosureType>(c->type)
-            ) {
-                auto proc = cast<ProcDecl>(cast<DeclRefExpr>(c->operand)->decl);
-                auto proc_type = cast<ProcType>(c->operand->type);
-
-                /// If the procedure is a nested function that takes a static
-                /// chain, retrieve the appropriate chain pointer.
-                if (proc_type->static_chain_parent) {
-                    auto chain = GetStaticChainPointer(proc_type->static_chain_parent);
-                    c->mlir = Create<hlir::MakeClosureOp>(
-                        c->location.mlir(ctx),
-                        proc->name,
-                        Ty(c->type),
-                        chain
-                    );
-                }
-
-                /// Otherwise, leave the data pointer empty; the backend will
-                /// set it to null during lowering.
-                else {
-                    c->mlir = Create<hlir::MakeClosureOp>(
-                        c->location.mlir(ctx),
-                        proc->name,
-                        Ty(c->type)
-                    );
-                }
-
-                break;
-            }
-
             /// Emit the operand.
             Generate(c->operand);
 
@@ -830,6 +786,34 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     /// No-op.
                     if (Type::Equal(c->operand->type, c->type)) {
                         c->mlir = c->operand->mlir;
+                    }
+
+                    /// Procedure to closure casts.
+                    else if (isa<ProcType>(c->operand->type) and isa<ClosureType>(c->type)) {
+                        auto proc = c->operand->mlir.getDefiningOp<mlir::func::ConstantOp>();
+                        auto proc_type = cast<ProcType>(c->operand->type);
+
+                        /// If the procedure is a nested function that takes a static
+                        /// chain, retrieve the appropriate chain pointer.
+                        if (proc_type->static_chain_parent) {
+                            auto chain = GetStaticChainPointer(proc_type->static_chain_parent);
+                            c->mlir = Create<hlir::MakeClosureOp>(
+                                c->location.mlir(ctx),
+                                proc.getValue(),
+                                Ty(c->type),
+                                chain
+                            );
+                        }
+
+                        /// Otherwise, leave the data pointer empty; the backend will
+                        /// set it to null during lowering.
+                        else {
+                            c->mlir = Create<hlir::MakeClosureOp>(
+                                c->location.mlir(ctx),
+                                proc.getValue(),
+                                Ty(c->type)
+                            );
+                        }
                     }
 
                     /// Integer-to-integer casts.
@@ -1298,6 +1282,11 @@ void src::CodeGen::GenerateModule() {
         builder.setInsertionPointToEnd(mod->mlir.getBody());
         GenerateProcedure(f);
     }
+
+    /// Delete all function constants.
+    mod->mlir.getBodyRegion().walk([](mlir::Operation *op){
+        if (isa<mlir::func::ConstantOp>(op)) op->erase();
+    });
 
     /// Verify the IR.
     if (not no_verify and not mlir::succeeded(mod->mlir.verify()))

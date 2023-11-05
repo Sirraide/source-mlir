@@ -4,10 +4,9 @@
 
 import foo;
 
-/// * func.func private @x
-/// + func.func public @__src_main
-/// + (?<x>$t) = constant @x
+/// * hlir.func external @x
+/// + hlir.func external @__src_main
 /// + (?<three>$t) = arith.constant 3
 /// + (?<four>$t) = arith.constant 4
-/// + $t = call_indirect $x($three, $four)
+/// + $t = call @x($three, $four)
 foo::x 3, 4;

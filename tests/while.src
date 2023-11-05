@@ -8,8 +8,7 @@ proc b() extern;
 
 /// * cf.br (?<COND_1>$b)
 /// + $COND_1:
-/// + (?<A_1>$t) = constant @a
-/// + (?<C_1>$t) = call_indirect $A_1()
+/// + (?<C_1>$t) = call @a
 /// + cf.cond_br $C_1, (?<BODY_1>$b), (?<EXIT_1>$b)
 /// + $BODY_1:
 /// + cf.br $COND_1
@@ -18,38 +17,31 @@ while a() { }
 
 /// * cf.br (?<COND_2>$b)
 /// + $COND_2:
-/// + (?<A_2>$t) = constant @a
-/// + (?<C_2>$t) = call_indirect $A_2()
+/// + (?<C_2>$t) = call @a
 /// + cf.cond_br $C_2, (?<BODY_2>$b), (?<EXIT_2>$b)
 /// + $BODY_2:
-/// + (?<B_1>$t) = constant @b
-/// + call_indirect $B_1()
+/// + call @b
 /// + cf.br $COND_2
 /// + $EXIT_2:
 while a() do b();
 
 /// * cf.br (?<COND_3>$b)
 /// + $COND_3:
-/// + (?<A_3>$t) = constant @a
-/// + (?<C_3>$t) = call_indirect $A_3()
+/// + (?<C_3>$t) = call @a
 /// + cf.cond_br $C_3, (?<BODY_3>$b), (?<EXIT_3>$b)
 /// + $BODY_3:
-/// + (?<B_2>$t) = constant @b
-/// + call_indirect $B_2()
+/// + call @b
 /// + cf.br $COND_3
 /// + $EXIT_3:
 while a() do { b(); }
 
 /// * cf.br (?<COND_4>$b)
 /// + $COND_4:
-/// + (?<A_4>$t) = constant @a
-/// + (?<C_4>$t) = call_indirect $A_4()
+/// + (?<C_4>$t) = call @a
 /// + cf.cond_br $C_4, (?<BODY_4>$b), (?<EXIT_4>$b)
 /// + $BODY_4:
-/// + (?<B_3>$t) = constant @b
-/// + call_indirect $B_3()
-/// + (?<B_4>$t) = constant @b
-/// + call_indirect $B_4()
+/// + call @b
+/// + call @b
 /// + cf.br $COND_4
 /// + $EXIT_4:
 while a() {

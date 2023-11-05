@@ -3,30 +3,30 @@ proc discard (int a) extern;
 
 /// d t %[a-zA-Z0-9_]+
 
-/// * func.func private @takes_int
+/// * hlir.func private @takes_int
 proc takes_int (int a) {
-    /// + (?<A>$t) = hlir.local
-    /// + hlir.store into $A
-    /// * (?<A1>$t) = hlir.load i64 from $A
-    /// + (?<A2>$t) = hlir.load i64 from $A
+    /// + (?<A>$t) = local
+    /// + store into $A
+    /// + (?<A1>$t) = load i64 from $A
+    /// + (?<A2>$t) = load i64 from $A
     /// + (?<SUM>$t) = arith.addi $A1, $A2
-    /// + call_indirect
+    /// + call @discard($SUM)
     discard a + a;
 }
 
-/// * func.func private @invoke
+/// * hlir.func private @invoke
 proc invoke() {
-    /// * arith.constant 1
-    /// + call_indirect
-    /// * arith.constant 2
-    /// + call_indirect
+    /// + (?<one>$t) = arith.constant 1
+    /// + call @takes_int($one)
+    /// + (?<two>$t) = arith.constant 2
+    /// + call @takes_int($two)
     takes_int 1;
     takes_int 2;
 
-    /// * arith.constant 3
-    /// + call_indirect
-    /// * arith.constant 4
-    /// + call_indirect
+    /// + (?<three>$t) = arith.constant 3
+    /// + call @takes_int($three)
+    /// + (?<four>$t) = arith.constant 4
+    /// + call @takes_int($four)
     takes_int(3);
     takes_int(4);
 }

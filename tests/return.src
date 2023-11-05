@@ -3,24 +3,24 @@
 /// d t %[a-zA-Z0-9_]+
 /// d b \^bb[0-9]+
 
-/// * func.func private @trivial
+/// * hlir.func private @trivial
 /// + (?<C1>$t) = arith.constant 4
 /// + return $C1
 proc trivial -> int { return 4; }
 
-/// * func.func private @abbr
+/// * hlir.func private @abbr
 /// + (?<C2>$t) = arith.constant 4
 /// + return $C2
 proc abbr = 4;
 
-/// * func.func private @abbr2
+/// * hlir.func private @abbr2
 /// + (?<C3>$t) = arith.constant 4
 /// + return $C3
 proc abbr2 -> int = 4;
 
-/// * func.func private @if_nested
+/// * hlir.func private @if_nested
 proc if_nested (bool a) -> int {
-    /// * (?<A1>$t) = hlir.load
+    /// * (?<A1>$t) = load
     /// + cf.cond_br $A1, (?<TRUE_1>$b), (?<FALSE_1>$b)
     /// + $TRUE_1:
     /// + (?<C4>$t) = arith.constant 42
@@ -28,11 +28,11 @@ proc if_nested (bool a) -> int {
     if a { return 42; }
 
     /// + $FALSE_1:
-    /// + (?<A2>$t) = hlir.load
+    /// + (?<A2>$t) = load
     /// + cf.cond_br $A2, (?<TRUE_2>$b), (?<FALSE_2>$b)
     /// + $TRUE_2:
     elif a {
-        /// + (?<A3>$t) = hlir.load
+        /// + (?<A3>$t) = load
         /// + cf.cond_br $A3, (?<TRUE_3>$b), (?<FALSE_3>$b)
         /// + $TRUE_3:
         /// + (?<C5>$t) = arith.constant 43
@@ -46,7 +46,7 @@ proc if_nested (bool a) -> int {
 
     /// + $FALSE_2:
     else {
-        /// + (?<A4>$t) = hlir.load
+        /// + (?<A4>$t) = load
         /// + cf.cond_br $A4, (?<TRUE_4>$b), (?<FALSE_4>$b)
         /// + $TRUE_4:
         /// + (?<C7>$t) = arith.constant 5
@@ -54,7 +54,7 @@ proc if_nested (bool a) -> int {
         if a return 5;
 
         /// + $FALSE_4:
-        /// + (?<A5>$t) = hlir.load
+        /// + (?<A5>$t) = load
         /// + cf.cond_br $A5, (?<TRUE_5>$b), (?<FALSE_5>$b)
         /// + $TRUE_5:
         /// + cf.br (?<JOIN_1>$b)

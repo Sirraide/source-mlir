@@ -6,134 +6,134 @@
 /// d any .*?
 /// p lit .
 
-/// * (?<I>$t) = hlir.local
-/// * (?<J>$t) = hlir.local
+/// * (?<I>$t) = local
+/// * (?<J>$t) = local
 int i = 1;
 int j = 2;
 
 /// ======= Reference Binding =======
-/// * (?<R1I>$t) = hlir.local
-/// + hlir.store into $R1I, $any $I
+/// * (?<R1I>$t) = local
+/// + store into $R1I, $any $I
 int& r1i = i;
 
-/// * (?<R1J>$t) = hlir.local
-/// + (?<R1I_0>$t) = hlir.load $any from $R1I
-/// + hlir.store into $R1J, $any $R1I_0
+/// * (?<R1J>$t) = local
+/// + (?<R1I_0>$t) = load $any from $R1I
+/// + store into $R1J, $any $R1I_0
 int& r1j = r1i;
 
 /// ======= Autodereferencing =======
-/// * (?<COPY_I>$t) = hlir.local
-/// + (?<R1I_1>$t) = hlir.load $any from $R1I
-/// + (?<I_1>$t) = hlir.load $any from $R1I_1
-/// + hlir.store into $COPY_I, $any $I_1
+/// * (?<COPY_I>$t) = local
+/// + (?<R1I_1>$t) = load $any from $R1I
+/// + (?<I_1>$t) = load $any from $R1I_1
+/// + store into $COPY_I, $any $I_1
 int copy_i = r1i;
 
-/// * (?<R1I_2>$t) = hlir.load $any from $R1I
-/// + (?<I_2>$t) = hlir.load $any from $R1I_2
-/// + hlir.store into $I, $any $I_2
+/// * (?<R1I_2>$t) = load $any from $R1I
+/// + (?<I_2>$t) = load $any from $R1I_2
+/// + store into $I, $any $I_2
 i = r1i;
 
-/// * (?<R1I_3>$t) = hlir.load $any from $R1I
-/// + (?<R1J_0>$t) = hlir.load $any from $R1J
-/// + (?<J_0>$t) = hlir.load $any from $R1J_0
-/// + hlir.store into $R1I_3, $any $J_0
+/// * (?<R1I_3>$t) = load $any from $R1I
+/// + (?<R1J_0>$t) = load $any from $R1J
+/// + (?<J_0>$t) = load $any from $R1J_0
+/// + store into $R1I_3, $any $J_0
 r1i = r1j;
 
 /// ===== Trivial Rebinding =====
-/// * hlir.store into $R1I, $any $J
-/// + (?<R1J_1>$t) = hlir.load $any from $R1J
-/// + hlir.store into $R1I, $any $R1J_1
+/// * store into $R1I, $any $J
+/// + (?<R1J_1>$t) = load $any from $R1J
+/// + store into $R1I, $any $R1J_1
 r1i => j;
 r1i => r1j;
 
 /// ===== Multi-level Ref Decls =====
-/// * (?<R2I>$t) = hlir.local
-/// + hlir.store into $R2I, $any $R1I
+/// * (?<R2I>$t) = local
+/// + store into $R2I, $any $R1I
 int&& r2i = r1i;
 
-/// * (?<R2J>$t) = hlir.local
-/// + hlir.store into $R2J, $any $R1J
+/// * (?<R2J>$t) = local
+/// + store into $R2J, $any $R1J
 int&& r2j = r1j;
 
-/// * (?<R3I>$t) = hlir.local
-/// + hlir.store into $R3I, $any $R2I
+/// * (?<R3I>$t) = local
+/// + store into $R3I, $any $R2I
 int&&& r3i = r2i;
 
-/// * (?<R3J>$t) = hlir.local
-/// + hlir.store into $R3J, $any $R2J
+/// * (?<R3J>$t) = local
+/// + store into $R3J, $any $R2J
 int&&& r3j = r2j;
 
 /// ===== Multi-level Ref Assignment =====
-/// * (?<R2I_0>$t) = hlir.load $any from $R2I
-/// + (?<R1I_4>$t) = hlir.load $any from $R2I_0
-/// + (?<J_1>$t) = hlir.load $any from $J
-/// + hlir.store into $R1I_4, $any $J_1
+/// * (?<R2I_0>$t) = load $any from $R2I
+/// + (?<R1I_4>$t) = load $any from $R2I_0
+/// + (?<J_1>$t) = load $any from $J
+/// + store into $R1I_4, $any $J_1
 r2i = j;
 
-/// * (?<R3I_0>$t) = hlir.load $any from $R3I
-/// + (?<R2I_1>$t) = hlir.load $any from $R3I_0
-/// + (?<R1I_5>$t) = hlir.load $any from $R2I_1
-/// + (?<J_2>$t) = hlir.load $any from $J
-/// + hlir.store into $R1I_5, $any $J_2
+/// * (?<R3I_0>$t) = load $any from $R3I
+/// + (?<R2I_1>$t) = load $any from $R3I_0
+/// + (?<R1I_5>$t) = load $any from $R2I_1
+/// + (?<J_2>$t) = load $any from $J
+/// + store into $R1I_5, $any $J_2
 r3i = j;
 
-/// * (?<R2J_0>$t) = hlir.load $any from $R2J
-/// + (?<R1J_2>$t) = hlir.load $any from $R2J_0
-/// + (?<R3J_0>$t) = hlir.load $any from $R3J
-/// + (?<R2J_1>$t) = hlir.load $any from $R3J_0
-/// + (?<R1J_3>$t) = hlir.load $any from $R2J_1
-/// + (?<J_3>$t) = hlir.load $any from $R1J_3
-/// + hlir.store into $R1J_2, $any $J_3
+/// * (?<R2J_0>$t) = load $any from $R2J
+/// + (?<R1J_2>$t) = load $any from $R2J_0
+/// + (?<R3J_0>$t) = load $any from $R3J
+/// + (?<R2J_1>$t) = load $any from $R3J_0
+/// + (?<R1J_3>$t) = load $any from $R2J_1
+/// + (?<J_3>$t) = load $any from $R1J_3
+/// + store into $R1J_2, $any $J_3
 r2j = r3j;
 
-/// * (?<R3I_1>$t) = hlir.load $any from $R3I
-/// + (?<R2I_2>$t) = hlir.load $any from $R3I_1
-/// + (?<R1I_6>$t) = hlir.load $any from $R2I_2
-/// + (?<R2I_3>$t) = hlir.load $any from $R2I
-/// + (?<R1I_7>$t) = hlir.load $any from $R2I_3
-/// + (?<I_3>$t) = hlir.load $any from $R1I_7
-/// + hlir.store into $R1I_6, $any $I_3
+/// * (?<R3I_1>$t) = load $any from $R3I
+/// + (?<R2I_2>$t) = load $any from $R3I_1
+/// + (?<R1I_6>$t) = load $any from $R2I_2
+/// + (?<R2I_3>$t) = load $any from $R2I
+/// + (?<R1I_7>$t) = load $any from $R2I_3
+/// + (?<I_3>$t) = load $any from $R1I_7
+/// + store into $R1I_6, $any $I_3
 r3i = r2i;
 
-/// * (?<R3I_2>$t) = hlir.load $any from $R3I
-/// + (?<R2I_4>$t) = hlir.load $any from $R3I_2
-/// + (?<R1I_8>$t) = hlir.load $any from $R2I_4
-/// + (?<R1I_9>$t) = hlir.load $any from $R1I
-/// + (?<I_4>$t) = hlir.load $any from $R1I_9
-/// + hlir.store into $R1I_8, $any $I_4
+/// * (?<R3I_2>$t) = load $any from $R3I
+/// + (?<R2I_4>$t) = load $any from $R3I_2
+/// + (?<R1I_8>$t) = load $any from $R2I_4
+/// + (?<R1I_9>$t) = load $any from $R1I
+/// + (?<I_4>$t) = load $any from $R1I_9
+/// + store into $R1I_8, $any $I_4
 r3i = r1i;
 
-/// * (?<R2J_2>$t) = hlir.load $any from $R2J
-/// + (?<R1J_4>$t) = hlir.load $any from $R2J_2
-/// + (?<R1J_5>$t) = hlir.load $any from $R1J
-/// + (?<J_4>$t) = hlir.load $any from $R1J_5
-/// + hlir.store into $R1J_4, $any $J_4
+/// * (?<R2J_2>$t) = load $any from $R2J
+/// + (?<R1J_4>$t) = load $any from $R2J_2
+/// + (?<R1J_5>$t) = load $any from $R1J
+/// + (?<J_4>$t) = load $any from $R1J_5
+/// + store into $R1J_4, $any $J_4
 r2j = r1j;
 
 /// ===== Multi-level Rebinding =====
-/// * hlir.store into $R2I, $any $R1J
-/// + hlir.store into $R3J, $any $R2I
+/// * store into $R2I, $any $R1J
+/// + store into $R3J, $any $R2I
 r2i => r1j;
 r3j => r2i;
 
 /// ===== Indirect Rebinding =====
-/// * (?<R2I_5>$t) = hlir.load $any from $R2I
-/// + hlir.store into $R2I_5, $any $I
+/// * (?<R2I_5>$t) = load $any from $R2I
+/// + store into $R2I_5, $any $I
 *r2i => i;
 
-/// * (?<R3J_1>$t) = hlir.load $any from $R3J
-/// + hlir.store into $R3J_1, $any $R1I
+/// * (?<R3J_1>$t) = load $any from $R3J
+/// + store into $R3J_1, $any $R1I
 *r3j => r1i;
 
-/// * (?<R3I_3>$t) = hlir.load $any from $R3I
-/// + (?<R2I_6>$t) = hlir.load $any from $R3I_3
-/// + hlir.store into $R2I_6, $any $J
+/// * (?<R3I_3>$t) = load $any from $R3I
+/// + (?<R2I_6>$t) = load $any from $R3I_3
+/// + store into $R2I_6, $any $J
 **r3i => j;
 
-/// * (?<R3J_2>$t) = hlir.load $any from $R3J
-/// + (?<R2J_3>$t) = hlir.load $any from $R3J_2
-/// + (?<R3I_4>$t) = hlir.load $any from $R3I
-/// + (?<R2I_7>$t) = hlir.load $any from $R3I_4
-/// + (?<R1I_10>$t) = hlir.load $any from $R2I_7
-/// + hlir.store into $R2J_3, $any $R1I_10
+/// * (?<R3J_2>$t) = load $any from $R3J
+/// + (?<R2J_3>$t) = load $any from $R3J_2
+/// + (?<R3I_4>$t) = load $any from $R3I
+/// + (?<R2I_7>$t) = load $any from $R3I_4
+/// + (?<R1I_10>$t) = load $any from $R2I_7
+/// + store into $R2J_3, $any $R1I_10
 **r3j => r3i;

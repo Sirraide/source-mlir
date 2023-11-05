@@ -11,64 +11,58 @@ proc e extern;
 proc f extern;
 proc cond() extern -> bool;
 
-/// * func.func public @__src_main
-/// * (?<I>$t) = hlir.local
+/// * hlir.func external @__src_main
+/// * (?<I>$t) = local
 int i = 4;
 
 defer a();
 defer b();
 
 if cond() {
-    /// * (?<J>$t) = hlir.local
+    /// * (?<J>$t) = local
     int j = 5;
     defer c();
 
     /// Note that the first defer proc emitted is defer proc 0,
     /// which is why the proc for `defer c()` is proc 0.
-    /// * (?<C1>$t) = call_indirect
+    /// * (?<C1>$t) = call @cond
     /// + cf.cond_br $C1, (?<TRUE_1>$b)
     /// + $TRUE_1:
-    /// + call @__src_defer_proc_0($I, $J)
-    /// + call @__src_defer_proc_1($I)
+    /// + call inline fastcc @__src_defer_proc_0($I, $J)
+    /// + call inline fastcc @__src_defer_proc_1($I)
     /// + return
     if cond() return;
     defer d();
 
-    /// * (?<D>$t) = constant @d
-    /// + call_indirect $D
-    /// + call @__src_defer_proc_0($I, $J)
+    /// * call @d
+    /// + call inline fastcc @__src_defer_proc_0($I, $J)
 }
 
-/// * (?<K>$t) = hlir.local
+/// * (?<K>$t) = local
 int k = 6;
 defer e();
 
-/// * (?<C2>$t) = call_indirect
+/// * (?<C2>$t) = call @cond
 /// + cf.cond_br $C2, (?<TRUE_2>$b)
 /// + $TRUE_2:
-/// + call @__src_defer_proc_2($I, $K)
-/// + call @__src_defer_proc_1($I)
+/// + call inline fastcc @__src_defer_proc_2($I, $K)
+/// + call inline fastcc @__src_defer_proc_1($I)
 /// + return
 if cond() return;
 defer f();
 
-/// * (?<F>$t) = constant @f
-/// + call_indirect $F
-/// + call @__src_defer_proc_2($I, $K)
-/// + call @__src_defer_proc_1($I)
+/// * call @f
+/// + call inline fastcc @__src_defer_proc_2($I, $K)
+/// + call inline fastcc @__src_defer_proc_1($I)
 /// + return
 
 
-/// * func.func private @__src_defer_proc_0
-/// * (?<C>$t) = constant @c
-/// + call_indirect $C
+/// * hlir.func private fastcc @__src_defer_proc_0
+/// * call @c
 
-/// * func.func private @__src_defer_proc_1
-/// * (?<B>$t) = constant @b
-/// + call_indirect $B
-/// * (?<A>$t) = constant @a
-/// + call_indirect $A
+/// * hlir.func private fastcc @__src_defer_proc_1
+/// * call @b
+/// + call @a
 
-/// * func.func private @__src_defer_proc_2
-/// * (?<E>$t) = constant @e
-/// + call_indirect $E
+/// * hlir.func private fastcc @__src_defer_proc_2
+/// * call @e
