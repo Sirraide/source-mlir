@@ -444,7 +444,7 @@ void src::CodeGen::DeferInfo::CallCleanupFunc(hlir::FuncOp func) {
         CG.builder.getUnknownLoc(),
         func,
         true,
-        func.getCc().getCallingConv(),
+        func.getCc(),
         mlir::ValueRange{vars}.take_front(func.getNumArguments())
     );
 }

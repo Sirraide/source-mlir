@@ -511,7 +511,7 @@ struct FuncOpLowering : public ConversionPattern {
             converted,
             linkage,
             false,
-            func.getCc().getCallingConv()
+            func.getCc()
         );
 
         /// Move the body over.

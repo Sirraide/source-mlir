@@ -102,8 +102,8 @@ auto hlir::FuncOp::parse(
 
 void hlir::FuncOp::print(OpAsmPrinter& p) {
     p << " " << LLVM::linkage::stringifyLinkage(getLinkage().getLinkage()) << " ";
-    if (getCc().getCallingConv() != LLVM::CConv::C)
-        p << LLVM::cconv::stringifyCConv(getCc().getCallingConv()) << " ";
+    if (getCc() != LLVM::CConv::C)
+        p << LLVM::cconv::stringifyCConv(getCc()) << " ";
 
     p.printSymbolName(getName());
 

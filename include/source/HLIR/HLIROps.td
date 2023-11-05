@@ -3,6 +3,7 @@
 
 include "HLIRDialect.td"
 include "mlir/Dialect/LLVMIR/LLVMAttrDefs.td"
+include "mlir/Dialect/LLVMIR/LLVMEnums.td"
 
 def FuncOp : HLIR_Op<"func", [
     AffineScope, AutomaticAllocationScope, CallableOpInterface,
@@ -12,7 +13,7 @@ def FuncOp : HLIR_Op<"func", [
     let arguments = (ins
         SymbolNameAttr:$sym_name,
         LinkageAttr:$linkage,
-        CConvAttr:$cc,
+        CConv:$cc,
         TypeAttrOf<FunctionType>:$function_type,
         OptionalAttr<DictArrayAttr>:$arg_attrs,
         OptionalAttr<DictArrayAttr>:$res_attrs
