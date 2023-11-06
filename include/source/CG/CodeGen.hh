@@ -3,22 +3,26 @@
 
 #include <mlir/IR/Builders.h>
 #include <source/Core.hh>
+#include <source/Frontend/AST.hh>
 #include <source/HLIR/HLIRDialect.hh>
 
 namespace src {
-class WhileExpr;
-class BinaryExpr;
-class LocalDecl;
-class LabelExpr;
-class BlockExpr;
-
 class CodeGen {
     Module* const mod;
     Context* const ctx;
     mlir::MLIRContext* const mctx;
     mlir::OpBuilder builder;
-    bool no_verify;
     usz anon_structs = 0;
+    usz anon_ctors = 0;
+    usz anon_dtors = 0;
+    bool no_verify;
+
+    /// Cached scoped pointer cdtors.
+    llvm::DenseMap<ScopedPointerType*, StringRef, ScopedPointerType::DenseMapInfo> scoped_pointer_ctors;
+    llvm::DenseMap<ScopedPointerType*, StringRef, ScopedPointerType::DenseMapInfo> scoped_pointer_dtors;
+
+    /// External procedures that we have already declared.
+    llvm::DenseSet<StringRef> procs;
 
     /// \brief Subsystem for managing deferred material and destructors.
     ///
@@ -39,10 +43,14 @@ class CodeGen {
     /// Below, ‘the procedure proper’ refers to the parts of a proc
     /// that are not part of a deferred expression.
     class DeferInfo {
+        struct DestructorCall {
+            LocalDecl* local;
+        };
+
         /// Stacklet for a region that holds deferred material.
         struct Stacklet {
             void* label{}; /// LabelExpr* or Scope*
-            SmallVector<Expr*> deferred_material{};
+            SmallVector<std::variant<DeferExpr*, DestructorCall>> deferred_material{};
             hlir::FuncOp compacted{};
             usz vars_count{};
         };
@@ -88,13 +96,13 @@ class CodeGen {
         DeferInfo(CodeGen& CG) : CG(CG) {}
 
         /// Add an expression to be executed at the end of the scope.
-        void AddDeferredExpression(Expr* e);
+        void AddDeferredExpression(DeferExpr* e);
 
         /// Add a label to the stack.
         void AddLabel(LabelExpr* e);
 
         /// Add a local variable.
-        void AddLocal(mlir::Value val);
+        void AddLocal(LocalDecl* decl);
 
         /// Emit all defer stacks up to a labelled expression.
         void EmitDeferStacksUpTo(Scope* scope, void* stacklet);
@@ -172,8 +180,23 @@ private:
     bool Closed();
     bool Closed(mlir::Block* block);
 
+    /// Get the (mangled) name of the constructor of a type. Returns
+    /// the empty string if there is no constructor.
+    auto Constructor(Expr* type) -> StringRef;
+
     template <typename T, typename... Args>
     auto Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
+
+    /// Create a function and execute a callback to populate its body.
+    template <typename Callable>
+    auto CreateProcedure(mlir::FunctionType type, StringRef name, Callable callable);
+
+    /// Create an external function.
+    void CreateExternalProcedure(mlir::FunctionType type, StringRef name);
+
+    /// Get the (mangled) name of the destructor of a type. Returns
+    /// the empty string if there is no destructor.
+    auto Destructor(Expr* type) -> StringRef;
 
     auto EmitReference(mlir::Location loc, Expr* decl) -> mlir::Value;
 

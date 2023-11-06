@@ -1226,6 +1226,9 @@ bool src::Sema::AnalyseInvokeBuiltin(Expr*& e) {
                 "Operand of __builtin_delete must be a local variable."
             );
 
+            /// Mark var as deleted.
+            cast<LocalRefExpr>(invoke->args[0])->decl->set_deleted_or_moved();
+
             /// Delete returns nothing.
             invoke->stored_type = Type::Void;
             return true;

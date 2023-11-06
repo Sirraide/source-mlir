@@ -3,7 +3,7 @@
 /// d t %[a-zA-Z0-9_]+
 /// d b \^bb[0-9]+
 
-/// * (?<A>$t) = local i64
+/// * (?<A>$t) = local uninit i64
 int a;
 
 /// * (?<B>$t) = local i64
@@ -32,7 +32,7 @@ int b = if true then a else 42;
 /// + store into $C, i64 $IF_2
 int c = if true { 42 } else { a };
 
-/// * (?<D>$t) = local !hlir.ref<i64>
+/// * (?<D>$t) = local i64&
 /// + (?<T_3>$t) = arith.constant false
 /// + cf.cond_br $T_3, (?<TRUE_3>$b), (?<FALSE_3>$b)
 /// + $TRUE_3:
@@ -40,7 +40,7 @@ int c = if true { 42 } else { a };
 /// + $FALSE_3:
 /// + cf.br $JOIN_3($C
 /// + $JOIN_3((?<IF_3>$t)
-/// + store into $D, !hlir.ref<i64> $IF_3
+/// + store into $D, i64& $IF_3
 int& d = if false { b } else { c };
 
 /// + (?<T_4>$t) = arith.constant true

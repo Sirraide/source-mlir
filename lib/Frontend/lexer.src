@@ -59,9 +59,10 @@ dynamic struct Expr {
 ///
 ///   - `out`   = Pass a reference (to potentially uninitialised storage); the callee *must* assign
 ///               to an outparameter on all code paths, but not read from it until it has been written
-///               to at least once.
+///               to at least once. Note: outparameters may not alias.
 ///
-///   - `inout` = Like `out`, except that its value may be read before it is written.
+///   - `inout` = Like `out`, except that its value may be read before it is written. Note: inout
+///               parameters may not alias.
 ///
 ///   - `copy`  = Pass by value; the object behaves like a local variable in the callee.
 ///
@@ -74,10 +75,11 @@ dynamic struct Expr {
 ///                replaced with its value at every call site. This has the effect of turning
 ///                a function into a template.
 ///
-///   - `exact`  = Forbid implicit conversions. This is useful for e.g. a function that takes
+///   - `exact`  = Forbid implicit conversions, except for implicit dereferencing and reference
+///                binding. This is useful for e.g. a function that takes
 ///                an `i8` and an `i64` if there is any risk of confusion as to the order of the two.
 ///
-///   - `retain` = Allow capturing the reference that is passed in. This only be used if the
+///   - `retain` = Allow capturing the reference that is passed in. This can only be used if the
 ///                parameter has the `in`, `out`, or `inout` intent. This is a low-level feature;
 ///                regular users should prefer passing reference-counted types or scoped pointers
 ///                instead. `retain` cannot be combined with `static`.
@@ -98,7 +100,8 @@ dynamic struct Expr {
 
 /// Use `nil` instead of `null` because it’s mainly used for optionals and not as a null pointer.
 
-/// Add a `bit` data type. It differs from `i1` in that it is packed, i.e. a `bit[32]` is 4 bytes, whereas an `i1[32]` is 32 bytes.
+/// Add a `bit` data type. It differs from `i1` in that it is packed, i.e. a `bit[32]` is 4 bytes,
+/// whereas an `i1[32]` is 32 bytes.
 
 /// Use :>, <:, :>=, <=: for unsigned comparison.
 
@@ -111,9 +114,6 @@ dynamic struct Expr {
 /// Allow `in` as an overloadable operator and use it to check if e.g. a vector contains a value or a string a
 /// character or substring (e.g. `if "foo" in s { ... }`).
 
-/// USE `llvm.localescape` and `llvm.localrecover` for static chains. Emit all static allocas for a function
-/// at the very start of the function, track which ones escape in sema, and then call `llvm.localescape` on
-/// all of them right after.
 
 module lexer;
 

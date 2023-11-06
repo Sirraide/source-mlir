@@ -4,6 +4,26 @@
 
 namespace mlir::hlir {
 namespace {
+/// Perform constructor call insertion.
+struct CtorInsertXfrm : public OpRewritePattern<LocalOp> {
+    CtorInsertXfrm(MLIRContext* ctx)
+        : OpRewritePattern<LocalOp>(ctx, /*benefit=*/1) {}
+
+    auto matchAndRewrite(
+        LocalOp op,
+        PatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        if (not op.getUninit()) return success();
+        op.setUninit(false);
+        rewriter.setInsertionPointAfter(op);
+        rewriter.create<hlir::ZeroinitialiserOp>(
+            op->getLoc(),
+            op
+        );
+        return success();
+    }
+};
+
 /// Perform inlining of calls annotated with `inline`.
 struct MandatoryInliningXfrm : public OpRewritePattern<CallOp> {
     MandatoryInliningXfrm(MLIRContext* ctx)
@@ -98,5 +118,5 @@ void hlir::CallOp::getCanonicalizationPatterns(
     RewritePatternSet& results,
     MLIRContext* context
 ) {
-    results.add<MandatoryInliningXfrm>(context);
+    results.add<MandatoryInliningXfrm, CtorInsertXfrm>(context);
 }

@@ -30,7 +30,11 @@ def HLIR_Dialect : Dialect {
 
     /// Use default printer/parser for types and attrs.
     //let useDefaultAttributePrinterParser = 1;
-    let useDefaultTypePrinterParser = 1;
+    let useDefaultTypePrinterParser = 0;
+
+    let extraClassDeclaration = [{
+        void printType(Type, DialectAsmPrinter &) const override;
+    }];
 }
 
 class HLIR_Op<string mnemonic, list<Trait> traits = []> :
@@ -52,7 +56,7 @@ class HLIR_Type<string name, string type_mnemonic, list<Trait> traits = []> :
 class HLIR_SingleElementType<string name, string type_mnemonic, list<Trait> traits = []>
     : HLIR_Type<name, type_mnemonic, traits> {
     let parameters = (ins "Type":$elem);
-    let assemblyFormat = "`<` $elem `>`";
+    let hasCustomAssemblyFormat = 1;
     let builders = [
         TypeBuilderWithInferredContext<(ins "Type":$elem), [{
             return $_get(elem.getContext(), elem);
@@ -60,15 +64,14 @@ class HLIR_SingleElementType<string name, string type_mnemonic, list<Trait> trai
     ];
 }
 
-// def HLIR_StaticChainPointerType : HLIR_Type<"StaticChainPointer", "static_chain_pointer">;
-
 def HLIR_SliceType : HLIR_SingleElementType<"Slice", "slice">;
+def HLIR_ScopedPointerType : HLIR_SingleElementType<"ScopedPointer", "scp">;
 def HLIR_ReferenceType : HLIR_SingleElementType<"Reference", "ref">;
 def HLIR_ClosureType : HLIR_SingleElementType<"Closure", "closure">;
 
 def HLIR_ArrayType : HLIR_SingleElementType<"Array", "array"> {
     let parameters = (ins "Type":$elem, "std::size_t":$size);
-    let assemblyFormat = "`<` $elem `[` $size `]` `>`";
+    let hasCustomAssemblyFormat = 1;
     let builders = [
         TypeBuilderWithInferredContext<(ins "Type":$elem, "std::size_t":$size), [{
             return $_get(elem.getContext(), elem, size);
@@ -88,7 +91,7 @@ def HLIR_Type : AnyTypeOf<[
     HLIR_SliceType,
     HLIR_ArrayType,
     HLIR_ReferenceType,
-//    HLIR_StaticChainPointerType,
+    HLIR_ScopedPointerType,
 ]>;
 
 #endif // HLIR_DIALECT_TD

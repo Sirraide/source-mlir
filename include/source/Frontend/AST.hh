@@ -768,6 +768,7 @@ public:
 /// Local variable declaration.
 class LocalDecl : public Decl {
     bool is_captured = false;
+    bool deleted = false;
 
 public:
     /// The procedure containing this declaration.
@@ -782,6 +783,9 @@ public:
     /// Whether this declaration is captured.
     readonly(bool, captured, return is_captured);
 
+    /// Whether this variable is ever deleted or moved from.
+    readonly(bool, deleted_or_moved, return deleted);
+
     LocalDecl(
         ProcDecl* parent,
         std::string name,
@@ -795,6 +799,9 @@ public:
 
     /// Mark this declaration as captured.
     void set_captured();
+
+    /// Mark that this declaration is deleted or moved from.
+    void set_deleted_or_moved() { deleted = true; }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::LocalDecl; }
@@ -1117,7 +1124,21 @@ public:
 };
 
 class ScopedPointerType : public SingleElementTypeBase {
+    using This = ScopedPointerType;
+
 public:
+    struct DenseMapInfo {
+        static auto getEmptyKey() -> This* { return nullptr; }
+        static auto getTombstoneKey() -> This* { return reinterpret_cast<This*>(1); }
+        static auto getHashValue(const This* t) -> usz { return std::hash<Expr::Kind>()(t->elem->kind); }
+        static bool isEqual(const This* a, const This* b) {
+            /// Type::Equal doesn’t handle nullptr or tombstones.
+            uptr ap = uptr(a), bp = uptr(b);
+            if (ap < 2 or bp < 2) return ap == bp;
+            return Type::Equal(const_cast<This*>(a), const_cast<This*>(b));
+        }
+    };
+
     ScopedPointerType(Expr* elem, Location loc)
         : SingleElementTypeBase(Kind::ScopedPointerType, elem, loc) {}
 

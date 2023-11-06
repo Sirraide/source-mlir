@@ -49,7 +49,6 @@ while t {
     /// + $BODY2:
     loop: while t {
         /// + (?<Q>$t) = local
-        /// + zeroinitialiser
         int q;
         defer d();
 
@@ -130,7 +129,6 @@ while t {
             /// + $BODY5:
             while t {
                 /// + (?<W>$t) = local
-                /// + zeroinitialiser
                 int w;
                 defer i();
 

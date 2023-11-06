@@ -27,7 +27,7 @@ auto TypeSize(LLVMTypeConverter* tc, Type t) -> isz {
     t.dump();
     Todo("Implement TypeSize()");
 }
-}
+} // namespace
 
 /// Lowering for string literals.
 struct StringOpLowering : public ConversionPattern {
@@ -316,6 +316,9 @@ struct ZeroInitOpLowering : public ConversionPattern {
         ArrayRef<Value> operands,
         ConversionPatternRewriter& rewriter
     ) const -> LogicalResult override {
+        auto tc = getTypeConverter<LLVMTypeConverter>();
+        auto zero_init = cast<hlir::ZeroinitialiserOp>(op);
+
         /// Generate a call to llvm.memset.
         auto zero = rewriter.create<LLVM::ConstantOp>(
             op->getLoc(),
@@ -325,8 +328,11 @@ struct ZeroInitOpLowering : public ConversionPattern {
 
         auto bytes = rewriter.create<LLVM::ConstantOp>(
             op->getLoc(),
-            getTypeConverter<LLVMTypeConverter>()->getIndexType(),
-            op->getAttr("bytes").cast<IntegerAttr>()
+            tc->getIndexType(),
+            IntegerAttr::get(
+                rewriter.getI64Type(),
+                utils::AlignTo<isz>(TypeSize(tc, zero_init.getOperand().getType().getElem()), 8) / 8
+            )
         );
 
         rewriter.create<LLVM::MemsetOp>(

@@ -32,6 +32,60 @@ void hlir::HLIRDialect::initialize() {
         >();
 }
 
+static void PrintType(mlir::Type t, mlir::AsmPrinter& p) {
+    using namespace hlir;
+    llvm::TypeSwitch<mlir::Type>(t)
+        .Case<ArrayType>([&](auto t) { t.print(p); })
+        .Case<ClosureType>([&](auto t) { t.print(p); })
+        .Case<ReferenceType>([&](auto t) { t.print(p); })
+        .Case<ScopedPointerType>([&](auto t) { t.print(p); })
+        .Case<SliceType>([&](auto t) { t.print(p); })
+        .Default([&](auto t) { p.printType(t); });
+
+}
+
+void hlir::HLIRDialect::printType(Type t, DialectAsmPrinter &p) const {
+    PrintType(t, p);
+}
+
+void hlir::ArrayType::print(AsmPrinter& p) const {
+    PrintType(getElem(), p);
+    p << "[" << getSize() << "]";
+}
+
+::mlir::Type hlir::ArrayType::parse(AsmParser&) { Todo(); }
+
+void hlir::ClosureType::print(AsmPrinter& p) const {
+    p << "closure ";
+    PrintType(getElem(), p);
+}
+
+::mlir::Type hlir::ClosureType::parse(AsmParser&) { Todo(); }
+
+void hlir::ReferenceType::print(AsmPrinter& p) const {
+    PrintType(getElem(), p);
+    p << "&";
+}
+
+::mlir::Type hlir::ReferenceType::parse(AsmParser&) { Todo(); }
+
+
+void hlir::ScopedPointerType::print(AsmPrinter& p) const {
+    PrintType(getElem(), p);
+    p << "^";
+}
+
+::mlir::Type hlir::ScopedPointerType::parse(AsmParser&) { Todo(); }
+
+
+
+void hlir::SliceType::print(AsmPrinter& p) const {
+    p << getElem();
+    p << "[]";
+}
+
+::mlir::Type hlir::SliceType::parse(AsmParser&) { Todo(); }
+
 void hlir::ArrayDecayOp::print(OpAsmPrinter& p) {
     p << " " << getOperand() << " to ref " << getType().getElem();
 }
@@ -74,6 +128,12 @@ void hlir::DeleteOp::print(OpAsmPrinter& p) {
 
 auto hlir::DeleteOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
+void hlir::DestroyOp::print(OpAsmPrinter& p) {
+    p << " " << getLocal();
+}
+
+auto hlir::DestroyOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
 auto hlir::FuncOp::parse(
     [[maybe_unused]] OpAsmParser& parser,
     [[maybe_unused]] OperationState& result
@@ -112,13 +172,14 @@ void hlir::FuncOp::print(OpAsmPrinter& p) {
         p << "(";
         for (unsigned i = 0; i < params; i++) {
             if (i != 0) p << ", ";
-            p << ftype.getInput(i);
+            PrintType(ftype.getInput(i), p);
         }
         p << ")";
 
         if (ftype.getNumResults()) {
             Assert(ftype.getNumResults() == 1);
-            p << " -> " << ftype.getResult(0);
+            p << " -> ";
+            PrintType(ftype.getResult(0), p);
         }
     }
 
@@ -165,13 +226,18 @@ void hlir::LiteralOp::print(OpAsmPrinter& p) {
 auto hlir::LiteralOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::LoadOp::print(OpAsmPrinter& p) {
-    p << " " << getType().getType() << " from " << getOperand();
+    p << " ";
+    PrintType(getType().getType(), p);
+    p << " from " << getOperand();
 }
 
 auto hlir::LoadOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::LocalOp::print(OpAsmPrinter& p) {
-    p << " " << getType().getElem();
+    if (getUninit()) p << " uninit";
+    if (getDtorFlag()) p << " flag";
+    p << " ";
+    PrintType(getType().getElem(), p);
     p << ", align " << getAlignment().getValue().getZExtValue();
 }
 
@@ -186,7 +252,8 @@ void hlir::MakeClosureOp::print(OpAsmPrinter& p) {
 auto hlir::MakeClosureOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::NewOp::print(OpAsmPrinter& p) {
-    p << " " << getResult().getType().getElem();
+    p << " ";
+    PrintType(getResult().getType().getElem(), p);
 }
 
 auto hlir::NewOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
@@ -200,7 +267,9 @@ auto hlir::SliceDataOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
 }
 
 void hlir::StoreOp::print(OpAsmPrinter& p) {
-    p << " into " << getAddr() << ", " << getValue().getType() << " " << getValue();
+    p << " into " << getAddr() << ", ";
+    PrintType(getValue().getType(), p);
+    p << " " << getValue();
     p << ", align " << getAlignment().getValue().getZExtValue();
 }
 

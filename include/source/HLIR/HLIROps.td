@@ -285,18 +285,17 @@ def LiteralOp : HLIR_Op<"literal"> {
 
 def ZeroinitialiserOp : HLIR_Op<"zeroinitialiser"> {
     let summary = "Zeroinitialiser";
-    let arguments = (ins HLIR_ReferenceType:$operand, Builtin_IntegerAttr:$bytes);
+    let arguments = (ins HLIR_ReferenceType:$operand);
     let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
 
     let builders = [
-        OpBuilder<(ins "::mlir::Value":$operand, "::std::int64_t":$type_size_in_bytes), [{
+        OpBuilder<(ins "::mlir::Value":$operand), [{
             build(
                 $_builder,
                 $_state,
                 {},
-                operand,
-                $_builder.getI64IntegerAttr(type_size_in_bytes)
+                operand
             );
         }]>
     ];
@@ -333,16 +332,27 @@ def ArrayDecayOp : HLIR_Op<"array_decay"> {
 
 def HLIR_LocalOp : HLIR_Op<"local"> {
     let summary = "Local variable";
-    let arguments = (ins Builtin_IntegerAttr:$alignment);
-    let results = (outs HLIR_ReferenceType:$res);
     let hasVerifier = 0;
     let hasCustomAssemblyFormat = 1;
     let skipDefaultBuilders = 1;
+    let results = (outs HLIR_ReferenceType:$res);
+    let arguments = (ins
+        Builtin_IntegerAttr:$alignment,
+        DefaultValuedAttr<BoolAttr, "false">:$uninit,
+        DefaultValuedAttr<BoolAttr, "false">:$dtor_flag
+    );
 
     let builders = [
-        OpBuilder<(ins "::mlir::Type":$type, "std::int64_t":$alignment), [{
+        OpBuilder<(ins
+            "::mlir::Type":$type,
+            "std::int64_t":$alignment,
+            CArg<"bool", "false">:$uninit,
+            CArg<"bool", "false">:$dtor_flag
+        ), [{
             $_state.addTypes(ReferenceType::get($_state.getContext(), type));
             $_state.addAttribute("alignment", $_builder.getI64IntegerAttr(alignment));
+            $_state.addAttribute("uninit", mlir::BoolAttr::get($_state.getContext(), uninit));
+            $_state.addAttribute("dtor_flag", mlir::BoolAttr::get($_state.getContext(), dtor_flag));
         }]>
     ];
 }
@@ -468,75 +478,21 @@ def InvokeClosureOp : HLIR_Op<"invokeclosure"> {
 
 def NewOp : HLIR_Op<"new"> {
     let summary = "Allocate an object on the heap";
+    let arguments = (ins DefaultValuedAttr<I64Attr, "0">:$indirection);
     let results = (outs HLIR_ReferenceType);
     let hasCustomAssemblyFormat = 1;
 }
 
 def DeleteOp : HLIR_Op<"delete"> {
     let summary = "Free an object allocated on the heap";
-    let arguments = (ins HLIR_ReferenceType:$object);
+    let arguments = (ins HLIR_ReferenceType:$object, DefaultValuedAttr<I64Attr, "0">:$indirection);
     let hasCustomAssemblyFormat = 1;
 }
 
-// def LocalEscapeOp : HLIR_Op<"localescape"> {
-//     let summary = "Make a local variables visible in nested functions";
-//     let arguments = (ins Variadic<HLIR_ReferenceType>:$vars);
-//     let hasVerifier = 0;
-//     let assemblyFormat = "`(` $vars `)` attr-dict `:` type($vars)";
-//
-//     let builders = [
-//         OpBuilder<(ins "::mlir::ValueRange":$vars), [{
-//             build(
-//                 $_builder,
-//                 $_state,
-//                 {},
-//                 vars
-//             );
-//         }]>
-//     ];
-// }
-//
-// def LocalRecoverOp : HLIR_Op<"localrecover"> {
-//     let summary = "Recover a local variable from a frame pointer";
-//     let arguments = (ins FlatSymbolRefAttr:$func, HLIR_StaticChainPointerType:$fp, Builtin_IntegerAttr:$idx);
-//     let results = (outs HLIR_ReferenceType:$var);
-//     let hasVerifier = 0;
-//     let assemblyFormat = "$fp `:` type($var) attr-dict";
-//
-//     let builders = [
-//         OpBuilder<(ins
-//             "::mlir::Type":$type,
-//             "::llvm::StringRef":$func,
-//             "::mlir::Value":$fp,
-//             "::std::int32_t":$idx
-//         ), [{
-//             build(
-//                 $_builder,
-//                 $_state,
-//                 ::hlir::ReferenceType::get($_state.getContext(), type),
-//                 SymbolRefAttr::get($_state.getContext(), func),
-//                 fp,
-//                 $_builder.getI32IntegerAttr(idx)
-//             );
-//         }]>
-//     ];
-// }
-//
-// def LocalAddressOp : HLIR_Op<"localaddress"> {
-//     let summary = "Get a frame pointer suitable for passing to hlir.localrecover";
-//     let hasVerifier = 0;
-//     let assemblyFormat = "attr-dict";
-//     let results = (outs HLIR_StaticChainPointerType);
-//
-//     let builders = [
-//         OpBuilder<(ins), [{
-//             build(
-//                 $_builder,
-//                 $_state,
-//                 ::hlir::StaticChainPointerType::get($_state.getContext())
-//             );
-//         }]>
-//     ];
-// }
+def DestroyOp : HLIR_Op<"destroy"> {
+    let summary = "Call the destructor of a local variable";
+    let arguments = (ins HLIR_ReferenceType:$local);
+    let hasCustomAssemblyFormat = 1;
+}
 
 #endif // HLIR_OPS_TD

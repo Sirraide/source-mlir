@@ -14,7 +14,6 @@ struct S {
 
 /// * hlir.func external @__src_main
 /// + (?<S>$t) = local
-/// + zeroinitialiser $S
 /// + (?<S1>$t) = load $any from $S
 /// + call @foo($S, $S1)
 /// + return

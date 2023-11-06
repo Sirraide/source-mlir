@@ -36,7 +36,9 @@ auto src::CodeGen::AllocateLocalVar(src::LocalDecl* decl) -> mlir::Value {
     return Create<hlir::LocalOp>(
         decl->location.mlir(ctx),
         Ty(decl->type),
-        decl->type.align(ctx) / 8
+        decl->type.align(ctx) / 8,
+        not decl->init,
+        decl->deleted_or_moved
     );
 }
 
@@ -48,6 +50,110 @@ auto src::CodeGen::Attach(mlir::Region* region, mlir::Block* block) -> mlir::Blo
 bool src::CodeGen::Closed() {
     return Closed(builder.getBlock());
 }
+
+/// Create a function and execute a callback to populate its body.
+template <typename Callable>
+auto src::CodeGen::CreateProcedure(mlir::FunctionType type, StringRef name, Callable callable) {
+    mlir::OpBuilder::InsertionGuard guard{builder};
+    builder.setInsertionPointToEnd(mod->mlir.getBody());
+    auto func = Create<hlir::FuncOp>(
+        builder.getUnknownLoc(),
+        name,
+        mlir::LLVM::Linkage::Private,
+        mlir::LLVM::CConv::C,
+        type
+    );
+
+    return std::invoke(std::forward<Callable>(callable), func);
+}
+
+/// Create an external function.
+void src::CodeGen::CreateExternalProcedure(mlir::FunctionType type, StringRef name) {
+    if (procs.contains(name)) return;
+    CreateProcedure(type, name, [&](hlir::FuncOp proc) {
+        proc.eraseBody();
+        proc.setPrivate();
+        procs.insert(proc.getName());
+    });
+}
+/*
+auto src::CodeGen::Constructor(Expr* type) -> StringRef {
+    type = type->as_type.desugared;
+
+    /// Generate the constructor for this scoped pointer type.
+    if (auto sc = dyn_cast<ScopedPointerType>(type)) {
+        /// Strip scoped pointer levels.
+        usz depth = 1;
+        Expr* elem = sc->elem;
+        while (isa<ScopedPointerType>(elem)) {
+            depth++;
+            elem = cast<ScopedPointerType>(elem)->elem;
+        }
+
+        /// Get the element type’s constructor. If it has none,
+        /// then simply zero-initialise the pointer.
+        auto elem_ctor = Constructor(elem);
+
+        /// Otherwise, check if we’ve already created a destructor
+        /// for this type.
+        auto dtor = scoped_pointer_ctors.find(sc);
+        if (dtor != scoped_pointer_ctors.end()) return dtor->second;
+
+        /// If not, do that now.
+        auto mlir_type = Ty(type);
+        return CreateProcedure(
+            mlir::FunctionType::get(mctx, {hlir::ReferenceType::get(mlir_type)}, {}),
+            fmt::format("__srcc_scp_ctor_{}", anon_ctors++),
+            [&](hlir::FuncOp func) {
+                /// Cache the function so we don’t create it twice.
+                scoped_pointer_ctors[sc] = func.getName();
+                func.setPrivate();
+
+                /// Load the pointer.
+                builder.setInsertionPointToEnd(&func.getBody().front());
+
+                /// Allocate a new object.
+                auto ptr = Create<hlir::NewOp>(
+                    builder.getUnknownLoc(),
+                    mlir_type
+                );
+
+                /// Call the element type’s constructor, or zero-init it if there is none.
+                if (not elem_ctor.empty()) {
+                    Create<hlir::CallOp>(
+                        builder.getUnknownLoc(),
+                        mlir::TypeRange{},
+                        elem_ctor,
+                        false,
+                        mlir::LLVM::CConvAttr::get(mctx, mlir::LLVM::CConv::C),
+                        mlir::ValueRange{ptr.getResult()}
+                    );
+                } else {
+                    Create<hlir::ZeroinitialiserOp>(
+                        builder.getUnknownLoc(),
+                        ptr,
+                        sc->elem->as_type.size_bytes(ctx)
+                    );
+                }
+
+                /// Store the pointer.
+                Create<hlir::StoreOp>(
+                    builder.getUnknownLoc(),
+                    ptr.getResult(),
+                    func.getArgument(0),
+                    sc->elem->as_type.align(ctx) / 8
+                );
+
+                /// Done.
+                Create<hlir::ReturnOp>(builder.getUnknownLoc(), mlir::Value{});
+                return func.getName();
+            }
+        );
+    }
+
+    /// No destructor.
+    return "";
+}*/
 
 bool src::CodeGen::Closed(mlir::Block* block) {
     return not block->empty() and block->back().hasTrait<mlir::OpTrait::IsTerminator>();
@@ -65,6 +171,63 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
     /// Create the instruction.
     return builder.create<T>(loc, std::forward<Args>(args)...);
 }
+
+/*auto src::CodeGen::Destructor(Expr* type) -> StringRef {
+    type = type->as_type.desugared;
+
+    /// Generate the destructor for this scoped pointer type.
+    if (auto sc = dyn_cast<ScopedPointerType>(type)) {
+        /// Get the element type’s destructor. If it has none,
+        /// then simply call load the pointer and call free.
+        auto elem_dtor = Destructor(sc->elem);
+        if (elem_dtor.empty()) return "__srcc_scp_delptr";
+
+        /// Otherwise, check if we’ve already created a destructor
+        /// for this type.
+        auto dtor = scoped_pointer_dtors.find(sc);
+        if (dtor != scoped_pointer_dtors.end()) return dtor->second;
+
+        /// If not, do that now.
+        auto mlir_type = Ty(type);
+        return CreateProcedure(
+            mlir::FunctionType::get(mctx, {hlir::ReferenceType::get(mlir_type)}, {}),
+            fmt::format("__srcc_scp_dtor_{}", anon_dtors++),
+            [&](hlir::FuncOp func) {
+                /// Cache the function so we don’t create it twice.
+                scoped_pointer_dtors[sc] = func.getName();
+                func.setPrivate();
+
+                /// Load the pointer.
+                builder.setInsertionPointToEnd(&func.getBody().front());
+                auto ptr = Create<hlir::LoadOp>(
+                    builder.getUnknownLoc(),
+                    mlir_type,
+                    func.getArgument(0)
+                );
+
+                /// Call the element type’s destructor.
+                Create<hlir::CallOp>(
+                    builder.getUnknownLoc(),
+                    mlir::TypeRange{},
+                    elem_dtor,
+                    false,
+                    mlir::LLVM::CConvAttr::get(mctx, mlir::LLVM::CConv::C),
+                    mlir::ValueRange{ptr}
+                );
+
+                /// Delete the pointer.
+                Create<hlir::DeleteOp>(builder.getUnknownLoc(), ptr);
+
+                /// Done.
+                Create<hlir::ReturnOp>(builder.getUnknownLoc(), mlir::Value{});
+                return func.getName();
+            }
+        );
+    }
+
+    /// No destructor.
+    return "";
+}*/
 
 auto src::CodeGen::EmitReference([[maybe_unused]] mlir::Location loc, src::Expr* decl) -> mlir::Value {
     /// If the operand is a function, create a function constant.
@@ -169,7 +332,9 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     proc->captured_locals_ptr = Create<hlir::LocalOp>(
         builder.getUnknownLoc(),
         Ty(s),
-        s->stored_alignment
+        s->stored_alignment,
+        false,
+        false
     );
 
     /// Save the parent’s chain pointer if there is one.
@@ -246,10 +411,14 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
             return hlir::SliceType::get(Ty(ty->elem));
         }
 
-        case Expr::Kind::ReferenceType:
-        case Expr::Kind::ScopedPointerType: {
+        case Expr::Kind::ReferenceType: {
             auto ty = cast<SingleElementTypeBase>(type);
             return hlir::ReferenceType::get(Ty(ty->elem));
+        }
+
+        case Expr::Kind::ScopedPointerType: {
+            auto ty = cast<SingleElementTypeBase>(type);
+            return hlir::ScopedPointerType::get(Ty(ty->elem));
         }
 
         case Expr::Kind::ArrayType: {
@@ -403,7 +572,7 @@ auto src::CodeGen::DeferInfo::Iterate(Scope* stop_at) {
     return IteratorRange{*this, stop_at};
 }
 
-void src::CodeGen::DeferInfo::AddDeferredExpression(Expr* e) {
+void src::CodeGen::DeferInfo::AddDeferredExpression(DeferExpr* e) {
     Assert(not CurrentStack().stacklets.empty());
     CurrentStack().stacklets.back().deferred_material.push_back(e);
     CurrentStack().stacklets.back().vars_count = vars.size();
@@ -413,8 +582,12 @@ void src::CodeGen::DeferInfo::AddLabel(LabelExpr* e) {
     CurrentStack().stacklets.push_back(Stacklet{.label = e});
 }
 
-void src::CodeGen::DeferInfo::AddLocal(mlir::Value val) {
-    vars.push_back(val);
+void src::CodeGen::DeferInfo::AddLocal(LocalDecl* decl) {
+    vars.push_back(decl->mlir);
+
+    /// Defer a destructor call if the type has one.
+    if (isa<ScopedPointerType>(decl->type))
+        CurrentStack().stacklets.back().deferred_material.push_back(DestructorCall{decl});
 }
 
 void src::CodeGen::DeferInfo::EmitDeferStacksUpTo(Scope* scope, void* stacklet) {
@@ -468,7 +641,17 @@ bool src::CodeGen::DeferInfo::Emit(Stack& s, bool compact, void* stop_at) {
 }
 
 void src::CodeGen::DeferInfo::Emit(Stacklet& s) {
-    for (auto e : vws::reverse(s.deferred_material)) CG.Generate(e);
+    for (auto e : vws::reverse(s.deferred_material)) {
+        if (auto d = std::get_if<DeferExpr*>(&e)) CG.Generate((*d)->expr);
+        else {
+            auto& call = std::get<DestructorCall>(e);
+            CG.Create<hlir::DestroyOp>(
+                CG.builder.getUnknownLoc(),
+                call.local->mlir
+            );
+        }
+    }
+
     if (s.compacted) CallCleanupFunc(s.compacted);
 }
 
@@ -484,7 +667,8 @@ void src::CodeGen::DeferInfo::Print() {
             if (stacklet.compacted) fmt::print("    {}\n", stacklet.compacted.getName());
             for (auto& e : stacklet.deferred_material) {
                 fmt::print("    ");
-                e->print(false);
+                if (auto d = std::get_if<DeferExpr*>(&e)) (*d)->print(false);
+                else std::get<DestructorCall>(e).local->print(false);
             }
         }
     }
@@ -868,7 +1052,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Todo();
 
         case Expr::Kind::DeferExpr:
-            DI.AddDeferredExpression(cast<DeferExpr>(expr)->expr);
+            DI.AddDeferredExpression(cast<DeferExpr>(expr));
             break;
 
         case Expr::Kind::LoopControlExpr: {
@@ -980,7 +1164,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// Add all function parameters if this is a function body.
             if (curr_proc->body == expr)
                 for (auto param : curr_proc->params)
-                    DI.AddLocal(param->mlir);
+                    DI.AddLocal(param);
 
             /// Emit the block expression.
             for (auto s : e->exprs) Generate(s);
@@ -1061,8 +1245,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// If the variable hasn’t already been allocated, do so now.
             if (not e->mlir) e->mlir = AllocateLocalVar(e);
 
-            /// Variable may need to be passed to deferred procedures.
-            DI.AddLocal(e->mlir);
+            /// Variable may need to be passed to deferred procedures and
+            /// may have a destructor associated with it.
+            DI.AddLocal(e);
 
             /// If there is an initialiser, emit it.
             if (e->init) {
@@ -1072,15 +1257,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     e->mlir,
                     e->init->mlir,
                     e->type.align(ctx) / 8
-                );
-            }
-
-            /// Otherwise, zero-initialise it.
-            else {
-                Create<hlir::ZeroinitialiserOp>(
-                    e->location.mlir(ctx),
-                    e->mlir,
-                    e->type.size_bytes(ctx)
                 );
             }
         } break;
@@ -1284,7 +1460,7 @@ void src::CodeGen::GenerateModule() {
     }
 
     /// Delete all function constants.
-    mod->mlir.getBodyRegion().walk([](mlir::Operation *op){
+    mod->mlir.getBodyRegion().walk([](mlir::Operation* op) {
         if (isa<mlir::func::ConstantOp>(op)) op->erase();
     });
 

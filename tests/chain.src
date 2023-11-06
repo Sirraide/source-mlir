@@ -15,7 +15,6 @@ proc exit (i32) extern -> noreturn;
 proc p1 -> int {
     /// + (?<CHAIN1>$t) = local !llvm.struct<"struct.anon.0"
     /// + (?<A>$t) = structgep $CHAIN1, 0 -> ref i64
-    /// + zeroinitialiser $A
     int a;
     int c;
 
