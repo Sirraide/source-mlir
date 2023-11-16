@@ -41,6 +41,7 @@ using options = clopts< // clang-format off
     experimental::short_option<"-O", "Optimisation level", values<0, 1, 2, 3, 4>>,
     flag<"-r", "JIT-compile and run the program after compiling">,
     flag<"--ast", "Print the AST of the module after parsing">,
+    flag<"--lowered", "Print lowered HLIR">,
     flag<"--debug-llvm", "Debug LLVM lowering process">,
     flag<"--describe-module", "Load file as a module and print its exports">,
     flag<"--exports", "Show exported declarations">,
@@ -133,6 +134,14 @@ int main(int argc, char** argv) {
     src::CodeGen::Generate(mod, opts.get<"--no-verify">());
     if (ctx.has_error()) std::exit(1);
     if (opts.get<"--hlir">()) {
+        mod->print_hlir(opts.get<"--use-generic-assembly-format">());
+        std::exit(0);
+    }
+
+    /// Lower HLIR to lowered HLIR.
+    src::LowerHLIR(mod);
+    if (ctx.has_error()) std::exit(1);
+    if (opts.get<"--lowered">()) {
         mod->print_hlir(opts.get<"--use-generic-assembly-format">());
         std::exit(0);
     }

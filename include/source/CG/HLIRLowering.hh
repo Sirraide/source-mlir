@@ -4,6 +4,7 @@
 #include <source/Core.hh>
 
 namespace src {
+void LowerHLIR(Module* mod);
 void LowerToLLVM(Module* mod, bool debug_llvm_lowering, bool no_verify);
 } // namespace src
 

@@ -130,6 +130,12 @@ def CallOp : HLIR_Op<"call", [
             return {arg_operand_begin(), arg_operand_end()};
         }
 
+        MutableOperandRange getArgOperandsMutable() {
+            auto range = getODSOperandIndexAndLength(0);
+            auto mutableRange = ::mlir::MutableOperandRange(getOperation(), range.first, range.second);
+            return mutableRange;
+        }
+
         operand_iterator arg_operand_begin() { return operand_begin(); }
         operand_iterator arg_operand_end() { return operand_end(); }
 
@@ -150,9 +156,18 @@ def ReturnOp : HLIR_Op<"return", [
     MemRefsNormalizable, ReturnLike, Terminator
 ]> {
     let summary = "Function return operation";
-    let assemblyFormat = "attr-dict ($operand^ `:` type($operand))?";
-    let arguments = (ins Optional<HLIR_Type>:$operand);
+    let hasCustomAssemblyFormat = 1;
+    let arguments = (ins Optional<HLIR_Type>:$operand, BoolAttr:$lowered);
     let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins
+            CArg<"::mlir::Value", "{}">:$operand
+        ), [{
+            if (operand) $_state.addOperands(operand);
+            $_state.addAttribute("lowered", mlir::BoolAttr::get($_state.getContext(), false));
+        }]>
+    ];
 }
 
 def StringOp : HLIR_Op<"string"> {
@@ -177,6 +192,76 @@ def StringOp : HLIR_Op<"string"> {
 
     let assemblyFormat = "$index `,` $value attr-dict";
     let hasVerifier = 0;
+}
+
+def ScopeOp : HLIR_Op<"scope", [AutomaticAllocationScope, OpAsmOpInterface]> {
+    let summary = "Open a scope that may contain deferred code";
+    let regions = (region AnyRegion:$body);
+    let results = (outs Optional<HLIR_Type>:$res);
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 0;
+    let skipDefaultBuilders = 1;
+
+    let builders = [
+        OpBuilder<(ins CArg<"::mlir::Type", "{}">:$res), [{
+            if (res) $_state.addTypes({res});
+            auto r = $_state.addRegion();
+            r->push_back(new mlir::Block);
+        }]>
+    ];
+
+    let extraClassDeclaration = [{
+        //===------------------------------------------------------------------===//
+        // OpAsmOpInterface Methods
+        //===------------------------------------------------------------------===//
+
+        /// Allow the dialect prefix to be omitted.
+        static StringRef getDefaultDialect() { return "hlir"; }
+    }];
+}
+
+def YieldOp : HLIR_Op<"yield", [Terminator]> {
+    let summary = "Yield operation";
+    let arguments = (ins Optional<HLIR_Type>:$yield, BoolAttr:$lowered);
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 0;
+    let skipDefaultBuilders = 1;
+
+    let builders = [
+        OpBuilder<(ins
+            CArg<"::mlir::Value", "{}">:$yield
+        ), [{
+            if (yield) $_state.addOperands(yield);
+            $_state.addAttribute("lowered", mlir::BoolAttr::get($_state.getContext(), false));
+        }]>
+    ];
+}
+
+def DeferOp : HLIR_Op<"defer", [AutomaticAllocationScope, OpAsmOpInterface]> {
+    let summary = "Defer code to be executed at end of scope";
+    let regions = (region AnyRegion:$body);
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 0;
+    let skipDefaultBuilders = 1;
+
+    let builders = [
+        OpBuilder<(ins), [{
+            auto r = $_state.addRegion();
+            r->push_back(new mlir::Block);
+        }]>
+    ];
+
+    let extraClassDeclaration = [{
+        /// Get the scope of this operation.
+        auto getScopeOp() -> ScopeOp;
+
+        //===------------------------------------------------------------------===//
+        // OpAsmOpInterface Methods
+        //===------------------------------------------------------------------===//
+
+        /// Allow the dialect prefix to be omitted.
+        static StringRef getDefaultDialect() { return "hlir"; }
+    }];
 }
 
 def SliceDataOp : HLIR_Op<"slice_data"> {

@@ -471,6 +471,9 @@ public:
     /// The scope of this block.
     Scope* scope;
 
+    /// Associated scope op.
+    mlir::Operation* scope_op{};
+
     /// Whether this expression was create implicitly.
     bool implicit;
 
@@ -860,6 +863,9 @@ public:
 
     /// LocalVar holding the captured variables.
     mlir::Value captured_locals_ptr{};
+
+    /// MLIR function.
+    mlir::Operation* mlir_func{};
 
     ProcDecl(
         Module* mod,

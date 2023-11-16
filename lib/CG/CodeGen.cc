@@ -76,84 +76,6 @@ void src::CodeGen::CreateExternalProcedure(mlir::FunctionType type, StringRef na
         procs.insert(proc.getName());
     });
 }
-/*
-auto src::CodeGen::Constructor(Expr* type) -> StringRef {
-    type = type->as_type.desugared;
-
-    /// Generate the constructor for this scoped pointer type.
-    if (auto sc = dyn_cast<ScopedPointerType>(type)) {
-        /// Strip scoped pointer levels.
-        usz depth = 1;
-        Expr* elem = sc->elem;
-        while (isa<ScopedPointerType>(elem)) {
-            depth++;
-            elem = cast<ScopedPointerType>(elem)->elem;
-        }
-
-        /// Get the element type’s constructor. If it has none,
-        /// then simply zero-initialise the pointer.
-        auto elem_ctor = Constructor(elem);
-
-        /// Otherwise, check if we’ve already created a destructor
-        /// for this type.
-        auto dtor = scoped_pointer_ctors.find(sc);
-        if (dtor != scoped_pointer_ctors.end()) return dtor->second;
-
-        /// If not, do that now.
-        auto mlir_type = Ty(type);
-        return CreateProcedure(
-            mlir::FunctionType::get(mctx, {hlir::ReferenceType::get(mlir_type)}, {}),
-            fmt::format("__srcc_scp_ctor_{}", anon_ctors++),
-            [&](hlir::FuncOp func) {
-                /// Cache the function so we don’t create it twice.
-                scoped_pointer_ctors[sc] = func.getName();
-                func.setPrivate();
-
-                /// Load the pointer.
-                builder.setInsertionPointToEnd(&func.getBody().front());
-
-                /// Allocate a new object.
-                auto ptr = Create<hlir::NewOp>(
-                    builder.getUnknownLoc(),
-                    mlir_type
-                );
-
-                /// Call the element type’s constructor, or zero-init it if there is none.
-                if (not elem_ctor.empty()) {
-                    Create<hlir::CallOp>(
-                        builder.getUnknownLoc(),
-                        mlir::TypeRange{},
-                        elem_ctor,
-                        false,
-                        mlir::LLVM::CConvAttr::get(mctx, mlir::LLVM::CConv::C),
-                        mlir::ValueRange{ptr.getResult()}
-                    );
-                } else {
-                    Create<hlir::ZeroinitialiserOp>(
-                        builder.getUnknownLoc(),
-                        ptr,
-                        sc->elem->as_type.size_bytes(ctx)
-                    );
-                }
-
-                /// Store the pointer.
-                Create<hlir::StoreOp>(
-                    builder.getUnknownLoc(),
-                    ptr.getResult(),
-                    func.getArgument(0),
-                    sc->elem->as_type.align(ctx) / 8
-                );
-
-                /// Done.
-                Create<hlir::ReturnOp>(builder.getUnknownLoc(), mlir::Value{});
-                return func.getName();
-            }
-        );
-    }
-
-    /// No destructor.
-    return "";
-}*/
 
 bool src::CodeGen::Closed(mlir::Block* block) {
     return not block->empty() and block->back().hasTrait<mlir::OpTrait::IsTerminator>();
@@ -171,63 +93,6 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
     /// Create the instruction.
     return builder.create<T>(loc, std::forward<Args>(args)...);
 }
-
-/*auto src::CodeGen::Destructor(Expr* type) -> StringRef {
-    type = type->as_type.desugared;
-
-    /// Generate the destructor for this scoped pointer type.
-    if (auto sc = dyn_cast<ScopedPointerType>(type)) {
-        /// Get the element type’s destructor. If it has none,
-        /// then simply call load the pointer and call free.
-        auto elem_dtor = Destructor(sc->elem);
-        if (elem_dtor.empty()) return "__srcc_scp_delptr";
-
-        /// Otherwise, check if we’ve already created a destructor
-        /// for this type.
-        auto dtor = scoped_pointer_dtors.find(sc);
-        if (dtor != scoped_pointer_dtors.end()) return dtor->second;
-
-        /// If not, do that now.
-        auto mlir_type = Ty(type);
-        return CreateProcedure(
-            mlir::FunctionType::get(mctx, {hlir::ReferenceType::get(mlir_type)}, {}),
-            fmt::format("__srcc_scp_dtor_{}", anon_dtors++),
-            [&](hlir::FuncOp func) {
-                /// Cache the function so we don’t create it twice.
-                scoped_pointer_dtors[sc] = func.getName();
-                func.setPrivate();
-
-                /// Load the pointer.
-                builder.setInsertionPointToEnd(&func.getBody().front());
-                auto ptr = Create<hlir::LoadOp>(
-                    builder.getUnknownLoc(),
-                    mlir_type,
-                    func.getArgument(0)
-                );
-
-                /// Call the element type’s destructor.
-                Create<hlir::CallOp>(
-                    builder.getUnknownLoc(),
-                    mlir::TypeRange{},
-                    elem_dtor,
-                    false,
-                    mlir::LLVM::CConvAttr::get(mctx, mlir::LLVM::CConv::C),
-                    mlir::ValueRange{ptr}
-                );
-
-                /// Delete the pointer.
-                Create<hlir::DeleteOp>(builder.getUnknownLoc(), ptr);
-
-                /// Done.
-                Create<hlir::ReturnOp>(builder.getUnknownLoc(), mlir::Value{});
-                return func.getName();
-            }
-        );
-    }
-
-    /// No destructor.
-    return "";
-}*/
 
 auto src::CodeGen::EmitReference([[maybe_unused]] mlir::Location loc, src::Expr* decl) -> mlir::Value {
     /// If the operand is a function, create a function constant.
@@ -517,240 +382,6 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
     }
 
     Unreachable();
-}
-
-/// ===========================================================================
-///  Defer Handling.
-/// ===========================================================================
-auto src::CodeGen::DeferInfo::Iterate(Scope* stop_at) {
-    class Iterator {
-        DeferInfo& DI;
-        Scope* stop_at = nullptr;
-
-        /// Index to avoid iterator invalidation.
-        usz it;
-
-        /// Invalid (‘end’) iterator.
-        enum : usz { end = std::numeric_limits<usz>::max() };
-
-    public:
-        Iterator(DeferInfo& DI, Scope* stop_at)
-            : DI(DI),
-              stop_at(stop_at),
-              it(DI.stacks.size() - 1) {
-            Assert(not DI.stacks.empty(), "Defer stack is empty");
-        }
-
-        /// This std::get is fine because the iterator always halts
-        /// at either a defer stack or `end`.
-        Stack& operator*() { return DI.stacks[it]; }
-        Stack* operator->() { return &operator*(); }
-        Iterator& operator++() {
-            Assert(it != end, "Defer stack underflow");
-
-            /// Stop iterating if we’ve reached the stack we should stop at.
-            if (operator*().scope and operator*().scope == stop_at) {
-                it = end;
-                return *this;
-            }
-
-            /// Move on to the next stack.
-            it--;
-            return *this;
-        }
-
-        bool operator==(std::default_sentinel_t) const { return it == end; }
-    };
-
-    struct IteratorRange {
-        DeferInfo& DI;
-        Scope* stop_at;
-        decltype(auto) begin() { return Iterator{DI, stop_at}; }
-        decltype(auto) end() { return std::default_sentinel; }
-    };
-
-    return IteratorRange{*this, stop_at};
-}
-
-void src::CodeGen::DeferInfo::AddDeferredExpression(DeferExpr* e) {
-    Assert(not CurrentStack().stacklets.empty());
-    CurrentStack().stacklets.back().deferred_material.push_back(e);
-    CurrentStack().stacklets.back().vars_count = vars.size();
-}
-
-void src::CodeGen::DeferInfo::AddLabel(LabelExpr* e) {
-    CurrentStack().stacklets.push_back(Stacklet{.label = e});
-}
-
-void src::CodeGen::DeferInfo::AddLocal(LocalDecl* decl) {
-    vars.push_back(decl->mlir);
-
-    /// Defer a destructor call if the type has one.
-    if (isa<ScopedPointerType>(decl->type))
-        CurrentStack().stacklets.back().deferred_material.push_back(DestructorCall{decl});
-}
-
-void src::CodeGen::DeferInfo::EmitDeferStacksUpTo(Scope* scope, void* stacklet) {
-    for (auto& s : Iterate(scope)) {
-        /// If this is the scope that we should stop at, and there is
-        /// a stacklet we are looking for, but that stacklet does not
-        /// exist in this scope, then that means this is a forward goto,
-        /// and the corresponding stacklet has not been emitted yet; do
-        /// not emit any stacklets.
-        const bool stop = s.scope and scope and s.scope == scope;
-        if (stop and stacklet and not rgs::contains(s.stacklets, stacklet, &Stacklet::label)) return;
-
-        /// Stop if the target stacklet is in this scope.
-        if (Emit(s, true, stacklet)) return;
-
-        /// Stop after the scope if this is the scope we’re looking for.
-        if (stop) return;
-    }
-
-    /// If we didn’t find the expression we wanted to stop at, then
-    /// that is an error.
-    Assert(not scope, "Entry not found in defer stack");
-}
-
-void src::CodeGen::DeferInfo::CallCleanupFunc(hlir::FuncOp func) {
-    CG.Create<hlir::CallOp>(
-        CG.builder.getUnknownLoc(),
-        func,
-        true,
-        func.getCc(),
-        mlir::ValueRange{vars}.take_front(func.getNumArguments())
-    );
-}
-
-auto src::CodeGen::DeferInfo::CurrentStack() -> Stack& {
-    Assert(not stacks.empty());
-    return stacks.back();
-}
-
-bool src::CodeGen::DeferInfo::Emit(Stack& s, bool compact, void* stop_at) {
-    for (auto& stacklet : vws::reverse(s.stacklets)) {
-        if (compact) Compact(stacklet);
-        Emit(stacklet);
-
-        /// Stop after this stacklet if this is the label we’re looking for.
-        if (stacklet.label and stop_at and stacklet.label == stop_at) return true;
-    }
-
-    /// Label was not found.
-    return false;
-}
-
-void src::CodeGen::DeferInfo::Emit(Stacklet& s) {
-    for (auto e : vws::reverse(s.deferred_material)) {
-        if (auto d = std::get_if<DeferExpr*>(&e)) CG.Generate((*d)->expr);
-        else {
-            auto& call = std::get<DestructorCall>(e);
-            CG.Create<hlir::DestroyOp>(
-                CG.builder.getUnknownLoc(),
-                call.local->mlir
-            );
-        }
-    }
-
-    if (s.compacted) CallCleanupFunc(s.compacted);
-}
-
-bool src::CodeGen::DeferInfo::HasStackFor(Scope* sc) {
-    return rgs::contains(stacks, sc, &Stack::scope);
-}
-
-void src::CodeGen::DeferInfo::Print() {
-    for (auto& stack : stacks) {
-        fmt::print("Stack for {}\n", fmt::ptr(stack.scope));
-        for (auto& stacklet : stack.stacklets) {
-            fmt::print("  Stacklet for {}\n", fmt::ptr(stacklet.label));
-            if (stacklet.compacted) fmt::print("    {}\n", stacklet.compacted.getName());
-            for (auto& e : stacklet.deferred_material) {
-                fmt::print("    ");
-                if (auto d = std::get_if<DeferExpr*>(&e)) (*d)->print(false);
-                else std::get<DestructorCall>(e).local->print(false);
-            }
-        }
-    }
-}
-
-void src::CodeGen::DeferInfo::Return(bool last_instruction_in_function) {
-    /// Compact only if this is not the last expression
-    /// in the function, as we won’t be needing the stacks
-    /// later anyway in that case.
-    const bool needs_compact = not last_instruction_in_function;
-    for (auto& stack : Iterate(nullptr)) {
-        for (auto& stacklet : vws::reverse(stack.stacklets)) {
-            if (needs_compact) Compact(stacklet);
-            Emit(stacklet);
-        }
-    }
-}
-
-src::CodeGen::DeferInfo::BlockGuard::BlockGuard(DeferInfo& DI, BlockExpr* b, mlir::Location loc)
-    : DI(DI),
-      vars_count(DI.vars.size()),
-      location(loc) {
-    if (not DI.Empty()) DI.CurrentStack().stacklets.push_back({.label = b->scope});
-    DI.stacks.emplace_back(b->scope);
-}
-
-src::CodeGen::DeferInfo::BlockGuard::~BlockGuard() {
-    auto& st = DI.stacks.back();
-
-    /// Emit defer stack.
-    if (not DI.CG.Closed()) DI.Emit(st, false, nullptr);
-
-    /// Remove our stack.
-    DI.vars.resize(vars_count);
-    DI.stacks.pop_back();
-}
-
-/// Process the contents of a defer stack so (parts of) it can be
-/// emitted multiple times without actually requiring us to be able
-/// to codegen expressions multiple times.
-///
-/// If emitted multiple times, each stacklet becomes a separate
-/// function (or several functions) that are called every time the
-/// scope is exited.
-void src::CodeGen::DeferInfo::Compact(Stacklet& s) {
-    /// Check if we need to compact at all.
-    if (s.deferred_material.empty()) return;
-
-    /// We know that we need to compact, so prepare everything we need
-    /// to be able to create a procedure to emit material into.
-    mlir::OpBuilder::InsertionGuard guard(CG.builder);
-
-    /// ALL allocas that have been emitted up to this point are passed to
-    /// deferred functions, which means that, while we are emitting the
-    /// contents of the defer block into a separate function, we can simply
-    /// ‘remap’ the LocalDecl nodes to map to the function arguments rather
-    /// than to their allocas.
-    ///
-    /// Create the appropriate function type for the function.
-    SmallVector<mlir::Type> params;
-    for (auto p : vars | vws::take(s.vars_count)) params.push_back(p.getType());
-    auto func_type = mlir::FunctionType::get(CG.mctx, params, {});
-
-    /// Actually create the function.
-    CG.builder.setInsertionPointToEnd(CG.mod->mlir.getBody());
-    auto proc = CG.Create<hlir::FuncOp>(
-        CG.builder.getUnknownLoc(),
-        fmt::format("__src_defer_proc_{}", defer_procs++),
-        mlir::LLVM::Linkage::Private,
-        mlir::LLVM::CConv::Fast,
-        func_type
-    );
-
-    auto entry = &proc.front();
-    CG.builder.setInsertionPointToEnd(entry);
-    tempset vars = decltype(vars){proc.getArguments().take_front(s.vars_count)};
-
-    /// Compact stacklet.
-    Emit(s);
-    if (not CG.Closed()) CG.Create<hlir::ReturnOp>(CG.builder.getUnknownLoc(), mlir::Value{});
-    s.deferred_material.clear();
-    s.compacted = proc;
 }
 
 /// ===========================================================================
@@ -1051,15 +682,23 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::ConstExpr:
             Todo();
 
-        case Expr::Kind::DeferExpr:
-            DI.AddDeferredExpression(cast<DeferExpr>(expr));
-            break;
+        case Expr::Kind::DeferExpr: {
+            auto d = Create<hlir::DeferOp>(expr->location.mlir(ctx));
+            mlir::OpBuilder::InsertionGuard guard{builder};
+            builder.setInsertionPointToEnd(&d.getBody().front());
+            Generate(cast<DeferExpr>(expr)->expr);
+            if (not Closed(builder.getBlock())) Create<hlir::YieldOp>(
+                builder.getUnknownLoc(),
+                mlir::Value{}
+            );
+        } break;
 
         case Expr::Kind::LoopControlExpr: {
             /// Emit all defer stacks up to and including the stack
             /// associated with the loop that we’re breaking out of
             /// or continuing.
-            auto l = cast<LoopControlExpr>(expr);
+            Todo();
+            /*auto l = cast<LoopControlExpr>(expr);
             const auto loc = expr->location.mlir(ctx);
             DI.EmitDeferStacksUpTo(l->target->body->scope, nullptr);
 
@@ -1067,44 +706,46 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Create<mlir::cf::BranchOp>(
                 loc,
                 l->is_continue ? l->target->cond_block : l->target->join_block
-            );
+            );*/
         } break;
 
         case Expr::Kind::GotoExpr: {
-            auto g = cast<GotoExpr>(expr);
+            Todo();
+            /* auto g = cast<GotoExpr>(expr);
 
-            /// Cross jumps back into a scope that has already been processed
-            /// need to be handled differently since that scope will no longer
-            /// be on the stack. However, since we’ve created a stacklet for
-            /// every subscope, we should be able to find its parent and unwind
-            /// back to it.
-            Scope* parent = g->target->parent;
-            void* stacklet = g->target;
-            if (not DI.HasStackFor(g->target->parent)) {
-                auto p = g->target->parent;
-                for (; p->parent; p = p->parent) {
-                    if (DI.HasStackFor(p->parent)) {
-                        parent = p->parent;
-                        stacklet = p;
-                        break;
-                    }
-                }
+             /// Cross jumps back into a scope that has already been processed
+             /// need to be handled differently since that scope will no longer
+             /// be on the stack. However, since we’ve created a stacklet for
+             /// every subscope, we should be able to find its parent and unwind
+             /// back to it.
+             Scope* parent = g->target->parent;
+             void* stacklet = g->target;
+             if (not DI.HasStackFor(g->target->parent)) {
+                 auto p = g->target->parent;
+                 for (; p->parent; p = p->parent) {
+                     if (DI.HasStackFor(p->parent)) {
+                         parent = p->parent;
+                         stacklet = p;
+                         break;
+                     }
+                 }
 
-                /// If we couldn’t find a single parent, then there’s something
-                /// very wrong here.
-                Assert(p->parent, "Invalid cross jump");
-            }
+                 /// If we couldn’t find a single parent, then there’s something
+                 /// very wrong here.
+                 Assert(p->parent, "Invalid cross jump");
+             }
 
-            /// Emit material deferred after the label we’re branching to.
-            DI.EmitDeferStacksUpTo(parent, stacklet);
-            Create<mlir::cf::BranchOp>(
-                g->location.mlir(ctx),
-                g->target->block
-            );
+             /// Emit material deferred after the label we’re branching to.
+             DI.EmitDeferStacksUpTo(parent, stacklet);
+             Create<mlir::cf::BranchOp>(
+                 g->location.mlir(ctx),
+                 g->target->block
+             );*/
         } break;
 
         case Expr::Kind::LabelExpr: {
-            auto l = cast<LabelExpr>(expr);
+            Todo();
+            /*auto l = cast<LabelExpr>(expr);
 
             /// Insert the block that we’ve already created for this label.
             if (l->used) {
@@ -1120,7 +761,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             }
 
             /// Emit the labelled expression.
-            Generate(l->expr);
+            Generate(l->expr);*/
         } break;
 
         /// Nothing to do here other than emitting the underlying decl.
@@ -1136,7 +777,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// Emit all defer stacks.
             const auto loc = r->location.mlir(ctx);
             const auto last_inst = expr == curr_proc->body->exprs.back();
-            DI.Return(last_inst);
 
             /// Return the value.
             if (not Closed()) {
@@ -1159,16 +799,29 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::BlockExpr: {
             auto e = cast<BlockExpr>(expr);
-            DeferInfo::BlockGuard guard{DI, e, expr->location.mlir(ctx)};
+            if (e->exprs.empty()) break;
 
-            /// Add all function parameters if this is a function body.
-            if (curr_proc->body == expr)
-                for (auto param : curr_proc->params)
-                    DI.AddLocal(param);
+            /// Create a scope for the block.
+            const bool yields_value = e->type.yields_value;
+            auto b = Create<hlir::ScopeOp>(
+                e->location.mlir(ctx),
+                yields_value ? Ty(e->type) : mlir::Type{}
+            );
 
-            /// Emit the block expression.
+            /// Associate block with scope op.
+            e->scope_op = b;
+
+            /// Emit contained expressions.
+            mlir::OpBuilder::InsertionGuard guard{builder};
+            builder.setInsertionPointToEnd(&b.getBody().front());
             for (auto s : e->exprs) Generate(s);
-            if (not e->exprs.empty()) e->mlir = e->exprs.back()->mlir;
+            if (yields_value) e->mlir = b.getRes();
+            if (not Closed(builder.getBlock())) {
+                Create<hlir::YieldOp>(
+                    e->location.mlir(ctx),
+                    yields_value ? e->exprs.back()->mlir : mlir::Value{}
+                );
+            }
         } break;
 
         case Expr::Kind::StringLiteralExpr: {
@@ -1244,10 +897,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// If the variable hasn’t already been allocated, do so now.
             if (not e->mlir) e->mlir = AllocateLocalVar(e);
-
-            /// Variable may need to be passed to deferred procedures and
-            /// may have a destructor associated with it.
-            DI.AddLocal(e);
 
             /// If there is an initialiser, emit it.
             if (e->init) {
@@ -1482,6 +1131,9 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         mlir::LLVM::CConv::C,
         ty.cast<mlir::FunctionType>()
     );
+
+    /// Associate the function with the procedure.
+    proc->mlir_func = func;
 
     /// Generate the function body, if there is one.
     if (proc->body) {

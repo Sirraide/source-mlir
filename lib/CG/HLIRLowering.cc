@@ -21,7 +21,7 @@ using namespace mlir;
 
 namespace src {
 namespace {
-auto TypeSize(LLVMTypeConverter* tc, Type t) -> isz {
+auto TypeSize(const LLVMTypeConverter* tc, Type t) -> isz {
     if (isa<hlir::ReferenceType>(t)) return tc->getPointerBitwidth(0);
     if (auto i = dyn_cast<IntegerType>(t)) return utils::AlignTo<isz>(i.getWidth(), 8);
     t.dump();
@@ -446,7 +446,7 @@ struct MakeClosureOpLowering : public ConversionPattern {
             auto lit3 = rewriter.create<LLVM::InsertValueOp>(loc, lit2, adaptor.getEnv(), ArrayRef<i64>{1});
             rewriter.replaceOp(op, lit3);
         } else {
-            auto null = rewriter.create<LLVM::NullOp>(loc, LLVM::LLVMPointerType::get(getContext()));
+            auto null = rewriter.create<LLVM::ZeroOp>(loc, LLVM::LLVMPointerType::get(getContext()));
             auto lit3 = rewriter.create<LLVM::InsertValueOp>(loc, lit2, null, ArrayRef<i64>{1});
             rewriter.replaceOp(op, lit3);
         }
@@ -765,7 +765,7 @@ int src::Module::run(int opt_level) {
     auto engine = mlir::ExecutionEngine::create(
         mlir,
         {
-            .jitCodeGenOptLevel = llvm::CodeGenOpt::Level(std::clamp(opt_level, 0, 3)),
+            .jitCodeGenOptLevel = llvm::CodeGenOptLevel(std::clamp(opt_level, 0, 3)),
         }
     );
     Assert(engine, "Failed to create execution engine");

@@ -58,12 +58,12 @@ void src::Module::emit_object_file(int opt_level, const fs::path& location) {
     }
 
     /// Get opt level.
-    llvm::CodeGenOpt::Level opt;
+    llvm::CodeGenOptLevel opt;
     switch (opt_level) {
-        case 0: opt = llvm::CodeGenOpt::Level::None; break;
-        case 1: opt = llvm::CodeGenOpt::Level::Less; break;
-        case 2: opt = llvm::CodeGenOpt::Level::Default; break;
-        default: opt = llvm::CodeGenOpt::Level::Aggressive; break;
+        case 0: opt = llvm::CodeGenOptLevel::None; break;
+        case 1: opt = llvm::CodeGenOptLevel::Less; break;
+        case 2: opt = llvm::CodeGenOptLevel::Default; break;
+        default: opt = llvm::CodeGenOptLevel::Aggressive; break;
     }
 
     /// Emit to object file.
@@ -92,7 +92,7 @@ void src::Module::emit_object_file(int opt_level, const fs::path& location) {
 
     /// No idea how or if the new pass manager can be used for this, so...
     llvm::legacy::PassManager pass;
-    if (machine->addPassesToEmitFile(pass, dest, nullptr, llvm::CodeGenFileType::CGFT_ObjectFile))
+    if (machine->addPassesToEmitFile(pass, dest, nullptr, llvm::CodeGenFileType::ObjectFile))
         Diag::ICE("LLVM backend rejected object code emission passes");
     pass.run(*llvm);
     dest.flush();

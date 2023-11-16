@@ -30,6 +30,8 @@ endif()
 ## ============================================================================
 add_library(options INTERFACE)
 
+add_compile_options(-fdeclspec -fms-extensions)
+
 ## Flags for Clang and GCC.
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_options(options INTERFACE
@@ -129,11 +131,11 @@ if (NOT MSVC)
     )
 ]]
     target_compile_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g -glldb -funwind-tables>
+        $<$<CONFIG:DEBUG>:-O0 -g3 -glldb -funwind-tables>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
     target_link_options(options INTERFACE
-        $<$<CONFIG:DEBUG>:-O0 -g -glldb -Wl,-export-dynamic -funwind-tables>
+        $<$<CONFIG:DEBUG>:-O0 -g3 -glldb -Wl,-export-dynamic -funwind-tables>
         $<$<CONFIG:RELEASE>:-O3 -march=native>
     )
 else()
@@ -205,9 +207,10 @@ endif()
 ## ============================================================================
 ##  LLVM.
 ## ============================================================================
-set(LLVM_DIR "${PROJECT_SOURCE_DIR}/llvm/out/lib/cmake/llvm")
-set(MLIR_DIR "${PROJECT_SOURCE_DIR}/llvm/out/lib/cmake/mlir")
-set(Clang_DIR "${PROJECT_SOURCE_DIR}/llvm/out/lib/cmake/clang")
+set(SOURCE_LLVM_BUILD_DIR "${PROJECT_SOURCE_DIR}/llvm/out-debug")
+set(LLVM_DIR "${SOURCE_LLVM_BUILD_DIR}/lib/cmake/llvm")
+set(MLIR_DIR "${SOURCE_LLVM_BUILD_DIR}/lib/cmake/mlir")
+set(Clang_DIR "${SOURCE_LLVM_BUILD_DIR}/lib/cmake/clang")
 
 ## Set these or be prepared for horrible linker errors.
 ##

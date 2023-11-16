@@ -1,6 +1,6 @@
 // clang-format off
 #include <mlir/IR/OpImplementation.h>
-#include <mlir/IR/FunctionImplementation.h>
+#include <mlir/Interfaces/FunctionImplementation.h>
 #include <mlir/IR/Builders.h>
 #include <fmt/format.h>
 
@@ -41,10 +41,9 @@ static void PrintType(mlir::Type t, mlir::AsmPrinter& p) {
         .Case<ScopedPointerType>([&](auto t) { t.print(p); })
         .Case<SliceType>([&](auto t) { t.print(p); })
         .Default([&](auto t) { p.printType(t); });
-
 }
 
-void hlir::HLIRDialect::printType(Type t, DialectAsmPrinter &p) const {
+void hlir::HLIRDialect::printType(Type t, DialectAsmPrinter& p) const {
     PrintType(t, p);
 }
 
@@ -69,15 +68,12 @@ void hlir::ReferenceType::print(AsmPrinter& p) const {
 
 ::mlir::Type hlir::ReferenceType::parse(AsmParser&) { Todo(); }
 
-
 void hlir::ScopedPointerType::print(AsmPrinter& p) const {
     PrintType(getElem(), p);
     p << "^";
 }
 
 ::mlir::Type hlir::ScopedPointerType::parse(AsmParser&) { Todo(); }
-
-
 
 void hlir::SliceType::print(AsmPrinter& p) const {
     p << getElem();
@@ -112,6 +108,11 @@ void hlir::CallOp::print(OpAsmPrinter& p) {
 
     auto res = getYield();
     if (res != Value{}) p << " -> " << res.getType();
+
+    p.printOptionalAttrDict(
+        (*this)->getAttrs(),
+        {getCcAttrName(), getCalleeAttrName(), getInlineCallAttrName()}
+    );
 }
 
 auto hlir::CallOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
@@ -121,6 +122,19 @@ void hlir::ChainExtractLocalOp::print(OpAsmPrinter& p) {
 }
 
 auto hlir::ChainExtractLocalOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+auto hlir::DeferOp::getScopeOp() -> ScopeOp {
+    Assert(&getBody());
+    Assert(not getBody().getBlocks().empty());
+    return cast<ScopeOp>(getBody().front().getOperations().front());
+}
+
+void hlir::DeferOp::print(OpAsmPrinter& p) {
+    p << " ";
+    p.printRegion(getScopeOp().getBody(), false, true, false);
+}
+
+auto hlir::DeferOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::DeleteOp::print(OpAsmPrinter& p) {
     p << " " << getObject();
@@ -258,6 +272,34 @@ void hlir::NewOp::print(OpAsmPrinter& p) {
 
 auto hlir::NewOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
+void hlir::ReturnOp::print(OpAsmPrinter& p) {
+    p << " ";
+    if (getOperand()) {
+        PrintType(getOperand().getType(), p);
+        p << " " << getOperand();
+    }
+
+    p.printOptionalAttrDict(
+        (*this)->getAttrs(),
+        {getLoweredAttrName()}
+    );
+}
+
+auto hlir::ReturnOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+
+void hlir::ScopeOp::print(OpAsmPrinter& p) {
+    p << " ";
+    if (getRes()) {
+        PrintType(getRes().getType(), p);
+        p << " ";
+    }
+
+    p.printRegion(getBody(), false, true, false);
+}
+
+auto hlir::ScopeOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
 void hlir::SliceDataOp::print(OpAsmPrinter& p) {
     p << " ref " << getType().getElem() << " " << getOperand();
 }
@@ -285,6 +327,21 @@ void hlir::StructGEPOp::print(OpAsmPrinter& p) {
 auto hlir::StructGEPOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
     Todo();
 }
+
+void hlir::YieldOp::print(OpAsmPrinter& p) {
+    p << " ";
+    if (getYield()) {
+        PrintType(getYield().getType(), p);
+        p << " " << getYield();
+    }
+
+    p.printOptionalAttrDict(
+        (*this)->getAttrs(),
+        {getLoweredAttrName()}
+    );
+}
+
+auto hlir::YieldOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::ZeroinitialiserOp::print(OpAsmPrinter& p) {
     p << " " << getOperand();
