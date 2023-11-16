@@ -429,11 +429,20 @@ bool src::Sema::Analyse(Expr*& e) {
             }
         } break;
 
-        /// The type of a block is the type of the last expression.
+        /// The type of a block is the type of the last expression that is not
+        /// a named procedure or type declaration.
         case Expr::Kind::BlockExpr: {
             auto b = cast<BlockExpr>(e);
             tempset curr_scope = b->scope;
-            long last = std::ssize(b->exprs) - 1;
+
+            /// Skip ProcDecls for the purpose of determining the type of the block.
+            isz last = std::ssize(b->exprs) - 1;
+            while (last >= 0) {
+                if (isa<ProcDecl, StructType>(b->exprs[usz(last)])) last--;
+                else break;
+            }
+
+            /// Analyse the block.
             for (auto&& [i, expr] : vws::enumerate(b->exprs)) {
                 if (not Analyse(expr) and i == last) e->sema.set_errored();
                 else if (i == last) {

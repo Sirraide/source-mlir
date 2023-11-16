@@ -170,6 +170,33 @@ def ReturnOp : HLIR_Op<"return", [
     ];
 }
 
+def BreakOp : HLIR_Op<"break", [
+    Pure, HasParent<"ScopeOp">, Terminator
+]> {
+    let summary = "Break operation";
+    let assemblyFormat = "$dest attr-dict";
+    let successors = (successor AnySuccessor:$dest);
+    let hasVerifier = 0;
+}
+
+def ContinueOp : HLIR_Op<"continue", [
+    Pure, HasParent<"ScopeOp">, Terminator
+]> {
+    let summary = "Continue operation";
+    let assemblyFormat = "$dest attr-dict";
+    let successors = (successor AnySuccessor:$dest);
+    let hasVerifier = 0;
+}
+
+def DirectBrOp : HLIR_Op<"directbr", [
+    Pure, HasParent<"ScopeOp">, Terminator
+]> {
+    let summary = "Direct branch to a block";
+    let assemblyFormat = "$dest attr-dict";
+    let successors = (successor AnySuccessor:$dest);
+    let hasVerifier = 0;
+}
+
 def StringOp : HLIR_Op<"string"> {
     let summary = "String literal";
     let arguments = (ins StrAttr:$value, IndexAttr:$index);

@@ -1,5 +1,5 @@
 /// R %srcc %s --hlir
-/// TODO: %srcc %s --llvm -O3
+/// R[///O] %srcc %s --llvm -O3
 
 /// p nolit .
 /// d any .*
@@ -8,12 +8,13 @@
 /// d t %[a-zA-Z0-9_]+
 
 proc exit (i32) extern -> noreturn;
-/// OPT: define void @__src_main()
-/// OPT-NEXT: tail call void @exit(i32 42)
+///O * define void @__src_main()
+///O + tail call void @exit(i32 42)
 
 /// * hlir.func private @p1
+/// + (?<CHAIN1>$t) = local !llvm.struct<"struct.anon.0"
+/// * scope
 proc p1 -> int {
-    /// + (?<CHAIN1>$t) = local !llvm.struct<"struct.anon.0"
     /// + (?<A>$t) = structgep $CHAIN1, 0 -> ref i64
     int a;
     int c;
@@ -27,11 +28,11 @@ proc p1 -> int {
     p2(4);
 
     /// * hlir.func private @p2
+    /// + (?<CHAIN2>$t) = local !llvm.struct<"struct.anon.1"
+    /// + store into $CHAIN2
+    /// * scope
     proc p2(int b) {
-        /// + (?<CHAIN2>$t) = local !llvm.struct<"struct.anon.1"
-        /// + store into $CHAIN2
-
-        /// * (?<CHAIN1_1>$t) = extractlocal chain $CHAIN2, 0
+        /// + (?<CHAIN1_1>$t) = extractlocal chain $CHAIN2, 0
         /// + (?<A1>$t) = structgep $CHAIN1_1, 0 -> ref i64
         /// * (?<CONST_3>$t) = arith.constant 3 : i64
         /// + store into $A1, i64 $CONST_3
@@ -41,10 +42,11 @@ proc p1 -> int {
         p3();
 
         /// * hlir.func private @p3
+        /// + (?<CHAIN3>$t) = local !llvm.struct<"struct.anon.2"
+        /// + store into $CHAIN3
+        /// * scope
         proc p3() {
-            /// + (?<CHAIN3>$t) = local !llvm.struct<"struct.anon.2"
-            /// + store into $CHAIN3
-            /// * (?<CHAIN2_1>$t) = extractlocal chain $CHAIN3, 0
+            /// + (?<CHAIN2_1>$t) = extractlocal chain $CHAIN3, 0
             /// + (?<B1>$t) = structgep $CHAIN2_1, 1 -> ref i64
             /// * (?<CONST_4>$t) = arith.constant 4 : i64
             /// + store into $B1, i64 $CONST_4
@@ -60,9 +62,10 @@ proc p1 -> int {
             p5(2, 3);
 
             /// * hlir.func private @p4
+            /// + (?<CHAIN4>$t) = local !llvm.struct<"struct.anon.3"
+            /// + store into $CHAIN4
+            /// * scope
             proc p4 {
-                /// + (?<CHAIN4>$t) = local !llvm.struct<"struct.anon.3"
-                /// + store into $CHAIN4
                 /// + (?<CHAIN3_1>$t) = extractlocal chain $CHAIN4, 0
                 /// + (?<CHAIN2_2>$t) = extractlocal chain $CHAIN3_1, 0
                 /// + (?<CHAIN1_2>$t) = extractlocal chain $CHAIN2_2, 0
@@ -81,11 +84,12 @@ proc p1 -> int {
         }
 
         /// * hlir.func private @p5
+        /// + (?<CHAIN5>$t) = local !llvm.struct<"struct.anon.4"
+        /// + store into $CHAIN5
+        /// * scope
         proc p5(int, int) {
-            /// + (?<CHAIN5>$t) = local !llvm.struct<"struct.anon.4"
-            /// + store into $CHAIN5
 
-            /// * (?<CHAIN2_4>$t) = extractlocal chain $CHAIN5, 0
+            /// + (?<CHAIN2_4>$t) = extractlocal chain $CHAIN5, 0
             /// + (?<CHAIN1_3>$t) = extractlocal chain $CHAIN2_4, 0
             /// + (?<A3>$t) = structgep $CHAIN1_3, 0 -> ref i64
             /// + (?<CONST_10>$t) = arith.constant 42 : i64

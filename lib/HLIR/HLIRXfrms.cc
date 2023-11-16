@@ -175,7 +175,18 @@ struct DeferInliningXfrm {
     mlir::IRRewriter rewriter{b};
 
     void run() {
-        auto op = cast<ScopeOp>(&f.getBody().front().front());
+        /// Find scope op.
+        ScopeOp op;
+        for (auto& block : f.getBody().getBlocks()) {
+            for (auto& i : block.getOperations()) {
+                if (auto o = dyn_cast<ScopeOp>(i)) {
+                    op = o;
+                    break;
+                }
+            }
+        }
+
+        if (not op) return;
         ProcessScope(op);
         for (auto d : to_delete) d->erase();
     }

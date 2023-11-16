@@ -1,4 +1,4 @@
-/// R %srcc %s --hlir
+/// R %srcc %s --lowered
 
 /// p nolit ^
 /// d t %[a-zA-Z0-9_]+
@@ -14,7 +14,7 @@ proc a = 22;
 /// + store into $c
 /// + (?<cval>$t) = load $any from $c
 /// + (?<ret>$t) = invokeclosure $cval()
-/// + return $ret
+/// + return i64 $ret
 proc b (proc c -> int) = c();
 
 /// u c
@@ -29,7 +29,7 @@ proc b (proc c -> int) = c();
 /// + (?<cl2>$t) = makeclosure { @c, $vars }
 /// + (?<b2ret>$t) = call @b($cl2)
 /// + (?<ret>$t) = arith.addi $b1ret, $b2ret
-/// + return $ret
+/// + return i64 $ret
 proc caller() -> int {
     int x = 20;
     proc c = x;

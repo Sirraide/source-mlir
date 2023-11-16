@@ -3,6 +3,7 @@
 /// d t %[0-9a-zA-Z_]+
 
 /// * hlir.func external @__src_main
+/// + $t = scope
 /// + (?<A>$t) = local i64
 i64 a = 42;
 
@@ -78,4 +79,6 @@ i64 m = k as i64;
 /// + (?<L_1>$t) = load i1 from $L
 /// + (?<LZEXT_1>$t) = arith.extui $L_1 : i1 to i64
 /// + store into $N, i64 $LZEXT_1
+/// + yield
+/// + }
 i64 n = l as i64;

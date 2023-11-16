@@ -26,348 +26,345 @@ proc j() extern;
 proc k() extern;
 proc l() extern;
 
-/// * (?<T>$t) = local
+///  * hlir.func external @__src_main {
+///  + scope {
+///  + (?<T>$t) = local i1
 bool t = true;
 
+///  * defer {
+///  +   call @a
+///  +   yield
+///  + }
 defer a();
 
-/// * cf.br (?<COND1>$b)
-/// + $COND1:
-/// + (?<T1>$t) = load i1 from $T
-/// + cf.cond_br $T1, (?<BODY1>$b), (?<EXIT1>$b)
-/// + $BODY1:
+///  + cf.br (?<COND1>$b)
+///  + $COND1:
+///  + (?<T1>$t) = load i1 from $T
+///  + cf.cond_br $T1, (?<BODY1>$b), (?<EXIT1>$b)
+///  + $BODY1:
+///  + scope {
 while t {
     /// `unused` is never branched to and should thus
     /// not affect codegen at all.
+    ///  + defer {
+    ///  +   call @b
+    ///  +   yield
+    ///  + }
+    ///  + defer {
+    ///  +   call @c
+    ///  +   yield
+    ///  + }
     defer b();
     unused: defer c();
 
-    /// + cf.br (?<COND2>$b)
-    /// + $COND2:
-    /// + (?<T2>$t) = load i1 from $T
-    /// + cf.cond_br $T2, (?<BODY2>$b), (?<EXIT2>$b)
-    /// + $BODY2:
+    ///  + cf.br (?<COND2>$b)
+    ///  + $COND2:
+    ///  + (?<T2>$t) = load i1 from $T
+    ///  + cf.cond_br $T2, (?<BODY2>$b), (?<EXIT2>$b)
+    ///  + $BODY2:
+    ///  + scope {
     loop: while t {
-        /// + (?<Q>$t) = local
+        ///  + (?<Q>$t) = local uninit i64
         int q;
+
+        ///  + defer {
+        ///  +   call @d
+        ///  +   yield
+        ///  + }
         defer d();
 
-        /// + cf.br (?<COND3>$b)
-        /// + $COND3:
-        /// + (?<T3>$t) = load i1 from $T
-        /// + cf.cond_br $T3, (?<BODY3>$b), (?<EXIT3>$b)
-        /// + $BODY3:
+        ///  + cf.br (?<COND3>$b)
+        ///  + $COND3:
+        ///  + (?<T3>$t) = load i1 from $T
+        ///  + cf.cond_br $T3, (?<BODY3>$b), (?<EXIT3>$b)
+        ///  + $BODY3:
+        ///  + scope {
         loop2: while t {
+            ///  + defer {
+            ///  +   call @e
+            ///  +   yield
+            ///  + }
             defer e();
 
-            /// + cf.br (?<COND4>$b)
-            /// + $COND4:
-            /// + (?<T4>$t) = load i1 from $T
-            /// + cf.cond_br $T4, (?<BODY4>$b), (?<EXIT4>$b)
-            /// + $BODY4:
+            ///  + cf.br (?<COND4>$b)
+            ///  + $COND4:
+            ///  + (?<T4>$t) = load i1 from $T
+            ///  + cf.cond_br $T4, (?<BODY4>$b), (?<EXIT4>$b)
+            ///  + $BODY4:
+            ///  + scope {
             while t {
-                /// + cf.br (?<LABEL5>$b)
-                /// + $LABEL5:
+                ///  + scope {
+                ///  + scope {
+                ///  + scope {
+                ///  + cf.br (?<LABEL5>$b)
+                ///  + $LABEL5:
+                ///  + yield
+                ///  + }
+                ///  + yield
+                ///  + }
+                ///  + yield
+                ///  + }
                 { { { nested:; } } }
+
+                ///  + defer {
+                ///  +   call @f
+                ///  +   yield
+                ///  + }
                 defer f();
 
                 /// Label is branched to and thus creates a new block.
-                /// + cf.br (?<LABEL1>$b)
-                /// + $LABEL1:
+                ///  + cf.br (?<LABEL1>$b)
+                ///  + $LABEL1:
                 same_region:
 
-                /// 0 executes f()
-                /// + (?<T5>$t) = load i1 from $T
-                /// + cf.cond_br $T5, (?<THEN1>$b), (?<ELSE1>$b)
-                /// + $THEN1:
-                /// + call inline fastcc @__src_defer_proc_0($T, $Q)
-                /// + cf.br $EXIT4
+                ///  + (?<T5>$t) = load i1 from $T
+                ///  + cf.cond_br $T5, (?<THEN1>$b), (?<ELSE1>$b)
+                ///  + $THEN1:
+                ///  + scope {
+                ///  +   break $EXIT4
+                ///  + }
                 if t then break;
-                /// + $ELSE1:
+                ///  + cf.br $ELSE1
+                ///  + $ELSE1:
 
                 /// Branch upwards in the same region without crossing
                 /// deferred material is simply a branch.
-                /// + (?<Tg1>$t) = load i1 from $T
-                /// + cf.cond_br $Tg1, (?<THENg1>$b), (?<ELSEg1>$b)
-                /// + $THENg1:
-                /// + cf.br $LABEL1
+                ///  + (?<Tg1>$t) = load i1 from $T
+                ///  + cf.cond_br $Tg1, (?<THENg1>$b), (?<ELSEg1>$b)
+                ///  + $THENg1:
+                ///  + scope {
+                ///  +   directbr $LABEL1
+                ///  + }
                 if t then goto same_region;
-                /// + $ELSEg1:
+                ///  + cf.br $ELSEg1
+                ///  + $ELSEg1:
 
+                ///  + defer {
+                ///  +   call @g
+                ///  +   yield
+                ///  + }
                 defer g();
 
-                /// 0 executes f()
-                /// 1 executes g()
-                /// 2 executes e()
-                /// + (?<T6>$t) = load i1 from $T
-                /// + cf.cond_br $T6, (?<THEN2>$b), (?<ELSE2>$b)
-                /// + $THEN2:
-                /// + call inline fastcc @__src_defer_proc_1($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_0($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_2($T, $Q)
-                /// + cf.br $EXIT3
+                ///  + (?<T6>$t) = load i1 from $T
+                ///  + cf.cond_br $T6, (?<THEN2>$b), (?<ELSE2>$b)
+                ///  + $THEN2:
+                ///  + scope {
+                ///  +   break $EXIT3
+                ///  + }
                 if t then break loop2;
-                /// + $ELSE2:
+                ///  + cf.br $ELSE2
+                ///  + $ELSE2:
 
-                /// 0 executes f()
-                /// 1 executes g()
-                /// + call inline fastcc @__src_defer_proc_1($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_0($T, $Q)
-                /// + cf.br $COND4
+                ///  + yield
+                ///  + }
             }
 
-            /// + $EXIT4:
-            /// + cf.br (?<LABEL2>$b)
-            /// + $LABEL2:
+            ///  + cf.br $COND4
+            ///  + $EXIT4:
+            ///  + cf.br (?<LABEL2>$b)
+            ///  + $LABEL2:
             one_scope_up:
+
+            ///  + defer {
+            ///  +   call @h
+            ///  +   yield
+            ///  + }
             defer h();
 
-            /// + cf.br (?<COND5>$b)
-            /// + $COND5:
-            /// + (?<T7>$t) = load i1 from $T
-            /// + cf.cond_br $T7, (?<BODY5>$b), (?<EXIT5>$b)
-            /// + $BODY5:
+            ///  + cf.br (?<COND5>$b)
+            ///  + $COND5:
+            ///  + (?<T7>$t) = load i1 from $T
+            ///  + cf.cond_br $T7, (?<BODY5>$b), (?<EXIT5>$b)
+            ///  + $BODY5:
+            ///  + scope {
             while t {
-                /// + (?<W>$t) = local
+                ///  + (?<W>$t) = local uninit i64
                 int w;
+
+                ///  + defer {
+                ///  +   call @i
+                ///  +   yield
+                ///  + }
                 defer i();
 
                 /// Simple forward goto.
-                /// + (?<Tg2>$t) = load i1 from $T
-                /// + cf.cond_br $Tg2, (?<THENg2>$b), (?<ELSEg2>$b)
-                /// + $THENg2:
-                /// + cf.br (?<LABEL3>$b)
+                ///  + (?<Tg2>$t) = load i1 from $T
+                ///  + cf.cond_br $Tg2, (?<THENg2>$b), (?<ELSEg2>$b)
+                ///  + $THENg2:
+                ///  + scope {
+                ///  +   directbr (?<LABEL3>$b)
+                ///  + }
                 if t then goto forward;
-                /// + $ELSEg2:
+                ///  + cf.br $ELSEg2
+                ///  + $ELSEg2:
 
                 /// This one is a bit more painful; we jump back across a
                 /// deferred expression, which means we need to emit it when
                 /// we branch.
-                /// 3 executes i()
-                /// 4 executes h()
-                /// + (?<Tg3>$t) = load i1 from $T
-                /// + cf.cond_br $Tg3, (?<THENg3>$b), (?<ELSEg3>$b)
-                /// + $THENg3:
-                /// + call inline fastcc @__src_defer_proc_3($T, $Q, $W)
-                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
-                /// + cf.br $LABEL2
+                ///  + (?<Tg3>$t) = load i1 from $T
+                ///  + cf.cond_br $Tg3, (?<THENg3>$b), (?<ELSEg3>$b)
+                ///  + $THENg3:
+                ///  + scope {
+                ///  +   directbr $LABEL2
+                ///  + }
                 if t then goto one_scope_up;
+                ///  + cf.br $ELSEg3
+                ///  + $ELSEg3:
 
                 /// This is the same as the previous goto, but it jumps
                 /// out of the scope and forward.
-                /// + $ELSEg3:
-                /// + cf.br $LABEL3
-                /// + $LABEL3:
-                /// + (?<Tg4>$t) = load i1 from $T
-                /// + cf.cond_br $Tg4, (?<THENg4>$b), (?<ELSEg4>$b)
-                /// + $THENg4:
-                /// + call inline fastcc @__src_defer_proc_3($T, $Q, $W)
-                /// + cf.br (?<LABEL4>$b)
+                ///  + cf.br $LABEL3
+                ///  + $LABEL3:
+                ///  + (?<Tg4>$t) = load i1 from $T
+                ///  + cf.cond_br $Tg4, (?<THENg4>$b), (?<ELSEg4>$b)
+                ///  + $THENg4:
+                ///  + scope {
+                ///  +   directbr (?<LABEL4>$b)
+                ///  + }
                 forward: if t then goto forward2;
+                ///  + cf.br $ELSEg4
+                ///  + $ELSEg4
 
                 /// Cross jump back into a different while loop.
-                /// + $ELSEg4
-                /// + (?<Tg5>$t) = load i1 from $T
-                /// + cf.cond_br $Tg5, (?<THENg5>$b), (?<ELSEg5>$b)
-                /// + $THENg5:
-                /// + call inline fastcc @__src_defer_proc_3($T, $Q, $W)
-                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
-                /// + cf.br $LABEL5
+                ///  + (?<Tg5>$t) = load i1 from $T
+                ///  + cf.cond_br $Tg5, (?<THENg5>$b), (?<ELSEg5>$b)
+                ///  + $THENg5:
+                ///  + scope {
+                ///  +   directbr $LABEL5
+                ///  + }
                 if t then goto nested;
-                /// + $ELSEg5:
+                ///  + cf.br $ELSEg5
+                ///  + $ELSEg5:
 
-                /// 3 executes i()
-                /// 4 executes h()
-                /// 2 executes e()
-                /// 5 executes d()
-                /// + (?<T8>$t) = load i1 from $T
-                /// + cf.cond_br $T8, (?<THEN3>$b), (?<ELSE3>$b)
-                /// + $THEN3:
-                /// + call inline fastcc @__src_defer_proc_3($T, $Q, $W)
-                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_2($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_5($T, $Q)
-                /// + cf.br $COND2
+                ///  + (?<T8>$t) = load i1 from $T
+                ///  + cf.cond_br $T8, (?<THEN3>$b), (?<ELSE3>$b)
+                ///  + $THEN3:
+                ///  + scope {
+                ///  +   continue $COND2
+                ///  + }
                 if t then continue loop;
-                /// + $ELSE3:
+                ///  + cf.br $ELSE3
+                ///  + $ELSE3:
 
-                /// + call inline fastcc @__src_defer_proc_3($T, $Q, $W)
-                /// + cf.br $COND5
+                ///  + yield
+                ///  + }
             }
 
-            /// + $EXIT5:
-            /// + cf.br $LABEL4
-            /// + $LABEL4:
+            ///  + cf.br $COND5
+            ///  + $EXIT5:
+            ///  + cf.br $LABEL4
+            ///  + $LABEL4:
             forward2:
 
-            /// + cf.br (?<COND6>$b)
-            /// + $COND6:
-            /// + (?<T9>$t) = load i1 from $T
-            /// + cf.cond_br $T9, (?<BODY6>$b), (?<EXIT6>$b)
-            /// + $BODY6:
+            ///  + cf.br (?<COND6>$b)
+            ///  + $COND6:
+            ///  + (?<T9>$t) = load i1 from $T
+            ///  + cf.cond_br $T9, (?<BODY6>$b), (?<EXIT6>$b)
+            ///  + $BODY6:
+            ///  + scope {
             while t {
+                ///  + defer {
+                ///  +   call @j
+                ///  +   yield
+                ///  + }
                 defer j();
 
-                /// 6 executes j()
-                /// + (?<T10>$t) = load i1 from $T
-                /// + cf.cond_br $T10, (?<THEN4>$b), (?<ELSE4>$b)
-                /// + $THEN4:
-                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
-                /// + cf.br $COND6
+                ///  + (?<T10>$t) = load i1 from $T
+                ///  + cf.cond_br $T10, (?<THEN4>$b), (?<ELSE4>$b)
+                ///  + $THEN4:
+                ///  + scope {
+                ///  +   continue $COND6
+                ///  + }
                 if t then continue;
-                /// + $ELSE4:
+                ///  + cf.br $ELSE4
+                ///  + $ELSE4:
 
-                /// 6 executes j()
-                /// + (?<T11>$t) = load i1 from $T
-                /// + cf.cond_br $T11, (?<THEN5>$b), (?<ELSE5>$b)
-                /// + $THEN5:
-                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
-                /// + cf.br $EXIT6
+                ///  + (?<T11>$t) = load i1 from $T
+                ///  + cf.cond_br $T11, (?<THEN5>$b), (?<ELSE5>$b)
+                ///  + $THEN5:
+                ///  + scope {
+                ///  +   break $EXIT6
+                ///  + }
                 if t then break;
-                /// + $ELSE5:
+                ///  + cf.br $ELSE5
+                ///  + $ELSE5:
 
-                /// 6 executes j()
-                /// 4 executes h()
-                /// 2 executes e()
-                /// 5 executes d()
-                /// 7 executes c(), b()
-                /// 8 executes a()
-                /// + (?<T12>$t) = load i1 from $T
-                /// + cf.cond_br $T12, (?<THEN6>$b), (?<ELSE6>$b)
-                /// + $THEN6:
-                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_2($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_5($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_7($T)
-                /// + call inline fastcc @__src_defer_proc_8($T)
-                /// + return
+                ///  + (?<T12>$t) = load i1 from $T
+                ///  + cf.cond_br $T12, (?<THEN6>$b), (?<ELSE6>$b)
+                ///  + $THEN6:
+                ///  + scope {
+                ///  +   return
+                ///  + }
                 if t then return;
-                /// + $ELSE6:
+                ///  + cf.br $ELSE6
+                ///  + $ELSE6:
 
-
+                ///  + defer {
+                ///  +   call @k
+                ///  +   yield
+                ///  + }
                 defer k();
 
-                /// 6 executes j()
-                /// 9 executes k(),
-                /// 4 executes h()
-                /// 2 executes e()
-                /// 5 executes d()
-                /// + (?<T13>$t) = load i1 from $T
-                /// + cf.cond_br $T13, (?<THEN7>$b), (?<ELSE7>$b)
-                /// + $THEN7:
-                /// + call inline fastcc @__src_defer_proc_9($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_2($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_5($T, $Q)
-                /// + cf.br $EXIT2
+                ///  + (?<T13>$t) = load i1 from $T
+                ///  + cf.cond_br $T13, (?<THEN7>$b), (?<ELSE7>$b)
+                ///  + $THEN7:
+                ///  + scope {
+                ///  +   break $EXIT2
+                ///  + }
                 if t break loop;
-                /// + $ELSE7:
+                ///  + cf.br $ELSE7
+                ///  + $ELSE7:
 
-                /// 6 executes j()
-                /// 9 executes k()
-                /// 4 executes h()
-                /// 2 executes e()
-                /// + (?<T14>$t) = load i1 from $T
-                /// + cf.cond_br $T14, (?<THEN8>$b), (?<ELSE8>$b)
-                /// + $THEN8:
-                /// + call inline fastcc @__src_defer_proc_9($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_4($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_2($T, $Q)
-                /// + cf.br $COND3
+                ///  + (?<T14>$t) = load i1 from $T
+                ///  + cf.cond_br $T14, (?<THEN8>$b), (?<ELSE8>$b)
+                ///  + $THEN8:
+                ///  + scope {
+                ///  +   continue $COND3
+                ///  + }
                 if t continue loop2;
-                /// + $ELSE8:
+                ///  + cf.br $ELSE8
+                ///  + $ELSE8:
 
-                /// 9 executes k()
-                /// + call inline fastcc @__src_defer_proc_9($T, $Q)
-                /// + call inline fastcc @__src_defer_proc_6($T, $Q)
-                /// + cf.br $COND6
+                ///  + yield
+                ///  + }
             }
 
-            /// 2 executes e()
-            /// 4 executes h()
-            /// + $EXIT6:
-            /// + call inline fastcc @__src_defer_proc_4($T, $Q)
-            /// + call inline fastcc @__src_defer_proc_2($T, $Q)
-            /// + cf.br $COND3
+            ///  + cf.br $COND6
+            ///  + $EXIT6:
+            ///  + yield
+            ///  + }
         }
 
-        /// + $EXIT3:
+        ///  + cf.br $COND3
+        ///  + $EXIT3:
+        ///  + defer {
+        ///  +   call @l
+        ///  +   yield
+        ///  + }
         defer l();
 
-        /// 5 executes d()
-        /// 10 executes l()
-        /// + (?<T15>$t) = load i1 from $T
-        /// + cf.cond_br $T15, (?<THEN9>$b), (?<ELSE9>$b)
-        /// + $THEN9:
-        /// + call inline fastcc @__src_defer_proc_10($T, $Q)
-        /// + call inline fastcc @__src_defer_proc_5($T, $Q)
-        /// + cf.br $EXIT2
+        ///  + (?<T15>$t) = load i1 from $T
+        ///  + cf.cond_br $T15, (?<THEN9>$b), (?<ELSE9>$b)
+        ///  + $THEN9:
+        ///  + scope {
+        ///  +   break $EXIT2
+        ///  + }
         if t then break;
-        /// + $ELSE9:
+        ///  + cf.br $ELSE9
+        ///  + $ELSE9:
 
-        /// 5 executes d()
-        /// 10 executes l()
-        /// + call inline fastcc @__src_defer_proc_10($T, $Q)
-        /// + call inline fastcc @__src_defer_proc_5($T, $Q)
-        /// + cf.br $COND2
+        ///  + yield
+        ///  + }
     }
 
-    /// 7 executes c(), b()
-    /// + $EXIT2:
-    /// + call inline fastcc @__src_defer_proc_7($T)
-    /// + cf.br $COND1
+    ///  + cf.br $COND2
+    ///  + $EXIT2:
+    ///  + yield
+    ///  + }
 }
 
-/// 8 executes a()
-/// + $EXIT1:
-/// + call inline fastcc @__src_defer_proc_8($T)
-/// + return
-
-/// =========================== FUNCTIONS ===========================
-/// * hlir.func private fastcc @__src_defer_proc_0
-/// + call @f
-/// + return
-
-/// * hlir.func private fastcc @__src_defer_proc_1
-/// + call @g
-/// + return
-
-/// * hlir.func private fastcc @__src_defer_proc_2
-/// + call @e
-/// + return
-
-/// * hlir.func private fastcc @__src_defer_proc_3
-/// + call @i
-/// + return
-
-/// * hlir.func private fastcc @__src_defer_proc_4
-/// + call @h
-/// + return
-
-/// * hlir.func private fastcc @__src_defer_proc_5
-/// + call @d
-/// + return
-
-/// * hlir.func private fastcc @__src_defer_proc_6
-/// + call @j
-/// + return
-
-/// * hlir.func private fastcc @__src_defer_proc_7
-/// + call @c
-/// + call @b
-/// + return
-
-/// * hlir.func private fastcc @__src_defer_proc_8
-/// + call @a
-/// + return
-
-/// * hlir.func private fastcc @__src_defer_proc_9
-/// + call @k
-/// + return
-
-/// * hlir.func private fastcc @__src_defer_proc_10
-/// + call @l
-/// + return
+///  + cf.br $COND1
+///  + $EXIT1:
+///  + yield
+///  + }
+///  + return

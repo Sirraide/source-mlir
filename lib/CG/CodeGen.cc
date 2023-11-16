@@ -694,63 +694,47 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::LoopControlExpr: {
-            /// Emit all defer stacks up to and including the stack
-            /// associated with the loop that we’re breaking out of
-            /// or continuing.
-            Todo();
-            /*auto l = cast<LoopControlExpr>(expr);
+            auto l = cast<LoopControlExpr>(expr);
             const auto loc = expr->location.mlir(ctx);
-            DI.EmitDeferStacksUpTo(l->target->body->scope, nullptr);
 
             /// Emit the branch.
-            Create<mlir::cf::BranchOp>(
-                loc,
-                l->is_continue ? l->target->cond_block : l->target->join_block
-            );*/
+            if (l->is_continue) Create<hlir::ContinueOp>(loc, l->target->cond_block);
+            else Create<hlir::BreakOp>(loc, l->target->join_block);
         } break;
 
         case Expr::Kind::GotoExpr: {
-            Todo();
-            /* auto g = cast<GotoExpr>(expr);
+            auto g = cast<GotoExpr>(expr);
+            Create<hlir::DirectBrOp>(g->location.mlir(ctx), g->target->block);
 
-             /// Cross jumps back into a scope that has already been processed
-             /// need to be handled differently since that scope will no longer
-             /// be on the stack. However, since we’ve created a stacklet for
-             /// every subscope, we should be able to find its parent and unwind
-             /// back to it.
-             Scope* parent = g->target->parent;
-             void* stacklet = g->target;
-             if (not DI.HasStackFor(g->target->parent)) {
-                 auto p = g->target->parent;
-                 for (; p->parent; p = p->parent) {
-                     if (DI.HasStackFor(p->parent)) {
-                         parent = p->parent;
-                         stacklet = p;
-                         break;
-                     }
-                 }
+            /// Cross jumps back into a scope that has already been processed
+            /// need to be handled differently since that scope will no longer
+            /// be on the stack. However, since we’ve created a stacklet for
+            /// every subscope, we should be able to find its parent and unwind
+            /// back to it.
+            /*             Scope* parent = g->target->parent;
+                         void* stacklet = g->target;
+                         if (not DI.HasStackFor(g->target->parent)) {
+                             auto p = g->target->parent;
+                             for (; p->parent; p = p->parent) {
+                                 if (DI.HasStackFor(p->parent)) {
+                                     parent = p->parent;
+                                     stacklet = p;
+                                     break;
+                                 }
+                             }
 
-                 /// If we couldn’t find a single parent, then there’s something
-                 /// very wrong here.
-                 Assert(p->parent, "Invalid cross jump");
-             }
+                             /// If we couldn’t find a single parent, then there’s something
+                             /// very wrong here.
+                             Assert(p->parent, "Invalid cross jump");
+                         }*/
 
-             /// Emit material deferred after the label we’re branching to.
-             DI.EmitDeferStacksUpTo(parent, stacklet);
-             Create<mlir::cf::BranchOp>(
-                 g->location.mlir(ctx),
-                 g->target->block
-             );*/
         } break;
 
         case Expr::Kind::LabelExpr: {
-            Todo();
-            /*auto l = cast<LabelExpr>(expr);
+            auto l = cast<LabelExpr>(expr);
 
             /// Insert the block that we’ve already created for this label.
             if (l->used) {
-                DI.AddLabel(l);
-
                 Create<mlir::cf::BranchOp>(
                     l->location.mlir(ctx),
                     l->block
@@ -761,7 +745,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             }
 
             /// Emit the labelled expression.
-            Generate(l->expr);*/
+            Generate(l->expr);
         } break;
 
         /// Nothing to do here other than emitting the underlying decl.
@@ -805,7 +789,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
             const bool yields_value = e->type.yields_value;
             auto b = Create<hlir::ScopeOp>(
                 e->location.mlir(ctx),
-                yields_value ? Ty(e->type) : mlir::Type{}
+                not yields_value ? mlir::Type{}
+                : e->is_lvalue   ? hlir::ReferenceType::get(Ty(e->type))
+                                 : Ty(e->type)
             );
 
             /// Associate block with scope op.
