@@ -1,0 +1,37 @@
+proc a extern;
+proc b extern;
+
+/// d b \^bb[0-9]+
+
+/// * hlir.func private @f1 {
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   call @b
+/// +   cf.br $bb1
+/// + }
+proc f1() {
+    defer a();
+    back: b();
+    goto back;
+}
+
+/// * hlir.func private @f2 {
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   call @b
+/// +   call @a
+/// +   cf.br $bb1
+/// + }
+proc f2() {
+    back: defer a();
+    b();
+    goto back;
+}
+
+
+proc f3() {
+    defer a();
+    goto forward;
+    b();
+    forward:;
+}

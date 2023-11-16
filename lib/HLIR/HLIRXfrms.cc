@@ -1,9 +1,13 @@
+#include <mlir/IR/Dominance.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include <source/CG/HLIRLowering.hh>
 #include <source/Frontend/AST.hh>
 #include <source/HLIR/HLIRDialect.hh>
 #include <source/Support/Utils.hh>
+
+namespace rgs = src::rgs;
+namespace vws = src::vws;
 
 namespace mlir::hlir {
 namespace {
@@ -77,7 +81,7 @@ void InlineRegion(
         rewriter.mergeBlocks(second_half, first_half);
 
         /// Get yield instruction.
-        auto yield = src::rgs::find_if(first_half->getOperations(), FindYield);
+        auto yield = rgs::find_if(first_half->getOperations(), FindYield);
 
         /// Replace the operation’s yield with the region’s yield.
         if (replace_with_yield) {
@@ -164,15 +168,17 @@ struct MandatoryInliningXfrm : public OpRewritePattern<CallOp> {
 
 struct DeferInliningXfrm {
     struct Scope {
+        using Entry = std::pair<DeferOp, Block*>;
         hlir::ScopeOp scope;
-        SmallVector<DeferOp> deferred;
+        SmallVector<Entry> deferred;
     };
 
+    src::Context* src_ctx;
     hlir::FuncOp f;
     std::vector<Scope> entered_scopes{};
     SmallVector<DeferOp> to_delete{};
-    mlir::OpBuilder b{f->getContext()};
-    mlir::IRRewriter rewriter{b};
+    mlir::OpBuilder _b{f->getContext()};
+    mlir::IRRewriter rewriter{_b};
 
     void run() {
         /// Find scope op.
@@ -196,6 +202,20 @@ private:
         return &entered_scopes.back();
     }
 
+    template <typename... Args>
+    auto Error(auto op, fmt::format_string<Args...> fmt, Args&&... args) -> WalkResult {
+        auto loc = src::Location::Decode(op.getSrcLoc());
+        src::Diag::Error(src_ctx, loc, fmt, std::forward<Args>(args)...);
+        return WalkResult::interrupt();
+    }
+
+    template <typename... Args>
+    auto Note(auto op, fmt::format_string<Args...> fmt, Args&&... args) -> WalkResult {
+        auto loc = src::Location::Decode(op.getSrcLoc());
+        src::Diag::Note(src_ctx, loc, fmt, std::forward<Args>(args)...);
+        return WalkResult::interrupt();
+    }
+
     void ProcessScope(ScopeOp scope) {
         entered_scopes.emplace_back(scope);
         defer { entered_scopes.pop_back(); };
@@ -204,10 +224,11 @@ private:
         scope.getBody().walk<WalkOrder::PreOrder>([&](Operation* op) {
             if (auto y = dyn_cast<YieldOp>(op)) LowerYield(y);
             else if (auto r = dyn_cast<ReturnOp>(op)) LowerReturn(r);
+            else if (auto b = dyn_cast<DirectBrOp>(op)) return LowerDirectBranch(b);
             else if (auto s = dyn_cast<ScopeOp>(op)) ProcessScope(s);
             else if (auto d = dyn_cast<DeferOp>(op)) {
                 ProcessScope(d.getScopeOp());
-                CurrScope()->deferred.emplace_back(d);
+                CurrScope()->deferred.emplace_back(d, d->getBlock());
                 op->remove();
                 to_delete.emplace_back(d);
                 return WalkResult::skip();
@@ -218,15 +239,21 @@ private:
     }
 
     void EmitScope(Operation* before, Scope* sc) {
-        for (auto d : src::vws::reverse(sc->deferred)) {
-            InlineRegion<YieldOp>(
-                rewriter,
-                before,
-                &d.getScopeOp().getBody(),
-                false,
-                nullptr
-            );
-        }
+        for (auto [d, _] : vws::reverse(sc->deferred)) EmitDefer(before, d);
+    }
+
+    void EmitDefer(Operation* before, DeferOp d) {
+        InlineRegion<YieldOp>(
+            rewriter,
+            before,
+            &d.getScopeOp().getBody(),
+            false,
+            nullptr
+        );
+    }
+
+    auto IsBlock(Block* b) {
+        return [b](auto&& p) { return p.second == b; };
     }
 
     void LowerYield(YieldOp y) {
@@ -242,7 +269,112 @@ private:
         r.setLowered(true);
 
         /// Emit deferred material.
-        for (auto& sc : src::vws::reverse(entered_scopes)) EmitScope(r, &sc);
+        for (auto& sc : vws::reverse(entered_scopes)) EmitScope(r, &sc);
+    }
+
+    /// Break, continue, goto.
+    auto LowerDirectBranch(DirectBrOp b) -> WalkResult {
+        /// There are six possible cases here:
+        ///
+        ///   1. Near forwards jump to a block in the same scope.
+        ///   2. Near backwards jump to a block in the same scope.
+        ///   3. Far backwards jump to a block in a parent scope.
+        ///   4. Far forwards jump to a block in a parent scope.
+        ///   5. Upward cross jump into a child of a parent scope.
+        ///   6. Downward cross jump into a child of the current scope.
+        ///
+        /// For each case, we have to determine what deferred material
+        /// to emit and whether the jump is even legal in the first
+        /// place. In general, forwards jumps are legal, iff they do not
+        /// cross deferred material or variable declarations. Backwards
+        /// jumps are legal are always legal.
+        auto src = b->getBlock();
+        auto dst = b.getDest();
+
+        /// A jump from a block to itself is always legal.
+        if (src == dst) {
+            Assert(b.getOperation() == &src->back(), "Stray branch in block");
+
+            /// Emit any defer ops in that block. We need to emit all defer
+            /// ops because a branch from a block to itself must obviously
+            /// be the last instruction in the block.
+            for (auto [d, block] : CurrScope()->deferred | vws::reverse | vws::filter(IsBlock(src)))
+                if (block == src)
+                    EmitDefer(&src->back(), d);
+
+            /// And branch to it.
+            rewriter.setInsertionPoint(b);
+            rewriter.create<cf::BranchOp>(b->getLoc(), b.getDest());
+            rewriter.eraseOp(b);
+            return WalkResult::skip();
+        }
+
+        /// Cases 1/2: Same scope.
+        if (src->getParent() == dst->getParent()) {
+            DominanceInfo dom{src->getParent()->getParentOp()};
+            auto& tree = dom.getDomTree(src->getParent());
+            auto IDom = [&](Block* block) {
+                auto idom = tree.getNode(block)->getIDom();
+                return idom ? idom->getBlock() : nullptr;
+            };
+
+            /// If src dominates dst, the branch is valid, if src dominates
+            /// no deferred operations or variable declarations that dst does
+            /// not dominate.
+            if (dom.properlyDominates(src, dst)) {
+                /// Walk up the dominator tree till we get to dst.
+                for (Block *i = IDom(dst), *end = IDom(src); i and i != end; i = IDom(i)) {
+                    if (
+                        auto it = rgs::find(CurrScope()->deferred, i, &Scope::Entry::second);
+                        it != CurrScope()->deferred.end()
+                    ) {
+                        Error(b, "Illegal jump target");
+                        return Note(it->first, "Jump bypasses deferred expression here");
+                    }
+
+                    if (
+                        auto it = rgs::find_if(i->getOperations(), [](auto&& o) { return isa<LocalOp>(o); });
+                        it != i->getOperations().end()
+                    ) {
+                        Error(b, "Illegal jump target");
+                        return Note(cast<LocalOp>(&*it), "Jump bypasses variable declaration here");
+                    }
+                }
+            }
+
+            /// Otherwise, this is a backwards jump. These are always fine, but we
+            /// have to unwind any deferred material between the src and dest.
+            else {
+                for (Block *i = IDom(dst), *end = IDom(src); i and i != end; i = IDom(i)) {
+                    for (auto [d, _] : CurrScope()->deferred | vws::filter(IsBlock(i)) | vws::reverse)
+                        EmitDefer(b, d);
+                }
+            }
+
+            /// Finally, lower the branch.
+            rewriter.setInsertionPoint(b);
+            rewriter.create<cf::BranchOp>(b->getLoc(), b.getDest());
+            rewriter.eraseOp(b);
+            return WalkResult::skip();
+        }
+
+        /// Case 3/4. Upwards jump.
+        Region* target = src->getParent();
+        for (Region* end = dst->getParent(); target and target != end; target = target->getParentRegion()) {}
+        if (target) {
+            auto scope = cast<ScopeOp>(target->getParentOp());
+
+            /// Leave all scopes inbetween.
+            for (auto sc : entered_scopes | vws::reverse) {
+                if (sc.scope == scope) break;
+                for (auto [d, _] : sc.deferred | vws::reverse)
+                    EmitDefer(b, d);
+            }
+
+            Todo();
+        }
+
+        Todo();
     }
 };
 
@@ -336,7 +468,7 @@ private:
 void InlineDefers(src::Module* mod) {
     for (auto f : mod->functions) {
         if (f->body) {
-            DeferInliningXfrm s{cast<FuncOp>(f->mlir_func)};
+            DeferInliningXfrm s{mod->context, cast<FuncOp>(f->mlir_func)};
             s.run();
         }
     }

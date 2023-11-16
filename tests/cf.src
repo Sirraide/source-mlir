@@ -121,7 +121,7 @@ while t {
                 ///  + cf.cond_br $T5, (?<THEN1>$b), (?<ELSE1>$b)
                 ///  + $THEN1:
                 ///  + scope {
-                ///  +   break $EXIT4
+                ///  +   directbr $EXIT4
                 ///  + }
                 if t then break;
                 ///  + cf.br $ELSE1
@@ -149,7 +149,7 @@ while t {
                 ///  + cf.cond_br $T6, (?<THEN2>$b), (?<ELSE2>$b)
                 ///  + $THEN2:
                 ///  + scope {
-                ///  +   break $EXIT3
+                ///  +   directbr $EXIT3
                 ///  + }
                 if t then break loop2;
                 ///  + cf.br $ELSE2
@@ -240,7 +240,7 @@ while t {
                 ///  + cf.cond_br $T8, (?<THEN3>$b), (?<ELSE3>$b)
                 ///  + $THEN3:
                 ///  + scope {
-                ///  +   continue $COND2
+                ///  +   directbr $COND2
                 ///  + }
                 if t then continue loop;
                 ///  + cf.br $ELSE3
@@ -273,7 +273,7 @@ while t {
                 ///  + cf.cond_br $T10, (?<THEN4>$b), (?<ELSE4>$b)
                 ///  + $THEN4:
                 ///  + scope {
-                ///  +   continue $COND6
+                ///  +   directbr $COND6
                 ///  + }
                 if t then continue;
                 ///  + cf.br $ELSE4
@@ -283,7 +283,7 @@ while t {
                 ///  + cf.cond_br $T11, (?<THEN5>$b), (?<ELSE5>$b)
                 ///  + $THEN5:
                 ///  + scope {
-                ///  +   break $EXIT6
+                ///  +   directbr $EXIT6
                 ///  + }
                 if t then break;
                 ///  + cf.br $ELSE5
@@ -309,7 +309,7 @@ while t {
                 ///  + cf.cond_br $T13, (?<THEN7>$b), (?<ELSE7>$b)
                 ///  + $THEN7:
                 ///  + scope {
-                ///  +   break $EXIT2
+                ///  +   directbr $EXIT2
                 ///  + }
                 if t break loop;
                 ///  + cf.br $ELSE7
@@ -319,7 +319,7 @@ while t {
                 ///  + cf.cond_br $T14, (?<THEN8>$b), (?<ELSE8>$b)
                 ///  + $THEN8:
                 ///  + scope {
-                ///  +   continue $COND3
+                ///  +   directbr $COND3
                 ///  + }
                 if t continue loop2;
                 ///  + cf.br $ELSE8
@@ -347,7 +347,7 @@ while t {
         ///  + cf.cond_br $T15, (?<THEN9>$b), (?<ELSE9>$b)
         ///  + $THEN9:
         ///  + scope {
-        ///  +   break $EXIT2
+        ///  +   directbr $EXIT2
         ///  + }
         if t then break;
         ///  + cf.br $ELSE9

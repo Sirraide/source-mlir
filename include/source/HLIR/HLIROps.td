@@ -170,31 +170,25 @@ def ReturnOp : HLIR_Op<"return", [
     ];
 }
 
-def BreakOp : HLIR_Op<"break", [
-    Pure, HasParent<"ScopeOp">, Terminator
-]> {
-    let summary = "Break operation";
-    let assemblyFormat = "$dest attr-dict";
-    let successors = (successor AnySuccessor:$dest);
-    let hasVerifier = 0;
-}
-
-def ContinueOp : HLIR_Op<"continue", [
-    Pure, HasParent<"ScopeOp">, Terminator
-]> {
-    let summary = "Continue operation";
-    let assemblyFormat = "$dest attr-dict";
-    let successors = (successor AnySuccessor:$dest);
-    let hasVerifier = 0;
-}
-
 def DirectBrOp : HLIR_Op<"directbr", [
     Pure, HasParent<"ScopeOp">, Terminator
 ]> {
     let summary = "Direct branch to a block";
-    let assemblyFormat = "$dest attr-dict";
+    let hasCustomAssemblyFormat = 1;
+    let arguments = (ins I64Attr:$src_loc);
     let successors = (successor AnySuccessor:$dest);
     let hasVerifier = 0;
+    let skipDefaultBuilders = 1;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Block*":$dest,
+            "std::int64_t":$src_loc
+        ), [{
+            $_state.addSuccessors(dest);
+            $_state.addAttribute("src_loc", $_builder.getI64IntegerAttr(src_loc));
+        }]>
+    ];
 }
 
 def StringOp : HLIR_Op<"string"> {
@@ -268,15 +262,17 @@ def YieldOp : HLIR_Op<"yield", [Terminator]> {
 
 def DeferOp : HLIR_Op<"defer", [AutomaticAllocationScope, OpAsmOpInterface]> {
     let summary = "Defer code to be executed at end of scope";
+    let arguments = (ins I64Attr:$src_loc);
     let regions = (region AnyRegion:$body);
     let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
     let skipDefaultBuilders = 1;
 
     let builders = [
-        OpBuilder<(ins), [{
+        OpBuilder<(ins "std::int64_t":$src_loc), [{
             auto r = $_state.addRegion();
             r->push_back(new mlir::Block);
+            $_state.addAttribute("src_loc", $_builder.getI64IntegerAttr(src_loc));
         }]>
     ];
 
@@ -452,6 +448,7 @@ def HLIR_LocalOp : HLIR_Op<"local"> {
     let results = (outs HLIR_ReferenceType:$res);
     let arguments = (ins
         Builtin_IntegerAttr:$alignment,
+        I64Attr:$src_loc,
         DefaultValuedAttr<BoolAttr, "false">:$uninit,
         DefaultValuedAttr<BoolAttr, "false">:$dtor_flag
     );
@@ -460,11 +457,13 @@ def HLIR_LocalOp : HLIR_Op<"local"> {
         OpBuilder<(ins
             "::mlir::Type":$type,
             "std::int64_t":$alignment,
+            "std::int64_t":$src_loc,
             CArg<"bool", "false">:$uninit,
             CArg<"bool", "false">:$dtor_flag
         ), [{
             $_state.addTypes(ReferenceType::get($_state.getContext(), type));
             $_state.addAttribute("alignment", $_builder.getI64IntegerAttr(alignment));
+            $_state.addAttribute("src_loc", $_builder.getI64IntegerAttr(src_loc));
             $_state.addAttribute("uninit", mlir::BoolAttr::get($_state.getContext(), uninit));
             $_state.addAttribute("dtor_flag", mlir::BoolAttr::get($_state.getContext(), dtor_flag));
         }]>

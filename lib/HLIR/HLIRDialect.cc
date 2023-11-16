@@ -148,6 +148,12 @@ void hlir::DestroyOp::print(OpAsmPrinter& p) {
 
 auto hlir::DestroyOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
+void hlir::DirectBrOp::print(OpAsmPrinter& p) {
+    p << " " << getDest();
+}
+
+auto hlir::DirectBrOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
 auto hlir::FuncOp::parse(
     [[maybe_unused]] OpAsmParser& parser,
     [[maybe_unused]] OperationState& result

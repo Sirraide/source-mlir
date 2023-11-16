@@ -240,6 +240,9 @@ struct Location {
         return l;
     }
 
+    /// Encode a location as a 64-bit number.
+    [[nodiscard]] constexpr u64 encode() { return std::bit_cast<u64>(*this); }
+
     [[nodiscard]] constexpr bool is_valid() const { return len != 0; }
 
     /// Get this location as an MLIR Location. Implemented in CodeGen.cc.
@@ -256,6 +259,11 @@ struct Location {
 
     /// Get the text pointed to by this source location.
     [[nodiscard]] auto text(const Context* ctx) const -> std::string_view;
+
+    /// Decode a source location from a 64-bit number.
+    static constexpr auto Decode(u64 loc) -> Location {
+        return std::bit_cast<Location>(loc);
+    }
 };
 
 /// Reference to an imported module.

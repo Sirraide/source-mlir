@@ -37,6 +37,7 @@ auto src::CodeGen::AllocateLocalVar(src::LocalDecl* decl) -> mlir::Value {
         decl->location.mlir(ctx),
         Ty(decl->type),
         decl->type.align(ctx) / 8,
+        decl->location.encode(),
         not decl->init,
         decl->deleted_or_moved
     );
@@ -198,6 +199,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
         builder.getUnknownLoc(),
         Ty(s),
         s->stored_alignment,
+        0,
         false,
         false
     );
@@ -683,7 +685,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Todo();
 
         case Expr::Kind::DeferExpr: {
-            auto d = Create<hlir::DeferOp>(expr->location.mlir(ctx));
+            auto d = Create<hlir::DeferOp>(expr->location.mlir(ctx), expr->location.encode());
             mlir::OpBuilder::InsertionGuard guard{builder};
             builder.setInsertionPointToEnd(&d.getBody().front());
             Generate(cast<DeferExpr>(expr)->expr);
@@ -698,13 +700,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
             const auto loc = expr->location.mlir(ctx);
 
             /// Emit the branch.
-            if (l->is_continue) Create<hlir::ContinueOp>(loc, l->target->cond_block);
-            else Create<hlir::BreakOp>(loc, l->target->join_block);
+            if (l->is_continue) Create<hlir::DirectBrOp>(loc, l->target->cond_block, expr->location.encode());
+            else Create<hlir::DirectBrOp>(loc, l->target->join_block, expr->location.encode());
         } break;
 
         case Expr::Kind::GotoExpr: {
             auto g = cast<GotoExpr>(expr);
-            Create<hlir::DirectBrOp>(g->location.mlir(ctx), g->target->block);
+            Create<hlir::DirectBrOp>(g->location.mlir(ctx), g->target->block, expr->location.encode());
 
             /// Cross jumps back into a scope that has already been processed
             /// need to be handled differently since that scope will no longer
