@@ -197,6 +197,7 @@ def StringOp : HLIR_Op<"string"> {
 def ScopeOp : HLIR_Op<"scope", [AutomaticAllocationScope, OpAsmOpInterface]> {
     let summary = "Open a scope that may contain deferred code";
     let regions = (region AnyRegion:$body);
+    let arguments = (ins BoolAttr:$early_yield);
     let results = (outs Optional<HLIR_Type>:$res);
     let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
@@ -207,6 +208,7 @@ def ScopeOp : HLIR_Op<"scope", [AutomaticAllocationScope, OpAsmOpInterface]> {
             if (res) $_state.addTypes({res});
             auto r = $_state.addRegion();
             r->push_back(new mlir::Block);
+            $_state.addAttribute("early_yield", mlir::BoolAttr::get($_state.getContext(), false));
         }]>
     ];
 

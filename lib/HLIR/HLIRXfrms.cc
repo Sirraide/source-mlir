@@ -1,4 +1,5 @@
 #include <mlir/IR/IRMapping.h>
+#include <mlir/Transforms/DialectConversion.h>
 #include <source/CG/HLIRLowering.hh>
 #include <source/Frontend/AST.hh>
 #include <source/HLIR/HLIRDialect.hh>
@@ -161,7 +162,7 @@ struct MandatoryInliningXfrm : public OpRewritePattern<CallOp> {
     }
 };
 
-struct CFGSimplifier {
+struct DeferInliningXfrm {
     struct Scope {
         hlir::ScopeOp scope;
         SmallVector<DeferOp> deferred;
@@ -189,20 +190,20 @@ private:
         defer { entered_scopes.pop_back(); };
 
         /// Process the body of the scope.
-        auto& region = scope.getBody();
-        for (auto& block : llvm::make_early_inc_range(region.getBlocks())) {
-            for (auto& op : llvm::make_early_inc_range(block.getOperations())) {
-                if (auto y = dyn_cast<YieldOp>(op)) LowerYield(y);
-                else if (auto r = dyn_cast<ReturnOp>(op)) LowerReturn(r);
-                else if (auto s = dyn_cast<ScopeOp>(op)) ProcessScope(s);
-                else if (auto d = dyn_cast<DeferOp>(op)) {
-                    ProcessScope(d.getScopeOp());
-                    CurrScope()->deferred.emplace_back(d);
-                    op.remove();
-                    to_delete.emplace_back(d);
-                }
+        scope.getBody().walk<WalkOrder::PreOrder>([&](Operation* op) {
+            if (auto y = dyn_cast<YieldOp>(op)) LowerYield(y);
+            else if (auto r = dyn_cast<ReturnOp>(op)) LowerReturn(r);
+            else if (auto s = dyn_cast<ScopeOp>(op)) ProcessScope(s);
+            else if (auto d = dyn_cast<DeferOp>(op)) {
+                ProcessScope(d.getScopeOp());
+                CurrScope()->deferred.emplace_back(d);
+                op->remove();
+                to_delete.emplace_back(d);
+                return WalkResult::skip();
             }
-        }
+
+            return WalkResult::advance();
+        });
     }
 
     void EmitScope(Operation* before, Scope* sc) {
@@ -234,20 +235,118 @@ private:
     }
 };
 
-/// Inline control-flow related operations such as
-/// scope, defer, yield.
-void SimplfyCFG(hlir::FuncOp f) {
-    CFGSimplifier s{f};
-    s.run();
+struct ScopeInliningXfrm {
+    FuncOp f;
+    OpBuilder b{f.getContext()};
+    IRRewriter rewriter{b};
+
+    SmallVector<ScopeOp> scopes{};
+
+    void run() {
+        /// Collect all scopes.
+        f.getBody().walk([&](ScopeOp scope) { scopes.push_back(scope); });
+
+        /// Inline them.
+        for (auto sc : scopes) ProcessScope(sc);
+
+        /// Erase blocks with no predecessors as this pass tends
+        /// to create a bunch of them if some of the scopes contained
+        /// early returns.
+        for (auto& block : llvm::make_early_inc_range(f.getBlocks())) {
+            if (&block == &f.getBody().front()) continue;
+            if (block.hasNoPredecessors()) block.erase();
+        }
+    }
+
+private:
+    void ProcessScope(ScopeOp scope) {
+        /// Split block if the scope is not the first operation.
+        auto first = scope->getBlock();
+        auto second = first->splitBlock(scope);
+
+        /// Move the contents of the region before the second block.
+        rewriter.inlineRegionBefore(scope.getBody(), second);
+
+        /// Merge the first block of the region into the old first block.
+        rewriter.mergeBlocks(&*std::next(first->getIterator()), first);
+
+        /// If the scope has more than one yield, we need to convert each
+        /// one to a branch and add a block argument to the second block.
+        Block* last_block_in_region = &*std::prev(second->getIterator());
+        if (scope.getEarlyYield()) {
+            if (scope.getRes()) second->addArgument(scope.getRes().getType(), scope->getLoc());
+            for (
+                auto it = first->getIterator(), end = last_block_in_region->getIterator();
+                it != end;
+                ++it
+            ) {
+                for (auto& op : llvm::make_early_inc_range(it->getOperations())) {
+                    auto y = dyn_cast<YieldOp>(op);
+                    if (not y) continue;
+                    rewriter.replaceOpWithNewOp<cf::BranchOp>(
+                        y,
+                        second,
+                        y.getYield() ? mlir::ValueRange{y.getYield()} : mlir::ValueRange{}
+                    );
+                }
+            }
+
+            /// Replace uses of the scope’s value with the block argument.
+            if (scope.getRes()) rewriter.replaceAllUsesWith(
+                scope.getRes(),
+                second->getArgument(0)
+            );
+        }
+
+        /// Otherwise, only the last op in the region can be a yield.
+        else if (auto y = dyn_cast<YieldOp>(last_block_in_region->back())) {
+            /// Replace uses of the yield the yielded value, if there is one.
+            if (scope.getRes()) rewriter.replaceAllUsesWith(
+                scope.getRes(),
+                y.getYield()
+            );
+
+            /// Yeet.
+            y.erase();
+
+            /// Now, if the block before second is not closed, merge second into it.
+            if (
+                last_block_in_region->empty() or
+                not last_block_in_region->back().hasTrait<OpTrait::IsTerminator>()
+            ) rewriter.mergeBlocks(second, last_block_in_region);
+        }
+
+        /// Lastly, yeet the empty scope.
+        scope.erase();
+    }
+};
+
+/// Inline defer ops in the appropriate places.
+void InlineDefers(src::Module* mod) {
+    for (auto f : mod->functions) {
+        if (f->body) {
+            DeferInliningXfrm s{cast<FuncOp>(f->mlir_func)};
+            s.run();
+        }
+    }
+}
+
+/// Inline scope bodies into their parent regions.
+void InlineScopes(src::Module* mod) {
+    for (auto f : mod->functions) {
+        if (f->body) {
+            ScopeInliningXfrm s{cast<FuncOp>(f->mlir_func)};
+            s.run();
+        }
+    }
 }
 
 } // namespace
 } // namespace mlir::hlir
 
 void src::LowerHLIR(Module* mod) {
-    for (auto f : mod->functions)
-        if (f->body)
-            mlir::hlir::SimplfyCFG(cast<hlir::FuncOp>(f->mlir_func));
+    mlir::hlir::InlineDefers(mod);
+    mlir::hlir::InlineScopes(mod);
 }
 
 void hlir::CallOp::getCanonicalizationPatterns(

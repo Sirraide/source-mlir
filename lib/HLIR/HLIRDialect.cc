@@ -206,6 +206,7 @@ void hlir::FuncOp::print(OpAsmPrinter& p) {
             getResAttrsAttrName(),
             getLinkageAttrName(),
             getCcAttrName(),
+            "sym_visibility",
         }
     );
 
@@ -286,7 +287,6 @@ void hlir::ReturnOp::print(OpAsmPrinter& p) {
 }
 
 auto hlir::ReturnOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
-
 
 void hlir::ScopeOp::print(OpAsmPrinter& p) {
     p << " ";
