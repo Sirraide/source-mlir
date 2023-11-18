@@ -180,6 +180,10 @@ struct DeferInliningXfrm {
     mlir::OpBuilder _b{f->getContext()};
     mlir::IRRewriter rewriter{_b};
 
+    /// Blocks that may not be crossed by a jump together
+    /// with the instruction that prevents such crossing.
+    DenseMap<Block*, Operation*> no_crossing{};
+
     void run() {
         /// Find scope op.
         ScopeOp op;
@@ -192,8 +196,17 @@ struct DeferInliningXfrm {
             }
         }
 
+        /// No scope op, for some reason.
         if (not op) return;
+
+        /// Collect all local ops and defer ops to determine what
+        /// blocks may be crossed by a goto.
+        InitScope(op);
+
+        /// Inline defers before jumps as appropriate.
         ProcessScope(op);
+
+        /// Finally, yeet defer ops.
         for (auto d : to_delete) d->erase();
     }
 
@@ -216,6 +229,17 @@ private:
         return WalkResult::interrupt();
     }
 
+    void InitScope(ScopeOp scope) {
+        /// Process the body of the scope.
+        scope.getBody().walk([&](Operation* op) {
+            if (auto l = dyn_cast<LocalOp>(op)) no_crossing.try_emplace(l->getBlock(), l);
+            else if (auto d = dyn_cast<DeferOp>(op)) {
+                InitScope(d.getScopeOp());
+                no_crossing.try_emplace(d->getBlock(), d);
+            }
+        });
+    }
+
     void ProcessScope(ScopeOp scope) {
         entered_scopes.emplace_back(scope);
         defer { entered_scopes.pop_back(); };
@@ -229,7 +253,7 @@ private:
             else if (auto d = dyn_cast<DeferOp>(op)) {
                 ProcessScope(d.getScopeOp());
                 CurrScope()->deferred.emplace_back(d, d->getBlock());
-                op->remove();
+                // op->remove();
                 to_delete.emplace_back(d);
                 return WalkResult::skip();
             }
@@ -322,33 +346,41 @@ private:
             /// no deferred operations or variable declarations that dst does
             /// not dominate.
             if (dom.properlyDominates(src, dst)) {
-                /// Walk up the dominator tree till we get to dst.
-                for (Block *i = IDom(dst), *end = IDom(src); i and i != end; i = IDom(i)) {
-                    if (
-                        auto it = rgs::find(CurrScope()->deferred, i, &Scope::Entry::second);
-                        it != CurrScope()->deferred.end()
-                    ) {
+                auto BranchMayCross = [&](Block* block) {
+                    auto ReportIllegalJump = [&](Operation* op) {
                         Error(b, "Illegal jump target");
-                        return Note(it->first, "Jump bypasses deferred expression here");
+                        if (auto d = dyn_cast<DeferOp>(op)) Note(d, "Jump bypasses deferred expression here");
+                        else if (auto l = dyn_cast<LocalOp>(op)) Note(l, "Jump bypasses variable declaration here");
+                        return false;
+                    };
+
+                    /// If this is the block we’re branching from, only check
+                    /// operations after the branch.
+                    if (block == src) {
+                        auto range = rgs::subrange(std::next(b->getIterator()), block->end());
+                        auto it = rgs::find_if(range, [] (auto& op) { return isa<DeferOp, LocalOp>(op); });
+                        if (it == range.end()) return true;
+                        else return ReportIllegalJump(&*it);
                     }
 
-                    if (
-                        auto it = rgs::find_if(i->getOperations(), [](auto&& o) { return isa<LocalOp>(o); });
-                        it != i->getOperations().end()
-                    ) {
-                        Error(b, "Illegal jump target");
-                        return Note(cast<LocalOp>(&*it), "Jump bypasses variable declaration here");
-                    }
-                }
+                    /// Otherwise, check if the block is illegal to cross.
+                    auto it = no_crossing.find(block);
+                    if (it == no_crossing.end()) return true;
+                    return ReportIllegalJump(it->second);
+                };
+
+                /// Walk up the dominator tree till we get to dst.
+                for (Block *i = IDom(dst), *end = IDom(src); i and i != end; i = IDom(i))
+                    if (not BranchMayCross(i))
+                        return WalkResult::interrupt();
             }
 
             /// Otherwise, this is a backwards jump. These are always fine, but we
             /// have to unwind any deferred material between the src and dest.
             else {
-                for (Block *i = IDom(dst), *end = IDom(src); i and i != end; i = IDom(i)) {
+                for (Block *i = IDom(dst), *end = IDom(src); i and i != end; i = IDom(i))
                     for (auto [d, _] : CurrScope()->deferred | vws::filter(IsBlock(i)) | vws::reverse)
                         EmitDefer(b, d);
-                }
             }
 
             /// Finally, lower the branch.

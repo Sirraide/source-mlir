@@ -1,8 +1,15 @@
-proc a extern;
-proc b extern;
+/// R %srcc %s --lowered
+
+///
+/// Legal uses of forward and backward goto in the same scope.
+///
 
 /// d b \^bb[0-9]+
 
+proc a extern;
+proc b extern;
+
+/// b
 /// * hlir.func private @f1 {
 /// +   cf.br (?<bb1>$b)
 /// + $bb1:
@@ -15,6 +22,7 @@ proc f1() {
     goto back;
 }
 
+/// b
 /// * hlir.func private @f2 {
 /// +   cf.br (?<bb1>$b)
 /// + $bb1:
@@ -28,7 +36,13 @@ proc f2() {
     goto back;
 }
 
-
+/// b
+/// * hlir.func private @f3 {
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   call @a
+/// +   return
+/// + }
 proc f3() {
     defer a();
     goto forward;
