@@ -1,9 +1,12 @@
 /// R %srcc %s --lowered
 
 /// d b \^bb[0-9]+
+/// d t %[0-9a-zA-Z_]+
 
 proc a extern;
 proc b extern;
+proc c extern;
+proc d extern;
 
 /// ===================== Same-scope jumps =====================
 /// b
@@ -49,20 +52,63 @@ proc f3() {
 
 /// ===================== Upward jumps =====================
 /// b
+/// * hlir.func private @f4 {
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   call @a
+/// +   (?<true>$t) = arith.constant true
+/// +   cf.cond_br $true, (?<bb2>$b), (?<bb3>$b)
+/// + $bb2:
+/// +   call @d
+/// +   call @c
+/// +   call @b
+/// +   cf.br $bb1
+/// + $bb3:
+/// +   call @d
+/// +   call @c
+/// +   call @b
+/// +   return
+/// + }
 proc f4() {
-    back: b();
-    defer a();
-    defer a();
-    defer a();
+    back: a();
+    defer b();
+    defer c();
+    defer d();
     if true then goto back;
 }
 
+/// b
+/// * hlir.func private @f5 {
+/// +   (?<true>$t) = arith.constant true
+/// +   cf.cond_br $true, (?<bb1>$b), (?<bb2>$b)
+/// + $bb1:
+/// +   cf.br (?<bb3>$b)
+/// + $bb2:
+/// +   cf.br $bb3
+/// + $bb3:
+/// +   call @b
+/// +   call @a
+/// +   return
+/// + }
 proc f5() {
     defer a();
     if true then goto forward;
     forward: b();
 }
 
+/// b
+/// * hlir.func private @f6 {
+/// +   (?<true>$t) = arith.constant true
+/// +   cf.cond_br $true, (?<bb1>$b), (?<bb2>$b)
+/// + $bb1:
+/// +   cf.br (?<bb3>$b)
+/// + $bb2:
+/// +   call @b
+/// +   cf.br $bb3
+/// + $bb3:
+/// +   call @a
+/// +   return
+/// + }
 proc f6() {
     defer a();
     if true then goto forward;
@@ -70,18 +116,40 @@ proc f6() {
     forward:;
 }
 
+/// b
+/// * hlir.func private @f7 {
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   call @b
+/// +   cf.br $bb1
+/// + }
 proc f7() {
     defer a();
     back: b();
     { { { goto back; } } }
 }
 
+/// b
+/// * hlir.func private @f8 {
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   call @b
+/// +   call @a
+/// +   return
+/// + }
 proc f8() {
     defer a();
     { { { goto forward; } } }
     forward: b();
 }
 
+/// b
+/// * hlir.func private @f9 {
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   call @a
+/// +   return
+/// + }
 proc f9() {
     defer a();
     { { { goto forward; } } }
@@ -90,34 +158,83 @@ proc f9() {
 }
 
 /// ===================== Downward jumps =====================
+/// b
+/// * hlir.func private @f10 {
+/// +   call @a
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   call @b
+/// +   return
+/// + }
 proc f10() {
     a();
     goto target;
     { { { target: defer b(); } } }
 }
 
+/// b
+/// * hlir.func private @f11 {
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   cf.br (?<bb2>$b)
+/// + $bb2:
+/// +   return
+/// + }
 proc f11() {
     goto target;
     a();
     if true then { target:; }
 }
 
+/// b
+/// * hlir.func private @f12 {
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   call @b
+/// +   cf.br $bb1
+/// + }
 proc f12() {
     { { { target: defer b(); } } }
     goto target;
 }
 
 /// ===================== Cross jumps =====================
+/// b
+/// * hlir.func private @f13 {
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   call @b
+/// +   return
+/// + }
 proc f13() {
     { { goto cross; } }
     { { cross: defer b(); } }
 }
 
+/// b
+/// * hlir.func private @f14 {
+/// +   cf.br (?<bb1>$b)
+/// + $bb1:
+/// +   call @b
+/// +   cf.br $bb1
+/// + }
 proc f14() {
     { { cross: defer b(); } }
     { goto cross; }
 }
 
+/// b
+/// * hlir.func private @f15 {
+/// +   (?<true>$t) = arith.constant true
+/// +   cf.cond_br $true, (?<bb1>$b), (?<bb2>$b)
+/// + $bb1:
+/// +   cf.br (?<bb3>$b)
+/// + $bb2:
+/// +   cf.br $bb3
+/// + $bb3:
+/// +   call @b
+/// +   return
+/// + }
 proc f15() {
     { if true then goto cross; }
     { cross: defer b(); }

@@ -1,4 +1,4 @@
-/// R %srcc %s --sema
+/// R %srcc %s --sema |& cat
 
 /// p re off
 
