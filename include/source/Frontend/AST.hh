@@ -212,14 +212,19 @@ public:
     /// State of semantic analysis
     SemaState sema{};
 
-    /// Whether this expression has already been emitted.
-    bool emitted = false;
-
-    /// Check if this is an lvalue.
-    bool is_lvalue = false;
-
     /// The MLIR value of this expression.
     mlir::Value mlir{};
+
+    /// First protected subexpression (i.e. defer or local variable).
+    /// Only applicable to full expressions at the block level.
+    Expr* protected_child{};
+
+    /// Whether this expression has already been emitted.
+    bool emitted : 1 = false;
+
+    /// Check if this is an lvalue.
+    bool is_lvalue : 1 = false;
+
 public:
     Expr(Kind k, Location loc) : kind(k), location(loc) {}
     virtual ~Expr() = default;
@@ -345,14 +350,18 @@ public:
     /// The label of this expression.
     std::string label;
 
-    /// Parent scope. This is required for forward gotos.
-    Scope* parent;
-
     /// The expression labelled by this label.
     Expr* expr;
 
+    /// Parent scope. This is required for forward gotos.
+    BlockExpr* parent{};
+
     /// Block that is represented by this label.
     mlir::Block* block{};
+
+    /// Pointer to parent full expression. Points to this
+    /// if this is a full expression.
+    Expr* parent_full_expression{};
 
     /// Whether this label is ever branched to.
     bool used = false;
@@ -360,7 +369,6 @@ public:
     LabelExpr(
         ProcDecl* in_procedure,
         std::string label,
-        Scope* parent,
         Expr* expr,
         Location loc
     );
@@ -376,6 +384,10 @@ public:
 
     /// The resolved labelled expression.
     LabelExpr* target{};
+
+    /// Pointer to parent full expression. Points to this
+    /// if this is a full expression.
+    Expr* parent_full_expression{};
 
     GotoExpr(std::string label, Location loc)
         : Expr(Kind::GotoExpr, loc),
@@ -465,24 +477,61 @@ public:
 
 class BlockExpr : public TypedExpr {
 public:
+    using Symbols = StringMap<SmallVector<Expr*, 1>>;
+
     /// The expressions that are part of this block.
     SmallVector<Expr*> exprs;
 
-    /// The scope of this block.
-    Scope* scope;
+    /// The parent scope.
+    BlockExpr* parent;
+
+    /// The module this scope belongs to.
+    Module* module;
+
+    /// Symbols in this scope.
+    Symbols symbol_table;
+
+    /// Pointer to parent full expression. Points to this
+    /// if this is a full expression.
+    Expr* parent_full_expression{};
 
     /// Associated scope op.
     mlir::Operation* scope_op{};
 
-    /// Whether this expression was create implicitly.
-    bool implicit;
+    /// Get the nearest parent scope that is a function scope.
+    readonly_decl(BlockExpr*, enclosing_function_scope);
 
-public:
-    BlockExpr(Scope* scope, SmallVector<Expr*> exprs, Location loc, bool implicit = false)
+    /// Whether this scope is a function scope.
+    bool is_function{};
+
+    /// Whether this expression was create implicitly.
+    bool implicit{};
+
+    BlockExpr(Module* mod, BlockExpr* parent, Location loc = {}, bool implicit = false)
         : TypedExpr(Kind::BlockExpr, detail::UnknownType, loc),
-          exprs(std::move(exprs)),
-          scope(scope),
+          parent(parent),
+          module(mod),
           implicit(implicit) {}
+
+    /// Declare a symbol in this scope.
+    void declare(StringRef name, Expr* value) {
+        symbol_table[name].push_back(value);
+    }
+
+    /// Mark this scope as a function scope. This cannot be undone.
+    void set_function_scope() {
+        Assert(not is_function, "Scope already marked as function scope");
+        is_function = true;
+    }
+
+    /// Visit each symbol with the given name.
+    template <typename Func>
+    void visit(StringRef name, bool this_scope_only, Func f) {
+        if (auto sym = symbol_table.find(name); sym != symbol_table.end())
+            if (std::invoke(f, sym->second) == utils::StopIteration)
+                return;
+        if (parent and not this_scope_only) parent->visit(name, false, f);
+    }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::BlockExpr; }
@@ -662,12 +711,12 @@ public:
     std::string name;
 
     /// The scope in which this name was found.
-    Scope* scope;
+    BlockExpr* scope;
 
     /// The declaration this refers to.
     Expr* decl;
 
-    DeclRefExpr(std::string name, Scope* sc, Location loc)
+    DeclRefExpr(std::string name, BlockExpr* sc, Location loc)
         : TypedExpr(Kind::DeclRefExpr, detail::UnknownType, loc),
           name(std::move(name)),
           scope(sc),
@@ -1067,7 +1116,7 @@ public:
     std::string name;
 
     /// Scope associated with this struct.
-    Scope* scope;
+    BlockExpr* scope;
 
     /// Cached size and alignment, in bits.
     isz stored_size{};
@@ -1080,7 +1129,7 @@ public:
         Module* mod,
         std::string name,
         SmallVector<Field> fields,
-        Scope* scope,
+        BlockExpr* scope,
         Location loc
     );
 
@@ -1288,60 +1337,6 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::MemberAccessExpr; }
-};
-
-/// ===========================================================================
-///  Scope
-/// ===========================================================================
-class Scope {
-public:
-    using Symbols = StringMap<SmallVector<Expr*, 1>>;
-
-    /// The parent scope.
-    Scope* parent;
-
-    /// The module this scope belongs to.
-    Module* module;
-
-    /// Symbols in this scope.
-    Symbols symbol_table;
-
-    /// Whether this scope is a function scope.
-    bool is_function{};
-
-    /// Get the nearest parent scope that is a function scope.
-    readonly_decl(Scope*, enclosing_function_scope);
-
-    Scope(const Scope& other) = delete;
-    Scope& operator=(const Scope& other) = delete;
-
-    /// Disallow creating scopes except in the module.
-    void* operator new(size_t) = delete;
-    void* operator new(size_t, Module*) noexcept;
-
-    /// Create a new scope.
-    explicit Scope(Scope* parent, Module* mod)
-        : parent{parent}, module{mod} {}
-
-    /// Declare a symbol in this scope.
-    void declare(StringRef name, Expr* value) {
-        symbol_table[name].push_back(value);
-    }
-
-    /// Mark this scope as a function scope. This cannot be undone.
-    void set_function_scope() {
-        Assert(not is_function, "Scope already marked as function scope");
-        is_function = true;
-    }
-
-    /// Visit each symbol with the given name.
-    template <typename Func>
-    void visit(StringRef name, bool this_scope_only, Func f) {
-        if (auto sym = symbol_table.find(name); sym != symbol_table.end())
-            if (std::invoke(f, sym->second) == utils::StopIteration)
-                return;
-        if (parent and not this_scope_only) parent->visit(name, false, f);
-    }
 };
 
 template <typename To, typename From>

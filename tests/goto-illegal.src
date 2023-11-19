@@ -1,0 +1,74 @@
+/// R %srcc %s --sema
+
+/// p re off
+
+///
+/// Illegal uses of forward and backward goto in the same scope.
+///
+
+proc a extern;
+proc b extern;
+
+proc f1() {
+    /// * Jump is ill-formed
+    /// + goto forward1
+    /// * Because it would bypass variable declaration here
+    /// + int
+    goto forward1;
+    int x;
+    forward1:;
+}
+
+proc f2() {
+    /// * Jump is ill-formed
+    /// + goto forward2
+    /// * Because it would bypass deferred expression here
+    /// + defer a()
+    goto forward2;
+    defer a();
+    defer a();
+    forward2: defer a();
+}
+
+proc f3() {
+    /// * Jump is ill-formed
+    /// + goto forward3
+    /// * Because it would bypass deferred expression here
+    /// + defer b()
+    goto forward3;
+    if true { defer b(); } else { defer b(); }
+    defer b();
+    forward3:;
+}
+
+proc f4() {
+    /// * Jump is ill-formed
+    /// + goto forward1
+    /// * Because it would bypass variable declaration here
+    /// + int
+    { { { goto forward4; } } }
+    int x;
+    forward4:;
+}
+
+proc f5() {
+    /// * Jump is ill-formed
+    /// + goto forward2
+    /// * Because it would bypass deferred expression here
+    /// + defer a()
+    { { { goto forward5; } } }
+    defer a();
+    defer a();
+    forward5: defer a();
+}
+
+proc f6() {
+    /// * Jump is ill-formed
+    /// + goto forward3
+    /// * Because it would bypass deferred expression here
+    /// + defer b()
+    { { { goto forward6; } } }
+    if true { defer b(); } else { defer b(); }
+    defer b();
+    forward6:;
+}

@@ -166,6 +166,12 @@ struct MandatoryInliningXfrm : public OpRewritePattern<CallOp> {
     }
 };
 
+/// Reduce control flow to a series of scopes and basic blocks.
+///
+/// This is a complicated pass that takes a function and resolves
+/// high-level control-flow related concepts such as return, break
+/// continue, goto, defer, and destructors and converts all of them
+/// to just scopes containing basic blocks.
 struct DeferInliningXfrm {
     struct Scope {
         using Entry = std::pair<DeferOp, Block*>;
@@ -196,7 +202,6 @@ struct DeferInliningXfrm {
             }
         }
 
-        /// No scope op, for some reason.
         if (not op) return;
 
         /// Collect all local ops and defer ops to determine what
@@ -205,12 +210,11 @@ struct DeferInliningXfrm {
 
         /// Inline defers before jumps as appropriate.
         ProcessScope(op);
-
-        /// Finally, yeet defer ops.
         for (auto d : to_delete) d->erase();
     }
 
 private:
+
     auto CurrScope() -> Scope* {
         return &entered_scopes.back();
     }
@@ -219,13 +223,6 @@ private:
     auto Error(auto op, fmt::format_string<Args...> fmt, Args&&... args) -> WalkResult {
         auto loc = src::Location::Decode(op.getSrcLoc());
         src::Diag::Error(src_ctx, loc, fmt, std::forward<Args>(args)...);
-        return WalkResult::interrupt();
-    }
-
-    template <typename... Args>
-    auto Note(auto op, fmt::format_string<Args...> fmt, Args&&... args) -> WalkResult {
-        auto loc = src::Location::Decode(op.getSrcLoc());
-        src::Diag::Note(src_ctx, loc, fmt, std::forward<Args>(args)...);
         return WalkResult::interrupt();
     }
 
@@ -253,7 +250,7 @@ private:
             else if (auto d = dyn_cast<DeferOp>(op)) {
                 ProcessScope(d.getScopeOp());
                 CurrScope()->deferred.emplace_back(d, d->getBlock());
-                // op->remove();
+                op->remove();
                 to_delete.emplace_back(d);
                 return WalkResult::skip();
             }
@@ -333,7 +330,7 @@ private:
             return WalkResult::skip();
         }
 
-        /// Cases 1/2: Same scope.
+/*        /// Cases 1/2: Same scope.
         if (src->getParent() == dst->getParent()) {
             DominanceInfo dom{src->getParent()->getParentOp()};
             auto& tree = dom.getDomTree(src->getParent());
@@ -404,7 +401,7 @@ private:
             }
 
             Todo();
-        }
+        }*/
 
         Todo();
     }

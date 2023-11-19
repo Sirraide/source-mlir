@@ -11,14 +11,13 @@ class Parser : Lexer {
     using SVI = SmallVectorImpl<T>;
 
     Module* mod{};
-    std::vector<Scope*> scope_stack;
+    std::vector<BlockExpr*> scope_stack;
 
     /// Current function.
     ProcDecl* curr_func{};
 
-    readonly(Scope*, global_scope, return scope_stack[0]);
-    readonly(Scope*, top_level_scope, return scope_stack[1]);
-    readonly(Scope*, curr_scope, return scope_stack.back());
+    readonly(BlockExpr*, global_scope, return scope_stack[0]);
+    readonly(BlockExpr*, curr_scope, return scope_stack.back());
     readonly(Location, curr_loc, return tok.location);
 
 public:
@@ -31,11 +30,11 @@ private:
     /// RAII wrapper that pushes and pops a scope.
     struct ScopeRAII {
         Parser& p;
-        Scope* scope;
+        BlockExpr* scope;
 
-        ScopeRAII(Parser* parser)
+        ScopeRAII(Parser* parser, Location loc = {}, bool implicit = false)
             : p(*parser),
-              scope(new(p.mod) Scope(p.curr_scope, p.mod)) { p.scope_stack.push_back(scope); }
+              scope(new(p.mod) BlockExpr(p.mod, p.curr_scope, loc, implicit)) { p.scope_stack.push_back(scope); }
 
         ~ScopeRAII() { pop(); }
 

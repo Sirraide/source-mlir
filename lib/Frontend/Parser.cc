@@ -157,16 +157,12 @@ auto src::Parser::ParseAssertion() -> Result<Expr*> {
 
 /// <expr-block> ::= "{" { <expr> ";" } "}"
 auto src::Parser::ParseBlock() -> Result<BlockExpr*> {
-    ScopeRAII sc{this};
-    auto loc = curr_loc;
+    ScopeRAII sc{this, curr_loc};
     Assert(Consume(Tk::LBrace));
-
-    SmallVector<Expr*> exprs;
-    if (not ParseExprs(Tk::RBrace, exprs)) return Diag();
-
-    auto block = new (mod) BlockExpr(sc.scope, std::move(exprs), {loc, tok.location});
+    if (not ParseExprs(Tk::RBrace, sc.scope->exprs)) return Diag();
+    sc.scope->location = {sc.scope->location, curr_loc};
     if (not Consume(Tk::RBrace)) Error("Expected '}}'");
-    return block;
+    return sc.scope;
 }
 
 /// <decl> ::= <proc-named> | <proc-extern> | <param-decl> | <var-decl>
@@ -561,7 +557,6 @@ void src::Parser::ParseFile() {
 
     /// Set up scopes.
     scope_stack.push_back(mod->global_scope);
-    scope_stack.emplace_back(new (mod) Scope{global_scope, mod});
 
     /// Parse expressions.
     std::ignore = ParseExprs(Tk::Eof, mod->top_level_func->body->exprs);
@@ -576,7 +571,7 @@ auto src::Parser::ParseIdentExpr() -> Result<Expr*> {
     /// If the next token is `:`, then this is a label.
     if (Consume(Tk::Colon)) {
         const auto Label = [&](Expr* e) {
-            return new (mod) LabelExpr(curr_func, std::move(text), curr_scope, e, start);
+            return new (mod) LabelExpr(curr_func, std::move(text), e, start);
         };
 
         return ParseExpr() >> Label;
@@ -633,7 +628,12 @@ auto src::Parser::ParseImplicitBlock() -> Result<BlockExpr*> {
     /// Not already a block.
     ScopeRAII sc{this};
     if (auto res = ParseExpr(); res.is_diag) return Diag();
-    else return new (mod) BlockExpr(sc.scope, {*res}, {res->location}, true);
+    else {
+        sc.scope->location = res->location;
+        sc.scope->exprs.push_back(*res);
+        sc.scope->implicit = true;
+        return sc.scope;
+    }
 }
 
 /// <proc-params> ::= "(" <param-decl> { "," <param-decl> } ")"
@@ -734,7 +734,7 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
         /// Set the body if there is one.
         if (IsError(body)) return body;
         curr_func->body = *body;
-        curr_func->body->scope->set_function_scope();
+        curr_func->body->set_function_scope();
     }
 
     /// If the return type is not inferred and not provided, then

@@ -62,12 +62,10 @@ src::LocalRefExpr::LocalRefExpr(ProcDecl* parent, LocalDecl* decl, Location loc)
 src::LabelExpr::LabelExpr(
     ProcDecl* in_procedure,
     std::string label,
-    Scope* parent,
     Expr* expr,
     Location loc
 ) : Expr(Kind::LabelExpr, loc),
     label(std::move(label)),
-    parent(parent),
     expr(expr) {
     in_procedure->add_label(this->label, this);
 }
@@ -218,7 +216,7 @@ bool src::ProcDecl::_takes_static_chain() {
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
-src::StructType::StructType(Module* mod, std::string sname, SmallVector<Field> fields, Scope* scope, Location loc)
+src::StructType::StructType(Module* mod, std::string sname, SmallVector<Field> fields, BlockExpr* scope, Location loc)
     : Type(Kind::StructType, loc),
       module(mod),
       all_fields(std::move(fields)),
@@ -728,13 +726,6 @@ bool src::StructType::LayoutCompatible(StructType* a, StructType* b) {
 }
 
 /// ===========================================================================
-///  Scope
-/// ===========================================================================
-void* src::Scope::operator new(size_t sz, src::Module* mod) noexcept {
-    return utils::AllocateAndRegister<Scope>(sz, mod->scopes);
-}
-
-/// ===========================================================================
 ///  AST Printing
 /// ===========================================================================
 namespace src {
@@ -951,13 +942,11 @@ struct ASTPrinter {
                 auto b = cast<BlockExpr>(e);
                 if (b->implicit) out += fmt::format("{}Implicit ", C(Red));
                 out += fmt::format(
-                    "{}BlockExpr {}{}{}:{}{} {}<{}> {}\n",
+                    "{}BlockExpr {}{}{} {}<{}> {}\n",
                     C(Red),
                     C(Blue),
                     fmt::ptr(e),
                     C(Red),
-                    C(Blue),
-                    fmt::ptr(b->scope),
                     C(Magenta),
                     e->location.pos,
                     b->type.str(use_colour)

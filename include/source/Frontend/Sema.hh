@@ -31,13 +31,27 @@ using make_formattable_t = make_formattable<T>::type;
 class Sema {
     Module* mod{};
     ProcDecl* curr_proc{};
-    Scope* curr_scope{};
+    BlockExpr* curr_scope{};
 
     /// Loops that we’re currently analysing.
     SmallVector<WhileExpr*, 10> loop_stack;
 
     /// The defer expression whose contents we are currently analysing.
     DeferExpr* curr_defer{};
+
+    /// Gotos are checked once everything else has been processed.
+    struct Goto {
+        BlockExpr* in_scope;
+        GotoExpr* expr;
+    };
+
+    SmallVector<Goto> gotos;
+
+    /// Expressions that need to know what the current full expression is.
+    SmallVector<Expr*> needs_link_to_full_expr{};
+
+    /// Set when encountering a protected expression.
+    Expr* protected_subexpression{};
 
 public:
     /// Use Context::has_error to check for errors.
@@ -111,6 +125,8 @@ private:
             return std::forward<T>(t);
         }
     }
+
+    void ValidateDirectBr(GotoExpr* g, BlockExpr* in_scope);
 };
 } // namespace src
 

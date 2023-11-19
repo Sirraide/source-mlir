@@ -1,9 +1,5 @@
 /// R %srcc %s --lowered
 
-///
-/// Legal uses of forward and backward goto in the same scope.
-///
-
 /// d b \^bb[0-9]+
 
 proc a extern;
@@ -46,6 +42,44 @@ proc f2() {
 proc f3() {
     defer a();
     goto forward;
+    b();
+    forward:;
+}
+
+proc f4() {
+    defer a();
+    back: b();
+    if true then goto back;
+}
+
+proc f5() {
+    defer a();
+    if true then goto forward;
+    forward: b();
+}
+
+proc f6() {
+    defer a();
+    if true then goto forward;
+    b();
+    forward:;
+}
+
+proc f7() {
+    defer a();
+    back: b();
+    { { { goto back; } } };
+}
+
+proc f8() {
+    defer a();
+    { { { goto forward; } } };
+    forward: b();
+}
+
+proc f69() {
+    defer a();
+    { { { goto forward; } } };
     b();
     forward:;
 }

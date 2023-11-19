@@ -37,7 +37,6 @@ auto src::CodeGen::AllocateLocalVar(src::LocalDecl* decl) -> mlir::Value {
         decl->location.mlir(ctx),
         Ty(decl->type),
         decl->type.align(ctx) / 8,
-        decl->location.encode(),
         not decl->init,
         decl->deleted_or_moved
     );
@@ -199,7 +198,6 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
         builder.getUnknownLoc(),
         Ty(s),
         s->stored_alignment,
-        0,
         false,
         false
     );
@@ -685,7 +683,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Todo();
 
         case Expr::Kind::DeferExpr: {
-            auto d = Create<hlir::DeferOp>(expr->location.mlir(ctx), expr->location.encode());
+            auto d = Create<hlir::DeferOp>(expr->location.mlir(ctx));
             mlir::OpBuilder::InsertionGuard guard{builder};
             builder.setInsertionPointToEnd(&d.getBody().front());
             Generate(cast<DeferExpr>(expr)->expr);

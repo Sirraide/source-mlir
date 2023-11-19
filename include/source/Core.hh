@@ -16,7 +16,7 @@ class Module;
 class Decl;
 class ProcDecl;
 class Expr;
-class Scope;
+class BlockExpr;
 class StructType;
 
 /// A file in the context.
@@ -310,9 +310,6 @@ public:
     /// Module string table.
     StringTable strtab;
 
-    /// Scopes in this module.
-    SmallVector<Scope*> scopes;
-
     /// AST nodes in this module.
     SmallVector<Expr*> exprs;
 
@@ -332,7 +329,7 @@ public:
     readonly(bool, is_logical_module, return not name.empty());
 
     /// Get the global scope of this module.
-    readonly(Scope*, global_scope, return scopes.front());
+    readonly_decl(BlockExpr*, global_scope);
 
     /// Associated MLIR module op.
     mlir::ModuleOp mlir;

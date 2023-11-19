@@ -299,15 +299,15 @@ src::Module::Module(Context* ctx, std::string name, Location module_decl_locatio
         {},
     };
 
-    /// Create the global scope. The scope is automatically
-    /// added to our list of scopes by operator new.
-    new (this) Scope{nullptr, this};
-    top_level_func->body = new (this) BlockExpr{global_scope, {}, {}};
+    top_level_func->body = new (this) BlockExpr{this, {}};
 }
 
 src::Module::~Module() {
-    for (auto sc : scopes) utils::Deallocate(sc);
     for (auto ex : exprs) utils::Deallocate(ex);
+}
+
+auto src::Module::_global_scope() -> BlockExpr* {
+    return top_level_func->body;
 }
 
 /// ===========================================================================

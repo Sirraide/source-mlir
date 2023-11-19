@@ -113,6 +113,64 @@ bool src::Sema::MakeDeclType(Expr*& e) {
     return true;
 }
 
+void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* from_scope) {
+    if (not g->sema.ok) return;
+    auto label = g->target;
+    auto to_scope = label->parent;
+
+    /// Check if the target is an (improper) ancestor of the source.
+    bool branch_upwards = false;
+    for (auto sc = from_scope; sc != nullptr; sc = sc->parent) {
+        if (sc == to_scope) {
+            branch_upwards = true;
+            break;
+        }
+    }
+
+    /// Upward jump or jump within a scope.
+    if (branch_upwards) {
+        /// Find the full expression in the target block that contains the goto.
+        auto goto_it = [&] {
+            auto fe = g->parent_full_expression;
+            auto sc = from_scope;
+            while (sc != to_scope) {
+                fe = sc->parent_full_expression;
+                sc = sc->parent;
+                Assert(sc, "Broken full-expression/scope chain");
+            }
+
+            return rgs::find(sc->exprs, fe);
+        }();
+
+        /// As well as the label in the target scope.
+        auto label_it = rgs::find(to_scope->exprs, label->parent_full_expression);
+        Assert(goto_it != to_scope->exprs.end());
+        Assert(label_it != to_scope->exprs.end());
+
+        /// Backward jumps are always ok.
+        if (label_it < goto_it) return;
+
+        /// Forward jumps may not cross protected expressions.
+        for (auto e : rgs::subrange(std::next(goto_it), label_it)) {
+            if (e->protected_child) {
+                Error(g, "Jump is ill-formed");
+                Diag::Note(
+                    mod->context,
+                    e->protected_child->location,
+                    "Because it would bypass {} here",
+                    isa<DeferExpr>(e->protected_child) ? "deferred expression"s : "variable declaration"s
+                );
+
+                return;
+            }
+        }
+
+        return;
+    }
+
+    Todo();
+}
+
 /// ===========================================================================
 ///  Analysis
 /// ===========================================================================
@@ -276,6 +334,7 @@ bool src::Sema::Analyse(Expr*& e) {
         /// accepted.
         case Expr::Kind::DeferExpr: {
             if (curr_defer) curr_defer->contains_deferred_material = true;
+            if (not protected_subexpression) protected_subexpression = e;
             tempset curr_defer = cast<DeferExpr>(e);
             Analyse(curr_defer->expr);
         } break;
@@ -284,9 +343,12 @@ bool src::Sema::Analyse(Expr*& e) {
         /// been checked at parse time, so just check the labelled expr
         /// here; note that a labelled expression always returns void so
         /// as to disallow branching into the middle of a full-expression.
-        case Expr::Kind::LabelExpr:
-            Analyse(cast<LabelExpr>(e)->expr);
-            break;
+        case Expr::Kind::LabelExpr: {
+            auto l = cast<LabelExpr>(e);
+            l->parent = curr_scope;
+            needs_link_to_full_expr.push_back(e);
+            Analyse(l->expr);
+        } break;
 
         /// Loop control expressions.
         case Expr::Kind::LoopControlExpr: {
@@ -335,8 +397,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
         /// Unconditional branch.
         case Expr::Kind::GotoExpr: {
-            /// Only check if the label exists; more sophisticated
-            /// validation will be performed later on in HLIR.
+            /// First, make sure the label exists.
             auto g = cast<GotoExpr>(e);
             auto l = curr_proc->labels.find(g->label);
             if (l == curr_proc->labels.end()) return Error(
@@ -345,8 +406,13 @@ bool src::Sema::Analyse(Expr*& e) {
                 g->label
             );
 
+            /// Mark the label as used.
             g->target = l->second;
             l->second->used = true;
+
+            /// We need to check this later.
+            needs_link_to_full_expr.push_back(e);
+            gotos.emplace_back(curr_scope, g);
         } break;
 
         /// Return expressions.
@@ -433,7 +499,7 @@ bool src::Sema::Analyse(Expr*& e) {
         /// a named procedure or type declaration.
         case Expr::Kind::BlockExpr: {
             auto b = cast<BlockExpr>(e);
-            tempset curr_scope = b->scope;
+            tempset curr_scope = b;
 
             /// Skip ProcDecls for the purpose of determining the type of the block.
             isz last = std::ssize(b->exprs) - 1;
@@ -444,12 +510,31 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Analyse the block.
             for (auto&& [i, expr] : vws::enumerate(b->exprs)) {
-                if (not Analyse(expr) and i == last) e->sema.set_errored();
-                else if (i == last) {
+                tempset protected_subexpression = nullptr;
+                tempset needs_link_to_full_expr = SmallVector<Expr*>{};
+
+                if (not Analyse(expr)) {
+                    if (i == last) e->sema.set_errored();
+                    continue;
+                }
+
+                if (i == last) {
                     b->stored_type = expr->type;
                     b->is_lvalue = expr->is_lvalue;
                 }
+
+                /// Update links.
+                expr->protected_child = protected_subexpression;
+                for (auto subexpr : needs_link_to_full_expr) {
+                    if (auto n = dyn_cast<BlockExpr>(subexpr)) n->parent_full_expression = expr;
+                    else if (auto d = dyn_cast<LabelExpr>(subexpr)) d->parent_full_expression = expr;
+                    else if (auto g = dyn_cast<GotoExpr>(subexpr)) g->parent_full_expression = expr;
+                    else Unreachable();
+                }
             }
+
+            /// This needs to know what full expression it is in.
+            needs_link_to_full_expr.push_back(b);
 
             /// If the type could not be determined, set it to void.
             if (Type::Equal(b->stored_type, Type::Unknown)) b->stored_type = Type::Void;
@@ -729,6 +814,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
         /// Variable declaration.
         case Expr::Kind::LocalDecl: {
+            if (not protected_subexpression) protected_subexpression = e;
             auto var = cast<LocalDecl>(e);
             if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
 
@@ -869,7 +955,7 @@ bool src::Sema::Analyse(Expr*& e) {
             );
 
             /// Check that an expression is exportable.
-            auto Exportable = [&]([[maybe_unused]] Scope* sc, StringRef name, StringRef entity_kind) {
+            auto Exportable = [&]([[maybe_unused]] BlockExpr* sc, StringRef name, StringRef entity_kind) {
                 if (name.empty()) return Error(
                     exp->location,
                     "Cannot export anonymous {}",
@@ -888,7 +974,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Procedures can be exported.
             if (auto p = dyn_cast<ProcDecl>(exp->expr)) {
-                if (not Exportable(p->body->scope, p->name, "procedure")) return true;
+                if (not Exportable(p->body, p->name, "procedure")) return true;
                 p->linkage = p->linkage == Linkage::Imported ? Linkage::Reexported : Linkage::Exported;
                 mod->exports[p->name].push_back(p);
                 break;
@@ -1260,7 +1346,10 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
 
     /// If there is no body, then there is nothing to do.
     if (not proc->body) return;
-    tempset curr_scope = proc->body->scope;
+    tempset curr_scope = proc->body;
+
+    /// Clear jumps from previous function.
+    gotos.clear();
 
     /// Sanity check.
     if (Type::Equal(proc->ret_type, Type::Unknown) and not proc->body->implicit) Diag::ICE(
@@ -1322,11 +1411,12 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
             proc->name
         );
     }
+
+    /// Validate gotos.
+    for (auto g : gotos) ValidateDirectBr(g.expr, g.in_scope);
 }
 
 void src::Sema::AnalyseModule() {
-    curr_scope = mod->global_scope;
-
     /// Resolve all imports.
     for (auto& i : mod->imports) {
         for (auto& p : mod->context->import_paths) {
