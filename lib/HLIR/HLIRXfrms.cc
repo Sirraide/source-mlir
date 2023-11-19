@@ -33,6 +33,23 @@ return success();
 }
 };*/
 
+/// Find the NCA of two MLIR blocks.
+auto NCA(Region* a, Region* b) -> Region* {
+    llvm::SmallPtrSet<Region*, 8> scopes{};
+
+    for (; a; a = a->getParentRegion()) {
+        scopes.insert(a);
+        if (isa<FuncOp>(a->getParentOp())) break;
+    }
+
+    for (; b; b = b->getParentRegion()) {
+        if (scopes.contains(b)) return b;
+        if (isa<FuncOp>(b->getParentOp())) break;
+    }
+
+    return nullptr;
+}
+
 /// Inline a region before an operation.
 ///
 /// If possible, no extra blocks will be inserted for the
@@ -186,10 +203,6 @@ struct DeferInliningXfrm {
     mlir::OpBuilder _b{f->getContext()};
     mlir::IRRewriter rewriter{_b};
 
-    /// Blocks that may not be crossed by a jump together
-    /// with the instruction that prevents such crossing.
-    DenseMap<Block*, Operation*> no_crossing{};
-
     void run() {
         /// Find scope op.
         ScopeOp op;
@@ -197,24 +210,21 @@ struct DeferInliningXfrm {
             for (auto& i : block.getOperations()) {
                 if (auto o = dyn_cast<ScopeOp>(i)) {
                     op = o;
-                    break;
+                    goto dewit;
                 }
             }
         }
 
-        if (not op) return;
+        /// No scope op.
+        return;
 
-        /// Collect all local ops and defer ops to determine what
-        /// blocks may be crossed by a goto.
-        InitScope(op);
-
+    dewit:
         /// Inline defers before jumps as appropriate.
         ProcessScope(op);
         for (auto d : to_delete) d->erase();
     }
 
 private:
-
     auto CurrScope() -> Scope* {
         return &entered_scopes.back();
     }
@@ -226,17 +236,6 @@ private:
         return WalkResult::interrupt();
     }
 
-    void InitScope(ScopeOp scope) {
-        /// Process the body of the scope.
-        scope.getBody().walk([&](Operation* op) {
-            if (auto l = dyn_cast<LocalOp>(op)) no_crossing.try_emplace(l->getBlock(), l);
-            else if (auto d = dyn_cast<DeferOp>(op)) {
-                InitScope(d.getScopeOp());
-                no_crossing.try_emplace(d->getBlock(), d);
-            }
-        });
-    }
-
     void ProcessScope(ScopeOp scope) {
         entered_scopes.emplace_back(scope);
         defer { entered_scopes.pop_back(); };
@@ -245,9 +244,11 @@ private:
         scope.getBody().walk<WalkOrder::PreOrder>([&](Operation* op) {
             if (auto y = dyn_cast<YieldOp>(op)) LowerYield(y);
             else if (auto r = dyn_cast<ReturnOp>(op)) LowerReturn(r);
-            else if (auto b = dyn_cast<DirectBrOp>(op)) return LowerDirectBranch(b);
             else if (auto s = dyn_cast<ScopeOp>(op)) ProcessScope(s);
-            else if (auto d = dyn_cast<DeferOp>(op)) {
+            else if (auto b = dyn_cast<DirectBrOp>(op)) {
+                LowerDirectBranch(b);
+                return WalkResult::skip();
+            } else if (auto d = dyn_cast<DeferOp>(op)) {
                 ProcessScope(d.getScopeOp());
                 CurrScope()->deferred.emplace_back(d, d->getBlock());
                 op->remove();
@@ -294,116 +295,35 @@ private:
     }
 
     /// Break, continue, goto.
-    auto LowerDirectBranch(DirectBrOp b) -> WalkResult {
-        /// There are six possible cases here:
-        ///
-        ///   1. Near forwards jump to a block in the same scope.
-        ///   2. Near backwards jump to a block in the same scope.
-        ///   3. Far backwards jump to a block in a parent scope.
-        ///   4. Far forwards jump to a block in a parent scope.
-        ///   5. Upward cross jump into a child of a parent scope.
-        ///   6. Downward cross jump into a child of the current scope.
-        ///
-        /// For each case, we have to determine what deferred material
-        /// to emit and whether the jump is even legal in the first
-        /// place. In general, forwards jumps are legal, iff they do not
-        /// cross deferred material or variable declarations. Backwards
-        /// jumps are legal are always legal.
+    void LowerDirectBranch(DirectBrOp b) {
+        /// Replace the branch with a jump when we’re done.
+        defer {
+            rewriter.setInsertionPoint(b);
+            rewriter.create<cf::BranchOp>(b->getLoc(), b.getDest());
+            rewriter.eraseOp(b);
+        };
+
+        /// Find the NCA of the source and destination blocks.
         auto src = b->getBlock();
         auto dst = b.getDest();
+        auto nca = NCA(src->getParent(), dst->getParent());
+        Assert(nca);
 
-        /// A jump from a block to itself is always legal.
-        if (src == dst) {
-            Assert(b.getOperation() == &src->back(), "Stray branch in block");
+        /// Emit scopes up until we’re at the NCA.
+        auto it = rgs::find_if(entered_scopes, [&](Scope& s) { return &s.scope.getBody() == nca; });
+        Assert(it != entered_scopes.end());
+        for (auto& s : rgs::subrange(std::next(it), entered_scopes.end()) | vws::reverse)
+            EmitScope(b, &s);
 
-            /// Emit any defer ops in that block. We need to emit all defer
-            /// ops because a branch from a block to itself must obviously
-            /// be the last instruction in the block.
-            for (auto [d, block] : CurrScope()->deferred | vws::reverse | vws::filter(IsBlock(src)))
-                if (block == src)
-                    EmitDefer(&src->back(), d);
-
-            /// And branch to it.
-            rewriter.setInsertionPoint(b);
-            rewriter.create<cf::BranchOp>(b->getLoc(), b.getDest());
-            rewriter.eraseOp(b);
-            return WalkResult::skip();
+        /// Emit any protected expressions. Note that codegen has
+        /// already reversed the order of these.
+        if (auto p = b.getProt(); not p.empty()) {
+            for (auto prot : p) {
+                if (auto d = cast<DeferOp>(prot.getDefiningOp())) EmitDefer(b, d);
+                else if (auto l = cast<LocalOp>(prot.getDefiningOp())) Todo();
+                else src::Diag::ICE("Invalid protected expression");
+            }
         }
-
-/*        /// Cases 1/2: Same scope.
-        if (src->getParent() == dst->getParent()) {
-            DominanceInfo dom{src->getParent()->getParentOp()};
-            auto& tree = dom.getDomTree(src->getParent());
-            auto IDom = [&](Block* block) {
-                auto idom = tree.getNode(block)->getIDom();
-                return idom ? idom->getBlock() : nullptr;
-            };
-
-            /// If src dominates dst, the branch is valid, if src dominates
-            /// no deferred operations or variable declarations that dst does
-            /// not dominate.
-            if (dom.properlyDominates(src, dst)) {
-                auto BranchMayCross = [&](Block* block) {
-                    auto ReportIllegalJump = [&](Operation* op) {
-                        Error(b, "Illegal jump target");
-                        if (auto d = dyn_cast<DeferOp>(op)) Note(d, "Jump bypasses deferred expression here");
-                        else if (auto l = dyn_cast<LocalOp>(op)) Note(l, "Jump bypasses variable declaration here");
-                        return false;
-                    };
-
-                    /// If this is the block we’re branching from, only check
-                    /// operations after the branch.
-                    if (block == src) {
-                        auto range = rgs::subrange(std::next(b->getIterator()), block->end());
-                        auto it = rgs::find_if(range, [] (auto& op) { return isa<DeferOp, LocalOp>(op); });
-                        if (it == range.end()) return true;
-                        else return ReportIllegalJump(&*it);
-                    }
-
-                    /// Otherwise, check if the block is illegal to cross.
-                    auto it = no_crossing.find(block);
-                    if (it == no_crossing.end()) return true;
-                    return ReportIllegalJump(it->second);
-                };
-
-                /// Walk up the dominator tree till we get to dst.
-                for (Block *i = IDom(dst), *end = IDom(src); i and i != end; i = IDom(i))
-                    if (not BranchMayCross(i))
-                        return WalkResult::interrupt();
-            }
-
-            /// Otherwise, this is a backwards jump. These are always fine, but we
-            /// have to unwind any deferred material between the src and dest.
-            else {
-                for (Block *i = IDom(dst), *end = IDom(src); i and i != end; i = IDom(i))
-                    for (auto [d, _] : CurrScope()->deferred | vws::filter(IsBlock(i)) | vws::reverse)
-                        EmitDefer(b, d);
-            }
-
-            /// Finally, lower the branch.
-            rewriter.setInsertionPoint(b);
-            rewriter.create<cf::BranchOp>(b->getLoc(), b.getDest());
-            rewriter.eraseOp(b);
-            return WalkResult::skip();
-        }
-
-        /// Case 3/4. Upwards jump.
-        Region* target = src->getParent();
-        for (Region* end = dst->getParent(); target and target != end; target = target->getParentRegion()) {}
-        if (target) {
-            auto scope = cast<ScopeOp>(target->getParentOp());
-
-            /// Leave all scopes inbetween.
-            for (auto sc : entered_scopes | vws::reverse) {
-                if (sc.scope == scope) break;
-                for (auto [d, _] : sc.deferred | vws::reverse)
-                    EmitDefer(b, d);
-            }
-
-            Todo();
-        }*/
-
-        Todo();
     }
 };
 

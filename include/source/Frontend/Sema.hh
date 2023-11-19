@@ -51,7 +51,7 @@ class Sema {
     SmallVector<Expr*> needs_link_to_full_expr{};
 
     /// Set when encountering a protected expression.
-    Expr* protected_subexpression{};
+    SmallVector<Expr*, 1> protected_subexpressions{};
 
 public:
     /// Use Context::has_error to check for errors.

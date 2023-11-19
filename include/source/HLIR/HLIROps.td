@@ -175,7 +175,7 @@ def DirectBrOp : HLIR_Op<"directbr", [
 ]> {
     let summary = "Direct branch to a block";
     let hasCustomAssemblyFormat = 1;
-    let arguments = (ins I64Attr:$src_loc);
+    let arguments = (ins I64Attr:$src_loc, Variadic<HLIR_Type>:$prot);
     let successors = (successor AnySuccessor:$dest);
     let hasVerifier = 0;
     let skipDefaultBuilders = 1;
@@ -183,9 +183,11 @@ def DirectBrOp : HLIR_Op<"directbr", [
     let builders = [
         OpBuilder<(ins
             "::mlir::Block*":$dest,
-            "std::int64_t":$src_loc
+            "std::int64_t":$src_loc,
+            CArg<"::mlir::ValueRange", "{}">:$prot
         ), [{
             $_state.addSuccessors(dest);
+            $_state.addOperands(prot);
             $_state.addAttribute("src_loc", $_builder.getI64IntegerAttr(src_loc));
         }]>
     ];
@@ -263,6 +265,7 @@ def YieldOp : HLIR_Op<"yield", [Terminator]> {
 def DeferOp : HLIR_Op<"defer", [AutomaticAllocationScope, OpAsmOpInterface]> {
     let summary = "Defer code to be executed at end of scope";
     let regions = (region AnyRegion:$body);
+    let results = (outs HLIR_DeferTokenType:$token);
     let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
     let skipDefaultBuilders = 1;
@@ -271,6 +274,7 @@ def DeferOp : HLIR_Op<"defer", [AutomaticAllocationScope, OpAsmOpInterface]> {
         OpBuilder<(ins), [{
             auto r = $_state.addRegion();
             r->push_back(new mlir::Block);
+            $_state.addTypes(hlir::DeferTokenType::get($_state.getContext()));
         }]>
     ];
 

@@ -94,6 +94,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::WhileExpr:
         case Kind::LoopControlExpr:
         case Kind::GotoExpr:
+        case Kind::AnchorExpr:
         case Kind::LabelExpr:
         case Kind::EmptyExpr:
         case Kind::BlockExpr:
@@ -169,6 +170,7 @@ auto src::Expr::_type() -> TypeHandle {
 
         /// Typed exprs.
         case Kind::BlockExpr:
+        case Kind::AnchorExpr:
         case Kind::InvokeExpr:
         case Kind::InvokeBuiltinExpr:
         case Kind::ConstExpr:
@@ -287,6 +289,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::LoopControlExpr:
         case Kind::GotoExpr:
         case Kind::LabelExpr:
+        case Kind::AnchorExpr:
         case Kind::EmptyExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
@@ -412,6 +415,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::LoopControlExpr:
         case Kind::GotoExpr:
         case Kind::LabelExpr:
+        case Kind::AnchorExpr:
         case Kind::EmptyExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
@@ -561,6 +565,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
 
         /// Typed exprs.
         case Kind::BlockExpr:
+        case Kind::AnchorExpr:
         case Kind::InvokeExpr:
         case Kind::InvokeBuiltinExpr:
         case Kind::ConstExpr:
@@ -683,6 +688,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::LoopControlExpr:
         case Kind::GotoExpr:
         case Kind::LabelExpr:
+        case Kind::AnchorExpr:
         case Kind::EmptyExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
@@ -1059,6 +1065,17 @@ struct ASTPrinter {
                 return;
             }
 
+            case K::AnchorExpr: {
+                auto a = cast<AnchorExpr>(e);
+                PrintBasicHeader("AnchorExpr", e);
+                out += fmt::format(
+                    " {}{}\n",
+                    C(Yellow),
+                    a->is_lvalue ? "lvalue" : ""
+                );
+                return;
+            }
+
             case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
@@ -1239,6 +1256,16 @@ struct ASTPrinter {
                 PrintChildren(children, leading_text);
             } break;
 
+            case K::AnchorExpr: {
+                auto a = cast<AnchorExpr>(e);
+
+                /// Inlined here so we only print the children of the wrapped expression.
+                out += fmt::format("{}{}{}", C(Red), leading_text, a->protected_exprs.empty() ? "└─" : "├─");
+                operator()(a->expr, leading_text + (a->protected_exprs.empty() ? "  " : "│ "));
+                tempset print_children_of_children = false;
+                PrintChildren(a->protected_exprs, leading_text);
+            } break;
+
             case K::LocalDecl: {
                 auto v = cast<LocalDecl>(e);
                 if (v->init) PrintChildren(v->init, leading_text);
@@ -1283,7 +1310,10 @@ struct ASTPrinter {
             case K::GotoExpr: {
                 tempset print_children_of_children = false;
                 auto r = cast<GotoExpr>(e);
-                if (r->target) PrintChildren(r->target, leading_text);
+                SmallVector<Expr*, 2> children{};
+                if (r->target) children.push_back(r->target);
+                if (r->anchor) children.push_back(r->anchor);
+                PrintChildren(children, leading_text);
             } break;
 
             case K::LabelExpr:

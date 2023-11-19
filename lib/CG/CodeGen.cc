@@ -358,6 +358,7 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
         case Expr::Kind::LoopControlExpr:
         case Expr::Kind::GotoExpr:
         case Expr::Kind::LabelExpr:
+        case Expr::Kind::AnchorExpr:
         case Expr::Kind::EmptyExpr:
         case Expr::Kind::DeferExpr:
         case Expr::Kind::BlockExpr:
@@ -684,6 +685,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::DeferExpr: {
             auto d = Create<hlir::DeferOp>(expr->location.mlir(ctx));
+            expr->mlir = d;
             mlir::OpBuilder::InsertionGuard guard{builder};
             builder.setInsertionPointToEnd(&d.getBody().front());
             Generate(cast<DeferExpr>(expr)->expr);
@@ -698,36 +700,33 @@ void src::CodeGen::Generate(src::Expr* expr) {
             const auto loc = expr->location.mlir(ctx);
 
             /// Emit the branch.
-            if (l->is_continue) Create<hlir::DirectBrOp>(loc, l->target->cond_block, expr->location.encode());
-            else Create<hlir::DirectBrOp>(loc, l->target->join_block, expr->location.encode());
+            Create<hlir::DirectBrOp>(
+                loc,
+                l->is_continue ? l->target->cond_block : l->target->join_block,
+                expr->location.encode()
+            );
         } break;
 
         case Expr::Kind::GotoExpr: {
             auto g = cast<GotoExpr>(expr);
-            Create<hlir::DirectBrOp>(g->location.mlir(ctx), g->target->block, expr->location.encode());
 
-            /// Cross jumps back into a scope that has already been processed
-            /// need to be handled differently since that scope will no longer
-            /// be on the stack. However, since we’ve created a stacklet for
-            /// every subscope, we should be able to find its parent and unwind
-            /// back to it.
-            /*             Scope* parent = g->target->parent;
-                         void* stacklet = g->target;
-                         if (not DI.HasStackFor(g->target->parent)) {
-                             auto p = g->target->parent;
-                             for (; p->parent; p = p->parent) {
-                                 if (DI.HasStackFor(p->parent)) {
-                                     parent = p->parent;
-                                     stacklet = p;
-                                     break;
-                                 }
-                             }
+            /// Anchors are only used for backward branches; thus, when we
+            /// get here, all protected expressions for that anchor have
+            /// already been emitted, so we can just add them here.
+            SmallVector<mlir::Value> protected_exprs;
+            if (g->anchor) {
+                for (auto e : vws::reverse(g->anchor->protected_exprs)) {
+                    Assert(e->mlir);
+                    protected_exprs.push_back(e->mlir);
+                }
+            }
 
-                             /// If we couldn’t find a single parent, then there’s something
-                             /// very wrong here.
-                             Assert(p->parent, "Invalid cross jump");
-                         }*/
-
+            Create<hlir::DirectBrOp>(
+                g->location.mlir(ctx),
+                g->target->block,
+                expr->location.encode(),
+                protected_exprs
+            );
         } break;
 
         case Expr::Kind::LabelExpr: {
@@ -746,6 +745,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// Emit the labelled expression.
             Generate(l->expr);
+        } break;
+
+        /// Emit the wrapped expression.
+        case Expr::Kind::AnchorExpr: {
+            auto a = cast<AnchorExpr>(expr);
+            Generate(a->expr);
+            a->mlir = a->expr->mlir;
         } break;
 
         /// Nothing to do here other than emitting the underlying decl.

@@ -14,6 +14,7 @@ class LocalDecl;
 class StructType;
 class ProcType;
 class BlockExpr;
+class AnchorExpr;
 
 namespace detail {
 extern Expr* const UnknownType;
@@ -88,6 +89,7 @@ public:
 
         /// TypedExpr [begin]
         BlockExpr,
+        AnchorExpr,
         InvokeExpr,
         InvokeBuiltinExpr,
         ConstExpr,
@@ -215,9 +217,10 @@ public:
     /// The MLIR value of this expression.
     mlir::Value mlir{};
 
-    /// First protected subexpression (i.e. defer or local variable).
-    /// Only applicable to full expressions at the block level.
-    Expr* protected_child{};
+    /// Protected subexpressions (i.e. defers and local variables).
+    /// Only applicable to full expressions at the block level. This
+    /// may also contain the expression itself if it is protected.
+    SmallVector<Expr*, 1> protected_children{};
 
     /// Whether this expression has already been emitted.
     bool emitted : 1 = false;
@@ -385,9 +388,17 @@ public:
     /// The resolved labelled expression.
     LabelExpr* target{};
 
+    /// Anchor that contains information about protected
+    /// expressions; may be null if there are no expressions
+    /// to emit.
+    AnchorExpr* anchor{};
+
     /// Pointer to parent full expression. Points to this
     /// if this is a full expression.
     Expr* parent_full_expression{};
+
+    /// Whether this is a forward goto.
+    bool forward{};
 
     GotoExpr(std::string label, Location loc)
         : Expr(Kind::GotoExpr, loc),
@@ -539,6 +550,35 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::BlockExpr; }
+};
+
+/// Expression that is branched to.
+///
+/// These are generated only during sema and used in codegen so we
+/// know what protected expressions to emit when performing a backward
+/// branch to this.
+class AnchorExpr : public TypedExpr {
+public:
+    /// The expression that this replaces.
+    Expr* expr;
+
+    /// Protected expressions that have been emitted in this scope
+    /// since this label was seen. These are what we need to emit
+    /// when we to a backward jump to this.
+    SmallVector<Expr*> protected_exprs{};
+
+    AnchorExpr(Expr* expr, SmallVector<Expr*> protected_exprs)
+        : TypedExpr(Kind::AnchorExpr, expr->type, expr->location),
+          expr(expr),
+          protected_exprs(std::move(protected_exprs)) {
+        Assert(expr);
+        sema = expr->sema;
+        is_lvalue = expr->is_lvalue;
+        protected_children = expr->protected_children;
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::AnchorExpr; }
 };
 
 class InvokeExpr : public TypedExpr {

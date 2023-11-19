@@ -50,8 +50,10 @@ proc f3() {
 /// ===================== Upward jumps =====================
 /// b
 proc f4() {
-    defer a();
     back: b();
+    defer a();
+    defer a();
+    defer a();
     if true then goto back;
 }
 

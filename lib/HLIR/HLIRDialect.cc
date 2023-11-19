@@ -149,7 +149,16 @@ void hlir::DestroyOp::print(OpAsmPrinter& p) {
 auto hlir::DestroyOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::DirectBrOp::print(OpAsmPrinter& p) {
-    p << " " << getDest();
+    p << " to " << getDest();
+    if (not getProt().empty()) {
+        p << " unwind ";
+        bool first = true;
+        for (auto prot : getProt()) {
+            if (first) first = false;
+            else p << ", ";
+            p << prot;
+        }
+    }
 }
 
 auto hlir::DirectBrOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }

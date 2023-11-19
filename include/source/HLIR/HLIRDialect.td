@@ -64,6 +64,9 @@ class HLIR_SingleElementType<string name, string type_mnemonic, list<Trait> trai
     ];
 }
 
+/// Used only so we can pass `DeferOp`s expressions around.
+def HLIR_DeferTokenType : HLIR_Type<"DeferToken", "defer">;
+
 def HLIR_SliceType : HLIR_SingleElementType<"Slice", "slice">;
 def HLIR_ScopedPointerType : HLIR_SingleElementType<"ScopedPointer", "scp">;
 def HLIR_ReferenceType : HLIR_SingleElementType<"Reference", "ref">;
@@ -92,6 +95,7 @@ def HLIR_Type : AnyTypeOf<[
     HLIR_ArrayType,
     HLIR_ReferenceType,
     HLIR_ScopedPointerType,
+    HLIR_DeferTokenType,
 ]>;
 
 #endif // HLIR_DIALECT_TD
