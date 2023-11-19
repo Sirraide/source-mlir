@@ -5,6 +5,7 @@
 proc a extern;
 proc b extern;
 
+/// ===================== Same-scope jumps =====================
 /// b
 /// * hlir.func private @f1 {
 /// +   cf.br (?<bb1>$b)
@@ -46,6 +47,8 @@ proc f3() {
     forward:;
 }
 
+/// ===================== Upward jumps =====================
+/// b
 proc f4() {
     defer a();
     back: b();
@@ -68,18 +71,52 @@ proc f6() {
 proc f7() {
     defer a();
     back: b();
-    { { { goto back; } } };
+    { { { goto back; } } }
 }
 
 proc f8() {
     defer a();
-    { { { goto forward; } } };
+    { { { goto forward; } } }
     forward: b();
 }
 
-proc f69() {
+proc f9() {
     defer a();
-    { { { goto forward; } } };
+    { { { goto forward; } } }
     b();
     forward:;
+}
+
+/// ===================== Downward jumps =====================
+proc f10() {
+    a();
+    goto target;
+    { { { target: defer b(); } } }
+}
+
+proc f11() {
+    goto target;
+    a();
+    if true then { target:; }
+}
+
+proc f12() {
+    { { { target: defer b(); } } }
+    goto target;
+}
+
+/// ===================== Cross jumps =====================
+proc f13() {
+    { { goto cross; } }
+    { { cross: defer b(); } }
+}
+
+proc f14() {
+    { { cross: defer b(); } }
+    { goto cross; }
+}
+
+proc f15() {
+    { if true then goto cross; }
+    { cross: defer b(); }
 }

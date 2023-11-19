@@ -2,13 +2,10 @@
 
 /// p re off
 
-///
-/// Illegal uses of forward and backward goto in the same scope.
-///
-
 proc a extern;
 proc b extern;
 
+/// ===================== Same-scope jumps =====================
 proc f1() {
     /// * Jump is ill-formed
     /// + goto forward1
@@ -41,34 +38,111 @@ proc f3() {
     forward3:;
 }
 
+/// ===================== Upward jumps =====================
 proc f4() {
     /// * Jump is ill-formed
-    /// + goto forward1
+    /// + goto upward1
     /// * Because it would bypass variable declaration here
     /// + int
-    { { { goto forward4; } } }
+    { { { goto upward1; } } }
     int x;
-    forward4:;
+    upward1:;
 }
 
 proc f5() {
     /// * Jump is ill-formed
-    /// + goto forward2
+    /// + goto upward2
     /// * Because it would bypass deferred expression here
     /// + defer a()
-    { { { goto forward5; } } }
+    { { { goto upward2; } } }
     defer a();
     defer a();
-    forward5: defer a();
+    upward2: defer a();
 }
 
 proc f6() {
     /// * Jump is ill-formed
-    /// + goto forward3
+    /// + goto upward3
     /// * Because it would bypass deferred expression here
     /// + defer b()
-    { { { goto forward6; } } }
+    { { { goto upward3; } } }
     if true { defer b(); } else { defer b(); }
     defer b();
-    forward6:;
+    upward3:;
+}
+
+/// ===================== Downward jumps =====================
+proc f7() {
+    /// * Jump is ill-formed
+    /// + goto downward1
+    /// * Because it would bypass deferred expression here
+    /// + defer b()
+    goto downward1;
+    defer b();
+    { { { downward1:; } } }
+}
+
+proc f8() {
+    /// * Jump is ill-formed
+    /// + goto downward2
+    /// * Because it would bypass deferred expression here
+    /// + defer b()
+    goto downward2;
+    { { { defer b(); downward2:; } } }
+}
+
+proc f9() {
+    /// * Jump is ill-formed
+    /// + goto downward3
+    /// * Because it would bypass deferred expression here
+    /// + defer b()
+    goto downward3;
+    { { defer b(); { downward3:; } } }
+}
+
+proc f10() {
+    /// * Jump is ill-formed
+    /// + goto downward4
+    /// * Because it would bypass deferred expression here
+    /// + defer b()
+    { { { defer b(); downward4:; } } }
+    goto downward4;
+}
+
+proc f11() {
+    /// * Jump is ill-formed
+    /// + goto downward5
+    /// * Because it would bypass deferred expression here
+    /// + defer b()
+    { { defer b(); { downward5:; } } }
+    goto downward5;
+}
+
+/// ===================== Cross jumps =====================
+proc f12() {
+    /// * Jump is ill-formed
+    /// + goto cross1
+    /// * Because it would bypass deferred expression here
+    /// + defer b()
+    { { goto cross1; } }
+    { defer b(); { cross1:; } }
+}
+
+proc f13() {
+    /// * Jump is ill-formed
+    /// + goto cross2
+    /// * Because it would bypass deferred expression here
+    /// + defer b()
+    { { defer b(); cross2:;  } }
+    { goto cross2; }
+}
+
+proc f14() {
+    /// * Jump is ill-formed
+    /// + goto cross3
+    /// * Because it would bypass deferred expression here
+    /// + defer b()
+    { if true then goto cross3; }
+    defer b();
+    { cross3:; }
 }

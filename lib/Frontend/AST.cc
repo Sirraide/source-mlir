@@ -725,6 +725,22 @@ bool src::StructType::LayoutCompatible(StructType* a, StructType* b) {
     );
 }
 
+auto src::BlockExpr::NCAInFunction(src::BlockExpr* a, src::BlockExpr* b) -> BlockExpr* {
+    llvm::SmallPtrSet<BlockExpr*, 8> scopes{};
+
+    for (; a; a = a->parent) {
+        scopes.insert(a);
+        if (a->is_function) break;
+    }
+
+    for (; b; b = b->parent) {
+        if (scopes.contains(b)) return b;
+        if (b->is_function) break;
+    }
+
+    return nullptr;
+}
+
 /// ===========================================================================
 ///  AST Printing
 /// ===========================================================================

@@ -116,7 +116,22 @@ bool src::Sema::MakeDeclType(Expr*& e) {
 void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* from_scope) {
     if (not g->sema.ok) return;
     auto label = g->target;
+    auto label_fe = label->parent_full_expression;
     auto to_scope = label->parent;
+
+    /// Check if a range contains a protected expression.
+    auto ContainsProtected = [&](auto range) {
+        auto e = rgs::find_if(range, [](auto e) { return e->protected_child != nullptr; });
+        if (e == rgs::end(range)) return false;
+        Error(g, "Jump is ill-formed");
+        Diag::Note(
+            mod->context,
+            (*e)->protected_child->location,
+            "Because it would bypass {} here",
+            isa<DeferExpr>((*e)->protected_child) ? "deferred expression"s : "variable declaration"s
+        );
+        return true;
+    };
 
     /// Check if the target is an (improper) ancestor of the source.
     bool branch_upwards = false;
@@ -127,48 +142,53 @@ void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* from_scope) {
         }
     }
 
-    /// Upward jump or jump within a scope.
-    if (branch_upwards) {
-        /// Find the full expression in the target block that contains the goto.
-        auto goto_it = [&] {
-            auto fe = g->parent_full_expression;
-            auto sc = from_scope;
-            while (sc != to_scope) {
-                fe = sc->parent_full_expression;
-                sc = sc->parent;
-                Assert(sc, "Broken full-expression/scope chain");
-            }
+    /// Downwards or cross jump.
+    if (not branch_upwards) {
+        /// First, find the nca of the two scopes.
+        BlockExpr* nca = BlockExpr::NCAInFunction(from_scope, to_scope);
+        Assert(nca, "Goto and label blocks have no common ancestor");
 
-            return rgs::find(sc->exprs, fe);
-        }();
-
-        /// As well as the label in the target scope.
-        auto label_it = rgs::find(to_scope->exprs, label->parent_full_expression);
-        Assert(goto_it != to_scope->exprs.end());
-        Assert(label_it != to_scope->exprs.end());
-
-        /// Backward jumps are always ok.
-        if (label_it < goto_it) return;
-
-        /// Forward jumps may not cross protected expressions.
-        for (auto e : rgs::subrange(std::next(goto_it), label_it)) {
-            if (e->protected_child) {
-                Error(g, "Jump is ill-formed");
-                Diag::Note(
-                    mod->context,
-                    e->protected_child->location,
-                    "Because it would bypass {} here",
-                    isa<DeferExpr>(e->protected_child) ? "deferred expression"s : "variable declaration"s
-                );
-
-                return;
-            }
+        /// Starting from the label, walk up the scope chain until we reach
+        /// the nca, and validate that we don’t cross a protected expression
+        /// on the way.
+        auto sc = to_scope;
+        while (sc != nca) {
+            auto it = rgs::find(sc->exprs, label_fe);
+            Assert(it != sc->exprs.end());
+            if (ContainsProtected(rgs::subrange(sc->exprs.begin(), it))) return;
+            label_fe = sc->parent_full_expression;
+            sc = sc->parent;
         }
 
-        return;
+        /// Set this so the code below that checks the upward / same scope
+        /// case takes care of checking the part of the branch in the nca,
+        /// which is the last thing we need to check for this case.
+        to_scope = nca;
     }
 
-    Todo();
+    /// Find the full expression in the target block that contains the goto.
+    auto goto_it = [&] {
+        auto fe = g->parent_full_expression;
+        auto sc = from_scope;
+        while (sc != to_scope) {
+            fe = sc->parent_full_expression;
+            sc = sc->parent;
+            Assert(sc, "FE not found in scope chain");
+        }
+
+        return rgs::find(to_scope->exprs, fe);
+    }();
+
+    /// As well as the label in the target scope.
+    auto label_it = rgs::find(to_scope->exprs, label_fe);
+    Assert(goto_it != to_scope->exprs.end());
+    Assert(label_it != to_scope->exprs.end());
+
+    /// Backward jumps are always ok.
+    if (label_it < goto_it) return;
+
+    /// Forward jumps may not cross protected expressions.
+    ContainsProtected(rgs::subrange(std::next(goto_it), label_it));
 }
 
 /// ===========================================================================

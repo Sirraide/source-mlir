@@ -533,6 +533,10 @@ public:
         if (parent and not this_scope_only) parent->visit(name, false, f);
     }
 
+    /// Find the NCA of two blocks in a function. Returns nullptr
+    /// if the blocks are not in the same function.
+    static auto NCAInFunction(BlockExpr* a, BlockExpr* b) -> BlockExpr*;
+
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::BlockExpr; }
 };

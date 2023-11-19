@@ -207,7 +207,7 @@ endif()
 ## ============================================================================
 ##  LLVM.
 ## ============================================================================
-set(SOURCE_LLVM_BUILD_DIR "${PROJECT_SOURCE_DIR}/llvm/out-debug")
+set(SOURCE_LLVM_BUILD_DIR "${PROJECT_SOURCE_DIR}/llvm/out")
 set(LLVM_DIR "${SOURCE_LLVM_BUILD_DIR}/lib/cmake/llvm")
 set(MLIR_DIR "${SOURCE_LLVM_BUILD_DIR}/lib/cmake/mlir")
 set(Clang_DIR "${SOURCE_LLVM_BUILD_DIR}/lib/cmake/clang")
