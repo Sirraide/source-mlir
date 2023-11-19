@@ -567,13 +567,13 @@ struct CallOpLowering : public ConversionPattern {
     ) const -> LogicalResult override {
         auto loc = op->getLoc();
         auto call = cast<hlir::CallOp>(op);
-        hlir::CallOpAdaptor adaptor(args, op->getAttrDictionary());
+        hlir::CallOpAdaptor adaptor(args);
 
         /// Create the call.
         auto llvm_call = r.create<LLVM::CallOp>(
             loc,
             call.getYield() ? getTypeConverter()->convertType(call.getYield().getType()) : TypeRange{},
-            adaptor.getCallee(),
+            call.getCallee(),
             adaptor.getArgs()
         );
 

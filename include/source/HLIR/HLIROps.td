@@ -109,16 +109,17 @@ def CallOp : HLIR_Op<"call", [
 
     let builders = [
         OpBuilder<(ins
-            "::mlir::hlir::FuncOp":$callee,
+            "::mlir::TypeRange":$results,
+            "::llvm::StringRef":$callee,
             "bool":$inline_call,
             "::mlir::LLVM::CConv":$cc,
             CArg<"ValueRange", "{}">:$operands
         ), [{
           $_state.addOperands(operands);
-          $_state.addAttribute(getCalleeAttrName($_state.name), SymbolRefAttr::get(callee));
+          $_state.addAttribute(getCalleeAttrName($_state.name), FlatSymbolRefAttr::get($_state.getContext(), callee));
           $_state.addAttribute(getCcAttrName($_state.name), mlir::LLVM::CConvAttr::get($_state.getContext(), cc));
           $_state.addAttribute(getInlineCallAttrName($_state.name), mlir::BoolAttr::get($_state.getContext(), inline_call));
-          $_state.addTypes(callee.getFunctionType().getResults());
+          $_state.addTypes(results);
         }]>
     ];
 

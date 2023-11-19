@@ -436,7 +436,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     cast<mlir::FunctionType>(proc.getType()).getResults(),
                     proc.getValue(),
                     false,
-                    mlir::LLVM::CConvAttr::get(mctx, mlir::LLVM::CConv::C),
+                    mlir::LLVM::CConv::C,
                     args
                 );
 
