@@ -10,12 +10,18 @@ int a;
 /// + (?<T_1>$t) = arith.constant true
 /// + cf.cond_br $T_1, (?<TRUE_1>$b), (?<FALSE_1>$b)
 /// + $TRUE_1:
-/// + (?<A_1>$t) = load i64 from $A
-/// + cf.br (?<JOIN_1>$b)($A_1
+/// + (?<SC1>$t) = scope i64& {
+/// +     yield i64& $A
+/// + }
+/// + (?<A_1>$t) = load i64 from $SC1
+/// + cf.br (?<JOIN_1>$b)($A_1 : i64)
 /// + $FALSE_1:
-/// + (?<CONST_42>$t) = arith.constant 42 : i64
-/// + cf.br $JOIN_1($CONST_42
-/// + $JOIN_1((?<IF_1>$t)
+/// + (?<SC2>$t) = scope i64 {
+/// +     (?<CONST_42>$t) = arith.constant 42 : i64
+/// +     yield i64 $CONST_42
+/// + }
+/// + cf.br $JOIN_1($SC2 : i64)
+/// + $JOIN_1((?<IF_1>$t): i64)
 /// + store into $B, i64 $IF_1
 int b = if true then a else 42;
 
@@ -23,12 +29,18 @@ int b = if true then a else 42;
 /// + (?<T_2>$t) = arith.constant true
 /// + cf.cond_br $T_2, (?<TRUE_2>$b), (?<FALSE_2>$b)
 /// + $TRUE_2:
-/// + (?<CONST_42_2>$t) = arith.constant 42 : i64
-/// + cf.br (?<JOIN_2>$b)($CONST_42_2
+/// + (?<SC3>$t) = scope i64 {
+/// +     (?<CONST_42_2>$t) = arith.constant 42 : i64
+/// +     yield i64 $CONST_42_2
+/// + }
+/// + cf.br (?<JOIN_2>$b)($SC3 : i64)
 /// + $FALSE_2:
-/// + (?<A_2>$t) = load i64 from $A
+/// + (?<SC4>$t) = scope i64& {
+/// +     yield i64& $A
+/// + }
+/// + (?<A_2>$t) = load i64 from $SC4
 /// + cf.br $JOIN_2($A_2
-/// + $JOIN_2((?<IF_2>$t)
+/// + $JOIN_2((?<IF_2>$t): i64)
 /// + store into $C, i64 $IF_2
 int c = if true { 42 } else { a };
 
@@ -36,18 +48,28 @@ int c = if true { 42 } else { a };
 /// + (?<T_3>$t) = arith.constant false
 /// + cf.cond_br $T_3, (?<TRUE_3>$b), (?<FALSE_3>$b)
 /// + $TRUE_3:
-/// + cf.br (?<JOIN_3>$b)($B
+/// + (?<SC5>$t) = scope i64& {
+/// +     yield i64& $B
+/// + }
+/// + cf.br (?<JOIN_3>$b)($SC5 : !hlir<i64&>)
 /// + $FALSE_3:
-/// + cf.br $JOIN_3($C
-/// + $JOIN_3((?<IF_3>$t)
+/// + (?<SC6>$t) = scope i64& {
+/// +     yield i64& $C
+/// + }
+/// + cf.br $JOIN_3($SC6 : !hlir<i64&>)
+/// + $JOIN_3((?<IF_3>$t): !hlir<i64&>)
 /// + store into $D, i64& $IF_3
 int& d = if false { b } else { c };
 
 /// + (?<T_4>$t) = arith.constant true
 /// + cf.cond_br $T_4, (?<TRUE_4>$b), (?<JOIN_4>$b)
 /// + $TRUE_4:
-/// + (?<A_3>$t) = load i64 from $A
-/// + store into $A, i64 $A_3
+/// + $t = scope i64& {
+/// +     (?<A_3>$t) = load i64 from $A
+/// +     store into $A, i64 $A_3
+/// +     yield i64& $A
+/// + }
 /// + cf.br $JOIN_4
 /// + $JOIN_4:
+/// + yield
 if true then a = a;
