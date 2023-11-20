@@ -557,6 +557,13 @@ public:
 /// These are generated only during sema and used in codegen so we
 /// know what protected expressions to emit when performing a backward
 /// branch to this.
+///
+/// FIXME: We could also just do away w/ this and instead store the
+///        protected expressions in the GotoExpr itself; the only difference
+///        that that would make is that we couldn’t reuse anchors anymore,
+///        but at the same time, more than one goto crossing the same protected
+///        expressions is probably not too common anyway, so we should be fine
+///        w/ some amount of duplication.
 class AnchorExpr : public TypedExpr {
 public:
     /// The expression that this replaces.

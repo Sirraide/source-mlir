@@ -1,4 +1,5 @@
 #include <llvm/Support/OptimizedStructLayout.h>
+#include <mlir/AsmParser/AsmParser.h>
 #include <ranges>
 #include <source/CG/CodeGen.hh>
 #include <source/Frontend/AST.hh>
@@ -764,14 +765,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto r = cast<ReturnExpr>(expr);
             if (r->value) Generate(r->value);
 
-            /// Emit all defer stacks.
-            const auto loc = r->location.mlir(ctx);
-            const auto last_inst = expr == curr_proc->body->exprs.back();
-
             /// Return the value.
             if (not Closed()) {
                 Create<hlir::ReturnOp>(
-                    loc,
+                    r->location.mlir(ctx),
                     r->value ? r->value->mlir : mlir::Value{}
                 );
             }
@@ -1072,6 +1069,18 @@ void src::CodeGen::GenerateModule() {
         mod->module_decl_location.mlir(ctx),
         mod->name.empty() ? "__exe__" : mod->name
     );
+
+/*    /// Set size of pointer.
+    auto ptr_size = mlir::DataLayoutEntryAttr::get(
+        hlir::ReferenceType::get(mlir::IntegerType::get(mctx, 1)),   /// Elem is irrelevant.
+        mlir::IntegerAttr::get(mlir::IntegerType::get(mctx, 64), 64) /// FIXME: use context.
+    );
+
+    /// Crate data layout.
+    mod->mlir->setAttr(
+        mlir::DLTIDialect::kDataLayoutAttrName,
+        mlir::DataLayoutSpecAttr::get(mctx, {ptr_size})
+    );*/
 
     /// Codegen string literals.
     builder.setInsertionPointToEnd(mod->mlir.getBody());

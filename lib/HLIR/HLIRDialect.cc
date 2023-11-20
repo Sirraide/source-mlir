@@ -397,3 +397,68 @@ auto hlir::CallOp::verifySymbolUses(SymbolTableCollection& symbolTable) -> Logic
 
     return success();
 }
+
+/// ===========================================================================
+///  Data Layout Interface.
+/// ===========================================================================
+#define DEFINE_DEFAULT_DATA_LAYOUT(type, size, align)                          \
+    auto hlir::type::getTypeSizeInBits(                                        \
+        const ::mlir::DataLayout&,                                             \
+        ::mlir::DataLayoutEntryListRef                                         \
+    ) const -> unsigned {                                                      \
+        return size; /** FIXME: Use data layout. **/                           \
+    }                                                                          \
+                                                                               \
+    auto hlir::type::getTypeSize(                                              \
+        const ::mlir::DataLayout& dl,                                          \
+        ::mlir::DataLayoutEntryListRef e                                       \
+    ) const -> unsigned {                                                      \
+        return src::utils::AlignTo<unsigned>(getTypeSizeInBits(dl, e), 8) / 8; \
+    }                                                                          \
+                                                                               \
+    auto hlir::type::getABIAlignment(                                          \
+        const ::mlir::DataLayout&,                                             \
+        ::mlir::DataLayoutEntryListRef                                         \
+    ) const -> unsigned {                                                      \
+        return align; /** FIXME: Use data layout. **/                          \
+    }                                                                          \
+                                                                               \
+    auto hlir::type::getPreferredAlignment(                                    \
+        const ::mlir::DataLayout& dl,                                          \
+        ::mlir::DataLayoutEntryListRef e                                       \
+    ) const -> unsigned {                                                      \
+        return getABIAlignment(dl, e);                                         \
+    }
+
+DEFINE_DEFAULT_DATA_LAYOUT(SliceType, 128, 8)
+DEFINE_DEFAULT_DATA_LAYOUT(ClosureType, 64, 8)
+DEFINE_DEFAULT_DATA_LAYOUT(ReferenceType, 64, 8)
+DEFINE_DEFAULT_DATA_LAYOUT(ScopedPointerType, 64, 8)
+
+auto hlir::ArrayType::getTypeSizeInBits(
+    const ::mlir::DataLayout& dl,
+    ::mlir::DataLayoutEntryListRef
+) const -> unsigned {
+    return unsigned(getSize()) * dl.getTypeSizeInBits(getElem());
+}
+
+auto hlir::ArrayType::getTypeSize(
+    const ::mlir::DataLayout& dl,
+    ::mlir::DataLayoutEntryListRef e
+) const -> unsigned {
+    return src::utils::AlignTo<unsigned>(getTypeSizeInBits(dl, e), 8) / 8;
+}
+
+auto hlir::ArrayType::getABIAlignment(
+    const ::mlir::DataLayout& dl,
+    ::mlir::DataLayoutEntryListRef
+) const -> unsigned {
+    return dl.getTypeABIAlignment(getElem());
+}
+
+auto hlir::ArrayType::getPreferredAlignment(
+    const ::mlir::DataLayout& dl,
+    ::mlir::DataLayoutEntryListRef
+) const -> unsigned {
+    return dl.getTypePreferredAlignment(getElem());
+}

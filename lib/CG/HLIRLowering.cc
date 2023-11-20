@@ -21,12 +21,17 @@ using namespace mlir;
 
 namespace src {
 namespace {
-auto TypeSize(const LLVMTypeConverter* tc, Type t) -> isz {
-    if (isa<hlir::ReferenceType>(t)) return tc->getPointerBitwidth(0);
+/*auto TypeSize(const LLVMTypeConverter* tc, Type t) -> isz {
+    DataLayout
+    if (isa<hlir::ReferenceType, hlir::ScopedPointerType>(t)) return tc->getPointerBitwidth(0);
     if (auto i = dyn_cast<IntegerType>(t)) return utils::AlignTo<isz>(i.getWidth(), 8);
+    if (auto a = dyn_cast<hlir::ArrayType>(t)) return isz(a.getSize()) * TypeSize(tc, a.getElem());
+    if (auto s = dyn_cast<LLVM::LLVMStructType>(t)) tc->getDataLayout().getTypeSizeInBits(s);
+    if (isa<hlir::DeferTokenType>(t)) Diag::ICE("TypeSize is not a permitted operation on DeferTokenType");
     t.dump();
+
     Todo("Implement TypeSize()");
-}
+}*/
 } // namespace
 
 /// Lowering for string literals.
@@ -331,7 +336,7 @@ struct ZeroInitOpLowering : public ConversionPattern {
             tc->getIndexType(),
             IntegerAttr::get(
                 rewriter.getI64Type(),
-                utils::AlignTo<isz>(TypeSize(tc, zero_init.getOperand().getType().getElem()), 8) / 8
+                DataLayout::closest(op).getTypeSize(zero_init.getOperand().getType().getElem())
             )
         );
 
@@ -361,7 +366,7 @@ struct StructGepOpLowering : public ConversionPattern {
     ) const -> LogicalResult override {
         auto gep = cast<hlir::StructGEPOp>(op);
         auto loc = op->getLoc();
-        hlir::StructGEPOpAdaptor adaptor(operands, op->getAttrDictionary());
+        hlir::StructGEPOpAdaptor adaptor(operands);
 
         /// Create the GEP.
         auto gep_op = rewriter.create<LLVM::GEPOp>(
@@ -369,7 +374,7 @@ struct StructGepOpLowering : public ConversionPattern {
             getTypeConverter()->convertType(gep.getType()),
             getTypeConverter()->convertType(gep.getStructRef().getType().getElem()),
             adaptor.getStructRef(),
-            ArrayRef{LLVM::GEPArg(0), LLVM::GEPArg(i32(adaptor.getIdx().getValue().getZExtValue()))},
+            ArrayRef{LLVM::GEPArg(0), LLVM::GEPArg(i32(gep.getIdx().getValue().getZExtValue()))},
             true
         );
 
@@ -392,7 +397,7 @@ struct ChainExtractLocalOpLowering : public ConversionPattern {
     ) const -> LogicalResult override {
         auto loc = op->getLoc();
         auto extract = cast<hlir::ChainExtractLocalOp>(op);
-        hlir::ChainExtractLocalOpAdaptor adaptor(operands, op->getAttrDictionary());
+        hlir::ChainExtractLocalOpAdaptor adaptor(operands);
 
         /// This is a GEP, followed by a load.
         auto gep_op = rewriter.create<LLVM::GEPOp>(
@@ -400,7 +405,7 @@ struct ChainExtractLocalOpLowering : public ConversionPattern {
             getTypeConverter()->convertType(hlir::ReferenceType::get(extract.getType())),
             getTypeConverter()->convertType(extract.getStructRef().getType().getElem()),
             adaptor.getStructRef(),
-            ArrayRef{LLVM::GEPArg(0), LLVM::GEPArg(i32(adaptor.getIdx().getValue().getZExtValue()))},
+            ArrayRef{LLVM::GEPArg(0), LLVM::GEPArg(i32(extract.getIdx().getValue().getZExtValue()))},
             true
         );
 
@@ -430,7 +435,7 @@ struct MakeClosureOpLowering : public ConversionPattern {
         auto loc = op->getLoc();
         auto make_closure = cast<hlir::MakeClosureOp>(op);
         auto tc = getTypeConverter();
-        hlir::MakeClosureOpAdaptor adaptor(args, make_closure->getAttrDictionary());
+        hlir::MakeClosureOpAdaptor adaptor(args);
 
         /// This involves creating a struct w/ two pointers: the
         /// function pointer and the closure data; the data pointer
@@ -438,7 +443,7 @@ struct MakeClosureOpLowering : public ConversionPattern {
         auto lit = rewriter.create<LLVM::UndefOp>(loc, tc->convertType(make_closure.getType()));
 
         /// Store the function pointer.
-        auto ref = rewriter.create<LLVM::AddressOfOp>(loc, LLVM::LLVMPointerType::get(getContext()), adaptor.getProcedure());
+        auto ref = rewriter.create<LLVM::AddressOfOp>(loc, LLVM::LLVMPointerType::get(getContext()), make_closure.getProcedure());
         auto lit2 = rewriter.create<LLVM::InsertValueOp>(loc, lit, ref, ArrayRef<i64>{0});
 
         /// Store the data pointer, if there is one.
@@ -535,7 +540,7 @@ struct FuncOpLowering : public ConversionPattern {
         /// Add the appropriate parameter attributes.
         for (auto [i, t] : vws::enumerate(ftype.getInputs())) {
             if (auto ref = dyn_cast<hlir::ReferenceType>(t)) {
-                auto sz = TypeSize(tc, ref.getElem()) / 8;
+                auto sz = DataLayout::closest(op).getTypeSize(ref.getElem());
                 llvm_func.setArgAttr(u32(i), "llvm.dereferenceable", IntegerAttr::get(tc->getIndexType(), sz));
                 llvm_func.setArgAttr(u32(i), "llvm.nonnull", u);
                 llvm_func.setArgAttr(u32(i), "llvm.noundef", u);

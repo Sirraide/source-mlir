@@ -53,8 +53,17 @@ class HLIR_Type<string name, string type_mnemonic, list<Trait> traits = []> :
     let mnemonic = type_mnemonic;
 }
 
-class HLIR_SingleElementType<string name, string type_mnemonic, list<Trait> traits = []>
-    : HLIR_Type<name, type_mnemonic, traits> {
+class HLIR_SingleElementType<
+    string name,
+    string type_mnemonic,
+    list<Trait> traits = []
+> : HLIR_Type<
+    name,
+    type_mnemonic,
+    traits # [
+        DeclareTypeInterfaceMethods<DataLayoutTypeInterface, ["getTypeSize"]>
+    ]
+> {
     let parameters = (ins "Type":$elem);
     let hasCustomAssemblyFormat = 1;
     let builders = [
@@ -64,7 +73,7 @@ class HLIR_SingleElementType<string name, string type_mnemonic, list<Trait> trai
     ];
 }
 
-/// Used only so we can pass `DeferOp`s expressions around.
+/// Used only so we can pass `DeferOp`s around.
 def HLIR_DeferTokenType : HLIR_Type<"DeferToken", "defer">;
 
 def HLIR_SliceType : HLIR_SingleElementType<"Slice", "slice">;

@@ -71,7 +71,8 @@ void src::Context::Initialise() {
         mlir::LLVM::LLVMDialect,
         mlir::index::IndexDialect,
         mlir::math::MathDialect,
-        mlir::cf::ControlFlowDialect
+        mlir::cf::ControlFlowDialect,
+        mlir::DLTIDialect
     >(); // clang-format on
     mlir.printOpOnDiagnostic(true);
     mlir.printStackTraceOnDiagnostic(true);
