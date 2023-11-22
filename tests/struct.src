@@ -13,9 +13,12 @@ struct S {
 }
 
 /// * hlir.func external @__src_main
-/// + (?<S>$t) = local
+/// + $t = scope i8 {
+/// + (?<S>$t) = local uninit
 /// + (?<S1>$t) = load $any from $S
-/// + call @foo($S, $S1)
+/// + $t = call @foo($S, $S1)
+/// + yield
+/// + }
 /// + return
 
 S s;
@@ -23,15 +26,18 @@ foo s, s;
 
 /// Note: Index of `.a` is 0; index of `.c` is 3, because padding.
 /// * hlir.func private @foo
-/// + (?<A>$t) = local
+/// + (?<A>$t) = local uninit
 /// + store into $A
-/// + (?<B>$t) = local
+/// + (?<B>$t) = local uninit
 /// + store into $B
+/// + (?<ret>$t) = scope i8 {
 /// + (?<Aref>$t) = load $any from $A
 /// + (?<AAref>$t) = structgep $Aref, 0
 /// + (?<AA>$t) = load i8 from $AAref
 /// + (?<BCref>$t) = structgep $B, 3
 /// + (?<BC>$t) = load i8 from $BCref
 /// + (?<Sum>$t) = arith.addi $AA, $BC
-/// + return $Sum
+/// + yield i8 $Sum
+/// + }
+/// + return i8 $ret
 proc foo (S& a, S b) = a.a + b.c;

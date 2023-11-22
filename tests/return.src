@@ -4,53 +4,76 @@
 /// d b \^bb[0-9]+
 
 /// * hlir.func private @trivial
+/// + scope {
 /// + (?<C1>$t) = arith.constant 4
-/// + return $C1
+/// + return i64 $C1
+/// + }
+/// + unreachable
 proc trivial -> int { return 4; }
 
 /// * hlir.func private @abbr
+/// + (?<R1>$t) = scope i64 {
 /// + (?<C2>$t) = arith.constant 4
-/// + return $C2
+/// + yield i64 $C2
+/// + }
+/// + return i64 $R1
 proc abbr = 4;
 
 /// * hlir.func private @abbr2
+/// + (?<R2>$t) = scope i64 {
 /// + (?<C3>$t) = arith.constant 4
-/// + return $C3
+/// + yield i64 $C3
+/// + }
+/// + return i64 $R2
 proc abbr2 -> int = 4;
 
 /// * hlir.func private @if_nested
 proc if_nested (bool a) -> int {
-    /// * (?<A1>$t) = load
+    /// * scope
+    /// + (?<A1>$t) = load
     /// + cf.cond_br $A1, (?<TRUE_1>$b), (?<FALSE_1>$b)
     /// + $TRUE_1:
+    /// + scope {
     /// + (?<C4>$t) = arith.constant 42
-    /// + return $C4
+    /// + return i64 $C4
+    /// + }
     if a { return 42; }
 
     /// + $FALSE_1:
     /// + (?<A2>$t) = load
     /// + cf.cond_br $A2, (?<TRUE_2>$b), (?<FALSE_2>$b)
     /// + $TRUE_2:
+    /// + scope {
     elif a {
         /// + (?<A3>$t) = load
         /// + cf.cond_br $A3, (?<TRUE_3>$b), (?<FALSE_3>$b)
         /// + $TRUE_3:
+        /// + scope {
         /// + (?<C5>$t) = arith.constant 43
-        /// + return $C5
+        /// + return i64 $C5
+        /// + }
         /// + $FALSE_3:
+        /// + scope {
         /// + (?<C6>$t) = arith.constant 3
-        /// + return $C6
+        /// + return i64 $C6
+        /// + }
         if a return 43;
         else return 3;
     }
 
+    /// + yield
+    /// + }
     /// + $FALSE_2:
+    /// + scope {
     else {
         /// + (?<A4>$t) = load
         /// + cf.cond_br $A4, (?<TRUE_4>$b), (?<FALSE_4>$b)
         /// + $TRUE_4:
+        /// + scope {
         /// + (?<C7>$t) = arith.constant 5
-        /// + return $C7
+        /// + return i64 $C7
+        /// + }
+        /// + cf.br (?<JOIN_2>$b)
         if a return 5;
 
         /// + $FALSE_4:
@@ -61,8 +84,11 @@ proc if_nested (bool a) -> int {
         elif a {}
 
         /// + $FALSE_5:
+        /// + scope {
         /// + (?<C8>$t) = arith.constant 46
-        /// + return $C8
+        /// + return i64 $C8
+        /// + }
+        /// + cf.br $JOIN_1
         else return 46;
 
         /// Note that we end up with two join blocks here because
@@ -70,10 +96,10 @@ proc if_nested (bool a) -> int {
         /// a nested if and thus two join blocks.
         ///
         /// + $JOIN_1:
-        /// + cf.br (?<JOIN_2>$b)
+        /// + cf.br $JOIN_2
         /// + $JOIN_2:
         /// + (?<C9>$t) = arith.constant 6
-        /// + return $C9
+        /// + return i64 $C9
         return 6;
     }
 }

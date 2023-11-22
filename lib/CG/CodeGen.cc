@@ -1180,7 +1180,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
             /// Function does not return, or all paths return a value, but there
             /// is no return expression at the very end.
             else if (Type::Equal(proc->ret_type, Type::NoReturn) or not proc->body->implicit) {
-                Create<mlir::LLVM::UnreachableOp>(proc->location.mlir(ctx));
+                Create<hlir::UnreachableOp>(proc->location.mlir(ctx));
             }
 
             /// Function is a `= <expr>` function that returns its body.

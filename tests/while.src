@@ -6,7 +6,8 @@
 proc a() extern -> bool;
 proc b() extern;
 
-/// * cf.br (?<COND_1>$b)
+/// * scope {
+/// + cf.br (?<COND_1>$b)
 /// + $COND_1:
 /// + (?<C_1>$t) = call @a
 /// + cf.cond_br $C_1, (?<BODY_1>$b), (?<EXIT_1>$b)
@@ -20,7 +21,10 @@ while a() { }
 /// + (?<C_2>$t) = call @a
 /// + cf.cond_br $C_2, (?<BODY_2>$b), (?<EXIT_2>$b)
 /// + $BODY_2:
+/// + scope {
 /// + call @b
+/// + yield
+/// + }
 /// + cf.br $COND_2
 /// + $EXIT_2:
 while a() do b();
@@ -30,7 +34,10 @@ while a() do b();
 /// + (?<C_3>$t) = call @a
 /// + cf.cond_br $C_3, (?<BODY_3>$b), (?<EXIT_3>$b)
 /// + $BODY_3:
+/// + scope {
 /// + call @b
+/// + yield
+/// + }
 /// + cf.br $COND_3
 /// + $EXIT_3:
 while a() do { b(); }
@@ -40,8 +47,11 @@ while a() do { b(); }
 /// + (?<C_4>$t) = call @a
 /// + cf.cond_br $C_4, (?<BODY_4>$b), (?<EXIT_4>$b)
 /// + $BODY_4:
+/// + scope {
 /// + call @b
 /// + call @b
+/// + yield
+/// + }
 /// + cf.br $COND_4
 /// + $EXIT_4:
 while a() {

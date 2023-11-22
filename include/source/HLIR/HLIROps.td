@@ -608,4 +608,9 @@ def DestroyOp : HLIR_Op<"destroy"> {
     let hasCustomAssemblyFormat = 1;
 }
 
+def UnreachableOp : HLIR_Op<"unreachable", [Terminator]> {
+    let summary = "Unreachable operation";
+    let hasCustomAssemblyFormat = 1;
+}
+
 #endif // HLIR_OPS_TD

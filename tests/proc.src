@@ -5,8 +5,9 @@ proc discard (int a) extern;
 
 /// * hlir.func private @takes_int
 proc takes_int (int a) {
-    /// + (?<A>$t) = local
+    /// + (?<A>$t) = local uninit
     /// + store into $A
+    /// + scope
     /// + (?<A1>$t) = load i64 from $A
     /// + (?<A2>$t) = load i64 from $A
     /// + (?<SUM>$t) = arith.addi $A1, $A2
@@ -16,6 +17,7 @@ proc takes_int (int a) {
 
 /// * hlir.func private @invoke
 proc invoke() {
+    /// + scope
     /// + (?<one>$t) = arith.constant 1
     /// + call @takes_int($one)
     /// + (?<two>$t) = arith.constant 2

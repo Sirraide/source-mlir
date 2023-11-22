@@ -343,6 +343,10 @@ auto hlir::StructGEPOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
     Todo();
 }
 
+void hlir::UnreachableOp::print(OpAsmPrinter& p) { }
+
+auto hlir::UnreachableOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
 void hlir::YieldOp::print(OpAsmPrinter& p) {
     p << " ";
     if (getYield()) {
