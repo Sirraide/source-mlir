@@ -159,11 +159,23 @@ def ReturnOp : HLIR_Op<"return", [
 ]> {
     let summary = "Function return operation";
     let hasCustomAssemblyFormat = 1;
-    let arguments = (ins
-        Optional<HLIR_Type>:$yield,
-        Variadic<HLIR_Type>:$prot
-    );
+    let arguments = (ins Optional<HLIR_Type>:$yield, Variadic<HLIR_Type>:$prot);
     let hasVerifier = 0;
+    let skipDefaultBuilders = 1;
+
+    let builders = [
+        OpBuilder<(ins
+            CArg<"::mlir::Value", "{}">:$yield,
+            CArg<"::mlir::ValueRange", "{}">:$prot
+        ), [{
+            if (yield) $_state.addOperands(yield);
+            $_state.addOperands(prot);
+            ::llvm::copy(
+                ::llvm::ArrayRef<int32_t>({(yield ? 1 : 0), static_cast<int32_t>(prot.size())}),
+                $_state.getOrAddProperties<Properties>().operandSegmentSizes.begin()
+            );
+        }]>
+    ];
 }
 
 def DirectBrOp : HLIR_Op<"directbr", [
@@ -437,7 +449,7 @@ def HLIR_LocalOp : HLIR_Op<"local"> {
     let results = (outs HLIR_ReferenceType:$res);
     let arguments = (ins
         Builtin_IntegerAttr:$alignment,
-        DefaultValuedAttr<BoolAttr, "false">:$uninit,
+        LocalInit:$init_kind,
         DefaultValuedAttr<BoolAttr, "false">:$dtor_flag
     );
 
@@ -445,12 +457,12 @@ def HLIR_LocalOp : HLIR_Op<"local"> {
         OpBuilder<(ins
             "::mlir::Type":$type,
             "std::int64_t":$alignment,
-            CArg<"bool", "false">:$uninit,
+            "::mlir::hlir::LocalInit":$init_kind,
             CArg<"bool", "false">:$dtor_flag
         ), [{
             $_state.addTypes(ReferenceType::get($_state.getContext(), type));
             $_state.addAttribute("alignment", $_builder.getI64IntegerAttr(alignment));
-            $_state.addAttribute("uninit", mlir::BoolAttr::get($_state.getContext(), uninit));
+            $_state.addAttribute("init_kind", hlir::LocalInitAttr::get($_state.getContext(), init_kind));
             $_state.addAttribute("dtor_flag", mlir::BoolAttr::get($_state.getContext(), dtor_flag));
         }]>
     ];

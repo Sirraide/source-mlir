@@ -7,11 +7,14 @@
 #include <source/HLIR/HLIRDialect.hh>
 #include <source/HLIR/HLIROpsDialect.cpp.inc>
 
+#include <source/HLIR/HLIREnumAttr.cpp.inc>
+
 #define GET_TYPEDEF_CLASSES
 #include <source/HLIR/HLIROpsTypes.cpp.inc>
 
 #define GET_OP_CLASSES
 #include <source/HLIR/HLIROps.cpp.inc>
+
 
 #include <source/Support/Utils.hh>
 
@@ -191,9 +194,8 @@ auto hlir::FuncOp::parse(
 }
 
 void hlir::FuncOp::print(OpAsmPrinter& p) {
-    p << " " << LLVM::linkage::stringifyLinkage(getLinkage().getLinkage()) << " ";
-    if (getCc() != LLVM::CConv::C)
-        p << LLVM::cconv::stringifyCConv(getCc()) << " ";
+    p << " " << getLinkage().getLinkage() << " ";
+    if (getCc() != LLVM::CConv::C) p << getCc() << " ";
 
     p.printSymbolName(getName());
 
@@ -266,7 +268,7 @@ void hlir::LoadOp::print(OpAsmPrinter& p) {
 auto hlir::LoadOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::LocalOp::print(OpAsmPrinter& p) {
-    if (getUninit()) p << " uninit";
+    p << " " << getInitKind();
     if (getDtorFlag()) p << " flag";
     p << " ";
     PrintType(getType().getElem(), p);

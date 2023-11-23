@@ -311,8 +311,6 @@ add_mlir_dialect_library(MLIRSourceHLIR
 
 include_directories(SYSTEM "${CMAKE_CURRENT_BINARY_DIR}/include")
 
-
-
 #[[## Get the libraries via LLVM config.
 execute_process(
     COMMAND "${LLVM_TOOLS_BINARY_DIR}/llvm-config" --libs

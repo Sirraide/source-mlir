@@ -38,7 +38,7 @@ auto src::CodeGen::AllocateLocalVar(src::LocalDecl* decl) -> mlir::Value {
         decl->location.mlir(ctx),
         Ty(decl->type),
         decl->type.align(ctx) / 8,
-        not decl->init,
+        hlir::LocalInit::Zeroinit,
         decl->deleted_or_moved
     );
 }
@@ -52,26 +52,49 @@ bool src::CodeGen::Closed() {
     return Closed(builder.getBlock());
 }
 
+auto ConvertLinkage(src::Linkage l) -> mlir::LLVM::Linkage {
+    using L = mlir::LLVM::Linkage;
+    switch (l) {
+        case src::Linkage::Local:
+        case src::Linkage::Internal:
+            return L::Private;
+
+        case src::Linkage::Imported:
+        case src::Linkage::Exported:
+        case src::Linkage::Reexported:
+            return L::External;
+
+        case src::Linkage::LinkOnceODR:
+            return L::LinkonceODR;
+    }
+}
+
 /// Create a function and execute a callback to populate its body.
 template <typename Callable>
-auto src::CodeGen::CreateProcedure(mlir::FunctionType type, StringRef name, Callable callable) {
+auto src::CodeGen::CreateProcedure(
+    mlir::FunctionType type,
+    StringRef name,
+    Linkage linkage,
+    Callable callable
+) {
     mlir::OpBuilder::InsertionGuard guard{builder};
     builder.setInsertionPointToEnd(mod->mlir.getBody());
     auto func = Create<hlir::FuncOp>(
         builder.getUnknownLoc(),
         name,
-        mlir::LLVM::Linkage::Private,
+        ConvertLinkage(linkage),
         mlir::LLVM::CConv::C,
         type
     );
 
+    builder.setInsertionPointToEnd(&func.getBody().front());
     return std::invoke(std::forward<Callable>(callable), func);
 }
 
 /// Create an external function.
 void src::CodeGen::CreateExternalProcedure(mlir::FunctionType type, StringRef name) {
     if (procs.contains(name)) return;
-    CreateProcedure(type, name, [&](hlir::FuncOp proc) {
+    CreateProcedure(type, name, Linkage::Imported, [&](hlir::FuncOp proc) {
         proc.eraseBody();
         proc.setPrivate();
         procs.insert(proc.getName());
@@ -97,7 +120,56 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
 
 auto src::CodeGen::Destructor(Expr* type) -> std::optional<StringRef> {
     if (not isa<ScopedPointerType>(type)) return std::nullopt;
-    Todo();
+
+    /// Auto-generate destructors for scoped pointers.
+    if (auto sc = cast<ScopedPointerType>(type)) {
+        if (auto d = destructors.find(sc); d != destructors.end())
+            return d->second;
+
+        /// Get destructor of the element type.
+        auto dtor = Destructor(sc->elem);
+
+        /// Create a new function.
+        ///
+        /// A destructor always takes a reference to the type being destroyed.
+        auto fty = mlir::FunctionType::get(mctx, hlir::ReferenceType::get(Ty(sc)), {});
+        auto name = fmt::format("_SX{}", sc->as_type.mangled_name(ctx));
+        auto proc = CreateProcedure(fty, name, Linkage::LinkOnceODR, [&](hlir::FuncOp f) {
+            /// Load the pointer.
+            auto ptr = Create<hlir::LoadOp>(builder.getUnknownLoc(), f.getArgument(0));
+
+            /// Call the element type’s destructor, if any.
+            if (dtor.has_value()) {
+                Create<hlir::CallOp>(
+                    builder.getUnknownLoc(),
+                    mlir::TypeRange{},
+                    *dtor,
+                    false,
+                    mlir::LLVM::CConv::C,
+                    ptr.getResult()
+                );
+            }
+
+            /// Delete the pointer.
+            Create<hlir::CallOp>(
+                builder.getUnknownLoc(),
+                mlir::TypeRange{},
+                "free",
+                false,
+                mlir::LLVM::CConv::C,
+                ptr.getResult()
+            );
+
+            /// Done.
+            Create<hlir::ReturnOp>(builder.getUnknownLoc());
+            return f;
+        });
+
+        /// Save it for later.
+        return destructors[sc] = proc.getName();
+    }
+
+    Unreachable();
 }
 
 auto src::CodeGen::EmitReference([[maybe_unused]] mlir::Location loc, src::Expr* decl) -> mlir::Value {
@@ -204,7 +276,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
         builder.getUnknownLoc(),
         Ty(s),
         s->stored_alignment,
-        false,
+        hlir::LocalInit::Zeroinit,
         false
     );
 
@@ -1129,11 +1201,10 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
     auto ty = Ty(proc->type);
     tempset curr_proc = proc;
 
-    using L = mlir::LLVM::Linkage;
     auto func = Create<hlir::FuncOp>(
         proc->location.mlir(ctx),
         proc->name,
-        proc->exported or proc->imported ? L::External : L::Private,
+        ConvertLinkage(proc->linkage),
         mlir::LLVM::CConv::C,
         ty.cast<mlir::FunctionType>()
     );
@@ -1179,7 +1250,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         if (func.back().empty() or not func.back().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
             /// Function returns void.
             if (Type::Equal(proc->ret_type, Type::Void)) {
-                Create<hlir::ReturnOp>(proc->location.mlir(ctx), mlir::Value{}, mlir::ValueRange{});
+                Create<hlir::ReturnOp>(proc->location.mlir(ctx));
             }
 
             /// Function does not return, or all paths return a value, but there
@@ -1193,8 +1264,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
                 Assert(proc->body->mlir, "Inferred procedure body must yield a value");
                 Create<hlir::ReturnOp>(
                     proc->location.mlir(ctx),
-                    proc->body->mlir,
-                    mlir::ValueRange{}
+                    proc->body->mlir
                 );
             }
         }

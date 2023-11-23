@@ -709,6 +709,24 @@ bool src::Type::Equal(Expr* a, Expr* b) {
     Unreachable();
 }
 
+auto src::Type::DenseMapInfo::getHashValue(const Expr* t) -> usz {
+    usz hash = 0;
+
+    /// Hash names for structs.
+    if (auto d = dyn_cast<StructType>(t)) hash = llvm::hash_combine(hash, d->name);
+
+    /// Include element types for types that have them.
+    else if (auto* s = dyn_cast<SingleElementTypeBase>(t)){
+        do {
+            hash = llvm::hash_combine(hash, s->elem->kind);
+            s = dyn_cast<SingleElementTypeBase>(s->elem);
+        } while (s);
+    }
+
+    /// Always add at least our kind.
+    return llvm::hash_combine(hash, t->kind);
+}
+
 /// This only checks the layout; whether this makes sense
 /// at all is up to the caller.
 bool src::StructType::LayoutCompatible(StructType* a, StructType* b) {
@@ -803,6 +821,7 @@ struct ASTPrinter {
             case Linkage::Exported: out += "Exported "; return;
             case Linkage::Imported: out += "Imported "; return;
             case Linkage::Reexported: out += "Reexported "; return;
+            case Linkage::LinkOnceODR: out += "LinkOnceODR "; return;
         }
         Unreachable();
     }

@@ -37,11 +37,12 @@ public:
 ///  Enums
 /// ===========================================================================
 enum struct Linkage {
-    Local,      ///< Local variable.
-    Internal,   ///< Not exported and defined.
-    Imported,   ///< Imported from another module or library.
-    Exported,   ///< Exported and defined.
-    Reexported, ///< Imported and exported, and thus not defined.
+    Local,       ///< Local variable.
+    Internal,    ///< Not exported and defined.
+    Imported,    ///< Imported from another module or library.
+    Exported,    ///< Exported and defined.
+    Reexported,  ///< Imported and exported, and thus not defined.
+    LinkOnceODR, ///< Merge definitions across different TUs. Used mainly for compiler-generated code.
 };
 
 enum struct Mangling {
@@ -65,6 +66,9 @@ public:
         FFIType,
         StructType,
         IntType,
+        ProcType,
+
+        /// SingleElementType [begin]
         ReferenceType,
         ScopedPointerType,
         SliceType,
@@ -73,7 +77,7 @@ public:
         SugaredType,
         ScopedType,
         ClosureType,
-        ProcType,
+        /// SingleElementType [end]
         /// Type [end]
 
         AssertExpr,
@@ -1011,6 +1015,20 @@ protected:
     Type(Kind k, Location loc) : Expr(k, loc) {}
 
 public:
+    struct DenseMapInfo {
+        static auto getEmptyKey() -> Expr* { return nullptr; }
+        static auto getTombstoneKey() -> Expr* { return reinterpret_cast<Expr*>(1); }
+        static bool isEqual(const Expr* a, const Expr* b) {
+            /// Expr::Equal doesn’t handle nullptr or tombstones.
+            uptr ap = uptr(a), bp = uptr(b);
+            if (ap < 2 or bp < 2) return ap == bp;
+            return Type::Equal(const_cast<Expr*>(a), const_cast<Expr*>(b));
+        }
+
+        /// Include the element type in the hash if possible.
+        static auto getHashValue(const Expr* t) -> usz;
+    };
+
     /// Prefer to create new instances of these initially
     /// for better location tracking.
     static BuiltinType* const Int;
@@ -1043,7 +1061,7 @@ public:
 
     /// Note: an Expr may be a type even if this returns false.
     static bool classof(const Expr* e) {
-        return e->kind >= Kind::BuiltinType and e->kind <= Kind::ProcType;
+        return e->kind >= Kind::BuiltinType and e->kind <= Kind::ClosureType;
     }
 };
 
@@ -1186,6 +1204,12 @@ public:
 protected:
     SingleElementTypeBase(Kind k, Expr* elem, Location loc)
         : Type(k, loc), elem(elem) {}
+
+public:
+    /// RTTI.
+    static bool classof(const Expr* e) {
+        return e->kind >= Kind::ReferenceType and e->kind <= Kind::ClosureType;
+    }
 };
 
 class ReferenceType : public SingleElementTypeBase {
@@ -1207,21 +1231,7 @@ public:
 };
 
 class ScopedPointerType : public SingleElementTypeBase {
-    using This = ScopedPointerType;
-
 public:
-    struct DenseMapInfo {
-        static auto getEmptyKey() -> This* { return nullptr; }
-        static auto getTombstoneKey() -> This* { return reinterpret_cast<This*>(1); }
-        static auto getHashValue(const This* t) -> usz { return std::hash<Expr::Kind>()(t->elem->kind); }
-        static bool isEqual(const This* a, const This* b) {
-            /// Type::Equal doesn’t handle nullptr or tombstones.
-            uptr ap = uptr(a), bp = uptr(b);
-            if (ap < 2 or bp < 2) return ap == bp;
-            return Type::Equal(const_cast<This*>(a), const_cast<This*>(b));
-        }
-    };
-
     ScopedPointerType(Expr* elem, Location loc)
         : SingleElementTypeBase(Kind::ScopedPointerType, elem, loc) {}
 

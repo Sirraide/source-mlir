@@ -41,11 +41,14 @@
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 
+#include <source/HLIR/HLIREnumAttr.h.inc>
+
 #define GET_TYPEDEF_CLASSES
 #include <source/HLIR/HLIROpsTypes.h.inc>
 
 #define GET_OP_CLASSES
 #include <source/HLIR/HLIROps.h.inc>
+
 
 // clang-format on
 

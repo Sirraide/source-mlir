@@ -15,6 +15,7 @@ include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/BuiltinTypes.td"
 include "mlir/IR/DialectBase.td"
+include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/RegionKindInterface.td"
@@ -39,6 +40,15 @@ def HLIR_Dialect : Dialect {
 
 class HLIR_Op<string mnemonic, list<Trait> traits = []> :
     Op<HLIR_Dialect, mnemonic, traits>;
+
+class HLIR_Attr<
+    string name,
+    string attrMnemonic,
+    list<Trait> traits = [],
+    string baseCppClass = "::mlir::Attribute"
+> : AttrDef<HLIR_Dialect, name, traits, baseCppClass> {
+  let mnemonic = attrMnemonic;
+}
 
 /// ============================================================================
 ///  Types
@@ -106,5 +116,33 @@ def HLIR_Type : AnyTypeOf<[
     HLIR_ScopedPointerType,
     HLIR_TokenType,
 ]>;
+
+/// ============================================================================
+///  Enums
+/// ============================================================================
+def LocalInitUninit : I32EnumAttrCase<"Uninit", 0, "uninit">;
+def LocalInitZeroinit : I32EnumAttrCase<"Zeroinit", 1, "zeroinit">;
+def LocalInitInit : I32EnumAttrCase<"Init", 2, "init">;
+
+def LocalInitEnum : I32EnumAttr<"LocalInit", "LocalOp initialiser kind",
+    [LocalInitUninit, LocalInitZeroinit, LocalInitInit]> {
+    let cppNamespace = "::mlir::hlir";
+    let stringToSymbolFnName = "ToString";
+}
+
+def LocalInit : DialectAttr<
+    HLIR_Dialect,
+    CPred<"::llvm::isa<::mlir::hlir::LocalInitAttr>($_self)">,
+    "LocalOp initialisation option attribute"> {
+  let storageType = "::mlir::hlir::LocalInitAttr";
+  let returnType = "::mlir::hlir::LocalInit";
+  let convertFromStorage = "$_self.getValue()";
+  let constBuilderCall = "::mlir::hlir::LocalInitAttr::get($_builder.getContext(), $0)";
+}
+
+def LocalInitAttr : HLIR_Attr<"LocalInitKind", "local_init"> {
+  let parameters = (ins "LocalInit":$LocalInit);
+  let assemblyFormat = "`<` $LocalInit `>`";
+}
 
 #endif // HLIR_DIALECT_TD
