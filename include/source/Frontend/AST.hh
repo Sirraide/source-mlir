@@ -14,7 +14,6 @@ class LocalDecl;
 class StructType;
 class ProcType;
 class BlockExpr;
-class AnchorExpr;
 
 namespace detail {
 extern Expr* const UnknownType;
@@ -89,7 +88,6 @@ public:
 
         /// TypedExpr [begin]
         BlockExpr,
-        AnchorExpr,
         InvokeExpr,
         InvokeBuiltinExpr,
         ConstExpr,
@@ -388,10 +386,8 @@ public:
     /// The resolved labelled expression.
     LabelExpr* target{};
 
-    /// Anchor that contains information about protected
-    /// expressions; may be null if there are no expressions
-    /// to emit.
-    AnchorExpr* anchor{};
+    /// Expressions to unwind.
+    SmallVector<Expr*> unwind{};
 
     /// Pointer to parent full expression. Points to this
     /// if this is a full expression.
@@ -550,42 +546,6 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::BlockExpr; }
-};
-
-/// Expression that is branched to.
-///
-/// These are generated only during sema and used in codegen so we
-/// know what protected expressions to emit when performing a backward
-/// branch to this.
-///
-/// FIXME: We could also just do away w/ this and instead store the
-///        protected expressions in the GotoExpr itself; the only difference
-///        that that would make is that we couldn’t reuse anchors anymore,
-///        but at the same time, more than one goto crossing the same protected
-///        expressions is probably not too common anyway, so we should be fine
-///        w/ some amount of duplication.
-class AnchorExpr : public TypedExpr {
-public:
-    /// The expression that this replaces.
-    Expr* expr;
-
-    /// Protected expressions that have been emitted in this scope
-    /// since this label was seen. These are what we need to emit
-    /// when we to a backward jump to this.
-    SmallVector<Expr*> protected_exprs{};
-
-    AnchorExpr(Expr* expr, SmallVector<Expr*> protected_exprs)
-        : TypedExpr(Kind::AnchorExpr, expr->type, expr->location),
-          expr(expr),
-          protected_exprs(std::move(protected_exprs)) {
-        Assert(expr);
-        sema = expr->sema;
-        is_lvalue = expr->is_lvalue;
-        protected_children = expr->protected_children;
-    }
-
-    /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::AnchorExpr; }
 };
 
 class InvokeExpr : public TypedExpr {

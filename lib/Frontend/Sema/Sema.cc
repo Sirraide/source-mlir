@@ -113,125 +113,377 @@ bool src::Sema::MakeDeclType(Expr*& e) {
     return true;
 }
 
-void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* from_scope) {
+/// \brief Check that a branch is valid and determine what expressions to unwind.
+///
+/// A direct branch transfers control flow from one point in the program
+/// to another; care must be taken that, in so doing, we do not corrupt
+/// the program state. To do this effectively, we have to introduce a
+/// number of terms and concepts.
+///
+/// Some expressions, when executed, ‘register’ some action to be taken
+/// when the scope that contains them is exited. For instance, deferred
+/// expressions ‘register’ the execution of the deferred material and
+/// local variable declarations register a destructor call. For the sake
+/// of brevity, we shall refer to such expressions as *protected*.
+///
+/// Consider now a situation such as the following:
+///
+/// \code
+/// goto label;
+/// {
+///     var x = ... /// Construct an x.
+///     label:
+///     print x;
+/// }
+/// \endcode
+///
+/// The branch to `label` in this example would skip the initialisation
+/// of `x`, and not only cause the `print` call to use an uninitialised
+/// variable. Even without the `print` call, the destructor of `x` would
+/// still execute at end of scope and attempt to delete an uninitialised
+/// variable. This branch is therefore ill-formed, and it shows that, in
+/// general, control flow must not ‘jump over’ (that is, move forward
+/// across) a protected expression.
+///
+/// However, this does not mean that all jumps become ill-formed as soon
+/// as protected expressions are involved:
+///
+/// \code
+/// {
+///     again:
+///     var x = ... /// Construct an x.
+///     print x;
+///     goto again;
+/// }
+/// \endcode
+///
+/// This jump is well-formed, so long as it always calls the destructor
+/// of `x`. To explain why this is the case, we need to adjust our
+/// definition of a protected expression: instead of requiring that
+/// the actions ‘registered’ by such expressions are executed whenever
+/// the scope containing them is exited, we instead say that they are
+/// executed, whenever the *rest* of the scope after that expression
+/// is exited; this includes cases where the same scope is reëntered
+/// further up before the protected expression.
+///
+/// These examples show that not all branches are created equal; in
+/// fact, we can categorise branches according to two properties: a
+/// branch can involve upwards and downwards movement, sometimes even
+/// both, but it can only move forwards or backwards.
+///
+/// To elaborate, a branch involves a source (a GotoExpr) and a target
+/// (a LabelExpr); either the source or target are in the same scope
+/// or they aren’t. If they are, then the branch moves either forwards
+/// or backwards, and there is no upwards or downwards movement.
+///
+/// If they aren’t, then the source and the target have some nca (nearest
+/// common ancestor) scope. To transfer control flow from the source to
+/// the target, we must unwind from the source up to the NCA, then move
+/// either forward or backward in the NCA—depending on whether the Goto
+/// precedes the Label or vice versa—and then move down to the label.
+///
+/// The latter can be illustrated with the following example:
+///
+/// \code
+/// { nested: }
+/// /// ...
+/// { goto nested; }
+/// \endcode
+///
+/// Here, the AST of this program looks something like this:
+///
+/// \code
+///  BlockExpr (NCA)
+///  ├─BlockExpr
+///  │ └─LabelExpr (Target)
+///  ⋮
+///  └─BlockExpr
+///    └─GotoExpr (Source)
+/// \endcode
+///
+/// In order to handle such branches in a same manner, it helps to
+/// operate based on the assumption that control flow never actually
+/// ‘jumps’ around randomly, but instead always flows from a parent
+/// scope to a direct child or vice versa: in this case, we do not
+/// simply jump from the source to the target, but rather, we move
+/// up one scope from the source, to the NCA block, then backwards
+/// in that block to the block containing the target, and then down
+/// to the target.
+///
+/// Decomposing jumps into downwards, upwards, and forwards/backwards
+/// movement like this allows us to reason about each part of the jump
+/// separately. This categorisation yields four different kinds of jumps:
+///
+/// 1. jumps that involve no upwards or downwards movement and thus only
+///    move backwards or forwards in the same scope, which we shall call
+///    *same-scope jumps*;
+///
+/// 2. jumps that move upwards, but not downwards (that is, the source is
+///    a (direct) child of the target), leaving scopes until control flow
+///    reaches the scope of the target, which we shall call *upwards jumps*;
+///
+/// 3. jumps that, conversely, move downwards, but not upwards (that is,
+///    the target is a (direct) child of the source), entering scopes until
+///    control flow reaches the scope of the target, which we shall call
+///    *downwards jumps*; and finally
+///
+/// 4. jumps that move both upwards and downwards (that is, the target and
+///    source are unrelated, save that they have some common ancestor), which
+///    we shall call *cross jumps*.
+///
+/// However, instead of analysing each kind of jump separately, we can
+/// combine some of the logic. First, note that a cross jump needs to move
+/// from the source up to the NCA, then forward or backward in the NCA,
+/// and then down from the NCA to the target. Thus, a cross jump can be
+/// decomposed into combinations of the other three.
+///
+/// Furthermore, upwards jumps involve leaving scopes; this means that we
+/// conceptually move to the beginning of a scope, and then up to its parent;
+/// downwards scopes do something similar, except that they move from the
+/// start of a scope to somewhere in the middle of it in order to enter a nested
+/// scope.
+///
+/// Using this decomposition analysis, we can reduce all the jump kinds above
+/// to combinations of four primitives:
+///
+/// 1. Moving forward within a scope.
+/// 2. Moving backward within a scope.
+/// 3. Leaving a scope from its start.
+/// 4. Entering a scope at its start.
+///
+/// We established in one of the examples above that forwards movement across
+/// a protected expression is forbidden; however, since this can only really
+/// happen when executing the first of these four primitives, we only need to
+/// check for that in portions of a jump that correspond to that primitive. This
+/// is one example of how this analysis allows us to reason about jumps step
+/// by step.
+///
+/// Conversely, moving backwards is always fine, but if we move backwards across
+/// a protected expression, we need to *unwind* it (e.g. call the destructor of
+/// a variable or execute a deferred expression).
+///
+/// Lastly, since we only enter and leave scopes at their starting points, the
+/// last two operations cannot possibly cross a protected expression, and we
+/// thus don’t have to consider them at all.
+///
+/// As an aside, forwards/backwards movement requires us to know what expressions
+/// precede other expressions in a scope; this may not be obvious in cases such as
+/// the following:
+///
+/// \code
+/// {
+///     int x;
+///     back: foo (int y); /// Declare `y` and pass it as an arg to `foo`.
+///     x = y + { goto back; };
+/// }
+/// \endcode
+///
+/// While rather deranged, it shows that both protected expressions and scopes
+/// need not occur directly at the top-level of another scope, but may instead
+/// be nested arbitrarily in other expressions; this means that we can’t simply
+/// iterate over each expression in the parent scope to check if e.g. `int y`
+/// precedes or follows `{ goto back; }`.
+///
+/// To enable this, we introduce the concept of a *full expression* (FE): an
+/// expression is a full expression, iff its parent is a block expression
+/// (= scope). The *parent full expression* `FE(e)` of an expression `e` is the
+/// closest full expression that contains `e` (or `e` itself if it is a full
+/// expression).
+///
+/// This allows us to compare expressions with one another wrt where they
+/// occur in a scope by examining the relative order of their parent full
+/// expressions: here, the FE containing `back:` is second in its parent,
+/// and the FE containing `{ goto back; }` third. Thus, this is an example
+/// of backwards movement in the same scope.
+///
+/// Full expressions also allow us to deal with nested protected expressions:
+/// in this case, the jump would unwind over the *protected subexpression*
+/// `int y`, which means that we need to generate a destructor call here before
+/// performing the jump.
+///
+/// Now that we have come to a detailed understanding of how jumps work, let
+/// us consider an actual algorithm for validating jumps (and determining what,
+/// if anything, we need to unwind).
+///
+/// First, to simplify the implementation of this, we don’t actually decompose
+/// jumps all the way to just forwards and backwards movement, but instead
+/// combine some of the principles described above. Still, we need to determine
+/// what kind of jump we are dealing with, so we first find the NCA of the source
+/// and target scopes.
+///
+/// Next, since downwards movement involves checking that we don’t cross a protected
+/// expression, but no unwinding, we can get it out of the way early: In cases where
+/// downwards movement is involved (that is, if the target is not the NCA), instead
+/// of moving down from the NCA to the target, we instead move up from the target
+/// to the NCA; this means we only need to implement moving up the scope stack, not
+/// down. Note, however, that his is *conceptually* still downwards movement.
+///
+/// Now, we only have to consider potential upwards movement from the source to the
+/// NCA, as well as forwards or backwards movement within the NCA. As we established
+/// before, upwards movement across several scopes is just moving back to the start
+/// of a scope, moving up one scope, and repeating both until we have reached the
+/// target scope. Thus, if any of the expressions that this involves moving over
+/// contain protected subexpressions, we need to take care to unwind them.
+///
+/// Finally, after processing all downwards and upwards movement, we now need to
+/// take care of any remaining forwards and backwards movement.
+///
+/// A formal elaboration of the algorithm is found below. The entry point for the
+/// algorithm is Validate-Jump. It makes use of two procedures: Unwind, which unwinds
+/// from an expression to some parent scope, and Unwind-Local, which unwinds within
+/// a scope.
+///
+/// ALGORITHM Validate-Jump (in Goto, in Label)
+///     contract Goto and Label must be full expressions.
+///     where Goto  := the branch transferring control flow.
+///           Label := the target that we are branching to.
+///
+///     1. Let Source be the parent scope of the full expression that contains Goto; let Target
+///        be the parent scope of the full expression that contains Label; let NCA be the nearest
+///        common ancestor scope of Source and Target.
+///
+///     2. If NCA != Target (that is, the target is a child of the NCA), then the jump involves
+///        downward movement. Otherwise, go to step 3. Invoke Unwind(Label, NCA). If the returned
+///        list is not empty (that is, if we crossed any protected expressions), the program is
+///        ill-formed.
+///
+///     3. Let To-Unwind = Unwind(Goto, NCA).
+///
+///     4. Let FE(Goto) and FE(Label) be the parent full expressions of Goto and Label, respectively,
+///        in NCA. If FE(Goto) < FE(Label), let First be FE(Goto) and Second be FE(Label); otherwise,
+///        let First be FE(Label) and Second be FE(Goto).
+///
+///     5. Let Rest = Unwind-Local(Second, First). If FE(Goto) < FE(Label), and Rest is not empty, the
+///        program is ill-formed. Append Rest to To-Unwind.
+///
+///     6. During codegen, when emitting the branch, first handle all expressions in To-Unwind (e.g.
+///        invoke destructors of variables and execute deferred expressions).
+///
+/// PROCEDURE Unwind (in E, in To) yields Expr[]
+///     contract To is a proper ancestor of the parent scope of E.
+///     where E  := the *full expression* we are unwinding from;
+///           To := the scope (= block) we are unwinding to.
+///
+///     1. Let S be the parent scope of E. Let To-Unwind be an empty Expr[].
+///
+///     2. If S = To, return To-Unwind.
+///
+///     3. Let First be the first full expression of S. Append the result of invoking
+///        Unwind-Local(E, First) to To-Unwind.
+///
+///     4. Set E to the parent full expression of S, and S to the parent scope of S. Go
+///        to step 2.
+///
+/// PROCEDURE Unwind-Local (in FE, in To) yields Expr[]
+///     contract FE and To are in the same scope, and To precedes FE.
+///     where FE := the *full expression* we are unwinding from;
+///           To := the *full expression* we are unwinding to.
+///
+///     1. Let To-Unwind be an empty Expr[].
+///
+///     2. If FE = To, return To-Unwind.
+///
+///     3. Let FE be the full expression preceding FE in the same scope.
+///
+///     4. Add any protected subexpressions of FE to To-Unwind, in reverse tree order.
+///
+///     5. Go to step 2.
+void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* source) {
     if (not g->sema.ok) return;
     auto label = g->target;
-    auto label_fe = label->parent_full_expression;
-    auto to_scope = label->parent;
+    auto target = label->parent;
 
-    /// Check if a range contains a protected expression.
-    auto ContainsProtected = [&](auto range) {
-        auto e = rgs::find_if(range, [](auto e) { return not e->protected_children.empty(); });
-        if (e == rgs::end(range)) return false;
-        Error(g, "Jump is ill-formed");
-        Diag::Note(
-            mod->context,
-            (*e)->protected_children[0]->location,
-            "Because it would bypass {} here",
-            isa<DeferExpr>((*e)->protected_children[0]) ? "deferred expression"s : "variable declaration"s
-        );
-        return true;
-    };
-
-    /// Check if the target is an (improper) ancestor of the source.
-    bool branch_upwards = false;
-    for (auto sc = from_scope; sc != nullptr; sc = sc->parent) {
-        if (sc == to_scope) {
-            branch_upwards = true;
-            break;
-        }
-    }
-
-    /// Downwards or cross jump.
-    if (not branch_upwards) {
-        /// First, find the nca of the two scopes.
-        BlockExpr* nca = BlockExpr::NCAInFunction(from_scope, to_scope);
-        Assert(nca, "Goto and label blocks must have a common ancestor");
-
-        /// Starting from the label, walk up the scope chain until we reach
-        /// the nca, and validate that we don’t cross a protected expression
-        /// on the way.
-        auto sc = to_scope;
-        while (sc != nca) {
-            auto it = rgs::find(sc->exprs, label_fe);
-            Assert(it != sc->exprs.end());
-            if (ContainsProtected(rgs::subrange(sc->exprs.begin(), it))) return;
-            label_fe = sc->parent_full_expression;
-            sc = sc->parent;
-        }
-
-        /// Set this so the code below that checks the upward / same scope
-        /// case takes care of checking the part of the branch in the nca,
-        /// which is the last thing we need to check for this case.
-        to_scope = nca;
-    }
-
-    /// Find the full expression in the target block that contains the goto.
-    auto goto_it = [&] {
-        auto fe = g->parent_full_expression;
-        auto sc = from_scope;
-        while (sc != to_scope) {
-            fe = sc->parent_full_expression;
-            sc = sc->parent;
-            Assert(sc, "Scope chain must contain FE parent of goto");
-        }
-
-        return rgs::find(to_scope->exprs, fe);
-    }();
-
-    /// As well as the label in the target scope.
-    auto label_it = rgs::find(to_scope->exprs, label_fe);
-    Assert(goto_it != to_scope->exprs.end());
-    Assert(label_it != to_scope->exprs.end());
-
-    /// Backward jumps are always ok, but collect the
-    /// protected exprs that we need to emit when we
-    /// perform the branch.
-    if (label_it < goto_it) {
-        SmallVector<Expr*> protected_exprs;
-        for (auto e : rgs::subrange(label_it, goto_it)) {
-            /// Skip any anchors and instead only use the expression within. Due
-            /// to the fact that anchors always replace FEs, we know that an expr
-            /// cannot contain any more anchors as soon as we see a non-anchor.
-            auto AddAll = [&] (auto& Self, Expr* e) -> void {
-                if (auto a = dyn_cast<AnchorExpr>(e)) Self(Self, a->expr);
-                else protected_exprs.insert(
-                    protected_exprs.end(),
-                    e->protected_children.begin(),
-                    e->protected_children.end()
-                );
-            };
-
-            AddAll(AddAll, e);
-        }
-
-        /// If there are no expressions to emit, then there is nothing to do.
-        if (protected_exprs.empty()) return;
-
-        /// If the FE is already an anchor with the exact same
-        /// set of subexpressions, reuse it.
-        AnchorExpr* anchor;
-        if (auto a = dyn_cast<AnchorExpr>(*label_it); a and a->protected_exprs == protected_exprs) {
-            anchor = a;
-        }
-
-        /// Otherwise, replace the label FE with an anchor that stores
-        /// this information; note that this won’t replace any other
-        /// uses of the FE, but since the anchor is only relevant for
-        /// the goto, that’s fine.
-        else {
-            anchor = new (mod) AnchorExpr(*label_it, std::move(protected_exprs));
-            *label_it = anchor;
-        }
-
-        /// Set the anchor, and we’re done.
-        g->anchor = anchor;
+    /// Sanity checks.
+    /// FIXME: Check for this in the parser instead.
+    /// FIXME: Either prevent declarations/defer in subexpressions or
+    ///        actually handle that case properly.
+    if (label != label->parent_full_expression) {
+        Error(g, "Target label of jump may not be a subexpression");
         return;
     }
 
-    /// Forward jumps may not cross protected expressions.
-    ContainsProtected(rgs::subrange(std::next(goto_it), label_it));
-    g->forward = true;
+    if (g != g->parent_full_expression) {
+        Error(g, "'goto' must not be a subexpression");
+        return;
+    }
+
+    /// Unwind-Local as above, but stores expressions into a vector instead
+    /// of creating a new one or issues an error if the vector is nullptr.
+    auto UnwindLocal = [&](SmallVectorImpl<Expr*>* prot, BlockExpr* S, Expr* FE, Expr* To) -> bool {
+        /// 1/2/5.
+        auto FEIter = rgs::find(S->exprs, FE);
+        auto ToIter = rgs::find(S->exprs, To);
+        Assert(FEIter != S->exprs.end());
+        Assert(ToIter != S->exprs.end());
+        for (auto E : rgs::subrange(ToIter, FEIter) | vws::reverse) {
+            /// 5.
+            if (not prot) {
+                if (not E->protected_children.empty()) {
+                    Error(g, "Jump is ill-formed");
+                    Diag::Note(
+                        mod->context,
+                        E->protected_children[0]->location,
+                        "Because it would bypass {} here",
+                        isa<DeferExpr>(E->protected_children[0])
+                            ? "deferred expression"s
+                            : "variable declaration"s
+                    );
+                    return false;
+                }
+            } else {
+                for (auto P : E->protected_children | vws::reverse) prot->push_back(P);
+            }
+        }
+        return true;
+    };
+
+    /// Unwind as above, with the same modifications as UnwindLocal.
+    ///
+    /// \return The parent full expression of E in To, or nullptr if there was an error.
+    auto Unwind = [&](SmallVectorImpl<Expr*>* prot, BlockExpr* S, Expr* E, BlockExpr* To) -> Expr* {
+        /// 1/2.
+        while (S != To) {
+            /// 3.
+            if (
+                not S->exprs.empty() and
+                not UnwindLocal(prot, S, E, S->exprs.front())
+            ) return nullptr;
+
+            /// 4.
+            E = S->parent_full_expression;
+            S = S->parent;
+        }
+
+        return E;
+    };
+
+    /// 1.
+    BlockExpr* nca = BlockExpr::NCAInFunction(source, target);
+    Assert(nca, "Goto and label blocks must have a common ancestor");
+
+    /// 2.
+    Expr* label_nca = label;
+    if (nca != target) {
+        label_nca = Unwind(nullptr, label->parent, label, nca);
+        if (not label_nca) return;
+    }
+
+    /// 3.
+    Expr* goto_nca = Unwind(&g->unwind, source, g, nca);
+
+    /// 4/5.
+    auto goto_it = rgs::find(nca->exprs, goto_nca);
+    auto label_it = rgs::find(nca->exprs, label_nca);
+    Assert(goto_it != nca->exprs.end());
+    Assert(label_it != nca->exprs.end());
+    auto unwind_to = std::min(goto_it, label_it);
+    auto unwind_from = std::max(goto_it, label_it);
+    UnwindLocal(
+        goto_it < label_it ? nullptr : &g->unwind,
+        nca,
+        *unwind_from,
+        *unwind_to
+    );
 }
 
 /// ===========================================================================
@@ -250,7 +502,6 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
         case Expr::Kind::ModuleRefExpr:
-        case Expr::Kind::AnchorExpr:
             break;
 
         /// Only generated by sema and always type checked.
@@ -1410,10 +1661,9 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
 
     /// If there is no body, then there is nothing to do.
     if (not proc->body) return;
+    Assert(not proc->sema.analysed);
     tempset curr_scope = proc->body;
-
-    /// Clear jumps from previous function.
-    gotos.clear();
+    tempset gotos = decltype(gotos){};
 
     /// Sanity check.
     if (Type::Equal(proc->ret_type, Type::Unknown) and not proc->body->implicit) Diag::ICE(

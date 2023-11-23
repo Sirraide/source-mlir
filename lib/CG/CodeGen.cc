@@ -359,7 +359,6 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
         case Expr::Kind::LoopControlExpr:
         case Expr::Kind::GotoExpr:
         case Expr::Kind::LabelExpr:
-        case Expr::Kind::AnchorExpr:
         case Expr::Kind::EmptyExpr:
         case Expr::Kind::DeferExpr:
         case Expr::Kind::BlockExpr:
@@ -711,15 +710,11 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::GotoExpr: {
             auto g = cast<GotoExpr>(expr);
 
-            /// Anchors are only used for backward branches; thus, when we
-            /// get here, all protected expressions for that anchor have
-            /// already been emitted, so we can just add them here.
+            /// Unwind protected exprs, if any.
             SmallVector<mlir::Value> protected_exprs;
-            if (g->anchor) {
-                for (auto e : vws::reverse(g->anchor->protected_exprs)) {
-                    Assert(e->mlir);
-                    protected_exprs.push_back(e->mlir);
-                }
+            for (auto e : g->unwind) {
+                Assert(e->mlir);
+                protected_exprs.push_back(e->mlir);
             }
 
             Create<hlir::DirectBrOp>(
@@ -746,13 +741,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// Emit the labelled expression.
             Generate(l->expr);
-        } break;
-
-        /// Emit the wrapped expression.
-        case Expr::Kind::AnchorExpr: {
-            auto a = cast<AnchorExpr>(expr);
-            Generate(a->expr);
-            a->mlir = a->expr->mlir;
         } break;
 
         /// Nothing to do here other than emitting the underlying decl.

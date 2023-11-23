@@ -1,10 +1,10 @@
 /// ================ Main Control-Flow Test ================
 ///
-/// This file is absurdly long for a test case, simply because
-/// it tests interactions between all manner of control-flow
-/// constructs, which, due to the nature of control flow, pretty
-/// much have to be tested all together in one place to ensure
-/// they work properly with one another, so...
+/// This file is absurd for a test case, simply because it tests
+/// interactions between all manner of control-flow constructs,
+/// which, due to the nature of control flow, pretty much have to
+/// be tested all together in one place to ensure they work properly
+/// with one another, so...
 ///
 /// ‘Lasciate ogne speranza, voi ch’intrate’
 ///      – Dante
@@ -25,13 +25,16 @@ proc i() extern;
 proc j() extern;
 proc k() extern;
 proc l() extern;
+proc m() extern;
+proc n() extern;
+proc o() extern;
 
 ///  * hlir.func external @__src_main {
 ///  + scope {
 ///  + (?<T>$t) = local i1
 bool t = true;
 
-///  * defer {
+///  * (?<Da>$t) = defer {
 ///  +   call @a
 ///  +   yield
 ///  + }
@@ -46,11 +49,11 @@ defer a();
 while t {
     /// `unused` is never branched to and should thus
     /// not affect codegen at all.
-    ///  + defer {
+    ///  + (?<Db>$t) = defer {
     ///  +   call @b
     ///  +   yield
     ///  + }
-    ///  + defer {
+    ///  + (?<Dc>$t) = defer {
     ///  +   call @c
     ///  +   yield
     ///  + }
@@ -67,7 +70,7 @@ while t {
         ///  + (?<Q>$t) = local uninit i64
         int q;
 
-        ///  + defer {
+        ///  + (?<Dd>$t) = defer {
         ///  +   call @d
         ///  +   yield
         ///  + }
@@ -80,7 +83,7 @@ while t {
         ///  + $BODY3:
         ///  + scope {
         loop2: while t {
-            ///  + defer {
+            ///  + (?<De>$t) = defer {
             ///  +   call @e
             ///  +   yield
             ///  + }
@@ -106,7 +109,7 @@ while t {
                 ///  + }
                 { { { nested:; } } }
 
-                ///  + defer {
+                ///  + (?<Df>$t) = defer {
                 ///  +   call @f
                 ///  +   yield
                 ///  + }
@@ -121,7 +124,7 @@ while t {
                 ///  + cf.cond_br $T5, (?<THEN1>$b), (?<ELSE1>$b)
                 ///  + $THEN1:
                 ///  + scope {
-                ///  +   directbr $EXIT4
+                ///  +   directbr to $EXIT4
                 ///  + }
                 if t then break;
                 ///  + cf.br $ELSE1
@@ -133,13 +136,13 @@ while t {
                 ///  + cf.cond_br $Tg1, (?<THENg1>$b), (?<ELSEg1>$b)
                 ///  + $THENg1:
                 ///  + scope {
-                ///  +   directbr $LABEL1
+                ///  +   directbr to $LABEL1
                 ///  + }
                 if t then goto same_region;
                 ///  + cf.br $ELSEg1
                 ///  + $ELSEg1:
 
-                ///  + defer {
+                ///  + (?<Dg>$t) = defer {
                 ///  +   call @g
                 ///  +   yield
                 ///  + }
@@ -149,7 +152,7 @@ while t {
                 ///  + cf.cond_br $T6, (?<THEN2>$b), (?<ELSE2>$b)
                 ///  + $THEN2:
                 ///  + scope {
-                ///  +   directbr $EXIT3
+                ///  +   directbr to $EXIT3
                 ///  + }
                 if t then break loop2;
                 ///  + cf.br $ELSE2
@@ -165,7 +168,7 @@ while t {
             ///  + $LABEL2:
             one_scope_up:
 
-            ///  + defer {
+            ///  + (?<Dh>$t) = defer {
             ///  +   call @h
             ///  +   yield
             ///  + }
@@ -181,7 +184,7 @@ while t {
                 ///  + (?<W>$t) = local uninit i64
                 int w;
 
-                ///  + defer {
+                ///  + (?<Di>$t) = defer {
                 ///  +   call @i
                 ///  +   yield
                 ///  + }
@@ -192,7 +195,7 @@ while t {
                 ///  + cf.cond_br $Tg2, (?<THENg2>$b), (?<ELSEg2>$b)
                 ///  + $THENg2:
                 ///  + scope {
-                ///  +   directbr (?<LABEL3>$b)
+                ///  +   directbr to (?<LABEL3>$b)
                 ///  + }
                 if t then goto forward;
                 ///  + cf.br $ELSEg2
@@ -205,7 +208,7 @@ while t {
                 ///  + cf.cond_br $Tg3, (?<THENg3>$b), (?<ELSEg3>$b)
                 ///  + $THENg3:
                 ///  + scope {
-                ///  +   directbr $LABEL2
+                ///  +   directbr to $LABEL2 unwind $Di, $W, $Dh
                 ///  + }
                 if t then goto one_scope_up;
                 ///  + cf.br $ELSEg3
@@ -219,7 +222,7 @@ while t {
                 ///  + cf.cond_br $Tg4, (?<THENg4>$b), (?<ELSEg4>$b)
                 ///  + $THENg4:
                 ///  + scope {
-                ///  +   directbr (?<LABEL4>$b)
+                ///  +   directbr to (?<LABEL4>$b) unwind $Di, $W
                 ///  + }
                 forward: if t then goto forward2;
                 ///  + cf.br $ELSEg4
@@ -230,7 +233,7 @@ while t {
                 ///  + cf.cond_br $Tg5, (?<THENg5>$b), (?<ELSEg5>$b)
                 ///  + $THENg5:
                 ///  + scope {
-                ///  +   directbr $LABEL5
+                ///  +   directbr to $LABEL5 unwind $Di, $W, $Dh
                 ///  + }
                 if t then goto nested;
                 ///  + cf.br $ELSEg5
@@ -240,7 +243,7 @@ while t {
                 ///  + cf.cond_br $T8, (?<THEN3>$b), (?<ELSE3>$b)
                 ///  + $THEN3:
                 ///  + scope {
-                ///  +   directbr $COND2
+                ///  +   directbr to $COND2
                 ///  + }
                 if t then continue loop;
                 ///  + cf.br $ELSE3
@@ -263,7 +266,7 @@ while t {
             ///  + $BODY6:
             ///  + scope {
             while t {
-                ///  + defer {
+                ///  + (?<Dj>$t) = defer {
                 ///  +   call @j
                 ///  +   yield
                 ///  + }
@@ -273,7 +276,7 @@ while t {
                 ///  + cf.cond_br $T10, (?<THEN4>$b), (?<ELSE4>$b)
                 ///  + $THEN4:
                 ///  + scope {
-                ///  +   directbr $COND6
+                ///  +   directbr to $COND6
                 ///  + }
                 if t then continue;
                 ///  + cf.br $ELSE4
@@ -283,7 +286,7 @@ while t {
                 ///  + cf.cond_br $T11, (?<THEN5>$b), (?<ELSE5>$b)
                 ///  + $THEN5:
                 ///  + scope {
-                ///  +   directbr $EXIT6
+                ///  +   directbr to $EXIT6
                 ///  + }
                 if t then break;
                 ///  + cf.br $ELSE5
@@ -299,7 +302,7 @@ while t {
                 ///  + cf.br $ELSE6
                 ///  + $ELSE6:
 
-                ///  + defer {
+                ///  + (?<k>$t) = defer {
                 ///  +   call @k
                 ///  +   yield
                 ///  + }
@@ -309,7 +312,7 @@ while t {
                 ///  + cf.cond_br $T13, (?<THEN7>$b), (?<ELSE7>$b)
                 ///  + $THEN7:
                 ///  + scope {
-                ///  +   directbr $EXIT2
+                ///  +   directbr to $EXIT2
                 ///  + }
                 if t break loop;
                 ///  + cf.br $ELSE7
@@ -319,7 +322,7 @@ while t {
                 ///  + cf.cond_br $T14, (?<THEN8>$b), (?<ELSE8>$b)
                 ///  + $THEN8:
                 ///  + scope {
-                ///  +   directbr $COND3
+                ///  +   directbr to $COND3
                 ///  + }
                 if t continue loop2;
                 ///  + cf.br $ELSE8
@@ -337,7 +340,7 @@ while t {
 
         ///  + cf.br $COND3
         ///  + $EXIT3:
-        ///  + defer {
+        ///  + (?<Dl>$t) = defer {
         ///  +   call @l
         ///  +   yield
         ///  + }
@@ -347,7 +350,7 @@ while t {
         ///  + cf.cond_br $T15, (?<THEN9>$b), (?<ELSE9>$b)
         ///  + $THEN9:
         ///  + scope {
-        ///  +   directbr $EXIT2
+        ///  +   directbr to $EXIT2
         ///  + }
         if t then break;
         ///  + cf.br $ELSE9

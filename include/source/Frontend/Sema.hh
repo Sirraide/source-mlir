@@ -128,7 +128,7 @@ private:
 
     /// Check that a branch from \p g to \p in_scope is valid,
     /// i.e. that it doesn’t cross any protected expressions.
-    void ValidateDirectBr(GotoExpr* g, BlockExpr* in_scope);
+    void ValidateDirectBr(GotoExpr* g, BlockExpr* source);
 
 };
 } // namespace src
