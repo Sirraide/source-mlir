@@ -67,9 +67,8 @@ private:
     /// Create an external function.
     void CreateExternalProcedure(mlir::FunctionType type, StringRef name);
 
-    /// Get the (mangled) name of the destructor of a type. Returns
-    /// the empty string if there is no destructor.
-    auto Destructor(Expr* type) -> StringRef;
+    /// Get the (mangled) name of the destructor of a type.
+    auto Destructor(Expr* type) -> std::optional<StringRef>;
 
     auto EmitReference(mlir::Location loc, Expr* decl) -> mlir::Value;
 
@@ -92,6 +91,9 @@ private:
     void InitStaticChain(ProcDecl* proc, hlir::FuncOp f);
 
     auto Ty(Expr* type, bool for_closure = false) -> mlir::Type;
+
+    /// Generate a set of operations to unwind from expressions that need unwinding.
+    auto UnwindValues(ArrayRef<Expr*> exprs) -> SmallVector<mlir::Value>;
 };
 } // namespace src
 

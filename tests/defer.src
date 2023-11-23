@@ -51,17 +51,15 @@ if cond() {
     ///  + cf.cond_br $C1, (?<TRUE_1>$b), (?<FALSE_1>$b)
     ///  + $TRUE_1:
     ///  + scope {
-    ///  +   return unwind $Dc, $J, $Db, $Da, $I
+    ///  +   return unwind $Dc, $Db, $Da
     ///  + }
     ///  + cf.br $FALSE_1
     ///L * (?<C1>$t) = call @cond
     ///L + cf.cond_br $C1, (?<TRUE_1>$b), (?<FALSE_1>$b)
     ///L + $TRUE_1:
     ///L + call @c
-    ///L + destroy $J
     ///L + call @b
     ///L + call @a
-    ///L + destroy $I
     ///L + return
     if cond() return;
 
@@ -70,13 +68,12 @@ if cond() {
     ///  +   call @d
     ///  +   yield
     ///  + }
-    ///  + yield unwind $Dd, $Dc, $J
+    ///  + yield unwind $Dd, $Dc
     defer d();
 
     ///L + $FALSE_1:
     ///L + call @d
     ///L + call @c
-    ///L + destroy $J
 }
 
 ///  * (?<K>$t) = local
@@ -93,17 +90,15 @@ defer e();
 ///  + cf.cond_br $C2, (?<TRUE_2>$b)
 ///  + $TRUE_2:
 ///  + scope {
-///  +   return unwind $De, $K, $Db, $Da, $I
+///  +   return unwind $De, $Db, $Da
 ///  + }
 ///
 ///L * (?<C2>$t) = call @cond
 ///L + cf.cond_br $C2, (?<TRUE_2>$b), (?<FALSE_2>$b)
 ///L + $TRUE_2:
 ///L + call @e
-///L + destroy $K
 ///L + call @b
 ///L + call @a
-///L + destroy $I
 ///L + return
 if cond() return;
 
@@ -111,14 +106,12 @@ if cond() return;
 ///  +   call @f
 ///  +   yield
 ///  + }
-///  + yield unwind $Df, $De, $K, $Db, $Da, $I
+///  + yield unwind $Df, $De, $Db, $Da
 defer f();
 
 ///L + $FALSE_2:
 ///L + call @f
 ///L + call @e
-///L + destroy $K
 ///L + call @b
 ///L + call @a
-///L + destroy $I
 ///L + return

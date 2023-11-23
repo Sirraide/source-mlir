@@ -598,11 +598,12 @@ struct ReturnOpLowering : public ConversionPattern {
         ArrayRef<Value> arguments,
         ConversionPatternRewriter& r
     ) const -> LogicalResult override {
-        auto loc = op->getLoc();
-        hlir::ReturnOpGenericAdaptor adaptor(arguments, op->getAttrDictionary());
-
         /// Create the return.
-        r.create<LLVM::ReturnOp>(loc, adaptor.getOperand());
+        r.create<LLVM::ReturnOp>(
+            op->getLoc(),
+            arguments.empty() ? mlir::ValueRange{} : arguments[0]
+        );
+
         r.eraseOp(op);
         return success();
     }

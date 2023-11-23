@@ -95,6 +95,11 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
     return builder.create<T>(loc, std::forward<Args>(args)...);
 }
 
+auto src::CodeGen::Destructor(Expr* type) -> std::optional<StringRef> {
+    if (not isa<ScopedPointerType>(type)) return std::nullopt;
+    Todo();
+}
+
 auto src::CodeGen::EmitReference([[maybe_unused]] mlir::Location loc, src::Expr* decl) -> mlir::Value {
     /// If the operand is a function, create a function constant.
     if (auto p = dyn_cast<ProcDecl>(decl)) return Create<mlir::func::ConstantOp>(
@@ -385,9 +390,20 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
     Unreachable();
 }
 
-static auto Values(auto&& vs) -> llvm::SmallVector<mlir::Value> {
-    llvm::SmallVector<mlir::Value> vals;
-    for (auto v : std::forward<decltype(vs)>(vs)) vals.push_back(v->mlir);
+auto src::CodeGen::UnwindValues(ArrayRef<Expr*> exprs) -> SmallVector<mlir::Value> {
+    SmallVector<mlir::Value> vals;
+    for (auto e : exprs) {
+        if (isa<DeferExpr>(e)) vals.push_back(e->mlir);
+        else if (auto l = dyn_cast<LocalDecl>(e)) {
+            auto d = Destructor(l->type);
+            if (not d.has_value()) continue;
+            vals.push_back(Create<hlir::DestroyOp>(
+                l->location.mlir(ctx),
+                l->mlir,
+                *d
+            ));
+        }
+    }
     return vals;
 }
 
@@ -710,7 +726,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Create<hlir::DirectBrOp>(
                 loc,
                 l->is_continue ? l->target->cond_block : l->target->join_block,
-                Values(l->unwind)
+                UnwindValues(l->unwind)
             );
         } break;
 
@@ -720,7 +736,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Create<hlir::DirectBrOp>(
                 g->location.mlir(ctx),
                 g->target->block,
-                Values(g->unwind)
+                UnwindValues(g->unwind)
             );
         } break;
 
@@ -757,7 +773,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 Create<hlir::ReturnOp>(
                     r->location.mlir(ctx),
                     r->value ? r->value->mlir : mlir::Value{},
-                    Values(r->unwind)
+                    UnwindValues(r->unwind)
                 );
             }
         } break;
@@ -797,7 +813,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 Create<hlir::YieldOp>(
                     e->location.mlir(ctx),
                     yields_value ? e->exprs.back()->mlir : mlir::Value{},
-                    Values(e->unwind)
+                    UnwindValues(e->unwind)
                 );
             }
         } break;
@@ -1059,17 +1075,17 @@ void src::CodeGen::GenerateModule() {
         mod->name.empty() ? "__exe__" : mod->name
     );
 
-/*    /// Set size of pointer.
-    auto ptr_size = mlir::DataLayoutEntryAttr::get(
-        hlir::ReferenceType::get(mlir::IntegerType::get(mctx, 1)),   /// Elem is irrelevant.
-        mlir::IntegerAttr::get(mlir::IntegerType::get(mctx, 64), 64) /// FIXME: use context.
-    );
+    /*    /// Set size of pointer.
+        auto ptr_size = mlir::DataLayoutEntryAttr::get(
+            hlir::ReferenceType::get(mlir::IntegerType::get(mctx, 1)),   /// Elem is irrelevant.
+            mlir::IntegerAttr::get(mlir::IntegerType::get(mctx, 64), 64) /// FIXME: use context.
+        );
 
-    /// Crate data layout.
-    mod->mlir->setAttr(
-        mlir::DLTIDialect::kDataLayoutAttrName,
-        mlir::DataLayoutSpecAttr::get(mctx, {ptr_size})
-    );*/
+        /// Crate data layout.
+        mod->mlir->setAttr(
+            mlir::DLTIDialect::kDataLayoutAttrName,
+            mlir::DataLayoutSpecAttr::get(mctx, {ptr_size})
+        );*/
 
     /// Codegen string literals.
     builder.setInsertionPointToEnd(mod->mlir.getBody());

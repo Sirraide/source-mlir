@@ -234,6 +234,10 @@ private:
             else if (auto b = dyn_cast<DirectBrOp>(op)) {
                 LowerDirectBranch(b);
                 return WalkResult::skip();
+            } else if (auto x = dyn_cast<DestroyOp>(op)) {
+                op->remove();
+                to_delete.emplace_back(x);
+                return WalkResult::skip();
             } else if (auto d = dyn_cast<DeferOp>(op)) {
                 ProcessScope(d.getScopeOp());
                 op->remove();
@@ -257,9 +261,20 @@ private:
             return;
         }
 
-        Assert((isa<StructGEPOp, LocalOp>(o)));
-        rewriter.setInsertionPoint(before);
-        rewriter.create<DestroyOp>(o->getLoc(), o->getResult(0));
+        if (auto d = dyn_cast<DestroyOp>(o)) {
+            rewriter.setInsertionPoint(before);
+            rewriter.create<CallOp>(
+                o->getLoc(),
+                TypeRange{},
+                d.getDtor(),
+                false,
+                LLVM::CConv::C,
+                d.getLocal()
+            );
+            return;
+        }
+
+        Unreachable();
     }
 
     void LowerYield(YieldOp y) {

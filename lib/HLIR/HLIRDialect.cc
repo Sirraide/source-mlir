@@ -40,7 +40,7 @@ static void PrintType(mlir::Type t, mlir::AsmPrinter& p) {
         .Case<ReferenceType>([&](auto t) { t.print(p); })
         .Case<ScopedPointerType>([&](auto t) { t.print(p); })
         .Case<SliceType>([&](auto t) { t.print(p); })
-        .Case<DeferTokenType>([&](auto) { p << "<token>"; })
+        .Case<TokenType>([&](auto) { p << "<token>"; })
         .Default([&](auto t) { p.printType(t); });
 }
 
@@ -144,7 +144,7 @@ void hlir::DeleteOp::print(OpAsmPrinter& p) {
 auto hlir::DeleteOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::DestroyOp::print(OpAsmPrinter& p) {
-    p << " " << getLocal();
+    p << " " << getLocal() << " dtor " << getDtorAttr();
 }
 
 auto hlir::DestroyOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
@@ -206,11 +206,12 @@ void hlir::FuncOp::print(OpAsmPrinter& p) {
         }
         p << ")";
 
-        if (ftype.getNumResults()) {
-            Assert(ftype.getNumResults() == 1);
-            p << " -> ";
-            PrintType(ftype.getResult(0), p);
-        }
+    }
+
+    if (ftype.getNumResults()) {
+        Assert(ftype.getNumResults() == 1);
+        p << " -> ";
+        PrintType(ftype.getResult(0), p);
     }
 
     function_interface_impl::printFunctionAttributes(
@@ -290,10 +291,10 @@ void hlir::NewOp::print(OpAsmPrinter& p) {
 auto hlir::NewOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::ReturnOp::print(OpAsmPrinter& p) {
-    if (getOperand()) {
+    if (getYield()) {
         p << " ";
-        PrintType(getOperand().getType(), p);
-        p << " " << getOperand();
+        PrintType(getYield().getType(), p);
+        p << " " << getYield();
     }
 
     if (not getProt().empty()) {

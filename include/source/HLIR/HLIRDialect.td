@@ -73,8 +73,8 @@ class HLIR_SingleElementType<
     ];
 }
 
-/// Used only so we can pass `DeferOp`s around.
-def HLIR_DeferTokenType : HLIR_Type<"DeferToken", "defer">;
+/// Used only so we can certain operations (e.g. `DeferOp`s) around.
+def HLIR_TokenType : HLIR_Type<"Token", "token">;
 
 def HLIR_SliceType : HLIR_SingleElementType<"Slice", "slice">;
 def HLIR_ScopedPointerType : HLIR_SingleElementType<"ScopedPointer", "scp">;
@@ -104,7 +104,7 @@ def HLIR_Type : AnyTypeOf<[
     HLIR_ArrayType,
     HLIR_ReferenceType,
     HLIR_ScopedPointerType,
-    HLIR_DeferTokenType,
+    HLIR_TokenType,
 ]>;
 
 #endif // HLIR_DIALECT_TD

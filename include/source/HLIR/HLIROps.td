@@ -160,7 +160,7 @@ def ReturnOp : HLIR_Op<"return", [
     let summary = "Function return operation";
     let hasCustomAssemblyFormat = 1;
     let arguments = (ins
-        Optional<HLIR_Type>:$operand,
+        Optional<HLIR_Type>:$yield,
         Variadic<HLIR_Type>:$prot
     );
     let hasVerifier = 0;
@@ -252,7 +252,7 @@ def YieldOp : HLIR_Op<"yield", [Terminator, AttrSizedOperandSegments]> {
 def DeferOp : HLIR_Op<"defer", [AutomaticAllocationScope, OpAsmOpInterface]> {
     let summary = "Defer code to be executed at end of scope";
     let regions = (region AnyRegion:$body);
-    let results = (outs HLIR_DeferTokenType:$token);
+    let results = (outs HLIR_TokenType:$token);
     let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
     let skipDefaultBuilders = 1;
@@ -261,7 +261,7 @@ def DeferOp : HLIR_Op<"defer", [AutomaticAllocationScope, OpAsmOpInterface]> {
         OpBuilder<(ins), [{
             auto r = $_state.addRegion();
             r->push_back(new mlir::Block);
-            $_state.addTypes(hlir::DeferTokenType::get($_state.getContext()));
+            $_state.addTypes(hlir::TokenType::get($_state.getContext()));
         }]>
     ];
 
@@ -590,8 +590,24 @@ def DeleteOp : HLIR_Op<"delete"> {
 
 def DestroyOp : HLIR_Op<"destroy"> {
     let summary = "Call the destructor of a local variable";
-    let arguments = (ins HLIR_ReferenceType:$local);
+    let arguments = (ins HLIR_ReferenceType:$local, FlatSymbolRefAttr:$dtor);
+    let results = (outs HLIR_TokenType);
     let hasCustomAssemblyFormat = 1;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$local,
+            "::llvm::StringRef":$dtor
+        ), [{
+            build(
+                $_builder,
+                $_state,
+                {hlir::TokenType::get($_state.getContext())},
+                local,
+                SymbolRefAttr::get($_state.getContext(), dtor)
+            );
+        }]>
+    ];
 }
 
 def UnreachableOp : HLIR_Op<"unreachable", [Terminator]> {
