@@ -390,13 +390,22 @@ bool src::Sema::MakeDeclType(Expr*& e) {
 ///
 /// Unwind-Local as above, but stores expressions into a vector instead
 /// of creating a new one or issues an error if the vector is nullptr.
+///
 auto src::Sema::UnwindLocal(UnwindContext ctx, BlockExpr* S, Expr* FE, Expr* To) -> bool {
     auto FEIter = rgs::find(S->exprs, FE);
     auto ToIter = rgs::find(S->exprs, To);
     Assert(FEIter != S->exprs.end());
     Assert(ToIter != S->exprs.end());
-    for (auto E : rgs::subrange(ToIter, std::next(FEIter)) | vws::reverse) {
+
+    /// We want to include the contents of the expression that we’re unwinding
+    /// from only if we’re actually unwinding, in which case the UnwindContext
+    /// will not be an expression.
+    if (not ctx.is<Expr*>()) ++FEIter;
+
+    /// Handle protected subexpressions.
+    for (auto E : rgs::subrange(ToIter, FEIter) | vws::reverse) {
         if (auto expr = ctx.dyn_cast<Expr*>()) {
+            /// TODO: `protected_children` is horrible jank; get rid of it somehow.
             if (not E->protected_children.empty()) {
                 Error(expr, "Jump is ill-formed");
                 Diag::Note(
@@ -1686,6 +1695,9 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
     Assert(not proc->sema.analysed);
     tempset curr_scope = proc->body;
     tempset unwind_entries = decltype(unwind_entries){};
+
+    /// Protected subexpressions never cross a procedure boundary.
+    defer { protected_subexpressions.clear(); };
 
     /// Sanity check.
     if (Type::Equal(proc->ret_type, Type::Unknown) and not proc->body->implicit) Diag::ICE(

@@ -58,14 +58,6 @@ using options = clopts< // clang-format off
 using detail::options;
 
 int main(int argc, char** argv) {
-    /// Print stacktrace on segfault.
-    signal(SIGINT, [](int) {
-        static std::once_flag once;
-        std::call_once(once, [] {
-            src::Diag::ICE("Segmentation fault");
-        });
-    });
-
     /// Parse options.
     auto opts = options::parse(argc, argv, [](auto&& s) -> bool { src::Diag::Fatal("{}", s); });
 

@@ -29,6 +29,7 @@ proc b (proc c -> int) = c();
 /// + (?<cl2>$t) = makeclosure { @c, $vars }
 /// + (?<b2ret>$t) = call @b($cl2)
 /// + (?<ret>$t) = arith.addi $b1ret, $b2ret
+/// + destroy $x
 /// + return i64 $ret
 proc caller() -> int {
     int x = 20;

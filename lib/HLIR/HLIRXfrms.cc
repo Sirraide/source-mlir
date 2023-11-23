@@ -34,7 +34,7 @@ return success();
 };*/
 
 /// Find the NCA of two MLIR blocks.
-auto NCA(Region* a, Region* b) -> Region* {
+[[maybe_unused]] auto NCA(Region* a, Region* b) -> Region* {
     llvm::SmallPtrSet<Region*, 8> scopes{};
 
     for (; a; a = a->getParentRegion()) {
@@ -257,9 +257,9 @@ private:
             return;
         }
 
-        auto l = cast<LocalOp>(o);
+        Assert((isa<StructGEPOp, LocalOp>(o)));
         rewriter.setInsertionPoint(before);
-        rewriter.create<DestroyOp>(l->getLoc(), l);
+        rewriter.create<DestroyOp>(o->getLoc(), o->getResult(0));
     }
 
     void LowerYield(YieldOp y) {
@@ -280,32 +280,6 @@ private:
         rewriter.setInsertionPoint(b);
         rewriter.create<cf::BranchOp>(b->getLoc(), b.getDest());
         rewriter.eraseOp(b);
-
-        /*/// The expressions to unwind are only computed during sema if this
-        /// is a goto. For break/continue, it’s simpler if we just do that
-        /// here. That works well because the semantics for unwinding break
-        /// and continue are much simpler than that of goto.
-        ///
-        /// Thus, if we have no protected expressions, then this is may be a
-        /// break or continue, so unwind now if need be.
-        if (auto p = b.getProt(); p.empty()) {
-            /// First, find the NCA of the source and destination blocks.
-            auto src = b->getBlock();
-            auto dst = b.getDest();
-            auto nca = NCA(src->getParent(), dst->getParent());
-            Assert(nca);
-
-            /// Emit scopes up until we’re at the NCA.
-            auto it = rgs::find_if(entered_scopes, [&](Scope& s) { return &s.scope.getBody() == nca; });
-            Assert(it != entered_scopes.end());
-            for (auto& s : rgs::subrange(std::next(it), entered_scopes.end()) | vws::reverse)
-                EmitScope(b, &s);
-        }
-
-        /// Emit any protected expressions. Note that codegen has
-        /// already reversed the order of these.
-        else {
-        }*/
     }
 };
 
@@ -313,7 +287,6 @@ struct ScopeInliningXfrm {
     FuncOp f;
     OpBuilder b{f.getContext()};
     IRRewriter rewriter{b};
-
     SmallVector<ScopeOp> scopes{};
 
     void run() {

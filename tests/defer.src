@@ -18,15 +18,16 @@ proc cond() extern -> bool;
 ///L !* defer {
 ///L !* yield
 
-/// * hlir.func external @__src_main
-/// * (?<I>$t) = local
+///  * hlir.func external @__src_main
+///  * (?<I>$t) = local
+///L * (?<I>$t) = local
 int i = 4;
 
-/// * defer {
+/// * (?<Da>$t) = defer {
 /// +   call @a
 /// +   yield
 /// + }
-/// + defer {
+/// + (?<Db>$t) = defer {
 /// +   call @b
 /// +   yield
 /// + }
@@ -36,49 +37,53 @@ defer b();
 ///  * $t = call @cond
 ///L * $t = call @cond
 if cond() {
-    /// * (?<J>$t) = local
+    ///  * (?<J>$t) = local
+    ///L * (?<J>$t) = local
     int j = 5;
 
-    /// * defer {
-    /// +   call @c
-    /// +   yield
-    /// + }
+    ///  * (?<Dc>$t) = defer {
+    ///  +   call @c
+    ///  +   yield
+    ///  + }
     defer c();
 
     ///  * (?<C1>$t) = call @cond
     ///  + cf.cond_br $C1, (?<TRUE_1>$b), (?<FALSE_1>$b)
     ///  + $TRUE_1:
     ///  + scope {
-    ///  +   return
+    ///  +   return unwind $Dc, $J, $Db, $Da, $I
     ///  + }
     ///  + cf.br $FALSE_1
-    ///
     ///L * (?<C1>$t) = call @cond
     ///L + cf.cond_br $C1, (?<TRUE_1>$b), (?<FALSE_1>$b)
     ///L + $TRUE_1:
     ///L + call @c
+    ///L + destroy $J
     ///L + call @b
     ///L + call @a
+    ///L + destroy $I
     ///L + return
     if cond() return;
 
     ///  + $FALSE_1:
-    ///  + defer {
+    ///  + (?<Dd>$t) = defer {
     ///  +   call @d
     ///  +   yield
     ///  + }
-    ///  + yield
+    ///  + yield unwind $Dd, $Dc, $J
     defer d();
 
     ///L + $FALSE_1:
     ///L + call @d
     ///L + call @c
+    ///L + destroy $J
 }
 
 ///  * (?<K>$t) = local
+///L * (?<K>$t) = local
 int k = 6;
 
-///  * defer {
+///  * (?<De>$t) = defer {
 ///  +   call @e
 ///  +   yield
 ///  + }
@@ -88,28 +93,32 @@ defer e();
 ///  + cf.cond_br $C2, (?<TRUE_2>$b)
 ///  + $TRUE_2:
 ///  + scope {
-///  +   return
+///  +   return unwind $De, $K, $Db, $Da, $I
 ///  + }
 ///
 ///L * (?<C2>$t) = call @cond
 ///L + cf.cond_br $C2, (?<TRUE_2>$b), (?<FALSE_2>$b)
 ///L + $TRUE_2:
 ///L + call @e
+///L + destroy $K
 ///L + call @b
 ///L + call @a
+///L + destroy $I
 ///L + return
 if cond() return;
 
-///  * defer {
+///  * (?<Df>$t) = defer {
 ///  +   call @f
 ///  +   yield
 ///  + }
-///  + yield
+///  + yield unwind $Df, $De, $K, $Db, $Da, $I
 defer f();
 
 ///L + $FALSE_2:
 ///L + call @f
 ///L + call @e
+///L + destroy $K
 ///L + call @b
 ///L + call @a
+///L + destroy $I
 ///L + return
