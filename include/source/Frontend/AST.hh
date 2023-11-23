@@ -77,14 +77,17 @@ public:
         /// Type [end]
 
         AssertExpr,
-        ReturnExpr,
         DeferExpr,
         WhileExpr,
         ExportExpr,
         LabelExpr,
-        GotoExpr,
         EmptyExpr,
+
+        /// UnwindExpr [begin]
+        ReturnExpr,
+        GotoExpr,
         LoopControlExpr,
+        /// UnwindExpr [end]
 
         /// TypedExpr [begin]
         BlockExpr,
@@ -273,19 +276,6 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::AssertExpr; }
 };
 
-class ReturnExpr : public Expr {
-public:
-    /// The value being returned.
-    Expr* value;
-
-    ReturnExpr(Expr* value, Location loc)
-        : Expr(Kind::ReturnExpr, loc),
-          value(value) {}
-
-    /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::ReturnExpr; }
-};
-
 class DeferExpr : public Expr {
 public:
     /// The deferred expression.
@@ -324,7 +314,38 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::WhileExpr; }
 };
 
-class LoopControlExpr : public Expr {
+/// Base class for expressions that unwind the stack.
+class UnwindExpr : public Expr {
+public:
+    /// Expressions to unwind.
+    SmallVector<Expr*> unwind{};
+
+    /// Pointer to parent full expression. Points to this
+    /// if this is a full expression.
+    Expr* parent_full_expression{};
+
+    UnwindExpr(Kind k, Location loc) : Expr(k, loc) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) {
+        return e->kind >= Kind::ReturnExpr and e->kind <= Kind::LoopControlExpr;
+    }
+};
+
+class ReturnExpr : public UnwindExpr {
+public:
+    /// The value being returned.
+    Expr* value;
+
+    ReturnExpr(Expr* value, Location loc)
+        : UnwindExpr(Kind::ReturnExpr, loc),
+          value(value) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ReturnExpr; }
+};
+
+class LoopControlExpr : public UnwindExpr {
 public:
     /// Label to jump to.
     std::string label;
@@ -338,7 +359,7 @@ public:
     readonly(bool, is_break, return not is_continue);
 
     LoopControlExpr(std::string label, bool is_continue, Location loc)
-        : Expr(Kind::LoopControlExpr, loc),
+        : UnwindExpr(Kind::LoopControlExpr, loc),
           label(std::move(label)),
           is_continue(is_continue) {}
 
@@ -378,7 +399,7 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::LabelExpr; }
 };
 
-class GotoExpr : public Expr {
+class GotoExpr : public UnwindExpr {
 public:
     /// The label to jump to.
     std::string label;
@@ -386,18 +407,11 @@ public:
     /// The resolved labelled expression.
     LabelExpr* target{};
 
-    /// Expressions to unwind.
-    SmallVector<Expr*> unwind{};
-
-    /// Pointer to parent full expression. Points to this
-    /// if this is a full expression.
-    Expr* parent_full_expression{};
-
     /// Whether this is a forward goto.
     bool forward{};
 
     GotoExpr(std::string label, Location loc)
-        : Expr(Kind::GotoExpr, loc),
+        : UnwindExpr(Kind::GotoExpr, loc),
           label(std::move(label)) {}
 
     /// RTTI.
@@ -501,6 +515,9 @@ public:
     /// Pointer to parent full expression. Points to this
     /// if this is a full expression.
     Expr* parent_full_expression{};
+
+    /// Expressions to unwind at end of scope.
+    SmallVector<Expr*> unwind{};
 
     /// Associated scope op.
     mlir::Operation* scope_op{};

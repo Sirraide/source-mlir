@@ -154,21 +154,16 @@ def CallOp : HLIR_Op<"call", [
 
 def ReturnOp : HLIR_Op<"return", [
     Pure, HasParent<"FuncOp">,
-    MemRefsNormalizable, ReturnLike, Terminator
+    MemRefsNormalizable, ReturnLike, Terminator,
+    AttrSizedOperandSegments
 ]> {
     let summary = "Function return operation";
     let hasCustomAssemblyFormat = 1;
-    let arguments = (ins Optional<HLIR_Type>:$operand, BoolAttr:$lowered);
+    let arguments = (ins
+        Optional<HLIR_Type>:$operand,
+        Variadic<HLIR_Type>:$prot
+    );
     let hasVerifier = 0;
-
-    let builders = [
-        OpBuilder<(ins
-            CArg<"::mlir::Value", "{}">:$operand
-        ), [{
-            if (operand) $_state.addOperands(operand);
-            $_state.addAttribute("lowered", mlir::BoolAttr::get($_state.getContext(), false));
-        }]>
-    ];
 }
 
 def DirectBrOp : HLIR_Op<"directbr", [
@@ -176,7 +171,7 @@ def DirectBrOp : HLIR_Op<"directbr", [
 ]> {
     let summary = "Direct branch to a block";
     let hasCustomAssemblyFormat = 1;
-    let arguments = (ins I64Attr:$src_loc, Variadic<HLIR_Type>:$prot);
+    let arguments = (ins Variadic<HLIR_Type>:$prot);
     let successors = (successor AnySuccessor:$dest);
     let hasVerifier = 0;
     let skipDefaultBuilders = 1;
@@ -184,12 +179,10 @@ def DirectBrOp : HLIR_Op<"directbr", [
     let builders = [
         OpBuilder<(ins
             "::mlir::Block*":$dest,
-            "std::int64_t":$src_loc,
             CArg<"::mlir::ValueRange", "{}">:$prot
         ), [{
             $_state.addSuccessors(dest);
             $_state.addOperands(prot);
-            $_state.addAttribute("src_loc", $_builder.getI64IntegerAttr(src_loc));
         }]>
     ];
 }
@@ -246,21 +239,14 @@ def ScopeOp : HLIR_Op<"scope", [AutomaticAllocationScope, OpAsmOpInterface]> {
     }];
 }
 
-def YieldOp : HLIR_Op<"yield", [Terminator]> {
+def YieldOp : HLIR_Op<"yield", [Terminator, AttrSizedOperandSegments]> {
     let summary = "Yield operation";
-    let arguments = (ins Optional<HLIR_Type>:$yield, BoolAttr:$lowered);
+    let arguments = (ins
+        Optional<HLIR_Type>:$yield,
+        Variadic<HLIR_Type>:$prot
+    );
     let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
-    let skipDefaultBuilders = 1;
-
-    let builders = [
-        OpBuilder<(ins
-            CArg<"::mlir::Value", "{}">:$yield
-        ), [{
-            if (yield) $_state.addOperands(yield);
-            $_state.addAttribute("lowered", mlir::BoolAttr::get($_state.getContext(), false));
-        }]>
-    ];
 }
 
 def DeferOp : HLIR_Op<"defer", [AutomaticAllocationScope, OpAsmOpInterface]> {

@@ -39,13 +39,16 @@ class Sema {
     /// The defer expression whose contents we are currently analysing.
     DeferExpr* curr_defer{};
 
-    /// Gotos are checked once everything else has been processed.
-    struct Goto {
+    /// Unwinding is performed once everything else has been checked.
+    struct Unwind {
         BlockExpr* in_scope;
-        GotoExpr* expr;
+        UnwindExpr* expr;
+
+        /// Unused if this is a goto.
+        BlockExpr* to_scope{};
     };
 
-    SmallVector<Goto> gotos;
+    SmallVector<Unwind> unwind_entries;
 
     /// Expressions that need to know what the current full expression is.
     SmallVector<Expr*> needs_link_to_full_expr{};
@@ -126,10 +129,16 @@ private:
         }
     }
 
-    /// Check that a branch from \p g to \p in_scope is valid,
-    /// i.e. that it doesn’t cross any protected expressions.
+    /// Unwinder.
+    ///
+    /// If this is a small vector, store unwound expressions in it. If it
+    /// is an expression, instead emit an error and mark that expression as
+    /// errored.
+    using UnwindContext = llvm::PointerUnion<SmallVectorImpl<Expr*>*, Expr*>;
+    bool UnwindLocal(UnwindContext ctx, BlockExpr* S, Expr* FE, Expr* To);
+    auto Unwind(UnwindContext ctx, BlockExpr* S, Expr* E, BlockExpr* To) -> Expr*;
+    void UnwindUpTo(BlockExpr* parent, BlockExpr* to, UnwindExpr* uw);
     void ValidateDirectBr(GotoExpr* g, BlockExpr* source);
-
 };
 } // namespace src
 

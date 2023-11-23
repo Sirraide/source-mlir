@@ -76,6 +76,9 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clan
         -Werror=missing-field-initializers
         -Werror=non-virtual-dtor
         -Werror=pessimizing-move
+
+        ## This is typically nonsense if you’re not an idiot.
+        -Wno-ctad-maybe-unsupported
     )
 endif()
 

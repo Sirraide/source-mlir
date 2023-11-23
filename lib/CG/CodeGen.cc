@@ -385,6 +385,12 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
     Unreachable();
 }
 
+static auto Values(auto&& vs) -> llvm::SmallVector<mlir::Value> {
+    llvm::SmallVector<mlir::Value> vals;
+    for (auto v : std::forward<decltype(vs)>(vs)) vals.push_back(v->mlir);
+    return vals;
+}
+
 /// ===========================================================================
 ///  Code Generation
 /// ===========================================================================
@@ -691,7 +697,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Generate(cast<DeferExpr>(expr)->expr);
             if (not Closed(builder.getBlock())) Create<hlir::YieldOp>(
                 builder.getUnknownLoc(),
-                mlir::Value{}
+                mlir::Value{},
+                mlir::ValueRange{}
             );
         } break;
 
@@ -703,25 +710,17 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Create<hlir::DirectBrOp>(
                 loc,
                 l->is_continue ? l->target->cond_block : l->target->join_block,
-                expr->location.encode()
+                Values(l->unwind)
             );
         } break;
 
         case Expr::Kind::GotoExpr: {
             auto g = cast<GotoExpr>(expr);
 
-            /// Unwind protected exprs, if any.
-            SmallVector<mlir::Value> protected_exprs;
-            for (auto e : g->unwind) {
-                Assert(e->mlir);
-                protected_exprs.push_back(e->mlir);
-            }
-
             Create<hlir::DirectBrOp>(
                 g->location.mlir(ctx),
                 g->target->block,
-                expr->location.encode(),
-                protected_exprs
+                Values(g->unwind)
             );
         } break;
 
@@ -757,7 +756,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
             if (not Closed()) {
                 Create<hlir::ReturnOp>(
                     r->location.mlir(ctx),
-                    r->value ? r->value->mlir : mlir::Value{}
+                    r->value ? r->value->mlir : mlir::Value{},
+                    Values(r->unwind)
                 );
             }
         } break;
@@ -796,7 +796,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
             if (not Closed(builder.getBlock())) {
                 Create<hlir::YieldOp>(
                     e->location.mlir(ctx),
-                    yields_value ? e->exprs.back()->mlir : mlir::Value{}
+                    yields_value ? e->exprs.back()->mlir : mlir::Value{},
+                    Values(e->unwind)
                 );
             }
         } break;
@@ -1162,7 +1163,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         if (func.back().empty() or not func.back().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
             /// Function returns void.
             if (Type::Equal(proc->ret_type, Type::Void)) {
-                Create<hlir::ReturnOp>(proc->location.mlir(ctx), mlir::Value{});
+                Create<hlir::ReturnOp>(proc->location.mlir(ctx), mlir::Value{}, mlir::ValueRange{});
             }
 
             /// Function does not return, or all paths return a value, but there
@@ -1176,7 +1177,8 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
                 Assert(proc->body->mlir, "Inferred procedure body must yield a value");
                 Create<hlir::ReturnOp>(
                     proc->location.mlir(ctx),
-                    proc->body->mlir
+                    proc->body->mlir,
+                    mlir::ValueRange{}
                 );
             }
         }

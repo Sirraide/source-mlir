@@ -10,8 +10,12 @@
 ///      – Dante
 ///
 /// R %srcc %s --hlir
-/// d t %[a-zA-Z0-9_]+
-/// d b \^bb[0-9]+
+/// R[///L] %srcc %s --lowered
+
+///  d t %[a-zA-Z0-9_]+
+///  d b \^bb[0-9]+
+///L d t %[a-zA-Z0-9_]+
+///L d b \^bb[0-9]+
 
 proc a() extern;
 proc b() extern;
@@ -29,9 +33,17 @@ proc m() extern;
 proc n() extern;
 proc o() extern;
 
+///L !* scope
+///L !* defer
+///L !* yield
+///L !* directbr
+///L !* unwind
+
 ///  * hlir.func external @__src_main {
 ///  + scope {
 ///  + (?<T>$t) = local i1
+///L * hlir.func external @__src_main {
+///L + (?<T>$t) = local i1
 bool t = true;
 
 ///  * (?<Da>$t) = defer {
@@ -46,6 +58,11 @@ defer a();
 ///  + cf.cond_br $T1, (?<BODY1>$b), (?<EXIT1>$b)
 ///  + $BODY1:
 ///  + scope {
+///L * cf.br (?<COND1>$b)
+///L + $COND1:
+///L + (?<T1>$t) = load i1 from $T
+///L + cf.cond_br $T1, (?<BODY1>$b), (?<EXIT1>$b)
+///L + $BODY1:
 while t {
     /// `unused` is never branched to and should thus
     /// not affect codegen at all.
@@ -66,8 +83,14 @@ while t {
     ///  + cf.cond_br $T2, (?<BODY2>$b), (?<EXIT2>$b)
     ///  + $BODY2:
     ///  + scope {
+    ///L + cf.br (?<COND2>$b)
+    ///L + $COND2:
+    ///L + (?<T2>$t) = load i1 from $T
+    ///L + cf.cond_br $T2, (?<BODY2>$b), (?<EXIT2>$b)
+    ///L + $BODY2:
     loop: while t {
         ///  + (?<Q>$t) = local uninit i64
+        ///L + (?<Q>$t) = local uninit i64
         int q;
 
         ///  + (?<Dd>$t) = defer {
@@ -82,6 +105,11 @@ while t {
         ///  + cf.cond_br $T3, (?<BODY3>$b), (?<EXIT3>$b)
         ///  + $BODY3:
         ///  + scope {
+        ///L + cf.br (?<COND3>$b)
+        ///L + $COND3:
+        ///L + (?<T3>$t) = load i1 from $T
+        ///L + cf.cond_br $T3, (?<BODY3>$b), (?<EXIT3>$b)
+        ///L + $BODY3:
         loop2: while t {
             ///  + (?<De>$t) = defer {
             ///  +   call @e
@@ -95,6 +123,11 @@ while t {
             ///  + cf.cond_br $T4, (?<BODY4>$b), (?<EXIT4>$b)
             ///  + $BODY4:
             ///  + scope {
+            ///L + cf.br (?<COND4>$b)
+            ///L + $COND4:
+            ///L + (?<T4>$t) = load i1 from $T
+            ///L + cf.cond_br $T4, (?<BODY4>$b), (?<EXIT4>$b)
+            ///L + $BODY4:
             while t {
                 ///  + scope {
                 ///  + scope {
@@ -107,6 +140,8 @@ while t {
                 ///  + }
                 ///  + yield
                 ///  + }
+                ///L + cf.br (?<LABEL5>$b)
+                ///L + $LABEL5:
                 { { { nested:; } } }
 
                 ///  + (?<Df>$t) = defer {
@@ -118,17 +153,25 @@ while t {
                 /// Label is branched to and thus creates a new block.
                 ///  + cf.br (?<LABEL1>$b)
                 ///  + $LABEL1:
+                ///L + cf.br (?<LABEL1>$b)
+                ///L + $LABEL1:
                 same_region:
 
                 ///  + (?<T5>$t) = load i1 from $T
                 ///  + cf.cond_br $T5, (?<THEN1>$b), (?<ELSE1>$b)
                 ///  + $THEN1:
                 ///  + scope {
-                ///  +   directbr to $EXIT4
+                ///  +   directbr to $EXIT4 unwind $Df
                 ///  + }
+                ///L + (?<T5>$t) = load i1 from $T
+                ///L + cf.cond_br $T5, (?<THEN1>$b), (?<ELSE1>$b)
+                ///L + $THEN1:
+                ///L + call @f
+                ///L + cf.br $EXIT4
                 if t then break;
                 ///  + cf.br $ELSE1
                 ///  + $ELSE1:
+                ///L + $ELSE1:
 
                 /// Branch upwards in the same region without crossing
                 /// deferred material is simply a branch.
@@ -138,9 +181,14 @@ while t {
                 ///  + scope {
                 ///  +   directbr to $LABEL1
                 ///  + }
+                ///L + (?<Tg1>$t) = load i1 from $T
+                ///L + cf.cond_br $Tg1, (?<THENg1>$b), (?<ELSEg1>$b)
+                ///L + $THENg1:
+                ///L + cf.br $LABEL1
                 if t then goto same_region;
                 ///  + cf.br $ELSEg1
                 ///  + $ELSEg1:
+                ///L + $ELSEg1:
 
                 ///  + (?<Dg>$t) = defer {
                 ///  +   call @g
@@ -152,20 +200,34 @@ while t {
                 ///  + cf.cond_br $T6, (?<THEN2>$b), (?<ELSE2>$b)
                 ///  + $THEN2:
                 ///  + scope {
-                ///  +   directbr to $EXIT3
+                ///  +   directbr to $EXIT3 unwind $Dg, $Df, $De
                 ///  + }
+                ///L + (?<T6>$t) = load i1 from $T
+                ///L + cf.cond_br $T6, (?<THEN2>$b), (?<ELSE2>$b)
+                ///L + $THEN2:
+                ///L + call @g
+                ///L + call @f
+                ///L + call @e
+                ///L + cf.br $EXIT3
                 if t then break loop2;
                 ///  + cf.br $ELSE2
                 ///  + $ELSE2:
+                ///L + $ELSE2:
 
-                ///  + yield
+                ///  + yield unwind $Dg, $Df
                 ///  + }
+                ///L + call @g
+                ///L + call @f
             }
 
             ///  + cf.br $COND4
             ///  + $EXIT4:
             ///  + cf.br (?<LABEL2>$b)
             ///  + $LABEL2:
+            ///L + cf.br $COND4
+            ///L + $EXIT4:
+            ///L + cf.br (?<LABEL2>$b)
+            ///L + $LABEL2:
             one_scope_up:
 
             ///  + (?<Dh>$t) = defer {
@@ -180,8 +242,14 @@ while t {
             ///  + cf.cond_br $T7, (?<BODY5>$b), (?<EXIT5>$b)
             ///  + $BODY5:
             ///  + scope {
+            ///L + cf.br (?<COND5>$b)
+            ///L + $COND5:
+            ///L + (?<T7>$t) = load i1 from $T
+            ///L + cf.cond_br $T7, (?<BODY5>$b), (?<EXIT5>$b)
+            ///L + $BODY5:
             while t {
                 ///  + (?<W>$t) = local uninit i64
+                ///L + (?<W>$t) = local uninit i64
                 int w;
 
                 ///  + (?<Di>$t) = defer {
@@ -197,9 +265,14 @@ while t {
                 ///  + scope {
                 ///  +   directbr to (?<LABEL3>$b)
                 ///  + }
+                ///L + (?<Tg2>$t) = load i1 from $T
+                ///L + cf.cond_br $Tg2, (?<THENg2>$b), (?<ELSEg2>$b)
+                ///L + $THENg2:
+                ///L + cf.br (?<LABEL3>$b)
                 if t then goto forward;
                 ///  + cf.br $ELSEg2
                 ///  + $ELSEg2:
+                ///L + $ELSEg2:
 
                 /// This one is a bit more painful; we jump back across a
                 /// deferred expression, which means we need to emit it when
@@ -210,9 +283,17 @@ while t {
                 ///  + scope {
                 ///  +   directbr to $LABEL2 unwind $Di, $W, $Dh
                 ///  + }
+                ///L + (?<Tg3>$t) = load i1 from $T
+                ///L + cf.cond_br $Tg3, (?<THENg3>$b), (?<ELSEg3>$b)
+                ///L + $THENg3:
+                ///L + call @i
+                ///L + destroy $W
+                ///L + call @h
+                ///L + cf.br $LABEL2
                 if t then goto one_scope_up;
                 ///  + cf.br $ELSEg3
                 ///  + $ELSEg3:
+                ///L + $ELSEg3:
 
                 /// This is the same as the previous goto, but it jumps
                 /// out of the scope and forward.
@@ -224,9 +305,18 @@ while t {
                 ///  + scope {
                 ///  +   directbr to (?<LABEL4>$b) unwind $Di, $W
                 ///  + }
+                ///L + cf.br $LABEL3
+                ///L + $LABEL3:
+                ///L + (?<Tg4>$t) = load i1 from $T
+                ///L + cf.cond_br $Tg4, (?<THENg4>$b), (?<ELSEg4>$b)
+                ///L + $THENg4:
+                ///L + call @i
+                ///L + destroy $W
+                ///L + cf.br (?<LABEL4>$b)
                 forward: if t then goto forward2;
                 ///  + cf.br $ELSEg4
                 ///  + $ELSEg4
+                ///L + $ELSEg4
 
                 /// Cross jump back into a different while loop.
                 ///  + (?<Tg5>$t) = load i1 from $T
@@ -235,28 +325,53 @@ while t {
                 ///  + scope {
                 ///  +   directbr to $LABEL5 unwind $Di, $W, $Dh
                 ///  + }
+                ///L + (?<Tg5>$t) = load i1 from $T
+                ///L + cf.cond_br $Tg5, (?<THENg5>$b), (?<ELSEg5>$b)
+                ///L + $THENg5:
+                ///L + call @i
+                ///L + destroy $W
+                ///L + call @h
+                ///L + cf.br $LABEL5
                 if t then goto nested;
                 ///  + cf.br $ELSEg5
                 ///  + $ELSEg5:
+                ///L + $ELSEg5:
 
                 ///  + (?<T8>$t) = load i1 from $T
                 ///  + cf.cond_br $T8, (?<THEN3>$b), (?<ELSE3>$b)
                 ///  + $THEN3:
                 ///  + scope {
-                ///  +   directbr to $COND2
+                ///  +   directbr to $COND2 unwind $Di, $W, $Dh, $De, $Dd, $Q
                 ///  + }
+                ///L + (?<T8>$t) = load i1 from $T
+                ///L + cf.cond_br $T8, (?<THEN3>$b), (?<ELSE3>$b)
+                ///L + $THEN3:
+                ///L + call @i
+                ///L + destroy $W
+                ///L + call @h
+                ///L + call @e
+                ///L + call @d
+                ///L + destroy $Q
+                ///L + cf.br $COND2
                 if t then continue loop;
                 ///  + cf.br $ELSE3
                 ///  + $ELSE3:
+                ///L + $ELSE3:
 
-                ///  + yield
+                ///  + yield unwind $Di, $W
                 ///  + }
+                ///L + call @i
+                ///L + destroy $W
             }
 
             ///  + cf.br $COND5
             ///  + $EXIT5:
             ///  + cf.br $LABEL4
             ///  + $LABEL4:
+            ///L + cf.br $COND5
+            ///L + $EXIT5:
+            ///L + cf.br $LABEL4
+            ///L + $LABEL4:
             forward2:
 
             ///  + cf.br (?<COND6>$b)
@@ -265,6 +380,11 @@ while t {
             ///  + cf.cond_br $T9, (?<BODY6>$b), (?<EXIT6>$b)
             ///  + $BODY6:
             ///  + scope {
+            ///L + cf.br (?<COND6>$b)
+            ///L + $COND6:
+            ///L + (?<T9>$t) = load i1 from $T
+            ///L + cf.cond_br $T9, (?<BODY6>$b), (?<EXIT6>$b)
+            ///L + $BODY6:
             while t {
                 ///  + (?<Dj>$t) = defer {
                 ///  +   call @j
@@ -276,33 +396,59 @@ while t {
                 ///  + cf.cond_br $T10, (?<THEN4>$b), (?<ELSE4>$b)
                 ///  + $THEN4:
                 ///  + scope {
-                ///  +   directbr to $COND6
+                ///  +   directbr to $COND6 unwind $Dj
                 ///  + }
+                ///L + (?<T10>$t) = load i1 from $T
+                ///L + cf.cond_br $T10, (?<THEN4>$b), (?<ELSE4>$b)
+                ///L + $THEN4:
+                ///L + call @j
+                ///L + cf.br $COND6
                 if t then continue;
                 ///  + cf.br $ELSE4
                 ///  + $ELSE4:
+                ///L + $ELSE4:
 
                 ///  + (?<T11>$t) = load i1 from $T
                 ///  + cf.cond_br $T11, (?<THEN5>$b), (?<ELSE5>$b)
                 ///  + $THEN5:
                 ///  + scope {
-                ///  +   directbr to $EXIT6
+                ///  +   directbr to $EXIT6 unwind $Dj
                 ///  + }
+                ///L + (?<T11>$t) = load i1 from $T
+                ///L + cf.cond_br $T11, (?<THEN5>$b), (?<ELSE5>$b)
+                ///L + $THEN5:
+                ///L + call @j
+                ///L + cf.br $EXIT6
                 if t then break;
                 ///  + cf.br $ELSE5
                 ///  + $ELSE5:
+                ///L + $ELSE5:
 
                 ///  + (?<T12>$t) = load i1 from $T
                 ///  + cf.cond_br $T12, (?<THEN6>$b), (?<ELSE6>$b)
                 ///  + $THEN6:
                 ///  + scope {
-                ///  +   return
+                ///  +   return unwind $Dj, $Dh, $De, $Dd, $Q, $Dc, $Db, $Da, $T
                 ///  + }
+                ///L + (?<T12>$t) = load i1 from $T
+                ///L + cf.cond_br $T12, (?<THEN6>$b), (?<ELSE6>$b)
+                ///L + $THEN6:
+                ///L + call @j
+                ///L + call @h
+                ///L + call @e
+                ///L + call @d
+                ///L + destroy $Q
+                ///L + call @c
+                ///L + call @b
+                ///L + call @a
+                ///L + destroy $T
+                ///L + return
                 if t then return;
                 ///  + cf.br $ELSE6
                 ///  + $ELSE6:
+                ///L + $ELSE6:
 
-                ///  + (?<k>$t) = defer {
+                ///  + (?<Dk>$t) = defer {
                 ///  +   call @k
                 ///  +   yield
                 ///  + }
@@ -312,30 +458,56 @@ while t {
                 ///  + cf.cond_br $T13, (?<THEN7>$b), (?<ELSE7>$b)
                 ///  + $THEN7:
                 ///  + scope {
-                ///  +   directbr to $EXIT2
+                ///  +   directbr to $EXIT2 unwind $Dk, $Dj, $Dh, $De, $Dd, $Q
                 ///  + }
+                ///L + (?<T13>$t) = load i1 from $T
+                ///L + cf.cond_br $T13, (?<THEN7>$b), (?<ELSE7>$b)
+                ///L + $THEN7:
+                ///L + call @k
+                ///L + call @j
+                ///L + call @h
+                ///L + call @e
+                ///L + call @d
+                ///L + destroy $Q
+                ///L + cf.br $EXIT2
                 if t break loop;
                 ///  + cf.br $ELSE7
                 ///  + $ELSE7:
+                ///L + $ELSE7:
 
                 ///  + (?<T14>$t) = load i1 from $T
                 ///  + cf.cond_br $T14, (?<THEN8>$b), (?<ELSE8>$b)
                 ///  + $THEN8:
                 ///  + scope {
-                ///  +   directbr to $COND3
+                ///  +   directbr to $COND3 unwind $Dk, $Dj, $Dh, $De
                 ///  + }
+                ///L + (?<T14>$t) = load i1 from $T
+                ///L + cf.cond_br $T14, (?<THEN8>$b), (?<ELSE8>$b)
+                ///L + $THEN8:
+                ///L + call @k
+                ///L + call @j
+                ///L + call @h
+                ///L + call @e
+                ///L + cf.br $COND3
                 if t continue loop2;
                 ///  + cf.br $ELSE8
                 ///  + $ELSE8:
+                ///L + $ELSE8:
 
-                ///  + yield
+                ///  + yield unwind $Dk, $Dj
                 ///  + }
+                ///L + call @k
+                ///L + call @j
             }
 
             ///  + cf.br $COND6
             ///  + $EXIT6:
-            ///  + yield
+            ///  + yield unwind $Dh, $De
             ///  + }
+            ///L + cf.br $COND6
+            ///L + $EXIT6:
+            ///L + call @h
+            ///L + call @e
         }
 
         ///  + cf.br $COND3
@@ -344,30 +516,52 @@ while t {
         ///  +   call @l
         ///  +   yield
         ///  + }
+        ///L + cf.br $COND3
+        ///L + $EXIT3:
         defer l();
 
         ///  + (?<T15>$t) = load i1 from $T
         ///  + cf.cond_br $T15, (?<THEN9>$b), (?<ELSE9>$b)
         ///  + $THEN9:
         ///  + scope {
-        ///  +   directbr to $EXIT2
+        ///  +   directbr to $EXIT2 unwind $Dl, $Dd, $Q
         ///  + }
+        ///L + (?<T15>$t) = load i1 from $T
+        ///L + cf.cond_br $T15, (?<THEN9>$b), (?<ELSE9>$b)
+        ///L + $THEN9:
+        ///L + call @l
+        ///L + call @d
+        ///L + destroy $Q
+        ///L + cf.br $EXIT2
         if t then break;
         ///  + cf.br $ELSE9
         ///  + $ELSE9:
+        ///L + $ELSE9:
 
-        ///  + yield
+        ///  + yield unwind $Dl, $Dd, $Q
         ///  + }
+        ///L + call @l
+        ///L + call @d
+        ///L + destroy $Q
     }
 
     ///  + cf.br $COND2
     ///  + $EXIT2:
-    ///  + yield
+    ///  + yield unwind $Dc, $Db
     ///  + }
+    ///L + cf.br $COND2
+    ///L + $EXIT2:
+    ///L + call @c
+    ///L + call @b
 }
 
 ///  + cf.br $COND1
 ///  + $EXIT1:
-///  + yield
+///  + yield unwind $Da, $T
 ///  + }
 ///  + return
+///L + cf.br $COND1
+///L + $EXIT1:
+///L + call @a
+///L + destroy $T
+///L + return

@@ -113,8 +113,9 @@ bool src::Sema::MakeDeclType(Expr*& e) {
     return true;
 }
 
-/// \brief Check that a branch is valid and determine what expressions to unwind.
-///
+/// ===========================================================================
+///  Unwinding
+/// ===========================================================================
 /// A direct branch transfers control flow from one point in the program
 /// to another; care must be taken that, in so doing, we do not corrupt
 /// the program state. To do this effectively, we have to introduce a
@@ -381,13 +382,79 @@ bool src::Sema::MakeDeclType(Expr*& e) {
 ///
 ///     1. Let To-Unwind be an empty Expr[].
 ///
-///     2. If FE = To, return To-Unwind.
+///     2. Add any protected subexpressions of FE to To-Unwind, in reverse tree order.
 ///
-///     3. Let FE be the full expression preceding FE in the same scope.
+///     3. If FE = To, return To-Unwind.
 ///
-///     4. Add any protected subexpressions of FE to To-Unwind, in reverse tree order.
+///     4. Go to step 2.
 ///
-///     5. Go to step 2.
+/// Unwind-Local as above, but stores expressions into a vector instead
+/// of creating a new one or issues an error if the vector is nullptr.
+auto src::Sema::UnwindLocal(UnwindContext ctx, BlockExpr* S, Expr* FE, Expr* To) -> bool {
+    auto FEIter = rgs::find(S->exprs, FE);
+    auto ToIter = rgs::find(S->exprs, To);
+    Assert(FEIter != S->exprs.end());
+    Assert(ToIter != S->exprs.end());
+    for (auto E : rgs::subrange(ToIter, std::next(FEIter)) | vws::reverse) {
+        if (auto expr = ctx.dyn_cast<Expr*>()) {
+            if (not E->protected_children.empty()) {
+                Error(expr, "Jump is ill-formed");
+                Diag::Note(
+                    mod->context,
+                    E->protected_children[0]->location,
+                    "Because it would bypass {} here",
+                    isa<DeferExpr>(E->protected_children[0])
+                        ? "deferred expression"s
+                        : "variable declaration"s
+                );
+                return false;
+            }
+        } else {
+            auto prot = ctx.get<SmallVectorImpl<Expr*>*>();
+            for (auto P : E->protected_children | vws::reverse) prot->push_back(P);
+        }
+    }
+    return true;
+}
+
+/// \brief Unwind from E in S up to, but not including, To, if S != To.
+///
+/// This is `Unwind` as described in the big comment above, with the same
+/// modifications as `UnwindLocal`.
+///
+/// \return The parent full expression of E in To, or nullptr if there was an error.
+auto src::Sema::Unwind(UnwindContext prot, BlockExpr* S, Expr* E, BlockExpr* To) -> Expr* {
+    /// 1/2.
+    while (S != To) {
+        /// 3.
+        if (
+            not S->exprs.empty() and
+            not UnwindLocal(prot, S, E, S->exprs.front())
+        ) return nullptr;
+
+        /// 4.
+        E = S->parent_full_expression;
+        S = S->parent;
+    }
+
+    return E;
+}
+
+/// Unwind from uw in S up to and including To.
+void src::Sema::UnwindUpTo(BlockExpr* S, BlockExpr* To, UnwindExpr* uw) {
+    auto E = uw->parent_full_expression;
+    for (;;) {
+        if (
+            not S->exprs.empty() and
+            not UnwindLocal(&uw->unwind, S, E, S->exprs.front())
+        ) return;
+
+        if (S == To) break;
+        E = S->parent_full_expression;
+        S = S->parent;
+    }
+}
+
 void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* source) {
     if (not g->sema.ok) return;
     auto label = g->target;
@@ -407,56 +474,6 @@ void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* source) {
         return;
     }
 
-    /// Unwind-Local as above, but stores expressions into a vector instead
-    /// of creating a new one or issues an error if the vector is nullptr.
-    auto UnwindLocal = [&](SmallVectorImpl<Expr*>* prot, BlockExpr* S, Expr* FE, Expr* To) -> bool {
-        /// 1/2/5.
-        auto FEIter = rgs::find(S->exprs, FE);
-        auto ToIter = rgs::find(S->exprs, To);
-        Assert(FEIter != S->exprs.end());
-        Assert(ToIter != S->exprs.end());
-        for (auto E : rgs::subrange(ToIter, FEIter) | vws::reverse) {
-            /// 5.
-            if (not prot) {
-                if (not E->protected_children.empty()) {
-                    Error(g, "Jump is ill-formed");
-                    Diag::Note(
-                        mod->context,
-                        E->protected_children[0]->location,
-                        "Because it would bypass {} here",
-                        isa<DeferExpr>(E->protected_children[0])
-                            ? "deferred expression"s
-                            : "variable declaration"s
-                    );
-                    return false;
-                }
-            } else {
-                for (auto P : E->protected_children | vws::reverse) prot->push_back(P);
-            }
-        }
-        return true;
-    };
-
-    /// Unwind as above, with the same modifications as UnwindLocal.
-    ///
-    /// \return The parent full expression of E in To, or nullptr if there was an error.
-    auto Unwind = [&](SmallVectorImpl<Expr*>* prot, BlockExpr* S, Expr* E, BlockExpr* To) -> Expr* {
-        /// 1/2.
-        while (S != To) {
-            /// 3.
-            if (
-                not S->exprs.empty() and
-                not UnwindLocal(prot, S, E, S->exprs.front())
-            ) return nullptr;
-
-            /// 4.
-            E = S->parent_full_expression;
-            S = S->parent;
-        }
-
-        return E;
-    };
-
     /// 1.
     BlockExpr* nca = BlockExpr::NCAInFunction(source, target);
     Assert(nca, "Goto and label blocks must have a common ancestor");
@@ -464,7 +481,7 @@ void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* source) {
     /// 2.
     Expr* label_nca = label;
     if (nca != target) {
-        label_nca = Unwind(nullptr, label->parent, label, nca);
+        label_nca = Unwind(g, label->parent, label, nca);
         if (not label_nca) return;
     }
 
@@ -479,7 +496,7 @@ void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* source) {
     auto unwind_to = std::min(goto_it, label_it);
     auto unwind_from = std::max(goto_it, label_it);
     UnwindLocal(
-        goto_it < label_it ? nullptr : &g->unwind,
+        goto_it < label_it ? UnwindContext(g) : &g->unwind,
         nca,
         *unwind_from,
         *unwind_to
@@ -668,12 +685,13 @@ bool src::Sema::Analyse(Expr*& e) {
         /// Loop control expressions.
         case Expr::Kind::LoopControlExpr: {
             auto l = cast<LoopControlExpr>(e);
+            needs_link_to_full_expr.push_back(e);
 
             /// No label means branch to the parent.
             if (l->label.empty()) {
                 /// No loop to break out of or continue.
                 if (loop_stack.empty()) {
-                    Error(
+                    return Error(
                         l->location,
                         "'{}' is invalid outside of loops",
                         l->is_continue ? "continue" : "break"
@@ -681,33 +699,30 @@ bool src::Sema::Analyse(Expr*& e) {
                 } else {
                     l->target = loop_stack.back();
                 }
-
-                break;
             }
 
             /// Make sure the label exists.
-            auto target = curr_proc->labels.find(l->label);
-            if (target == curr_proc->labels.end()) {
-                Error(l->location, "Unknown label '{}'", l->label);
-                break;
+            else {
+                auto target = curr_proc->labels.find(l->label);
+                if (target == curr_proc->labels.end()) return Error(l->location, "Unknown label '{}'", l->label);
+
+                /// Make sure the label labels a loop.
+                auto loop = dyn_cast<WhileExpr>(target->second->expr);
+                if (not loop) return Error(l->location, "Label '{}' does not label a loop", l->label);
+
+                /// Set the target to the label and make sure we’re
+                /// actually inside that loop.
+                l->target = loop;
+                if (not rgs::contains(loop_stack, loop)) return Error(
+                    l->target,
+                    "Cannot {} to label '{}' from outside loop",
+                    l->is_continue ? "continue" : "break",
+                    l->label
+                );
             }
 
-            /// Make sure the label labels a loop.
-            auto loop = dyn_cast<WhileExpr>(target->second->expr);
-            if (not loop) {
-                Error(l->location, "Label '{}' does not label a loop", l->label);
-                break;
-            }
-
-            /// Set the target to the label and make sure we’re
-            /// actually inside that loop.
-            l->target = loop;
-            if (not rgs::contains(loop_stack, loop)) Error(
-                l->target,
-                "Cannot {} to label '{}' from outside loop",
-                l->is_continue ? "continue" : "break",
-                l->label
-            );
+            /// Unwind to the target.
+            unwind_entries.emplace_back(curr_scope, l, l->target->body);
         } break;
 
         /// Unconditional branch.
@@ -727,13 +742,14 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// We need to check this later.
             needs_link_to_full_expr.push_back(e);
-            gotos.emplace_back(curr_scope, g);
+            unwind_entries.emplace_back(curr_scope, g);
         } break;
 
         /// Return expressions.
         case Expr::Kind::ReturnExpr: {
             auto r = cast<ReturnExpr>(e);
             if (r->value and not Analyse(r->value)) return e->sema.set_errored();
+            needs_link_to_full_expr.push_back(e);
 
             /// If we’re in a `= <expr>` procedure, and the return type
             /// is unspecified, infer the return type from this return
@@ -746,7 +762,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Check for noreturn.
             else if (Type::Equal(ret, Type::NoReturn)) {
-                if (r->value and not Type::Equal(r->value, Type::NoReturn)) Error(
+                if (r->value and not Type::Equal(r->value, Type::NoReturn)) return Error(
                     e,
                     "'noreturn' function may not return"
                 );
@@ -755,7 +771,7 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Return expression returns a value. Check that the return value
             /// is convertible to the return type.
             else if (r->value) {
-                if (not Convert(r->value, ret)) Error(
+                if (not Convert(r->value, ret)) return Error(
                     e,
                     "Cannot return a value of type '{}' from a function with return type '{}'",
                     r->value->type,
@@ -769,13 +785,16 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Return expression has no argument.
             else {
                 if (not Type::Equal(ret, Type::Void)) {
-                    Error(
+                    return Error(
                         e,
                         "Function declared with return type '{}' must return a value",
                         r->value->type
                     );
                 }
             }
+
+            /// Unwind the stack.
+            unwind_entries.emplace_back(curr_scope, r, curr_proc->body);
         } break;
 
         /// Assertions take a bool and an optional message.
@@ -843,13 +862,16 @@ bool src::Sema::Analyse(Expr*& e) {
                 for (auto subexpr : needs_link_to_full_expr) {
                     if (auto n = dyn_cast<BlockExpr>(subexpr)) n->parent_full_expression = expr;
                     else if (auto d = dyn_cast<LabelExpr>(subexpr)) d->parent_full_expression = expr;
-                    else if (auto g = dyn_cast<GotoExpr>(subexpr)) g->parent_full_expression = expr;
+                    else if (auto g = dyn_cast<UnwindExpr>(subexpr)) g->parent_full_expression = expr;
                     else Unreachable();
                 }
             }
 
             /// This needs to know what full expression it is in.
             needs_link_to_full_expr.push_back(b);
+
+            /// Unwind the stack.
+            if (not b->exprs.empty()) UnwindLocal(&b->unwind, b, b->exprs.back(), b->exprs.front());
 
             /// If the type could not be determined, set it to void.
             if (Type::Equal(b->stored_type, Type::Unknown)) b->stored_type = Type::Void;
@@ -1663,7 +1685,7 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
     if (not proc->body) return;
     Assert(not proc->sema.analysed);
     tempset curr_scope = proc->body;
-    tempset gotos = decltype(gotos){};
+    tempset unwind_entries = decltype(unwind_entries){};
 
     /// Sanity check.
     if (Type::Equal(proc->ret_type, Type::Unknown) and not proc->body->implicit) Diag::ICE(
@@ -1726,8 +1748,11 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
         );
     }
 
-    /// Validate gotos.
-    for (auto g : gotos) ValidateDirectBr(g.expr, g.in_scope);
+    /// Handle unwinding.
+    for (auto& uw : unwind_entries) {
+        if (auto g = dyn_cast<GotoExpr>(uw.expr)) ValidateDirectBr(g, uw.in_scope);
+        else UnwindUpTo(uw.in_scope, uw.to_scope, uw.expr);
+    }
 }
 
 void src::Sema::AnalyseModule() {

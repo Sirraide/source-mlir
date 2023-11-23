@@ -40,6 +40,7 @@ static void PrintType(mlir::Type t, mlir::AsmPrinter& p) {
         .Case<ReferenceType>([&](auto t) { t.print(p); })
         .Case<ScopedPointerType>([&](auto t) { t.print(p); })
         .Case<SliceType>([&](auto t) { t.print(p); })
+        .Case<DeferTokenType>([&](auto) { p << "<token>"; })
         .Default([&](auto t) { p.printType(t); });
 }
 
@@ -289,15 +290,25 @@ void hlir::NewOp::print(OpAsmPrinter& p) {
 auto hlir::NewOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::ReturnOp::print(OpAsmPrinter& p) {
-    p << " ";
     if (getOperand()) {
+        p << " ";
         PrintType(getOperand().getType(), p);
         p << " " << getOperand();
     }
 
+    if (not getProt().empty()) {
+        p << " unwind ";
+        bool first = true;
+        for (auto prot : getProt()) {
+            if (first) first = false;
+            else p << ", ";
+            p << prot;
+        }
+    }
+
     p.printOptionalAttrDict(
         (*this)->getAttrs(),
-        {getLoweredAttrName()}
+        {getOperandSegmentSizesAttrName()}
     );
 }
 
@@ -343,20 +354,30 @@ auto hlir::StructGEPOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
     Todo();
 }
 
-void hlir::UnreachableOp::print(OpAsmPrinter& p) { }
+void hlir::UnreachableOp::print(OpAsmPrinter&) {}
 
 auto hlir::UnreachableOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::YieldOp::print(OpAsmPrinter& p) {
-    p << " ";
     if (getYield()) {
+        p << " ";
         PrintType(getYield().getType(), p);
         p << " " << getYield();
     }
 
+    if (not getProt().empty()) {
+        p << " unwind ";
+        bool first = true;
+        for (auto prot : getProt()) {
+            if (first) first = false;
+            else p << ", ";
+            p << prot;
+        }
+    }
+
     p.printOptionalAttrDict(
         (*this)->getAttrs(),
-        {getLoweredAttrName()}
+        {getOperandSegmentSizesAttrName()}
     );
 }
 

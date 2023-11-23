@@ -599,7 +599,7 @@ struct ReturnOpLowering : public ConversionPattern {
         ConversionPatternRewriter& r
     ) const -> LogicalResult override {
         auto loc = op->getLoc();
-        hlir::ReturnOpAdaptor adaptor(arguments);
+        hlir::ReturnOpGenericAdaptor adaptor(arguments, op->getAttrDictionary());
 
         /// Create the return.
         r.create<LLVM::ReturnOp>(loc, adaptor.getOperand());

@@ -1,4 +1,5 @@
 #include <clopts.hh>
+#include <csignal>
 #include <llvm/Support/PrettyStackTrace.h>
 #include <source/CG/CodeGen.hh>
 #include <source/CG/HLIRLowering.hh>
@@ -57,7 +58,15 @@ using options = clopts< // clang-format off
 using detail::options;
 
 int main(int argc, char** argv) {
-    llvm::EnablePrettyStackTrace();
+    /// Print stacktrace on segfault.
+    signal(SIGINT, [](int) {
+        static std::once_flag once;
+        std::call_once(once, [] {
+            src::Diag::ICE("Segmentation fault");
+        });
+    });
+
+    /// Parse options.
     auto opts = options::parse(argc, argv, [](auto&& s) -> bool { src::Diag::Fatal("{}", s); });
 
     /// Check if we want to use colours.

@@ -190,15 +190,8 @@ struct MandatoryInliningXfrm : public OpRewritePattern<CallOp> {
 /// continue, goto, defer, and destructors and converts all of them
 /// to just scopes containing basic blocks.
 struct DeferInliningXfrm {
-    struct Scope {
-        using Entry = std::pair<DeferOp, Block*>;
-        hlir::ScopeOp scope;
-        SmallVector<Entry> deferred;
-    };
-
     src::Context* src_ctx;
     hlir::FuncOp f;
-    std::vector<Scope> entered_scopes{};
     SmallVector<DeferOp> to_delete{};
     mlir::OpBuilder _b{f->getContext()};
     mlir::IRRewriter rewriter{_b};
@@ -225,10 +218,6 @@ struct DeferInliningXfrm {
     }
 
 private:
-    auto CurrScope() -> Scope* {
-        return &entered_scopes.back();
-    }
-
     template <typename... Args>
     auto Error(auto op, fmt::format_string<Args...> fmt, Args&&... args) -> WalkResult {
         auto loc = src::Location::Decode(op.getSrcLoc());
@@ -237,9 +226,6 @@ private:
     }
 
     void ProcessScope(ScopeOp scope) {
-        entered_scopes.emplace_back(scope);
-        defer { entered_scopes.pop_back(); };
-
         /// Process the body of the scope.
         scope.getBody().walk<WalkOrder::PreOrder>([&](Operation* op) {
             if (auto y = dyn_cast<YieldOp>(op)) LowerYield(y);
@@ -250,7 +236,6 @@ private:
                 return WalkResult::skip();
             } else if (auto d = dyn_cast<DeferOp>(op)) {
                 ProcessScope(d.getScopeOp());
-                CurrScope()->deferred.emplace_back(d, d->getBlock());
                 op->remove();
                 to_delete.emplace_back(d);
                 return WalkResult::skip();
@@ -260,70 +245,67 @@ private:
         });
     }
 
-    void EmitScope(Operation* before, Scope* sc) {
-        for (auto [d, _] : vws::reverse(sc->deferred)) EmitDefer(before, d);
-    }
+    void Emit(Operation* before, Operation* o) {
+        if (auto d = dyn_cast<DeferOp>(o)) {
+            InlineRegion<YieldOp>(
+                rewriter,
+                before,
+                &d.getScopeOp().getBody(),
+                false,
+                nullptr
+            );
+            return;
+        }
 
-    void EmitDefer(Operation* before, DeferOp d) {
-        InlineRegion<YieldOp>(
-            rewriter,
-            before,
-            &d.getScopeOp().getBody(),
-            false,
-            nullptr
-        );
-    }
-
-    auto IsBlock(Block* b) {
-        return [b](auto&& p) { return p.second == b; };
+        auto l = cast<LocalOp>(o);
+        rewriter.setInsertionPoint(before);
+        rewriter.create<DestroyOp>(l->getLoc(), l);
     }
 
     void LowerYield(YieldOp y) {
-        if (y.getLowered()) return;
-        y.setLowered(true);
-
         /// Emit deferred material.
-        EmitScope(y, CurrScope());
+        for (auto prot : y.getProt()) Emit(y, prot.getDefiningOp());
+        y.getProtMutable().clear();
     }
 
     void LowerReturn(ReturnOp r) {
-        if (r.getLowered()) return;
-        r.setLowered(true);
-
         /// Emit deferred material.
-        for (auto& sc : vws::reverse(entered_scopes)) EmitScope(r, &sc);
+        for (auto prot : r.getProt()) Emit(r, prot.getDefiningOp());
+        r.getProtMutable().clear();
     }
 
     /// Break, continue, goto.
     void LowerDirectBranch(DirectBrOp b) {
-        /// Replace the branch with a jump when we’re done.
-        defer {
-            rewriter.setInsertionPoint(b);
-            rewriter.create<cf::BranchOp>(b->getLoc(), b.getDest());
-            rewriter.eraseOp(b);
-        };
+        for (auto prot : b.getProt()) Emit(b, prot.getDefiningOp());
+        rewriter.setInsertionPoint(b);
+        rewriter.create<cf::BranchOp>(b->getLoc(), b.getDest());
+        rewriter.eraseOp(b);
 
-        /// Find the NCA of the source and destination blocks.
-        auto src = b->getBlock();
-        auto dst = b.getDest();
-        auto nca = NCA(src->getParent(), dst->getParent());
-        Assert(nca);
+        /*/// The expressions to unwind are only computed during sema if this
+        /// is a goto. For break/continue, it’s simpler if we just do that
+        /// here. That works well because the semantics for unwinding break
+        /// and continue are much simpler than that of goto.
+        ///
+        /// Thus, if we have no protected expressions, then this is may be a
+        /// break or continue, so unwind now if need be.
+        if (auto p = b.getProt(); p.empty()) {
+            /// First, find the NCA of the source and destination blocks.
+            auto src = b->getBlock();
+            auto dst = b.getDest();
+            auto nca = NCA(src->getParent(), dst->getParent());
+            Assert(nca);
 
-        /// Emit scopes up until we’re at the NCA.
-        auto it = rgs::find_if(entered_scopes, [&](Scope& s) { return &s.scope.getBody() == nca; });
-        Assert(it != entered_scopes.end());
-        for (auto& s : rgs::subrange(std::next(it), entered_scopes.end()) | vws::reverse)
-            EmitScope(b, &s);
+            /// Emit scopes up until we’re at the NCA.
+            auto it = rgs::find_if(entered_scopes, [&](Scope& s) { return &s.scope.getBody() == nca; });
+            Assert(it != entered_scopes.end());
+            for (auto& s : rgs::subrange(std::next(it), entered_scopes.end()) | vws::reverse)
+                EmitScope(b, &s);
+        }
 
         /// Emit any protected expressions. Note that codegen has
         /// already reversed the order of these.
-        if (auto p = b.getProt(); not p.empty()) {
-            for (auto prot : p) {
-                if (auto d = cast<DeferOp>(prot.getDefiningOp())) EmitDefer(b, d);
-                else if (auto l = cast<LocalOp>(prot.getDefiningOp())) Todo();
-                else src::Diag::ICE("Invalid protected expression");
-            }
-        }
+        else {
+        }*/
     }
 };
 
