@@ -7,7 +7,6 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/TargetParser/Host.h>
-#include <source/CG/CodeGen.hh>
 #include <source/Core.hh>
 
 void src::Module::emit_object_file(int opt_level, const fs::path& location) {

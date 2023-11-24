@@ -10,10 +10,15 @@
 #include <mlir/Conversion/MathToLLVM/MathToLLVM.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
 #include <mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h>
+#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/ExecutionEngine/ExecutionEngine.h>
 #include <mlir/ExecutionEngine/OptUtils.h>
+#include <mlir/Pass/PassManager.h>
+#include <mlir/Target/LLVMIR/Export.h>
 #include <mlir/Transforms/Passes.h>
-#include <source/CG/HLIRLowering.hh>
+#include <source/CG/CodeGen.hh>
+#include <source/Core.hh>
 #include <source/HLIR/HLIRDialect.hh>
 #include <source/Support/Utils.hh>
 

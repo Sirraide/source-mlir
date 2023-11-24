@@ -1,7 +1,11 @@
+#include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
+#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/IR/Dominance.h>
 #include <mlir/IR/IRMapping.h>
+#include <mlir/IR/Operation.h>
+#include <mlir/IR/OperationSupport.h>
 #include <mlir/Transforms/DialectConversion.h>
-#include <source/CG/HLIRLowering.hh>
+#include <source/CG/CodeGen.hh>
 #include <source/Frontend/AST.hh>
 #include <source/HLIR/HLIRDialect.hh>
 #include <source/Support/Utils.hh>

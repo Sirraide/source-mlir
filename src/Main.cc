@@ -2,7 +2,6 @@
 #include <csignal>
 #include <llvm/Support/PrettyStackTrace.h>
 #include <source/CG/CodeGen.hh>
-#include <source/CG/HLIRLowering.hh>
 #include <source/Core.hh>
 #include <source/Frontend/Parser.hh>
 #include <source/Frontend/Sema.hh>
@@ -107,7 +106,7 @@ int main(int argc, char** argv) {
 
     /// Generate HLIR. If this fails, that’s an ICE, so no
     /// need for error checking here.
-    src::CodeGen::Generate(mod, opts.get<"--no-verify">());
+    src::CodeGenModule(mod, opts.get<"--no-verify">());
     if (ctx.has_error()) std::exit(1);
     if (opts.get<"--hlir">()) {
         mod->print_hlir(opts.get<"--use-generic-assembly-format">());

@@ -20,6 +20,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringMap.h>
 #include <llvm/ADT/StringRef.h>
+#include <llvm/ADT/StringSwitch.h>
 #include <llvm/IR/Function.h>
 #include <memory>
 #include <mlir/Support/LogicalResult.h>
@@ -117,6 +118,11 @@ using f64 = double;
     type _##name();               \
     __declspec(property(get = _##name)) type name
 
+#define property_decl(type, name) \
+    type _##name();               \
+    void _set_##name(type);       \
+    __declspec(property(get = _##name, put = _set_##name)) type name
+
 // clang-format off
 #define AssertImpl(kind, cond, ...) (cond ? void(0) : \
     ::src::detail::AssertFail(                        \
@@ -208,7 +214,7 @@ struct TempsetStage1 {
 
 } // namespace detail
 
-template <typename T, typename ...Us>
+template <typename T, typename... Us>
 concept is_same = (std::is_same_v<T, Us> or ...);
 
 /// More rarely used functions go here so as to not pollute

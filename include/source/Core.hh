@@ -2,14 +2,36 @@
 #define SOURCE_INCLUDE_CONTEXT_HH
 
 #include <llvm/IR/Module.h>
-#include <llvm/MC/TargetRegistry.h>
-#include <mlir/IR/BuiltinDialect.h>
-#include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/MLIRContext.h>
 #include <source/Support/StringTable.hh>
 #include <source/Support/Utils.hh>
 
+namespace llvm {
+class Target;
+}
+
+namespace mlir {
+class ModuleOp;
+class Operation;
+class Value;
+class Block;
+class Type;
+}
+
 namespace src {
+/// This is to avoid having to include Value.h everywhere.
+inline constexpr usz AlignOfMLIRType = 8;
+inline constexpr usz AlignOfMLIRValue = 8;
+inline constexpr usz SizeOfMLIRType = 8;
+inline constexpr usz SizeOfMLIRValue = 8;
+
+#define SOURCE_MLIR_VALUE_MEMBER(name)                                          \
+    alignas(::src::AlignOfMLIRValue) char _##name##_[::src::SizeOfMLIRValue]{}; \
+    property_decl(mlir::Value, name)
+
+#define SOURCE_MLIR_TYPE_MEMBER(name)                                         \
+    alignas(::src::AlignOfMLIRType) char _##name##_[::src::SizeOfMLIRType]{}; \
+    property_decl(mlir::Type, name)
 
 class Context;
 class Module;
@@ -158,6 +180,9 @@ public:
 private:
     /// Initialise the context.
     void Initialise();
+
+    /// Initialise the MLIR context. Implemented in HLIR.cc.
+    void InitialiseMLIRContext();
 
     /// Register a file in the context.
     File& MakeFile(fs::path name, std::vector<char>&& contents);
@@ -331,8 +356,13 @@ public:
     /// Get the global scope of this module.
     readonly_decl(BlockExpr*, global_scope);
 
+    /// Accessor so we don’t have to include everything required
+    /// to bring mlir::ModuleOp into scope here. Implemented in
+    /// CodeGen.cc.
+    readonly_decl(mlir::ModuleOp, mlir);
+
     /// Associated MLIR module op.
-    mlir::ModuleOp mlir;
+    mlir::Operation* mlir_module_op;
 
     /// Associated LLVM module. This is null for
     /// imported modules.

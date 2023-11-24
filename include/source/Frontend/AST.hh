@@ -1,7 +1,6 @@
 #ifndef SOURCE_FRONTEND_AST_HH
 #define SOURCE_FRONTEND_AST_HH
 
-#include <mlir/IR/Value.h>
 #include <source/Core.hh>
 #include <source/Frontend/Lexer.hh>
 #include <source/Support/Result.hh>
@@ -220,7 +219,7 @@ public:
     SemaState sema{};
 
     /// The MLIR value of this expression.
-    mlir::Value mlir{};
+    SOURCE_MLIR_VALUE_MEMBER(mlir);
 
     /// Protected subexpressions (i.e. defers and local variables).
     /// Only applicable to full expressions at the block level. This
@@ -943,7 +942,7 @@ public:
     StructType* captured_locals_type{};
 
     /// LocalVar holding the captured variables.
-    mlir::Value captured_locals_ptr{};
+    SOURCE_MLIR_VALUE_MEMBER(captured_locals_ptr);
 
     /// MLIR function.
     mlir::Operation* mlir_func{};
@@ -1169,7 +1168,7 @@ public:
     isz stored_alignment{1};
 
     /// MLIR type.
-    mlir::Type mlir{};
+    SOURCE_MLIR_TYPE_MEMBER(mlir);
 
     StructType(
         Module* mod,

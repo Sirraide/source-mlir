@@ -1,11 +1,9 @@
 #include <cpptrace/cpptrace.hpp>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/Unicode.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
-#include <mlir/InitAllDialects.h>
-#include <mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h>
-#include <mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h>
 #include <random>
 #include <source/Core.hh>
 #include <source/Frontend/AST.hh>
@@ -18,10 +16,6 @@
 #    include <sys/stat.h>
 #    include <sys/wait.h>
 #    include <unistd.h>
-#endif
-
-#ifdef __linux__
-#    include <execinfo.h>
 #endif
 
 /// ===========================================================================
@@ -54,6 +48,11 @@ auto src::Context::get_or_load_file(fs::path path) -> File& {
     return MakeFile(std::move(path), std::move(contents));
 }
 
+/// Implemented in HLIR.cc
+namespace mlir::hlir {
+void InitContext(MLIRContext& mctx);
+}
+
 void src::Context::Initialise() {
     llvm::InitializeNativeTarget();
     llvm::InitializeAllTargetInfos();
@@ -61,21 +60,7 @@ void src::Context::Initialise() {
     llvm::InitializeAllTargetMCs();
     llvm::InitializeAllAsmParsers();
     llvm::InitializeAllAsmPrinters();
-    mlir::registerAllDialects(mlir);
-    mlir::registerBuiltinDialectTranslation(mlir);
-    mlir::registerLLVMDialectTranslation(mlir);
-    mlir.loadDialect< // clang-format off
-        mlir::func::FuncDialect,
-        mlir::scf::SCFDialect,
-        mlir::affine::AffineDialect,
-        mlir::LLVM::LLVMDialect,
-        mlir::index::IndexDialect,
-        mlir::math::MathDialect,
-        mlir::cf::ControlFlowDialect,
-        mlir::DLTIDialect
-    >(); // clang-format on
-    mlir.printOpOnDiagnostic(true);
-    mlir.printStackTraceOnDiagnostic(true);
+    mlir::hlir::InitContext(mlir);
 }
 
 auto src::Context::MakeFile(fs::path name, std::vector<char>&& contents) -> File& {

@@ -1,39 +1,13 @@
-// clang-format off
-#include <mlir/IR/OpImplementation.h>
+#include <llvm/ADT/TypeSwitch.h>
+#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Interfaces/FunctionImplementation.h>
-#include <mlir/IR/Builders.h>
-#include <fmt/format.h>
-
+#include <mlir/IR/DialectImplementation.h>
+#include <mlir/IR/Operation.h>
 #include <source/HLIR/HLIRDialect.hh>
-#include <source/HLIR/HLIROpsDialect.cpp.inc>
-
-#include <source/HLIR/HLIREnumAttr.cpp.inc>
-
-#define GET_TYPEDEF_CLASSES
-#include <source/HLIR/HLIROpsTypes.cpp.inc>
-
-#define GET_OP_CLASSES
-#include <source/HLIR/HLIROps.cpp.inc>
-
-
 #include <source/Support/Utils.hh>
-
-// clang-format on
 
 using u64 = std::uint64_t;
 using i64 = std::int64_t;
-
-void hlir::HLIRDialect::initialize() {
-    addTypes<
-#define GET_TYPEDEF_LIST
-#include <source/HLIR/HLIROpsTypes.cpp.inc>
-        >();
-
-    addOperations<
-#define GET_OP_LIST
-#include <source/HLIR/HLIROps.cpp.inc>
-        >();
-}
 
 static void PrintType(mlir::Type t, mlir::AsmPrinter& p) {
     using namespace hlir;
