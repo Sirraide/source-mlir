@@ -449,7 +449,6 @@ def HLIR_LocalOp : HLIR_Op<"local"> {
     let results = (outs HLIR_ReferenceType:$res);
     let arguments = (ins
         Builtin_IntegerAttr:$alignment,
-        LocalInit:$init_kind,
         DefaultValuedAttr<BoolAttr, "false">:$dtor_flag
     );
 
@@ -457,12 +456,10 @@ def HLIR_LocalOp : HLIR_Op<"local"> {
         OpBuilder<(ins
             "::mlir::Type":$type,
             "std::int64_t":$alignment,
-            "::mlir::hlir::LocalInit":$init_kind,
             CArg<"bool", "false">:$dtor_flag
         ), [{
             $_state.addTypes(ReferenceType::get($_state.getContext(), type));
             $_state.addAttribute("alignment", $_builder.getI64IntegerAttr(alignment));
-            $_state.addAttribute("init_kind", hlir::LocalInitAttr::get($_state.getContext(), init_kind));
             $_state.addAttribute("dtor_flag", mlir::BoolAttr::get($_state.getContext(), dtor_flag));
         }]>
     ];
@@ -589,33 +586,83 @@ def InvokeClosureOp : HLIR_Op<"invokeclosure"> {
 
 def NewOp : HLIR_Op<"new"> {
     let summary = "Allocate an object on the heap";
-    let arguments = (ins DefaultValuedAttr<I64Attr, "0">:$indirection);
     let results = (outs HLIR_ReferenceType);
     let hasCustomAssemblyFormat = 1;
 }
 
 def DeleteOp : HLIR_Op<"delete"> {
     let summary = "Free an object allocated on the heap";
-    let arguments = (ins HLIR_ReferenceType:$object, DefaultValuedAttr<I64Attr, "0">:$indirection);
+    let arguments = (ins HLIR_ReferenceType:$object);
     let hasCustomAssemblyFormat = 1;
+}
+
+def ConstructOp : HLIR_Op<"construct"> {
+    let summary = "Construct an object";
+    let hasCustomAssemblyFormat = 1;
+    let arguments = (ins
+        HLIR_ReferenceType:$object,
+        LocalInit:$init_kind,
+        FlatSymbolRefAttr:$ctor,
+        Variadic<HLIR_Type>:$args
+    );
+
+    let builders = [
+        /// Constructor call.
+        OpBuilder<(ins
+            "::mlir::Value":$object,
+            "::llvm::StringRef":$ctor,
+            CArg<"::mlir::ValueRange", "{}">:$args
+        ), [{
+            build(
+                $_builder,
+                $_state,
+                {},
+                object,
+                hlir::LocalInitAttr::get($_state.getContext(), ::mlir::hlir::LocalInit::Init),
+                FlatSymbolRefAttr::get($_state.getContext(), ctor),
+                args
+            );
+        }]>,
+
+        /// Zero-init or trivial copy-init.
+        OpBuilder<(ins
+            "::mlir::Value":$object,
+            CArg<"::mlir::ValueRange", "{}">:$args
+        ), [{
+            auto init = args.empty()
+                ? ::mlir::hlir::LocalInit::Zeroinit
+                : ::mlir::hlir::LocalInit::TrivialCopyInit;
+
+            build(
+                $_builder,
+                $_state,
+                {},
+                object,
+                hlir::LocalInitAttr::get($_state.getContext(), init),
+                FlatSymbolRefAttr::get($_state.getContext(), ""),
+                args
+            );
+        }]>
+    ];
+
 }
 
 def DestroyOp : HLIR_Op<"destroy"> {
     let summary = "Call the destructor of a local variable";
-    let arguments = (ins HLIR_ReferenceType:$local, FlatSymbolRefAttr:$dtor);
+    let arguments = (ins HLIR_ReferenceType:$object, FlatSymbolRefAttr:$dtor);
     let results = (outs HLIR_TokenType);
     let hasCustomAssemblyFormat = 1;
 
     let builders = [
         OpBuilder<(ins
-            "::mlir::Value":$local,
+            "::mlir::Value":$object,
             "::llvm::StringRef":$dtor
         ), [{
             build(
                 $_builder,
                 $_state,
                 {hlir::TokenType::get($_state.getContext())},
-                local,
+                object,
                 SymbolRefAttr::get($_state.getContext(), dtor)
             );
         }]>

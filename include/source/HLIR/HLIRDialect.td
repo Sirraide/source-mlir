@@ -87,7 +87,6 @@ class HLIR_SingleElementType<
 def HLIR_TokenType : HLIR_Type<"Token", "token">;
 
 def HLIR_SliceType : HLIR_SingleElementType<"Slice", "slice">;
-def HLIR_ScopedPointerType : HLIR_SingleElementType<"ScopedPointer", "scp">;
 def HLIR_ReferenceType : HLIR_SingleElementType<"Reference", "ref">;
 def HLIR_ClosureType : HLIR_SingleElementType<"Closure", "closure">;
 
@@ -113,16 +112,15 @@ def HLIR_Type : AnyTypeOf<[
     HLIR_SliceType,
     HLIR_ArrayType,
     HLIR_ReferenceType,
-    HLIR_ScopedPointerType,
     HLIR_TokenType,
 ]>;
 
 /// ============================================================================
 ///  Enums
 /// ============================================================================
-def LocalInitUninit : I32EnumAttrCase<"Uninit", 0, "uninit">;
+def LocalInitUninit : I32EnumAttrCase<"Init", 0, "init">;
 def LocalInitZeroinit : I32EnumAttrCase<"Zeroinit", 1, "zeroinit">;
-def LocalInitInit : I32EnumAttrCase<"Init", 2, "init">;
+def LocalInitInit : I32EnumAttrCase<"TrivialCopyInit", 2, "trivial">;
 
 def LocalInitEnum : I32EnumAttr<"LocalInit", "LocalOp initialiser kind",
     [LocalInitUninit, LocalInitZeroinit, LocalInitInit]> {

@@ -41,7 +41,6 @@ static void PrintType(mlir::Type t, mlir::AsmPrinter& p) {
         .Case<ArrayType>([&](auto t) { t.print(p); })
         .Case<ClosureType>([&](auto t) { t.print(p); })
         .Case<ReferenceType>([&](auto t) { t.print(p); })
-        .Case<ScopedPointerType>([&](auto t) { t.print(p); })
         .Case<SliceType>([&](auto t) { t.print(p); })
         .Case<TokenType>([&](auto) { p << "<token>"; })
         .Default([&](auto t) { p.printType(t); });
@@ -71,13 +70,6 @@ void hlir::ReferenceType::print(AsmPrinter& p) const {
 }
 
 ::mlir::Type hlir::ReferenceType::parse(AsmParser&) { Todo(); }
-
-void hlir::ScopedPointerType::print(AsmPrinter& p) const {
-    PrintType(getElem(), p);
-    p << "^";
-}
-
-::mlir::Type hlir::ScopedPointerType::parse(AsmParser&) { Todo(); }
 
 void hlir::SliceType::print(AsmPrinter& p) const {
     p << getElem();
@@ -127,6 +119,33 @@ void hlir::ChainExtractLocalOp::print(OpAsmPrinter& p) {
 
 auto hlir::ChainExtractLocalOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
+void hlir::ConstructOp::print(OpAsmPrinter& p) {
+    p << " " << getObject() << " " << getInitKind();
+    if (not getCtor().empty()) {
+        p << " " << getCtorAttr();
+        if (auto a = getArgs(); not a.empty()) {
+            p << "(";
+            bool first = true;
+            for (auto arg : a) {
+                if (first) first = false;
+                else p << ", ";
+                PrintType(arg.getType(), p);
+                p << " " << arg;
+            }
+            p << ")";
+        }
+    } else {
+        if (auto a = getArgs(); not a.empty()) {
+            Assert(a.size() == 1);
+            p << " ";
+            PrintType(a.front().getType(), p);
+            p << " " << a.front();
+        }
+    }
+}
+
+auto hlir::ConstructOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
 auto hlir::DeferOp::getScopeOp() -> ScopeOp {
     Assert(&getBody());
     Assert(not getBody().getBlocks().empty());
@@ -147,7 +166,7 @@ void hlir::DeleteOp::print(OpAsmPrinter& p) {
 auto hlir::DeleteOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::DestroyOp::print(OpAsmPrinter& p) {
-    p << " " << getLocal() << " dtor " << getDtorAttr();
+    p << " " << getObject() << " dtor " << getDtorAttr();
 }
 
 auto hlir::DestroyOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
@@ -207,7 +226,6 @@ void hlir::FuncOp::print(OpAsmPrinter& p) {
             PrintType(ftype.getInput(i), p);
         }
         p << ")";
-
     }
 
     if (ftype.getNumResults()) {
@@ -268,7 +286,6 @@ void hlir::LoadOp::print(OpAsmPrinter& p) {
 auto hlir::LoadOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::LocalOp::print(OpAsmPrinter& p) {
-    p << " " << getInitKind();
     if (getDtorFlag()) p << " flag";
     p << " ";
     PrintType(getType().getElem(), p);
@@ -429,64 +446,63 @@ auto hlir::CallOp::verifySymbolUses(SymbolTableCollection& symbolTable) -> Logic
 /// ===========================================================================
 ///  Data Layout Interface.
 /// ===========================================================================
-#define DEFINE_DEFAULT_DATA_LAYOUT(type, size, align)                          \
-    auto hlir::type::getTypeSizeInBits(                                        \
-        const ::mlir::DataLayout&,                                             \
-        ::mlir::DataLayoutEntryListRef                                         \
-    ) const -> unsigned {                                                      \
-        return size; /** FIXME: Use data layout. **/                           \
-    }                                                                          \
-                                                                               \
-    auto hlir::type::getTypeSize(                                              \
-        const ::mlir::DataLayout& dl,                                          \
-        ::mlir::DataLayoutEntryListRef e                                       \
-    ) const -> unsigned {                                                      \
-        return src::utils::AlignTo<unsigned>(getTypeSizeInBits(dl, e), 8) / 8; \
-    }                                                                          \
-                                                                               \
-    auto hlir::type::getABIAlignment(                                          \
-        const ::mlir::DataLayout&,                                             \
-        ::mlir::DataLayoutEntryListRef                                         \
-    ) const -> unsigned {                                                      \
-        return align; /** FIXME: Use data layout. **/                          \
-    }                                                                          \
-                                                                               \
-    auto hlir::type::getPreferredAlignment(                                    \
-        const ::mlir::DataLayout& dl,                                          \
-        ::mlir::DataLayoutEntryListRef e                                       \
-    ) const -> unsigned {                                                      \
-        return getABIAlignment(dl, e);                                         \
+#define DEFINE_DEFAULT_DATA_LAYOUT(type, size, align)                                               \
+    auto hlir::type::getTypeSizeInBits(                                                             \
+        const ::mlir::DataLayout&,                                                                  \
+        ::mlir::DataLayoutEntryListRef                                                              \
+    ) const -> llvm::TypeSize {                                                                     \
+        return llvm::TypeSize::getFixed(size); /** FIXME: Use data layout. **/                      \
+    }                                                                                               \
+                                                                                                    \
+    auto hlir::type::getTypeSize(                                                                   \
+        const ::mlir::DataLayout& dl,                                                               \
+        ::mlir::DataLayoutEntryListRef e                                                            \
+    ) const -> llvm::TypeSize {                                                                     \
+        return llvm::TypeSize::getFixed(src::utils::AlignTo<u64>(getTypeSizeInBits(dl, e), 8) / 8); \
+    }                                                                                               \
+                                                                                                    \
+    auto hlir::type::getABIAlignment(                                                               \
+        const ::mlir::DataLayout&,                                                                  \
+        ::mlir::DataLayoutEntryListRef                                                              \
+    ) const -> u64 {                                                                                \
+        return align; /** FIXME: Use data layout. **/                                               \
+    }                                                                                               \
+                                                                                                    \
+    auto hlir::type::getPreferredAlignment(                                                         \
+        const ::mlir::DataLayout& dl,                                                               \
+        ::mlir::DataLayoutEntryListRef e                                                            \
+    ) const -> u64 {                                                                                \
+        return getABIAlignment(dl, e);                                                              \
     }
 
 DEFINE_DEFAULT_DATA_LAYOUT(SliceType, 128, 8)
 DEFINE_DEFAULT_DATA_LAYOUT(ClosureType, 64, 8)
 DEFINE_DEFAULT_DATA_LAYOUT(ReferenceType, 64, 8)
-DEFINE_DEFAULT_DATA_LAYOUT(ScopedPointerType, 64, 8)
 
 auto hlir::ArrayType::getTypeSizeInBits(
     const ::mlir::DataLayout& dl,
     ::mlir::DataLayoutEntryListRef
-) const -> unsigned {
-    return unsigned(getSize()) * dl.getTypeSizeInBits(getElem());
+) const -> llvm::TypeSize {
+    return u64(getSize()) * dl.getTypeSizeInBits(getElem());
 }
 
 auto hlir::ArrayType::getTypeSize(
     const ::mlir::DataLayout& dl,
     ::mlir::DataLayoutEntryListRef e
-) const -> unsigned {
-    return src::utils::AlignTo<unsigned>(getTypeSizeInBits(dl, e), 8) / 8;
+) const -> llvm::TypeSize {
+    return llvm::TypeSize::getFixed(src::utils::AlignTo<u64>(getTypeSizeInBits(dl, e), 8) / 8);
 }
 
 auto hlir::ArrayType::getABIAlignment(
     const ::mlir::DataLayout& dl,
     ::mlir::DataLayoutEntryListRef
-) const -> unsigned {
+) const -> u64 {
     return dl.getTypeABIAlignment(getElem());
 }
 
 auto hlir::ArrayType::getPreferredAlignment(
     const ::mlir::DataLayout& dl,
     ::mlir::DataLayoutEntryListRef
-) const -> unsigned {
+) const -> u64 {
     return dl.getTypePreferredAlignment(getElem());
 }

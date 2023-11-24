@@ -3,7 +3,7 @@
 /// d t %[a-zA-Z0-9_]+
 /// d b \^bb[0-9]+
 
-/// * (?<A>$t) = local uninit i64
+/// * (?<A>$t) = local i64
 int a;
 
 /// * (?<B>$t) = local i64
@@ -22,7 +22,7 @@ int a;
 /// + }
 /// + cf.br $JOIN_1($SC2 : i64)
 /// + $JOIN_1((?<IF_1>$t): i64)
-/// + store into $B, i64 $IF_1
+/// + construct $B trivial i64 $IF_1
 int b = if true then a else 42;
 
 /// * (?<C>$t) = local i64
@@ -41,7 +41,7 @@ int b = if true then a else 42;
 /// + (?<A_2>$t) = load i64 from $SC4
 /// + cf.br $JOIN_2($A_2
 /// + $JOIN_2((?<IF_2>$t): i64)
-/// + store into $C, i64 $IF_2
+/// + construct $C trivial i64 $IF_2
 int c = if true { 42 } else { a };
 
 /// * (?<D>$t) = local i64&
@@ -58,7 +58,7 @@ int c = if true { 42 } else { a };
 /// + }
 /// + cf.br $JOIN_3($SC6 : !hlir<i64&>)
 /// + $JOIN_3((?<IF_3>$t): !hlir<i64&>)
-/// + store into $D, i64& $IF_3
+/// + construct $D trivial i64& $IF_3
 int& d = if false { b } else { c };
 
 /// + (?<T_4>$t) = arith.constant true

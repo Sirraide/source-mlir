@@ -5,7 +5,7 @@ proc discard (int a) extern;
 
 /// * hlir.func private @takes_int
 proc takes_int (int a) {
-    /// + (?<A>$t) = local uninit
+    /// + (?<A>$t) = local i64
     /// + store into $A
     /// + scope
     /// + (?<A1>$t) = load i64 from $A

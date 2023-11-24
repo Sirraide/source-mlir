@@ -43,6 +43,7 @@ namespace chr = std::chrono;
 namespace rgs = std::ranges;
 namespace vws = std::ranges::views;
 
+using llvm::Align;
 using llvm::APInt;
 using llvm::ArrayRef;
 using llvm::DenseMap;
@@ -54,6 +55,7 @@ using llvm::SmallVectorImpl;
 using llvm::StringMap;
 using llvm::StringRef;
 using llvm::Twine;
+using llvm::TypeSize;
 
 using llvm::cast;
 using llvm::dyn_cast;

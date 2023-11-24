@@ -14,7 +14,8 @@ struct S {
 
 /// * hlir.func external @__src_main
 /// + $t = scope i8 {
-/// + (?<S>$t) = local uninit
+/// + (?<S>$t) = local
+/// + construct $S zeroinit
 /// + (?<S1>$t) = load $any from $S
 /// + $t = call @foo($S, $S1)
 /// + yield
@@ -26,9 +27,9 @@ foo s, s;
 
 /// Note: Index of `.a` is 0; index of `.c` is 3, because padding.
 /// * hlir.func private @foo
-/// + (?<A>$t) = local uninit
+/// + (?<A>$t) = local
 /// + store into $A
-/// + (?<B>$t) = local uninit
+/// + (?<B>$t) = local
 /// + store into $B
 /// + (?<ret>$t) = scope i8 {
 /// + (?<Aref>$t) = load $any from $A

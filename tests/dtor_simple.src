@@ -1,3 +1,45 @@
+/// R %srcc %s --hlir
+
+/// d t %[a-zA-Z0-9_]+
 
 
 int^^ x;
+
+/// b
+/// * hlir.func external @__src_main {
+/// + scope
+/// + (?<var>$t) = local i64&&, align 8
+/// + construct $var init @_SKUUi
+/// + (?<tok>$t) = destroy $var dtor @_SXUUi
+/// + yield i64&&& $var unwind $tok
+
+/// b
+/// *  hlir.func linkonce_odr @_SKUUi(i64&&&) {
+/// +    (?<var>$t) = new i64&
+/// +    store into %arg0, i64&& $t, align 8
+/// +    construct $t init @_SKUi
+/// +    return
+/// +  }
+
+/// b
+/// *  hlir.func linkonce_odr @_SKUi(i64&&) {
+/// +    (?<var>$t) = new i64
+/// +    store into %arg0, i64& $t, align 8
+/// +    construct $t zeroinit
+/// +    return
+/// +  }
+
+/// b
+/// *  hlir.func linkonce_odr @_SXUUi(i64&&&) {
+/// +    (?<var>$t) = load i64&& from %arg0
+/// +    $t = destroy $var dtor @_SXUi
+/// +    delete $var
+/// +    return
+/// +  }
+
+/// b
+/// *  hlir.func linkonce_odr @_SXUi(i64&&) {
+/// +    (?<var>$t) = load i64& from %arg0
+/// +    delete $var
+/// +    return
+/// +  }

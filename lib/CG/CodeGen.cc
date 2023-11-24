@@ -38,7 +38,6 @@ auto src::CodeGen::AllocateLocalVar(src::LocalDecl* decl) -> mlir::Value {
         decl->location.mlir(ctx),
         Ty(decl->type),
         decl->type.align(ctx) / 8,
-        hlir::LocalInit::Zeroinit,
         decl->deleted_or_moved
     );
 }
@@ -105,6 +104,81 @@ bool src::CodeGen::Closed(mlir::Block* block) {
     return not block->empty() and block->back().hasTrait<mlir::OpTrait::IsTerminator>();
 }
 
+void src::CodeGen::Construct(
+    mlir::Location loc,
+    mlir::Value addr,
+    Expr* type,
+    ArrayRef<mlir::Value> args
+) {
+    if (not args.empty()) {
+        Assert(args.size() == 1);
+        Create<hlir::ConstructOp>(
+            loc,
+            addr,
+            args[0]
+        );
+    }
+
+    /// Otherwise, default-initialise the variable.
+    else {
+        if (auto c = Constructor(type); c.has_value()) {
+            Create<hlir::ConstructOp>(
+                loc,
+                addr,
+                *c
+            );
+        } else {
+            Create<hlir::ConstructOp>(
+                loc,
+                addr
+            );
+        }
+    }
+}
+
+auto src::CodeGen::Constructor(Expr* type) -> std::optional<StringRef> {
+    if (not isa<ScopedPointerType>(type)) return std::nullopt;
+
+    /// Auto-generate constructors for scoped pointers.
+    if (auto sc = cast<ScopedPointerType>(type)) {
+        if (auto d = constructors.find(sc); d != constructors.end())
+            return d->second;
+
+        /// Create a new function.
+        ///
+        /// A constructor always takes a reference to the type being constructed.
+        auto fty = mlir::FunctionType::get(mctx, hlir::ReferenceType::get(Ty(sc)), {});
+        auto name = fmt::format("_SK{}", sc->as_type.mangled_name(ctx));
+        auto proc = CreateProcedure(fty, name, Linkage::LinkOnceODR, [&](hlir::FuncOp f) {
+            /// Allocate the pointer.
+            auto ptr = Create<hlir::NewOp>(
+                builder.getUnknownLoc(),
+                hlir::ReferenceType::get(Ty(sc->elem))
+            );
+
+            /// Store it in the reference.
+            Create<hlir::StoreOp>(
+                builder.getUnknownLoc(),
+                f.getArgument(0),
+                ptr.getResult(),
+                sc->as_type.align(ctx) / 8
+            );
+
+            /// Call the element type’s constructor, if any.
+            Construct(builder.getUnknownLoc(), ptr.getResult(), sc->elem);
+
+            /// Done.
+            Create<hlir::ReturnOp>(builder.getUnknownLoc());
+            return f;
+        });
+
+        /// Save it for later.
+        return constructors[sc] = proc.getName();
+    }
+
+    Unreachable();
+}
+
 template <typename T, typename... Args>
 auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...)) {
     if (auto b = builder.getBlock(); not b->empty() and b->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
@@ -118,6 +192,16 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
     return builder.create<T>(loc, std::forward<Args>(args)...);
 }
 
+auto src::CodeGen::Destroy(mlir::Location loc, mlir::Value addr, Expr* type) -> mlir::Value {
+    auto d = Destructor(type);
+    if (not d.has_value()) return {};
+    return Create<hlir::DestroyOp>(
+        loc,
+        addr,
+        *d
+    );
+}
+
 auto src::CodeGen::Destructor(Expr* type) -> std::optional<StringRef> {
     if (not isa<ScopedPointerType>(type)) return std::nullopt;
 
@@ -125,9 +209,6 @@ auto src::CodeGen::Destructor(Expr* type) -> std::optional<StringRef> {
     if (auto sc = cast<ScopedPointerType>(type)) {
         if (auto d = destructors.find(sc); d != destructors.end())
             return d->second;
-
-        /// Get destructor of the element type.
-        auto dtor = Destructor(sc->elem);
 
         /// Create a new function.
         ///
@@ -139,26 +220,10 @@ auto src::CodeGen::Destructor(Expr* type) -> std::optional<StringRef> {
             auto ptr = Create<hlir::LoadOp>(builder.getUnknownLoc(), f.getArgument(0));
 
             /// Call the element type’s destructor, if any.
-            if (dtor.has_value()) {
-                Create<hlir::CallOp>(
-                    builder.getUnknownLoc(),
-                    mlir::TypeRange{},
-                    *dtor,
-                    false,
-                    mlir::LLVM::CConv::C,
-                    ptr.getResult()
-                );
-            }
+            Destroy(builder.getUnknownLoc(), ptr.getResult(), sc->elem);
 
             /// Delete the pointer.
-            Create<hlir::CallOp>(
-                builder.getUnknownLoc(),
-                mlir::TypeRange{},
-                "free",
-                false,
-                mlir::LLVM::CConv::C,
-                ptr.getResult()
-            );
+            Create<hlir::DeleteOp>(builder.getUnknownLoc(), ptr.getResult());
 
             /// Done.
             Create<hlir::ReturnOp>(builder.getUnknownLoc());
@@ -276,7 +341,6 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
         builder.getUnknownLoc(),
         Ty(s),
         s->stored_alignment,
-        hlir::LocalInit::Zeroinit,
         false
     );
 
@@ -354,14 +418,10 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
             return hlir::SliceType::get(Ty(ty->elem));
         }
 
-        case Expr::Kind::ReferenceType: {
-            auto ty = cast<SingleElementTypeBase>(type);
-            return hlir::ReferenceType::get(Ty(ty->elem));
-        }
-
+        case Expr::Kind::ReferenceType:
         case Expr::Kind::ScopedPointerType: {
             auto ty = cast<SingleElementTypeBase>(type);
-            return hlir::ScopedPointerType::get(Ty(ty->elem));
+            return hlir::ReferenceType::get(Ty(ty->elem));
         }
 
         case Expr::Kind::ArrayType: {
@@ -467,13 +527,8 @@ auto src::CodeGen::UnwindValues(ArrayRef<Expr*> exprs) -> SmallVector<mlir::Valu
     for (auto e : exprs) {
         if (isa<DeferExpr>(e)) vals.push_back(e->mlir);
         else if (auto l = dyn_cast<LocalDecl>(e)) {
-            auto d = Destructor(l->type);
-            if (not d.has_value()) continue;
-            vals.push_back(Create<hlir::DestroyOp>(
-                l->location.mlir(ctx),
-                l->mlir,
-                *d
-            ));
+            auto d = Destroy(l->location.mlir(ctx), l->mlir, l->type);
+            if (d) vals.push_back(d);
         }
     }
     return vals;
@@ -963,16 +1018,11 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// If the variable hasn’t already been allocated, do so now.
             if (not e->mlir) e->mlir = AllocateLocalVar(e);
-
-            /// If there is an initialiser, emit it.
             if (e->init) {
                 Generate(e->init);
-                Create<hlir::StoreOp>(
-                    e->init->location.mlir(ctx),
-                    e->mlir,
-                    e->init->mlir,
-                    e->type.align(ctx) / 8
-                );
+                Construct(e->init->location.mlir(ctx), e->mlir, e->type, e->init->mlir);
+            } else {
+                Construct(e->location.mlir(ctx), e->mlir, e->type);
             }
         } break;
 
@@ -1230,6 +1280,8 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         for (auto [i, p] : vws::enumerate(proc->params)) {
             p->emitted = true;
             p->mlir = AllocateLocalVar(p);
+
+            /// TODO: Handle self-referential types.
 
             /// Store the initial parameter value in the variable.
             Create<hlir::StoreOp>(

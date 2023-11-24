@@ -89,8 +89,10 @@ while t {
     ///L + cf.cond_br $T2, (?<BODY2>$b), (?<EXIT2>$b)
     ///L + $BODY2:
     loop: while t {
-        ///  + (?<Q>$t) = local uninit i64
-        ///L + (?<Q>$t) = local uninit i64
+        ///  + (?<Q>$t) = local i64
+        ///  + construct $Q zeroinit
+        ///L + (?<Q>$t) = local i64
+        ///L + zeroinitialiser $Q
         int q;
 
         ///  + (?<Dd>$t) = defer {
@@ -248,8 +250,10 @@ while t {
             ///L + cf.cond_br $T7, (?<BODY5>$b), (?<EXIT5>$b)
             ///L + $BODY5:
             while t {
-                ///  + (?<W>$t) = local uninit i64
-                ///L + (?<W>$t) = local uninit i64
+                ///  + (?<W>$t) = local i64
+                ///  + construct $W zeroinit
+                ///L + (?<W>$t) = local i64
+                ///L + zeroinitialiser $W
                 int w;
 
                 ///  + (?<Di>$t) = defer {

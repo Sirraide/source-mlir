@@ -11,30 +11,30 @@ i64 a = 42;
 /// * (?<B>$t) = local i8
 /// + (?<A_1>$t) = load i64 from $A
 /// + (?<ATRUNC_1>$t) = arith.trunci $A_1 : i64 to i8
-/// + store into $B, i8 $ATRUNC_1
+/// + construct $B trivial i8 $ATRUNC_1
 i8 b = a as i8;
 
 /// * (?<C>$t) = local i16
 /// + (?<A_2>$t) = load i64 from $A
 /// + (?<ATRUNC_2>$t) = arith.trunci $A_2 : i64 to i16
-/// + store into $C, i16 $ATRUNC_2
+/// + construct $C trivial i16 $ATRUNC_2
 i16 c = a as i16;
 
 /// * (?<D>$t) = local i32
 /// + (?<A_3>$t) = load i64 from $A
 /// + (?<ATRUNC_3>$t) = arith.trunci $A_3 : i64 to i32
-/// + store into $D, i32 $ATRUNC_3
+/// + construct $D trivial i32 $ATRUNC_3
 i32 d = a as i32;
 
 /// * (?<E>$t) = local i64
 /// + (?<A_4>$t) = load i64 from $A
-/// + store into $E, i64 $A_4
+/// + construct $E trivial i64 $A_4
 i64 e = a as i64;
 
 /// * (?<F>$t) = local i1
 /// + (?<A_5>$t) = load i64 from $A
 /// + (?<ATRUNC_5>$t) = arith.trunci $A_5 : i64 to i1
-/// + store into $F, i1 $ATRUNC_5
+/// + construct $F trivial i1 $ATRUNC_5
 bool f = a as bool;
 
 /// ===== SIGN-EXTENDING CASTS  =====
@@ -44,19 +44,19 @@ i8 g = 42 as i8;
 /// * (?<H>$t) = local i16
 /// + (?<G_1>$t) = load i8 from $G
 /// + (?<GSEXT_1>$t) = arith.extsi $G_1 : i8 to i16
-/// + store into $H, i16 $GSEXT_1
+/// + construct $H trivial i16 $GSEXT_1
 i16 h = g as i16;
 
 /// * (?<I>$t) = local i32
 /// + (?<G_2>$t) = load i8 from $G
 /// + (?<GSEXT_2>$t) = arith.extsi $G_2 : i8 to i32
-/// + store into $I, i32 $GSEXT_2
+/// + construct $I trivial i32 $GSEXT_2
 i32 i = g as i32;
 
 /// * (?<J>$t) = local i64
 /// + (?<G_3>$t) = load i8 from $G
 /// + (?<GSEXT_3>$t) = arith.extsi $G_3 : i8 to i64
-/// + store into $J, i64 $GSEXT_3
+/// + construct $J trivial i64 $GSEXT_3
 i64 j = g as i64;
 
 /// ===== ZERO-EXTENDING CASTS  =====
@@ -72,13 +72,13 @@ i1 l = true;
 /// * (?<M>$t) = local i64
 /// + (?<K_1>$t) = load i1 from $K
 /// + (?<KZEXT_1>$t) = arith.extui $K_1 : i1 to i64
-/// + store into $M, i64 $KZEXT_1
+/// + construct $M trivial i64 $KZEXT_1
 i64 m = k as i64;
 
 /// * (?<N>$t) = local i64
 /// + (?<L_1>$t) = load i1 from $L
 /// + (?<LZEXT_1>$t) = arith.extui $L_1 : i1 to i64
-/// + store into $N, i64 $LZEXT_1
+/// + construct $N trivial i64 $LZEXT_1
 /// + yield
 /// + }
 i64 n = l as i64;

@@ -11,28 +11,6 @@ namespace vws = src::vws;
 
 namespace mlir::hlir {
 namespace {
-/*
-/// Perform constructor call insertion.
-struct CtorInsertXfrm : public OpRewritePattern<LocalOp> {
-    CtorInsertXfrm(MLIRContext* ctx)
-        : OpRewritePattern<LocalOp>(ctx, */
-/*benefit=*//*1) {}
-
-auto matchAndRewrite(
-LocalOp op,
-PatternRewriter& rewriter
-) const -> LogicalResult override {
-if (not op.getUninit()) return success();
-op.setUninit(false);
-rewriter.setInsertionPointAfter(op);
-rewriter.create<hlir::ZeroinitialiserOp>(
-op->getLoc(),
-op
-);
-return success();
-}
-};*/
-
 /// Find the NCA of two MLIR blocks.
 [[maybe_unused]] auto NCA(Region* a, Region* b) -> Region* {
     llvm::SmallPtrSet<Region*, 8> scopes{};
@@ -261,16 +239,11 @@ private:
             return;
         }
 
+        /// Destructors will be lowered to calls later on, so just copy
+        /// them and insert them before the operation.
         if (auto d = dyn_cast<DestroyOp>(o)) {
             rewriter.setInsertionPoint(before);
-            rewriter.create<CallOp>(
-                o->getLoc(),
-                TypeRange{},
-                d.getDtor(),
-                false,
-                LLVM::CConv::C,
-                d.getLocal()
-            );
+            rewriter.clone(*o);
             return;
         }
 
@@ -383,11 +356,77 @@ private:
     }
 };
 
+struct DtorCtorXfrm {
+    FuncOp f;
+    OpBuilder b{f.getContext()};
+    IRRewriter rewriter{b};
+
+    void run() {
+        /// Collect all dtors and ctors.
+        f.getBody().walk([&](Operation* op) {
+            if (auto d = dyn_cast<DestroyOp>(op)) InlineDtor(d);
+            else if (auto c = dyn_cast<ConstructOp>(op)) InlineCtor(c);
+        });
+    }
+
+private:
+    void InlineDtor(DestroyOp d) {
+        /// This is always just a function call.
+        rewriter.setInsertionPoint(d);
+        rewriter.create<CallOp>(
+            rewriter.getUnknownLoc(),
+            mlir::TypeRange{},
+            d.getDtor(),
+            false,
+            LLVM::CConv::C,
+            d.getObject()
+        );
+        rewriter.eraseOp(d);
+    }
+
+    void InlineCtor(ConstructOp c) {
+        rewriter.setInsertionPoint(c);
+        switch (c.getInitKind()) {
+            /// Separate op.
+            case LocalInit::Zeroinit:
+                rewriter.create<ZeroinitialiserOp>(c->getLoc(), c.getObject());
+                break;
+
+            /// Store.
+            case LocalInit::TrivialCopyInit:
+                rewriter.create<StoreOp>(
+                    c->getLoc(),
+                    c.getObject(),
+                    c.getArgs()[0],
+                    DataLayout::closest(c).getTypeABIAlignment(c.getArgs()[0].getType())
+                );
+                break;
+
+            /// Constructor call.
+            case LocalInit::Init: {
+                SmallVector<mlir::Value> args{c.getObject()};
+                for (auto a : c.getArgs()) args.push_back(a);
+                rewriter.create<CallOp>(
+                    rewriter.getUnknownLoc(),
+                    mlir::TypeRange{},
+                    c.getCtor(),
+                    false,
+                    LLVM::CConv::C,
+                    args
+                );
+                break;
+            }
+        }
+
+        rewriter.eraseOp(c);
+    }
+};
+
 /// Inline defer ops in the appropriate places.
 void InlineDefers(src::Module* mod) {
-    for (auto f : mod->functions) {
-        if (f->body) {
-            DeferInliningXfrm s{mod->context, cast<FuncOp>(f->mlir_func)};
+    for (auto& f : mod->mlir.getBodyRegion().getBlocks().front()) {
+        if (auto func = dyn_cast<FuncOp>(f)) {
+            DeferInliningXfrm s{mod->context, cast<FuncOp>(func)};
             s.run();
         }
     }
@@ -395,9 +434,18 @@ void InlineDefers(src::Module* mod) {
 
 /// Inline scope bodies into their parent regions.
 void InlineScopes(src::Module* mod) {
-    for (auto f : mod->functions) {
-        if (f->body) {
-            ScopeInliningXfrm s{cast<FuncOp>(f->mlir_func)};
+    for (auto& f : mod->mlir.getBodyRegion().getBlocks().front()) {
+        if (auto func = dyn_cast<FuncOp>(f)) {
+            ScopeInliningXfrm s{cast<FuncOp>(func)};
+            s.run();
+        }
+    }
+}
+
+void InlineDtorsAndCtors(src::Module* mod) {
+    for (auto& f : mod->mlir.getBodyRegion().getBlocks().front()) {
+        if (auto func = dyn_cast<FuncOp>(f)) {
+            DtorCtorXfrm s{cast<FuncOp>(func)};
             s.run();
         }
     }
@@ -409,6 +457,7 @@ void InlineScopes(src::Module* mod) {
 void src::LowerHLIR(Module* mod) {
     mlir::hlir::InlineDefers(mod);
     mlir::hlir::InlineScopes(mod);
+    mlir::hlir::InlineDtorsAndCtors(mod);
 }
 
 void hlir::CallOp::getCanonicalizationPatterns(

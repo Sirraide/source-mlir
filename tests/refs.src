@@ -13,19 +13,19 @@ int j = 2;
 
 /// ======= Reference Binding =======
 /// * (?<R1I>$t) = local
-/// + store into $R1I, $any $I
+/// + construct $R1I trivial i64& $I
 int& r1i = i;
 
 /// * (?<R1J>$t) = local
 /// + (?<R1I_0>$t) = load $any from $R1I
-/// + store into $R1J, $any $R1I_0
+/// + construct $R1J trivial i64& $R1I_0
 int& r1j = r1i;
 
 /// ======= Autodereferencing =======
 /// * (?<COPY_I>$t) = local
 /// + (?<R1I_1>$t) = load $any from $R1I
 /// + (?<I_1>$t) = load $any from $R1I_1
-/// + store into $COPY_I, $any $I_1
+/// + construct $COPY_I trivial i64 $I_1
 int copy_i = r1i;
 
 /// * (?<R1I_2>$t) = load $any from $R1I
@@ -48,19 +48,19 @@ r1i => r1j;
 
 /// ===== Multi-level Ref Decls =====
 /// * (?<R2I>$t) = local
-/// + store into $R2I, $any $R1I
+/// + construct $R2I trivial i64&& $R1I
 int&& r2i = r1i;
 
 /// * (?<R2J>$t) = local
-/// + store into $R2J, $any $R1J
+/// + construct $R2J trivial i64&& $R1J
 int&& r2j = r1j;
 
 /// * (?<R3I>$t) = local
-/// + store into $R3I, $any $R2I
+/// + construct $R3I trivial i64&&& $R2I
 int&&& r3i = r2i;
 
 /// * (?<R3J>$t) = local
-/// + store into $R3J, $any $R2J
+/// + construct $R3J trivial i64&&& $R2J
 int&&& r3j = r2j;
 
 /// ===== Multi-level Ref Assignment =====

@@ -225,6 +225,7 @@ src::StructType::StructType(Module* mod, std::string sname, SmallVector<Field> f
     if (not name.empty()) mod->named_structs.push_back(this);
 }
 
+/// FIXME: Use llvm::Align for this.
 auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
     switch (ptr->kind) {
         case Kind::BuiltinType:
@@ -348,6 +349,7 @@ auto src::Expr::TypeHandle::_ref_depth() -> isz {
     return depth;
 }
 
+/// FIXME: Use llvm::APInt for this.
 auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
     switch (ptr->kind) {
         case Kind::BuiltinType:

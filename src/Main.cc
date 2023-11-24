@@ -7,31 +7,6 @@
 #include <source/Frontend/Parser.hh>
 #include <source/Frontend/Sema.hh>
 
-/*auto get_puts(
-    mlir::PatternRewriter& rewriter,
-    mlir::ModuleOp module,
-    mlir::LLVM::LLVMDialect* llvmDialect
-) {
-    auto ctx = module->getContext();
-    if (module.lookupSymbol<mlir::LLVM::LLVMFuncOp>("puts"))
-        return mlir::SymbolRefAttr::get(ctx, "puts");
-
-    auto puts_type = mlir::LLVM::LLVMFunctionType::get(
-        mlir::IntegerType::get(ctx, 32),
-        {mlir::LLVM::LLVMPointerType::get(nullptr)},
-        false
-    );
-
-    mlir::PatternRewriter::InsertionGuard guard{rewriter};
-    rewriter.setInsertionPointToStart(module.getBody());
-    auto puts = rewriter.create<mlir::LLVM::LLVMFuncOp>(
-        rewriter.getUnknownLoc(),
-        "puts",
-        puts_type
-    );
-    return mlir::SymbolRefAttr::get(ctx, "puts");
-}*/
-
 namespace detail {
 using namespace command_line_options;
 using options = clopts< // clang-format off

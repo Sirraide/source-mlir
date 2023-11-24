@@ -32,6 +32,7 @@ namespace {
 
     Todo("Implement TypeSize()");
 }*/
+constexpr llvm::StringLiteral LibCFree = "free";
 } // namespace
 
 /// Lowering for string literals.
@@ -336,7 +337,7 @@ struct ZeroInitOpLowering : public ConversionPattern {
             tc->getIndexType(),
             IntegerAttr::get(
                 rewriter.getI64Type(),
-                DataLayout::closest(op).getTypeSize(zero_init.getOperand().getType().getElem())
+                i64(DataLayout::closest(op).getTypeSize(zero_init.getOperand().getType().getElem()))
             )
         );
 
@@ -422,6 +423,44 @@ struct ChainExtractLocalOpLowering : public ConversionPattern {
     }
 };
 
+struct DeleteOpLowering : public ConversionPattern {
+    explicit DeleteOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::DeleteOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto loc = op->getLoc();
+
+        /// Ensure free() is declared.
+        auto ctx = getContext();
+        if (auto m = op->getParentOfType<ModuleOp>(); not m.lookupSymbol<LLVM::LLVMFuncOp>(LibCFree)) {
+            using namespace LLVM;
+            PatternRewriter::InsertionGuard guard{rewriter};
+            rewriter.setInsertionPointToStart(m.getBody());
+            rewriter.create<LLVMFuncOp>(
+                rewriter.getUnknownLoc(),
+                LibCFree,
+                LLVMFunctionType::get(LLVMVoidType::get(ctx), {LLVMPointerType::get(ctx)})
+            );
+        }
+
+        /// Generate a call to free.
+        rewriter.create<LLVM::CallOp>(
+            loc,
+            TypeRange{},
+            FlatSymbolRefAttr::get(ctx, LibCFree),
+            ArrayRef<Value>{args[0]}
+        );
+
+        rewriter.eraseOp(op);
+        return success();
+    }
+};
+
 struct MakeClosureOpLowering : public ConversionPattern {
     explicit MakeClosureOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
         : ConversionPattern(tc, hlir::MakeClosureOp::getOperationName(), 1, ctx) {
@@ -456,6 +495,52 @@ struct MakeClosureOpLowering : public ConversionPattern {
             rewriter.replaceOp(op, lit3);
         }
 
+        return success();
+    }
+};
+
+struct NewOpLowering : public ConversionPattern {
+    explicit NewOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::NewOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value>,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto loc = op->getLoc();
+        auto new_op = cast<hlir::NewOp>(op);
+        auto tc = getTypeConverter<LLVMTypeConverter>();
+
+        /// This is a call to malloc.
+        auto ctx = getContext();
+        if (auto m = op->getParentOfType<ModuleOp>(); not m.lookupSymbol<LLVM::LLVMFuncOp>("malloc")) {
+            using namespace LLVM;
+            PatternRewriter::InsertionGuard guard{rewriter};
+            rewriter.setInsertionPointToStart(m.getBody());
+            rewriter.create<LLVMFuncOp>(
+                rewriter.getUnknownLoc(),
+                "malloc",
+                LLVMFunctionType::get(LLVMPointerType::get(ctx), {tc->getIndexType()})
+            );
+        }
+
+        auto bytes = DataLayout::closest(op).getTypeSize(new_op.getResult().getType());
+        auto size = rewriter.create<LLVM::ConstantOp>(
+            loc,
+            tc->getIndexType(),
+            rewriter.getI64IntegerAttr(i64(bytes))
+        );
+
+        auto malloc = rewriter.create<LLVM::CallOp>(
+            loc,
+            LLVM::LLVMPointerType::get(getContext()),
+            FlatSymbolRefAttr::get(ctx, "malloc"),
+            ArrayRef<Value>{size}
+        );
+
+        rewriter.replaceOp(op, malloc.getResult());
         return success();
     }
 };
@@ -541,7 +626,7 @@ struct FuncOpLowering : public ConversionPattern {
         for (auto [i, t] : vws::enumerate(ftype.getInputs())) {
             if (auto ref = dyn_cast<hlir::ReferenceType>(t)) {
                 auto sz = DataLayout::closest(op).getTypeSize(ref.getElem());
-                llvm_func.setArgAttr(u32(i), "llvm.dereferenceable", IntegerAttr::get(tc->getIndexType(), sz));
+                llvm_func.setArgAttr(u32(i), "llvm.dereferenceable", IntegerAttr::get(tc->getIndexType(), i64(sz)));
                 llvm_func.setArgAttr(u32(i), "llvm.nonnull", u);
                 llvm_func.setArgAttr(u32(i), "llvm.noundef", u);
                 llvm_func.setArgAttr(u32(i), "llvm.nofree", u);
@@ -684,6 +769,7 @@ struct HLIRToLLVMLoweringPass
             ArrayDecayOpLowering,
             CallOpLowering,
             ChainExtractLocalOpLowering,
+            DeleteOpLowering,
             FuncOpLowering,
             GlobalRefOpLowering,
             InvokeClosureOpLowering,
@@ -691,6 +777,7 @@ struct HLIRToLLVMLoweringPass
             LoadOpLowering,
             LocalOpLowering,
             MakeClosureOpLowering,
+            NewOpLowering,
             ReturnOpLowering,
             SliceDataOpLowering,
             SliceSizeOpLowering,
