@@ -216,12 +216,19 @@ bool src::ProcDecl::_takes_static_chain() {
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
-src::StructType::StructType(Module* mod, std::string sname, SmallVector<Field> fields, BlockExpr* scope, Location loc)
-    : Type(Kind::StructType, loc),
-      module(mod),
-      all_fields(std::move(fields)),
-      name(std::move(sname)),
-      scope(scope) {
+src::StructType::StructType(
+    Module* mod,
+    std::string sname,
+    SmallVector<Field> fields,
+    SmallVector<ProcDecl*> inits,
+    BlockExpr* scope,
+    Location loc
+) : Type(Kind::StructType, loc),
+    module(mod),
+    all_fields(std::move(fields)),
+    initialisers(std::move(inits)),
+    name(std::move(sname)),
+    scope(scope) {
     if (not name.empty()) mod->named_structs.push_back(this);
 }
 
@@ -718,7 +725,7 @@ auto src::Type::DenseMapInfo::getHashValue(const Expr* t) -> usz {
     if (auto d = dyn_cast<StructType>(t)) hash = llvm::hash_combine(hash, d->name);
 
     /// Include element types for types that have them.
-    else if (auto* s = dyn_cast<SingleElementTypeBase>(t)){
+    else if (auto* s = dyn_cast<SingleElementTypeBase>(t)) {
         do {
             hash = llvm::hash_combine(hash, s->elem->kind);
             s = dyn_cast<SingleElementTypeBase>(s->elem);
@@ -997,7 +1004,7 @@ struct ASTPrinter {
                 static const auto String = [](Builtin b) -> std::string_view {
                     switch (b) {
                         case Builtin::New: return "new";
-                        case Builtin::Delete: return "__builtin_delete";
+                        case Builtin::Destroy: return "__srcc_destroy";
                     }
 
                     Unreachable();
@@ -1204,7 +1211,7 @@ struct ASTPrinter {
                         "{}{}{}Field {} {}{} {}at {}{}\n",
                         C(Red),
                         leading_text,
-                        &f == &s->all_fields.back() ? "└─" : "├─",
+                        &f == &s->all_fields.back() and s->initialisers.empty() ? "└─" : "├─",
                         f.type->as_type.str(use_colour),
                         C(Magenta),
                         f.name,
@@ -1213,6 +1220,9 @@ struct ASTPrinter {
                         s->sema.ok ? std::to_string(f.offset) : "?"
                     );
                 }
+
+                auto inits = ArrayRef<Expr*>(reinterpret_cast<Expr* const*>(s->initialisers.data()), s->initialisers.size());
+                PrintChildren(inits, leading_text);
             } break;
 
             case K::ProcDecl: {
@@ -1242,7 +1252,7 @@ struct ASTPrinter {
                 auto c = cast<InvokeExpr>(e);
                 SmallVector<Expr*, 12> children{c->callee};
                 children.insert(children.end(), c->args.begin(), c->args.end());
-                if (c->init) children.push_back(c->init);
+                children.insert(children.end(), c->init_args.begin(), c->init_args.end());
                 PrintChildren(children, leading_text);
             } break;
 
@@ -1262,7 +1272,7 @@ struct ASTPrinter {
 
             case K::LocalDecl: {
                 auto v = cast<LocalDecl>(e);
-                if (v->init) PrintChildren(v->init, leading_text);
+                PrintChildren(v->init_args, leading_text);
             } break;
 
             case K::InvokeBuiltinExpr: {
@@ -1272,7 +1282,7 @@ struct ASTPrinter {
 
             case K::MemberAccessExpr: {
                 auto m = cast<MemberAccessExpr>(e);
-                PrintChildren(m->object, leading_text);
+                if (m->object) PrintChildren(m->object, leading_text);
             } break;
 
             case K::ScopeAccessExpr: {

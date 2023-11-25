@@ -701,6 +701,7 @@ struct Deserialiser {
                     &*mod,
                     std::move(name),
                     std::move(fields),
+                    {},
                     new (&*mod) BlockExpr(&*mod, mod->global_scope),
                     {}
                 );

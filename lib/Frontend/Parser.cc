@@ -101,6 +101,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Break:
         case Tk::Continue:
         case Tk::Defer:
+        case Tk::Dot:
         case Tk::Export:
         case Tk::False:
         case Tk::Goto:
@@ -183,13 +184,13 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
         curr_func,
         std::move(name),
         *ty,
-        nullptr,
+        {},
         loc
     );
 }
 
 /// <expr-decl-ref> ::= IDENTIFIER
-/// <expr-access>   ::= <expr> "." IDENTIFIER
+/// <expr-access>   ::= [ <expr> ] "." IDENTIFIER
 /// <expr-literal>  ::= INTEGER_LITERAL | STRING_LITERAL
 /// <expr-invoke>   ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
 auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
@@ -229,6 +230,14 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::Identifier:
             lhs = ParseIdentExpr();
             break;
+
+        /// Member access.
+        case Tk::Dot: {
+            auto loc = Next();
+            if (not At(Tk::Identifier)) return Error("Expected identifier");
+            lhs = new (mod) MemberAccessExpr(nullptr, tok.text, {loc, curr_loc});
+            Next();
+        } break;
 
         /// <expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
         case Tk::Break:
@@ -303,7 +312,8 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::Goto: {
             auto start = Next();
             if (not At(Tk::Identifier)) return Error("Expected identifier");
-            lhs = new (mod) GotoExpr(tok.text, {start, Next()});
+            lhs = new (mod) GotoExpr(tok.text, {start, curr_loc});
+            Next();
         } break;
 
         /// <expr-defer> ::= DEFER <implicit-block>
@@ -398,11 +408,13 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
                 /// An assignment expression after a naked invocation is bound to it
                 /// in case it turns out to be a declaration.
-                auto init = Result<Expr*>::Null();
+                SmallVector<Expr*> init_args;
                 if (Consume(Tk::Assign)) {
-                    auto expr = ParseExpr();
-                    if (IsError(expr)) return expr.diag;
-                    init = *expr;
+                    do {
+                        auto expr = ParseExpr();
+                        if (IsError(expr)) return expr.diag;
+                        init_args.push_back(*expr);
+                    } while (Consume(Tk::Comma));
                 }
 
                 Location loc = {lhs->location, not args.empty() ? args.back()->location : Location{}};
@@ -410,7 +422,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                     *lhs,
                     std::move(args),
                     true,
-                    *init,
+                    std::move(init_args),
                     loc
                 );
                 continue;
@@ -452,7 +464,8 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             case Tk::Dot: {
                 Next();
                 if (not At(Tk::Identifier)) Error("Expected identifier");
-                lhs = new (mod) MemberAccessExpr(*lhs, tok.text, {lhs->location, Next()});
+                lhs = new (mod) MemberAccessExpr(*lhs, tok.text, {lhs->location, curr_loc});
+                Next();
                 continue;
             }
 
@@ -460,7 +473,8 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             case Tk::ColonColon: {
                 Next();
                 if (not At(Tk::Identifier)) Error("Expected identifier");
-                lhs = new (mod) ScopeAccessExpr(*lhs, tok.text, {lhs->location, Next()});
+                lhs = new (mod) ScopeAccessExpr(*lhs, tok.text, {lhs->location, curr_loc});
+                Next();
                 continue;
             }
 
@@ -657,7 +671,7 @@ auto src::Parser::ParseParamDeclList(
                 nullptr,
                 std::move(sig.name),
                 sig.type,
-                nullptr,
+                {},
                 sig.loc
             ));
             param_types.push_back(sig.type);
@@ -684,7 +698,7 @@ auto src::Parser::ParseParamDeclList(
                 nullptr,
                 std::move(name),
                 *param_type,
-                nullptr,
+                {},
                 tok.location
             ));
             param_types.push_back(*param_type);
@@ -699,10 +713,12 @@ auto src::Parser::ParseParamDeclList(
 
 /// <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 /// <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
+/// <init-decl>      ::= INIT <proc-signature> <proc-body>
 /// <proc-body>      ::= <expr-block> | "=" <implicit-block>
-auto src::Parser::ParseProc() -> Result<Expr*> {
+auto src::Parser::ParseProc() -> Result<ProcDecl*> {
     /// Procedure signatures are rather complicated, so
     /// we’ll parse them separately.
+    auto init = At(Tk::Init);
     auto sig = ParseSignature();
 
     /// Create the procedure early so we can set it as
@@ -732,15 +748,18 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
         }
 
         /// Set the body if there is one.
-        if (IsError(body)) return body;
+        if (IsError(body)) return body.diag;
         curr_func->body = *body;
         curr_func->body->set_function_scope();
     }
 
-    /// If the return type is not inferred and not provided, then
-    /// default to 'void' rather than 'unknown'.
-    if (not infer_return_type and Type::Equal(sig.type->ret_type, Type::Unknown))
-        sig.type->ret_type = Type::Void;
+    /// If this is not an initialiser declaration and the return type is not
+    /// inferred and not provided, then default to 'void' rather than 'unknown'.
+    if (
+        not init and
+        not infer_return_type and
+        Type::Equal(sig.type->ret_type, Type::Unknown)
+    ) sig.type->ret_type = Type::Void;
 
     /// Add it to the current scope if it is named.
     if (not curr_func->name.empty()) curr_scope->declare(curr_func->name, curr_func);
@@ -757,10 +776,13 @@ auto src::Parser::ParseProc() -> Result<Expr*> {
 auto src::Parser::ParseSignature() -> Signature {
     Signature sig;
     sig.loc = curr_loc;
-    Assert(Consume(Tk::Proc));
+    auto init = At(Tk::Init);
+    Assert(Consume(Tk::Proc, Tk::Init));
 
     /// Parse name, if there is one.
-    if (At(Tk::Identifier)) {
+    if (init) {
+        sig.name = "init";
+    } else if (At(Tk::Identifier)) {
         sig.name = tok.text;
         Next();
     }
@@ -811,8 +833,9 @@ auto src::Parser::ParseSignature() -> Signature {
 
 /// <type-struct>    ::= STRUCT <name> <struct-rest>
 /// <struct-anon>    ::= STRUCT <struct-rest>
-/// <struct-rest>    ::= "{" { <struct-field> } "}"
+/// <struct-rest>    ::= "{" { <struct-field> | <init-decl> } "}"
 /// <struct-field>   ::= <var-decl>
+/// <init-decl>      ::= INIT <proc-signature> <proc-body>
 auto src::Parser::ParseStruct() -> Result<StructType*> {
     Assert(At(Tk::Struct));
     auto start = Next();
@@ -824,11 +847,28 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
         Next();
     }
 
-    /// Parse fields.
+    /// Parse fields and member functions.
     if (not Consume(Tk::LBrace)) return Error("Expected '{{' in struct type");
     ScopeRAII sc{this};
     SmallVector<StructType::Field> fields;
+    SmallVector<ProcDecl*> initialisers;
+    sc.scope->set_struct_scope();
     while (not At(Tk::RBrace, Tk::Eof)) {
+        /// Initialiser.
+        if (At(Tk::Init)) {
+            auto init = ParseProc();
+            if (IsError(init)) {
+                Synchronise(Tk::Semicolon, Tk::RBrace);
+                continue;
+            }
+
+            /// Add it to the struct type.
+            init->parent = mod->top_level_func;
+            initialisers.push_back(*init);
+            continue;
+        }
+
+        /// Field.
         auto field = ParseDecl();
         if (IsError(field)) {
             Synchronise(Tk::Semicolon, Tk::RBrace);
@@ -850,6 +890,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
         mod,
         std::move(name),
         std::move(fields),
+        std::move(initialisers),
         sc.scope,
         {start, curr_loc}
     );

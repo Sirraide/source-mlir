@@ -34,7 +34,7 @@
 <expr-proc>      ::= <proc-extern> | <proc-named>
 <expr-block>     ::= "{" <exprs> "}"
 <expr-decl-ref>  ::= IDENTIFIER
-<expr-access>    ::= <expr> "." IDENTIFIER
+<expr-access>    ::= [ <expr> ] "." IDENTIFIER
 <expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL
 <expr-prefix>    ::= <prefix-op> <expr>
 <expr-binary>    ::= <expr> <binary-op> <expr>
@@ -71,8 +71,9 @@
 <var-decl>       ::= <type> IDENTIFIER [ "=" <expr> ]
 <type-struct>    ::= STRUCT <name> <struct-rest>
 <struct-anon>    ::= STRUCT <struct-rest>
-<struct-rest>    ::= "{" { <struct-field> } "}"
+<struct-rest>    ::= "{" { <struct-field> | <init-decl> } "}"
 <struct-field>   ::= <var-decl>
+<init-decl>      ::= INIT <proc-signature> <proc-body>
 
 /// ===========================================================================
 ///  Types

@@ -50,7 +50,7 @@ enum struct Mangling {
 };
 
 enum struct Builtin {
-    Delete,
+    Destroy,
     New,
 };
 
@@ -499,6 +499,12 @@ public:
     static bool classof(const Expr* e) { return e->kind >= Kind::BlockExpr; }
 };
 
+enum struct ScopeKind : u8 {
+    Block,
+    Function,
+    Struct,
+};
+
 class BlockExpr : public TypedExpr {
 public:
     using Symbols = StringMap<SmallVector<Expr*, 1>>;
@@ -528,8 +534,16 @@ public:
     /// Get the nearest parent scope that is a function scope.
     readonly_decl(BlockExpr*, enclosing_function_scope);
 
-    /// Whether this scope is a function scope.
-    bool is_function{};
+private:
+    /// What kind of scope this is.
+    ScopeKind scope_kind = ScopeKind::Block;
+
+public:
+    /// Whether this is a function scope.
+    readonly(bool, is_function, return scope_kind == ScopeKind::Function);
+
+    /// Whether this is a struct scope.
+    readonly(bool, is_struct, return scope_kind == ScopeKind::Struct);
 
     /// Whether this expression was create implicitly.
     bool implicit{};
@@ -547,8 +561,14 @@ public:
 
     /// Mark this scope as a function scope. This cannot be undone.
     void set_function_scope() {
-        Assert(not is_function, "Scope already marked as function scope");
-        is_function = true;
+        Assert(scope_kind == ScopeKind::Block);
+        scope_kind = ScopeKind::Function;
+    }
+
+    /// Mark this scope as a struct scope. This cannot be undone.
+    void set_struct_scope() {
+        Assert(scope_kind == ScopeKind::Block);
+        scope_kind = ScopeKind::Struct;
     }
 
     /// Visit each symbol with the given name.
@@ -579,15 +599,18 @@ public:
     /// The function being invoked.
     Expr* callee;
 
-    /// Initialiser.
-    Expr* init;
+    /// Bound initialisers arguments. These are any arguments
+    /// after a `=` in an invoke expression; they are stored
+    /// here to facilitate conversion to a variable declaration
+    /// in sema.
+    SmallVector<Expr*> init_args;
 
-    InvokeExpr(Expr* callee, SmallVector<Expr*> args, bool naked, Expr* init, Location loc)
+    InvokeExpr(Expr* callee, SmallVector<Expr*> args, bool naked, SmallVector<Expr*> init, Location loc)
         : TypedExpr(Kind::InvokeExpr, detail::UnknownType, loc),
           args(std::move(args)),
           naked(naked),
           callee(callee),
-          init(init) {}
+          init_args(std::move(init)) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::InvokeExpr; }
@@ -857,8 +880,8 @@ public:
     /// The procedure containing this declaration.
     ProcDecl* parent;
 
-    /// The initialiser, if any.
-    Expr* init;
+    /// The initialiser arguments, if any.
+    SmallVector<Expr*> init_args;
 
     /// Index in capture list of parent procedure, if any.
     isz capture_index{};
@@ -873,11 +896,11 @@ public:
         ProcDecl* parent,
         std::string name,
         Expr* type,
-        Expr* init,
+        SmallVector<Expr*> init,
         Location loc
     ) : Decl(Kind::LocalDecl, std::move(name), type, loc),
         parent(parent),
-        init(init) {
+        init_args(std::move(init)) {
     }
 
     /// Mark this declaration as captured.
@@ -923,7 +946,8 @@ public:
     /// The module this procedure belongs to.
     Module* module;
 
-    /// The parent function. Null if this is the top-level function.
+    /// The parent function. Null if this is the top-level function. This
+    /// is used for building static chains.
     ProcDecl* parent;
 
     /// The function parameter decls. Empty if this is a declaration.
@@ -1157,6 +1181,9 @@ public:
     /// The fields of this struct.
     SmallVector<Field> all_fields;
 
+    /// Initialisers of this struct.
+    SmallVector<ProcDecl*> initialisers;
+
     /// The name of this struct.
     std::string name;
 
@@ -1174,6 +1201,7 @@ public:
         Module* mod,
         std::string name,
         SmallVector<Field> fields,
+        SmallVector<ProcDecl*> initialisers,
         BlockExpr* scope,
         Location loc
     );

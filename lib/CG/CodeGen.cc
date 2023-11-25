@@ -439,7 +439,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
 
     /// Create a struct type and finalise it.
     std::string name = fmt::format("struct.anon.{}", anon_structs++);
-    auto s = new (mod) StructType(mod, std::move(name), std::move(fields), nullptr, {});
+    auto s = new (mod) StructType(mod, std::move(name), std::move(fields), {}, nullptr, {});
 
     /// The alignment and size are just set to what LLVM’s algorithm told us
     /// they should be. In particular, we need *not* ensure that the size is
@@ -739,7 +739,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 }
 
                 /// Delete calls the destructor of an object.
-                case Builtin::Delete: {
+                case Builtin::Destroy: {
                     Generate(i->args[0]);
                     auto var = cast<LocalRefExpr>(i->args[0])->decl;
                     EndLifetime(var);
@@ -1132,9 +1132,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// If the variable hasn’t already been allocated, do so now.
             if (not e->mlir) e->mlir = AllocateLocalVar(e);
-            if (e->init) {
-                Generate(e->init);
-                Construct(e->init->location.mlir(ctx), e->mlir, e->type, e->init->mlir);
+            if (e->init_args.size() == 1) {
+                Generate(e->init_args[0]);
+                Construct(e->init_args[0]->location.mlir(ctx), e->mlir, e->type, e->init_args[0]->mlir);
             } else {
                 Construct(e->location.mlir(ctx), e->mlir, e->type);
             }

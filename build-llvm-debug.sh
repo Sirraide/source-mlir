@@ -16,9 +16,13 @@ CC=clang CXX=clang++ cmake -G "Ninja" \
   -DCMAKE_INSTALL_PREFIX="$(realpath .)/llvm-install-debug" \
   -DCMAKE_BUILD_TYPE=Debug \
   -DLLVM_ENABLE_PROJECTS='clang;clang-tools-extra;compiler-rt;mlir' \
+  -DLLVM_TARGETS_TO_BUILD=X86 \
   -DLLVM_C_COMPILER=clang \
   -DLLVM_CXX_COMPILER=clang++ \
   -DLLVM_USE_LINKER=mold \
+  -DLLVM_ENABLE_BINDINGS=OFF \
+  -DLLVM_APPEND_VC_REV=OFF \
+  -DLLVM_USE_SPLIT_DWARF=ON \
   -DLLVM_OPTIMIZED_TABLEGEN=ON \
   -DLLVM_ENABLE_UNWIND_TABLES=OFF \
   -DLLVM_ENABLE_ASSERTIONS=ON \

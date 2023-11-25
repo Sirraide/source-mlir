@@ -1,0 +1,25 @@
+
+proc puts (i8&) extern;
+struct foo {
+    i64 x;
+
+    init {
+        x = 10;
+    }
+
+    init (i64 x) {
+        .x = x;
+    }
+
+    init (i64 x, i64 y) {
+        .x = x + y;
+    }
+}
+
+foo a;
+foo b = 20;
+foo c = 3, 9;
+
+/// var d = foo();
+/// var e = foo(20);
+/// var f = foo(3, 9);

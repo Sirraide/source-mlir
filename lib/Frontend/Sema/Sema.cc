@@ -900,8 +900,8 @@ bool src::Sema::Analyse(Expr*& e) {
                 if (auto d = dyn_cast<DeclRefExpr>(invoke->callee); d and not d->decl) {
                     auto b = llvm::StringSwitch<std::optional<Builtin>>(d->name) // clang-format off
                         .Case("new", Builtin::New)
-                        .Case("__builtin_new", Builtin::New)
-                        .Case("__builtin_delete", Builtin::Delete)
+                        .Case("__srcc_new", Builtin::New)
+                        .Case("__srcc_delete", Builtin::Destroy)
                         .Default(std::nullopt);
 
                     /// Found a builtin.
@@ -985,12 +985,12 @@ bool src::Sema::Analyse(Expr*& e) {
                 }
 
                 /// Helper to create a var decl.
-                auto MakeVar = [&](Expr* name, Expr* init) -> LocalDecl* {
+                auto MakeVar = [&](Expr* name, SmallVector<Expr*> init) -> LocalDecl* {
                     return new (mod) LocalDecl(
                         curr_proc,
                         cast<DeclRefExpr>(name)->name,
                         invoke->callee,
-                        init,
+                        std::move(init),
                         name->location
                     );
                 };
@@ -998,7 +998,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// Rewrite the invocation to a declaration. Type checking
                 /// for the initialiser is done elsewhere.
                 if (invoke->args.size() == 1) {
-                    e = MakeVar(invoke->args.front(), invoke->init);
+                    e = MakeVar(invoke->args.front(), invoke->init_args);
                     return Analyse(e);
                 }
 
@@ -1061,6 +1061,13 @@ bool src::Sema::Analyse(Expr*& e) {
         /// Member access into a type.
         case Expr::Kind::MemberAccessExpr: {
             auto m = cast<MemberAccessExpr>(e);
+
+            /// Object may be missing if this is a `.x` access.
+            if (not m->object) {
+                Todo();
+            }
+
+            /// Analyse the accessed object.
             if (not Analyse(m->object)) return e->sema.set_errored();
 
             /// Dereference the object until we get an lvalue.
@@ -1167,10 +1174,11 @@ bool src::Sema::Analyse(Expr*& e) {
             /// If the type is unknown, then we must infer it from
             /// the initialiser.
             if (Type::Equal(var->stored_type, Type::Unknown)) {
-                if (not var->init) return Error(var, "Type inference requires an initialiser");
-                if (not Analyse(var->init)) return e->sema.set_errored();
-                InsertLValueToRValueConversion(var->init);
-                var->stored_type = var->init->type;
+                if (var->init_args.empty()) return Error(var, "Type inference requires an initialiser");
+                if (var->init_args.size() != 1) Todo();
+                if (not Analyse(var->init_args[0])) return e->sema.set_errored();
+                InsertLValueToRValueConversion(var->init_args[0]);
+                var->stored_type = var->init_args[0]->type;
                 if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
             }
 
@@ -1180,22 +1188,23 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// In a lambda to simplify early exit w/o returning from the parent.
                 auto HandleInit = [&] -> void {
                     /// No need to set the variable itself to errored since we know its type.
-                    if (not Analyse(var->init)) return;
-                    if (not Convert(var->init, var->stored_type)) {
+                    if (var->init_args.size() != 1) Todo();
+                    if (not Analyse(var->init_args[0])) return;
+                    if (not Convert(var->init_args[0], var->stored_type)) {
                         return (void) Error(
-                            var->init,
+                            var->init_args[0],
                             "Initialiser type '{}' is not convertible to variable type '{}'",
-                            var->init->type,
+                            var->init_args[0]->type,
                             var->stored_type
                         );
                     }
 
                     /// The initialiser must be an rvalue.
-                    InsertLValueToRValueConversion(var->init);
+                    InsertLValueToRValueConversion(var->init_args[0]);
                 };
 
                 if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
-                if (var->init) HandleInit();
+                if (not var->init_args.empty()) HandleInit();
             }
 
             /// Add the variable to the current scope.
@@ -1652,8 +1661,8 @@ bool src::Sema::AnalyseInvokeBuiltin(Expr*& e) {
         }
 
         /// Call a destructor.
-        case Builtin::Delete: {
-            /// Delete takes one operand.
+        case Builtin::Destroy: {
+            /// Destroy takes one operand.
             if (invoke->args.size() != 1) return Error(
                 e,
                 "Expected 1 argument, but got {}",
@@ -1664,13 +1673,13 @@ bool src::Sema::AnalyseInvokeBuiltin(Expr*& e) {
             if (not Analyse(invoke->args[0])) return e->sema.set_errored();
             if (not isa<LocalRefExpr>(invoke->args[0])) return Error(
                 e,
-                "Operand of __builtin_delete must be a local variable."
+                "Operand of __srcc_destroy must be a local variable."
             );
 
-            /// Mark var as deleted.
+            /// Mark var as destroyed.
             cast<LocalRefExpr>(invoke->args[0])->decl->set_deleted_or_moved();
 
-            /// Delete returns nothing.
+            /// Destroy returns nothing.
             invoke->stored_type = Type::Void;
             return true;
         }

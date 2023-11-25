@@ -159,7 +159,8 @@ private:
     auto ParseIf() -> Result<Expr*>;
     auto ParseImplicitBlock() -> Result<BlockExpr*>;
     auto ParseParamDeclList(SVI<LocalDecl*>& param_decls, SVI<Expr*>& param_types) -> Location;
-    auto ParseProc() -> Result<Expr*>;
+    auto ParseProc() -> Result<ProcDecl*>;
+    auto ParseProcBody() -> Result<BlockExpr*>;
     auto ParseSignature() -> Signature;
     auto ParseStruct() -> Result<StructType*>;
     auto ParseType() -> Result<Expr*>;
@@ -167,7 +168,7 @@ private:
 
     /// Synchronise in case of errors.
     void Synchronise(Tk token = Tk::Semicolon, std::same_as<Tk> auto... tks) {
-        while (not At(Tk::Eof, token, tks...)) Next();
+        while (not Consume(Tk::Eof, token, tks...)) Next();
     }
 };
 
