@@ -23,7 +23,7 @@ using options = clopts< // clang-format off
     flag<"--hlir", "Print the HLIR of the module">,
     flag<"--llvm", "Print the LLVM IR of the module">,
     flag<"--no-verify", "Disable MLIR verification; CAUTION: this may lead to miscompilations">,
-    flag<"--sema", "Run sema only">,
+    flag<"--sema", "Run sema only and always exit with code 0 unless there is an ICE">,
     flag<"--syntax-only", "Skip the semantic analysis step">,
     flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
     help<>
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
 
     /// Perform semantic analysis.
     src::Sema::Analyse(mod);
-    if (ctx.has_error()) std::exit(1);
+    if (ctx.has_error()) std::exit(opts.get<"--sema">() ? 0 : 1);
     if (opts.get<"--ast">() or opts.get<"--sema">()) {
         if (opts.get<"--ast">()) mod->print_ast(use_colour);
         std::exit(0);

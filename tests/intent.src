@@ -1,0 +1,27 @@
+proc small (
+          int a,
+    in    int b,
+    out   int c,
+    copy  int d,
+    inout int e,
+) {
+    int ins = a + b + d + e;
+    c = e;
+    e = ins;
+}
+
+proc big (
+          int[100] a,
+    in    int[100] b,
+    out   int[100] c,
+    copy  int[100] d,
+    inout int[100] e,
+) {
+    int ins = a + b + d + e;
+    c = e;
+    e = ins;
+}
+
+int a;
+int b = 5;
+small 1, 2, a, 4, 5

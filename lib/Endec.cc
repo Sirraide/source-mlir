@@ -22,11 +22,13 @@ auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
             switch (cast<BuiltinType>(ptr)->builtin_kind) {
-                case BuiltinTypeKind::Unknown: return "<invalid>";
                 case BuiltinTypeKind::Void: return "v";
                 case BuiltinTypeKind::Int: return "i";
                 case BuiltinTypeKind::Bool: return "b";
                 case BuiltinTypeKind::NoReturn: return "n";
+                case BuiltinTypeKind::Unknown:
+                case BuiltinTypeKind::OverloadSet:
+                    Unreachable("Builtin type must be resolved before mangling");
             }
 
             Unreachable();
@@ -113,6 +115,8 @@ auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
         case Expr::Kind::StringLiteralExpr:
         case Expr::Kind::LocalDecl:
         case Expr::Kind::ProcDecl:
+        case Expr::Kind::OverloadSetExpr:
+        case Expr::Kind::ImplicitThisExpr:
             Unreachable("Not a type");
     }
 }
@@ -295,11 +299,13 @@ struct Serialiser {
 
             case Expr::Kind::BuiltinType: {
                 switch (cast<BuiltinType>(t)->builtin_kind) {
-                    case BuiltinTypeKind::Unknown: Unreachable();
                     case BuiltinTypeKind::Void: return TD(SerialisedTypeTag::Void);
                     case BuiltinTypeKind::Int: return TD(SerialisedTypeTag::Int);
                     case BuiltinTypeKind::Bool: return TD(SerialisedTypeTag::Bool);
                     case BuiltinTypeKind::NoReturn: return TD(SerialisedTypeTag::NoReturn);
+                    case BuiltinTypeKind::Unknown:
+                    case BuiltinTypeKind::OverloadSet:
+                        Unreachable();
                 }
 
                 Unreachable();
@@ -767,7 +773,6 @@ struct Deserialiser {
         *this >> t;
         return t;
     };
-
 
     /// Disallow reading pointers and enums.
     ///

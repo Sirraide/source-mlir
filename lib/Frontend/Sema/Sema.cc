@@ -3,13 +3,23 @@
 /// ===========================================================================
 ///  Helpers
 /// ===========================================================================
-bool src::Sema::Convert(Expr*& e, Expr* type) {
+enum : int {
+    InvalidScore = -1,
+    InvalidIndex = -1,
+};
+
+template <bool perform_conversion>
+int src::Sema::ConvertImpl(
+    std::conditional_t<perform_conversion, Expr*&, Expr* const> e,
+    Expr* type
+) {
     /// Sanity checks.
     if (e->sema.errored or type->sema.errored) return false;
     Assert(type->sema.ok, "Cannot convert to unanalysed type");
     Assert(isa<Type>(type));
     auto from = e->type;
     auto to = type->as_type;
+    int score = 0;
 
     /// Place conversions involving reference first, as we may
     /// have to chain several conversions to get e.g. from an
@@ -24,30 +34,46 @@ bool src::Sema::Convert(Expr*& e, Expr* type) {
             /// the depth of the expression, and the expression is an
             /// lvalue, then this is reference binding.
             if (to_depth == from_depth + 1 and e->is_lvalue) {
-                e = new (mod) CastExpr(CastKind::LValueToReference, e, type, e->location);
-                Analyse(e);
+                score++;
+
+                if constexpr (perform_conversion) {
+                    e = new (mod) CastExpr(CastKind::LValueToReference, e, type, e->location);
+                    Analyse(e);
+                    from = e->type;
+                } else {
+                    from = new (mod) ReferenceType(from, {});
+                }
             }
 
             /// If the depth of the type we’re converting to is less than
             /// the depth of the type we’re converting from, then this is
             /// implicit dereferencing.
             else if (to_depth < from_depth) {
-                InsertImplicitDereference(e, from_depth - to_depth);
+                auto diff = from_depth - to_depth;
+                score++;
+
+                if constexpr (perform_conversion) {
+                    InsertImplicitDereference(e, diff);
+                    from = e->type;
+                } else {
+                    for (isz i = diff; i; i--) from = cast<ReferenceType>(from)->elem;
+                }
             }
         }
     }
 
     /// If the types are equal, then they’re convertible to one another.
-    from = e->type;
-    to = type->as_type;
-    if (Type::Equal(from, to)) return true;
+    if (Type::Equal(from, to)) return score;
 
     /// Procedures are convertible to closures, but *not* the other way around.
     if (isa<ProcType>(from) and isa<ClosureType>(to)) {
-        if (not Type::Equal(from, cast<ClosureType>(to)->proc_type)) return false;
-        e = new (mod) CastExpr(CastKind::Implicit, e, type, e->location);
-        Analyse(e);
-        return true;
+        if (not Type::Equal(from, cast<ClosureType>(to)->proc_type)) return InvalidScore;
+        if constexpr (perform_conversion) {
+            InsertLValueToRValueConversion(e);
+            InsertImplicitCast(e, type);
+        }
+
+        return ++score;
     }
 
     /// Smaller integer types can be converted to larger integer types.
@@ -55,25 +81,27 @@ bool src::Sema::Convert(Expr*& e, Expr* type) {
         auto from_size = from.size(mod->context);
         auto to_size = to.size(mod->context);
         if (from_size <= to_size) {
-            InsertImplicitCast(e, type);
-            return true;
+            if constexpr (perform_conversion) {
+                InsertLValueToRValueConversion(e);
+                InsertImplicitCast(e, type);
+            }
+
+            return ++score;
         }
 
         /// No other valid integer conversions.
-        return false;
+        return InvalidScore;
     }
 
     /// No other conversions are supported.
-    return false;
+    return InvalidScore;
 }
 
-void src::Sema::InsertImplicitCast(Expr*& e, Expr* to) {
-    Expr* cast = new (mod) CastExpr(CastKind::Implicit, e, to, e->location);
-    Analyse(cast);
-    e = cast;
+bool src::Sema::Convert(Expr*& e, Expr* type) {
+    return ConvertImpl<true>(e, type) != InvalidScore;
 }
 
-void src::Sema::InsertImplicitDereference(Expr*& e, isz depth) {
+auto src::Sema::CreateImplicitDereference(Expr* e, src::isz depth) -> Expr* {
     for (isz i = depth; i; i--) {
         e = new (mod) CastExpr(
             CastKind::ReferenceToLValue,
@@ -84,6 +112,18 @@ void src::Sema::InsertImplicitDereference(Expr*& e, isz depth) {
 
         Analyse(e);
     }
+
+    return e;
+}
+
+void src::Sema::InsertImplicitCast(Expr*& e, Expr* to) {
+    Expr* cast = new (mod) CastExpr(CastKind::Implicit, e, to, e->location);
+    Analyse(cast);
+    e = cast;
+}
+
+void src::Sema::InsertImplicitDereference(Expr*& e, isz depth) {
+    e = CreateImplicitDereference(e, depth);
 }
 
 void src::Sema::InsertLValueToRValueConversion(Expr*& e) {
@@ -111,6 +151,121 @@ bool src::Sema::MakeDeclType(Expr*& e) {
     /// Procedure types decay to closures.
     if (auto p = dyn_cast<ProcType>(e)) e = new (mod) ClosureType(p);
     return true;
+}
+
+int src::Sema::TryConvert(src::Expr* e, src::Expr* to) {
+    return ConvertImpl<false>(e, to);
+}
+
+/// ===========================================================================
+///  Overload Resolution
+/// ===========================================================================
+/// Refer to [expr.overload] in the manual for a detailed description of
+/// the algorithm implemented below.
+auto src::Sema::PerformOverloadResolution(
+    Location where,
+    ArrayRef<ProcDecl*> overloads,
+    MutableArrayRef<Expr*> args,
+    bool required
+) -> ProcDecl* {
+    /// 1.
+    SmallVector<Candidate> candidates;
+    candidates.reserve(overloads.size());
+    for (auto p : overloads) candidates.emplace_back(p);
+
+    /// 2.
+    for (auto& ci : candidates) {
+        auto& params = ci.type->param_types;
+
+        /// 2a.
+        if (params.size() > args.size()) {
+            ci.s = Candidate::Status::ArgumentCountMismatch;
+            continue;
+        }
+
+        /// 2b.
+        if (not ci.type->variadic and params.size() < args.size()) {
+            ci.s = Candidate::Status::ArgumentCountMismatch;
+            continue;
+        }
+
+        /// 2c.
+        for (usz j = 0; j < params.size(); j++) {
+            if (isa<OverloadSetExpr>(args[j])) continue;
+            auto s = TryConvert(args[j], params[j]);
+            if (s == InvalidScore) {
+                ci.s = Candidate::Status::ArgumentTypeMismatch;
+                ci.mismatch_index = j;
+                goto next_candidate;
+            } else {
+                ci.score += s;
+            }
+        }
+
+        /// 2d.
+        for (usz j = 0; j < params.size(); j++) {
+            /// Only handle overload sets here.
+            auto os = dyn_cast<OverloadSetExpr>(args[j]);
+            if (not os) continue;
+
+            /// Compute scores for each overload.
+            SmallVector<int> scores(os->overloads.size());
+            for (auto [i, o] : vws::enumerate(os->overloads)) scores[usz(i)] = TryConvert(o, params[j]);
+            auto it = utils::UniqueMin(scores, [](int i) { return i != InvalidScore; });
+            if (it == scores.end()) {
+                ci.s = Candidate::Status::NoViableArgOverload;
+                ci.mismatch_index = j;
+                goto next_candidate;
+            } else {
+                ci.score += *it;
+            }
+        }
+
+        /// Check the next overload.
+    next_candidate:;
+    }
+
+    /// 3/4.
+    auto min = utils::UniqueMin(
+        candidates,
+        [](auto& c) { return c.s == Candidate::Status::Viable; },
+        &Candidate::score
+    );
+
+    if (min == candidates.end()) {
+        if (required) ReportOverloadResolutionFailure(where, candidates, args);
+        return nullptr;
+    }
+
+    /// 5/6/7.
+    auto proc = min->proc;
+    auto& params = cast<ProcType>(proc->type)->param_types;
+    for (usz i = 0; i < args.size(); i++) {
+        if (i < params.size()) {
+            auto ok = Convert(args[i], params[i]);
+            Assert(ok, "Convert() must succeed if TryConvert() did");
+        }
+
+        /// Convert variadic args to rvalues.
+        else {
+            if (Type::Equal(Type::OverloadSet, args[i])) {
+                Error(args[i], "Cannot pass an overload set as a variadic argument");
+                return nullptr;
+            }
+
+            InsertLValueToRValueConversion(args[i]);
+        }
+    }
+
+    return proc;
+}
+
+void src::Sema::ReportOverloadResolutionFailure(
+    [[maybe_unused]] Location where,
+    [[maybe_unused]] ArrayRef<Sema::Candidate> overloads,
+    [[maybe_unused]] ArrayRef<Expr*> args
+) {
+    Todo();
 }
 
 /// ===========================================================================
@@ -532,6 +687,8 @@ bool src::Sema::Analyse(Expr*& e) {
 
         /// Only generated by sema and always type checked.
         case Expr::Kind::ConstExpr:
+        case Expr::Kind::OverloadSetExpr:
+        case Expr::Kind::ImplicitThisExpr:
             Unreachable();
 
         /// Marked as type checked in the constructor.
@@ -667,6 +824,25 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Size must be a multiple of the alignment.
             auto pad = utils::AlignTo<isz>(utils::AlignPadding(s->stored_size, s->stored_alignment), 8);
             if (pad != 0) CreatePaddingField(pad, s->all_fields.end());
+
+            /// Analyse initialiser types first in case they call each other since
+            /// we will have to perform overload resolution in that case.
+            for (auto& i : s->initialisers)
+                if (not AnalyseProcedureType(i))
+                    e->sema.set_errored();
+
+            /// At this point, the type is complete.
+            if (not e->sema.errored) e->sema.set_done();
+
+            /// Analyse initialisers.
+            for (auto& i : s->initialisers) {
+                tempset with_stack = decltype(with_stack){new (mod) ImplicitThisExpr(i, s, {})};
+                Expr* p = i;
+                if (Analyse(p)) {
+                    Assert(p == i, "Analysis must not reassign procedure");
+                    Assert(Type::Equal(i->ret_type, Type::Void), "Initialiser must return void");
+                }
+            }
         } break;
 
         /// Defer expressions have nothing to typecheck really, so
@@ -923,13 +1099,16 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Otherwise, the callee must be a valid symbol.
             else if (not Analyse(invoke->callee)) { return e->sema.set_errored(); }
 
+            /// Perform overload resolution, if need be.
+            if (auto o = dyn_cast<OverloadSetExpr>(invoke->callee)) {
+                auto callee = PerformOverloadResolution(invoke->location, o->overloads, invoke->args, true);
+                if (not callee) return e->sema.set_errored();
+                invoke->callee = callee;
+                return true;
+            }
+
             /// If the callee is of function type, and not a type itself,
             /// then this is a function call.
-            ///
-            /// Invoke expression handling is defined as part of overload resolution,
-            /// so until we have that, the rules are:
-            /// - The result of an invoke expression is an rvalue.
-            /// - The operands of an invoke expressions must be rvalues.
             if (isa<ProcType, ClosureType>(invoke->callee->type) and not isa<Type>(invoke->callee)) {
                 auto ptype = invoke->callee->type.callable;
 
@@ -951,8 +1130,6 @@ bool src::Sema::Analyse(Expr*& e) {
                             arg->type,
                             param
                         );
-                    } else {
-                        InsertLValueToRValueConversion(arg);
                     }
                 }
 
@@ -991,6 +1168,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         cast<DeclRefExpr>(name)->name,
                         invoke->callee,
                         std::move(init),
+                        false,
                         name->location
                     );
                 };
@@ -1062,51 +1240,85 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::MemberAccessExpr: {
             auto m = cast<MemberAccessExpr>(e);
 
+            /// We may have to try several different objects.
+            auto TryAccess = [&](Expr*& object) -> Result<void> {
+                /// Analyse the accessed object.
+                if (not Analyse(object)) return Diag();
+
+                /// Dereference the object until we get an lvalue.
+                auto desugared = object->type.strip_refs_and_pointers;
+
+                /// A slice type has a `data` and a `size` member.
+                ///
+                /// Neither of these are lvalues since slices are
+                /// supposed to be pretty much immutable, and you
+                /// should create a new one rather than changing
+                /// the size or the data pointer.
+                if (auto slice = dyn_cast<SliceType>(desugared)) {
+                    if (m->member == "data") {
+                        m->stored_type = new (mod) ReferenceType(slice->elem, m->location);
+                        Assert(Analyse(m->stored_type));
+                        return {};
+                    }
+
+                    if (m->member == "size") {
+                        m->stored_type = BuiltinType::Int(mod, m->location);
+                        return {};
+                    }
+
+                    return Diag::Error(
+                        mod->context,
+                        m->location,
+                        "Type '{}' has no '{}' member",
+                        slice->as_type.str(true),
+                        m->member
+                    );
+                }
+
+                /// Struct field accesses are lvalues.
+                if (auto s = dyn_cast<StructType>(desugared)) {
+                    auto fields = s->fields();
+                    auto f = rgs::find(fields, m->member, [](auto& f) { return f.name; });
+                    if (f == fields.end()) return Diag::Error(
+                        mod->context,
+                        m->location,
+                        "Type '{}' has no '{}' member",
+                        s->as_type.str(true),
+                        m->member
+                    );
+
+                    m->field = &*f;
+                    m->stored_type = m->field->type;
+                    m->is_lvalue = true;
+                    return {};
+                }
+
+                return Diag::Error(
+                    mod->context,
+                    m->location,
+                    "Cannot perform member access on type '{}'",
+                    m->object->type.str(true)
+                );
+            };
+
             /// Object may be missing if this is a `.x` access.
             if (not m->object) {
-                Todo();
-            }
-
-            /// Analyse the accessed object.
-            if (not Analyse(m->object)) return e->sema.set_errored();
-
-            /// Dereference the object until we get an lvalue.
-            InsertImplicitDereference(m->object, m->object->type.ref_depth);
-            auto desugared = m->object->type.desugared.strip_refs_and_pointers;
-
-            /// A slice type has a `data` and a `size` member.
-            ///
-            /// Neither of these are lvalues since slices are
-            /// supposed to be pretty much immutable, and you
-            /// should create a new one rather than changing
-            /// the size or the data pointer.
-            if (auto slice = dyn_cast<SliceType>(desugared)) {
-                if (m->member == "data") {
-                    m->stored_type = new (mod) ReferenceType(slice->elem, m->location);
-                    return Analyse(m->stored_type);
+                for (auto& w : with_stack | vws::reverse) {
+                    auto res = TryAccess(w);
+                    if (not res.is_diag) {
+                        m->object = CreateImplicitDereference(w, w->type.ref_depth);
+                        return true;
+                    } else {
+                        res.diag.suppress();
+                    }
                 }
 
-                if (m->member == "size") {
-                    m->stored_type = BuiltinType::Int(mod, m->location);
-                    return true;
-                }
-
-                return Error(m, "Type '{}' has no '{}' member", slice, m->member);
+                /// If we get here, we couldn’t find an object to access.
+                return Error(m, "No object on with stack with member '{}'", m->member);
             }
 
-            /// Struct field accesses are lvalues.
-            if (auto s = dyn_cast<StructType>(desugared)) {
-                auto fields = s->fields();
-                auto f = rgs::find(fields, m->member, [](auto& f) { return f.name; });
-                if (f == fields.end()) return Error(m, "Type '{}' has no '{}' member", s, m->member);
-
-                m->field = &*f;
-                m->stored_type = m->field->type;
-                m->is_lvalue = true;
-                return true;
-            }
-
-            return Error(m, "Cannot perform member access on type '{}'", m->object->type);
+            /// Otherwise, try the object itself.
+            return not TryAccess(m->object).is_diag or m->sema.set_errored();
         }
 
         /// Scope access into something that has a scope.
@@ -1171,9 +1383,12 @@ bool src::Sema::Analyse(Expr*& e) {
             auto var = cast<LocalDecl>(e);
             if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
 
+            /// Parameters are currently move-only and need no special handling.
+            if (var->parameter) var->ctor = Constructor::MoveParameter();
+
             /// If the type is unknown, then we must infer it from
             /// the initialiser.
-            if (Type::Equal(var->stored_type, Type::Unknown)) {
+            else if (Type::Equal(var->stored_type, Type::Unknown)) {
                 if (var->init_args.empty()) return Error(var, "Type inference requires an initialiser");
                 if (var->init_args.size() != 1) Todo();
                 if (not Analyse(var->init_args[0])) return e->sema.set_errored();
@@ -1185,26 +1400,10 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Otherwise, the type of the declaration must be valid, and if there
             /// is an initialiser, it must be convertible to the type of the variable.
             else {
-                /// In a lambda to simplify early exit w/o returning from the parent.
-                auto HandleInit = [&] -> void {
-                    /// No need to set the variable itself to errored since we know its type.
-                    if (var->init_args.size() != 1) Todo();
-                    if (not Analyse(var->init_args[0])) return;
-                    if (not Convert(var->init_args[0], var->stored_type)) {
-                        return (void) Error(
-                            var->init_args[0],
-                            "Initialiser type '{}' is not convertible to variable type '{}'",
-                            var->init_args[0]->type,
-                            var->stored_type
-                        );
-                    }
-
-                    /// The initialiser must be an rvalue.
-                    InsertLValueToRValueConversion(var->init_args[0]);
-                };
-
                 if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
-                if (not var->init_args.empty()) HandleInit();
+
+                /// Handle initialisation.
+                AnalyseVariableInitialisation(var);
             }
 
             /// Add the variable to the current scope.
@@ -1548,17 +1747,21 @@ bool src::Sema::AnalyseAsType(Expr*& e) {
 template <bool allow_undefined>
 bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
     auto d = cast<DeclRefExpr>(e);
-    d->scope->visit(d->name, false, [&](auto&& decls) {
-        Assert(not decls.empty(), "Ill-formed symbol table entry");
-
-        /// If there are multiple declarations, take the last.
-        Analyse(decls.back());
-        d->decl = decls.back();
+    SmallVectorImpl<Expr*>* decls{};
+    d->scope->visit(d->name, false, [&](auto&& d) {
+        Assert(not d.empty(), "Ill-formed symbol table entry");
+        decls = &d;
         return utils::StopIteration;
     });
 
+    /// Resolve a DeclRefExpr in place.
+    auto ResolveInPlace = [&](Expr* decl) {
+        d->stored_type = decl->type;
+        d->is_lvalue = false;
+    };
+
     /// If we couldn’t find a definition, check if this is a module name.
-    if (not d->decl) {
+    if (not decls) {
         /// Check if this is an imported module.
         auto m = rgs::find(mod->imports, d->name, &ImportedModuleRef::logical_name);
         if (m != mod->imports.end()) {
@@ -1574,10 +1777,40 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
     }
 
     /// Not defined.
-    if (not d->decl) {
+    if (not decls) {
         if constexpr (allow_undefined) return true;
         else return Error(e, "Unknown symbol '{}'", d->name);
     }
+
+    /// If there are multiple declarations, and the declarations
+    /// are functions, then construct an overload set.
+    if (isa<ProcDecl>(decls->back()) and decls->size() > 1) {
+        /// Take all declarations, starting from the back, that are
+        /// procedure declarations; stop if we encounter a variable
+        /// declaration as that shadows everything before it.
+        SmallVector<ProcDecl*> overloads;
+        for (auto*& o : rgs::subrange(decls->begin(), decls->end()) | vws::reverse) {
+            if (auto p = dyn_cast<ProcDecl>(o)) {
+                if (not Analyse(o)) continue;
+                overloads.push_back(p);
+            } else {
+                break;
+            }
+        }
+
+        /// If there is only one procedure, don’t construct an overload set.
+        if (overloads.size() == 1) {
+            ResolveInPlace(overloads.front());
+            return true;
+        }
+
+        /// Otherwise, construct an overload set.
+        e = new (mod) OverloadSetExpr(overloads, d->location);
+        return true;
+    }
+
+    /// Otherwise, only keep the last decl.
+    d->decl = decls->back();
 
     /// The type of this is the type of the referenced expression.
     if (d->decl->sema.errored) return d->sema.set_errored();
@@ -1596,11 +1829,7 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
     }
 
     /// Otherwise, this stays as a DeclRefExpr.
-    else {
-        d->stored_type = d->decl->type;
-        d->is_lvalue = false;
-    }
-
+    else { ResolveInPlace(d->decl); }
     return true;
 }
 
@@ -1612,13 +1841,6 @@ void src::Sema::AnalyseExplicitCast(Expr*& e, [[maybe_unused]] bool is_hard) {
         e->sema.set_errored();
         return;
     }
-
-    /// The operand of a cast is an rvalue.
-    ///
-    /// TODO: This doesn’t allow lvalue to reference conversions
-    ///       because, well, we need an lvalue for that. Do we
-    ///       care about that?
-    InsertLValueToRValueConversion(c->operand);
 
     /// If the types are convertible, then the cast is fine.
     if (Convert(c->operand, e->type)) return;
@@ -1691,13 +1913,8 @@ bool src::Sema::AnalyseInvokeBuiltin(Expr*& e) {
 void src::Sema::AnalyseProcedure(ProcDecl* proc) {
     tempset curr_proc = proc;
 
-    /// Validate the function type.
-    if (not AnalyseAsType(cast<TypedExpr>(proc)->stored_type))
-        proc->sema.set_errored();
-
-    /// Sanity check.
-    auto ty = cast<TypedExpr>(proc)->stored_type;
-    Assert(isa<ProcType>(ty), "Type of procedure is not a procedure type");
+    /// Check the type first.
+    if (not AnalyseProcedureType(proc)) return;
 
     /// If there is no body, then there is nothing to do.
     if (not proc->body) return;
@@ -1830,4 +2047,110 @@ void src::Sema::AnalyseModule() {
     for (auto f : mod->functions)
         if (TakesChainPointer(f))
             cast<ProcType>(f->type)->static_chain_parent = f->parent;
+}
+
+bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
+    /// Validate initialisers.
+    if (not rgs::all_of(var->init_args, [&](auto*& e) { return Analyse(e); }))
+        return false;
+
+    /// Helper to print the argument types.
+    auto FormatArgTypes = [&](auto args) {
+        return fmt::join(
+            vws::transform(args, [&](auto* e) { return e->as_type.str(true); }),
+            ", "
+        );
+    };
+
+    /// Helper to emit an error that construction is not possible.
+    auto InvalidArgs = [&] {
+        return Error(
+            var,
+            "Cannot construct '{}' from arguments [{}]",
+            var->type,
+            FormatArgTypes(var->init_args)
+        );
+    };
+
+    /// Helper to emit a trivial copy.
+    auto TrivialCopy = [&] {
+        if (not Convert(var->init_args[0], var->type)) return Error(
+            var->init_args[0],
+            "Cannot convert '{}' to '{}'",
+            var->init_args[0]->type,
+            var->type
+        );
+
+        InsertLValueToRValueConversion(var->init_args[0]);
+        var->ctor = Constructor::TrivialCopy();
+        return true;
+    };
+
+    /// Initialisation is dependent on the type.
+    switch (auto ty = var->type.desugared; ty->kind) {
+        default: Unreachable("Invalid type for variable declaration");
+        case Expr::Kind::SugaredType:
+        case Expr::Kind::ScopedType:
+            Unreachable("Should have been desugared");
+
+        /// These take zero or one argument.
+        case Expr::Kind::BuiltinType:
+        case Expr::Kind::FFIType:
+        case Expr::Kind::IntType: {
+            if (var->init_args.empty()) {
+                var->ctor = Constructor::Zeroinit();
+                return true;
+            }
+
+            if (var->init_args.size() == 1) return TrivialCopy();
+            return InvalidArgs();
+        }
+
+        /// References must always be initialised.
+        case Expr::Kind::ReferenceType: {
+            if (var->init_args.empty()) return Error(
+                var,
+                "Variable of reference type '{}' must be initialised",
+                var->name
+            );
+
+            if (var->init_args.size() == 1) return TrivialCopy();
+            return InvalidArgs();
+        }
+
+        /// This is the complicated one.
+        case Expr::Kind::StructType: {
+            auto s = cast<StructType>(ty);
+
+            /// If there are no arguments, and no constructor, zero-initialise the struct.
+            if (var->init_args.empty() and s->initialisers.empty()) {
+                var->ctor = Constructor::Zeroinit();
+                return true;
+            }
+
+            /// Otherwise, perform overload resolution.
+            auto ctor = PerformOverloadResolution(var->location, s->initialisers, var->init_args, true);
+            if (not ctor) return var->sema.set_errored();
+            var->ctor = Constructor::InitialiserCall(ctor);
+            return true;
+        }
+
+        case Expr::Kind::ArrayType: Todo();
+        case Expr::Kind::ProcType: Todo();
+        case Expr::Kind::ScopedPointerType: Todo();
+        case Expr::Kind::SliceType: Todo();
+        case Expr::Kind::OptionalType: Todo();
+        case Expr::Kind::ClosureType: Todo();
+    }
+}
+
+bool src::Sema::AnalyseProcedureType(ProcDecl* proc) {
+    /// Validate the function type.
+    if (not AnalyseAsType(cast<TypedExpr>(proc)->stored_type))
+        return proc->sema.set_errored();
+
+    /// Sanity check.
+    auto ty = cast<TypedExpr>(proc)->stored_type;
+    Assert(isa<ProcType>(ty), "Type of procedure is not a procedure type");
+    return true;
 }

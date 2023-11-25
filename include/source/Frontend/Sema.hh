@@ -48,6 +48,23 @@ class Sema {
         BlockExpr* to_scope{};
     };
 
+    /// Overload candidate.
+    struct Candidate {
+        enum struct Status {
+            Viable,
+            ArgumentCountMismatch,
+            ArgumentTypeMismatch,
+            NoViableArgOverload,
+        };
+
+        ProcDecl* proc;
+        Status s = Status::Viable;
+        int score{};
+
+        LLVM_READONLY readonly(ProcType*, type, return cast<ProcType>(proc->type));
+        usz mismatch_index{};
+    };
+
     SmallVector<Unwind> unwind_entries;
 
     /// Expressions that need to know what the current full expression is.
@@ -55,6 +72,9 @@ class Sema {
 
     /// Set when encountering a protected expression.
     SmallVector<Expr*, 1> protected_subexpressions{};
+
+    /// Expressions eligible for `.x` access.
+    SmallVector<Expr*> with_stack;
 
 public:
     /// Use Context::has_error to check for errors.
@@ -77,12 +97,26 @@ private:
     bool AnalyseInvokeBuiltin(Expr*& e);
     void AnalyseExplicitCast(Expr*& e, bool is_hard);
     void AnalyseProcedure(ProcDecl* proc);
+    bool AnalyseProcedureType(ProcDecl* proc);
     void AnalyseModule();
+
+    /// Handle variable initialisation. This assumes that the type of the
+    /// variable is known and valid.
+    bool AnalyseVariableInitialisation(LocalDecl* var);
 
     /// Convert an expression to a type, inserting implicit conversions
     /// as needed. This prefers to yield lvalues over rvalues, so insert
-    /// an additional lvalue-to-rvalue conversion manually if needed.
+    /// an additional lvalue-to-rvalue conversion manually if needed;
+    /// however, it *will* perform lvalue-to-rvalue conversion if the
+    /// type conversion requires it.
     bool Convert(Expr*& e, Expr* to);
+
+    /// Implements Convert() and TryConvert().
+    template <bool perform_conversion>
+    int ConvertImpl(std::conditional_t<perform_conversion, Expr*&, Expr* const> e, Expr* to);
+
+    /// Create an implicit dereference, but do not overwrite the original expression.
+    auto CreateImplicitDereference(Expr* e, isz depth) -> Expr*;
 
     /// Returns false for convenience.
     template <typename... Args>
@@ -129,7 +163,37 @@ private:
         }
     }
 
+    /// Resolve overload set.
+    ///
+    /// \param where Location for issuing diagnostics.
+    /// \param overloads The overloads to resolve.
+    /// \param args The arguments to the call.
+    /// \param required Whether resolution must succeed. Diagnostics are suppressed
+    ///        if this is false.
+    /// \return The resolved overload, or nullptr if resolution failed.
+    auto PerformOverloadResolution(
+        Location where,
+        ArrayRef<ProcDecl*> overloads,
+        MutableArrayRef<Expr*> args,
+        bool required
+    ) -> ProcDecl*;
+
+    /// Print diagnostic for overload resolution failure.
+    void ReportOverloadResolutionFailure(
+        Location where,
+        ArrayRef<Candidate> overloads,
+        ArrayRef<Expr*> args
+    );
+
+    /// Like Convert(), but does not perform the conversion, does not
+    /// issue any diagnostics, and returns a score suitable for overload
+    /// resolution.
+    int TryConvert(Expr* e, Expr* to);
+
     /// Unwinder.
+    ///
+    /// Used for stack unwinding as part of direct branches (goto, break
+    /// continue, return).
     ///
     /// If this is a small vector, store unwound expressions in it. If it
     /// is an expression, instead emit an error and mark that expression as

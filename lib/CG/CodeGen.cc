@@ -56,10 +56,15 @@ struct CodeGen {
     bool Closed(mlir::Block* block);
 
     /// Construct an object at an address.
-    void Construct(mlir::Location loc, mlir::Value addr, Expr* type, ArrayRef<mlir::Value> args = {});
-
-    /// Get the (mangled) name of the constructor of a type.
-    auto Constructor(Expr* type) -> std::optional<StringRef>;
+    void Construct(
+        mlir::Location loc,
+        mlir::Value addr,
+        const Constructor& ctor,
+        ArrayRef<mlir::Value> args = {}
+    );
+    /*
+        /// Get the (mangled) name of the constructor of a type.
+        auto ScopedPointerCtor(Expr* type) -> std::optional<StringRef>;*/
 
     template <typename T, typename... Args>
     auto Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
@@ -221,36 +226,39 @@ bool src::CodeGen::Closed(mlir::Block* block) {
 void src::CodeGen::Construct(
     mlir::Location loc,
     mlir::Value addr,
-    Expr* type,
+    const Constructor& ctor,
     ArrayRef<mlir::Value> args
 ) {
-    if (not args.empty()) {
-        Assert(args.size() == 1);
-        Create<hlir::ConstructOp>(
-            loc,
-            addr,
-            args[0]
-        );
-    }
+    switch (ctor.kind) {
+        case Constructor::Kind::Invalid: Unreachable();
 
-    /// Otherwise, default-initialise the variable.
-    else {
-        if (auto c = Constructor(type); c.has_value()) {
-            Create<hlir::ConstructOp>(
-                loc,
-                addr,
-                *c
-            );
-        } else {
+        /// Handled elsewhere.
+        case Constructor::Kind::MoveParameter: Unreachable();
+
+        /// Zero-initialisation is accomplished by creating a ConstructOp
+        /// with no arguments other than the object itself.
+        case Constructor::Kind::Zeroinit: {
             Create<hlir::ConstructOp>(
                 loc,
                 addr
             );
-        }
+        } break;
+
+        /// A trivial copy is always one argument.
+        case Constructor::Kind::TrivialCopy: {
+            Create<hlir::ConstructOp>(
+                loc,
+                addr,
+                args[0]
+            );
+        } break;
+
+        case Constructor::Kind::InitialiserCall:
+            Todo();
     }
 }
 
-auto src::CodeGen::Constructor(Expr* type) -> std::optional<StringRef> {
+/*auto src::CodeGen::Constructor(Expr* type) -> std::optional<StringRef> {
     if (not isa<ScopedPointerType>(type)) return std::nullopt;
 
     /// Auto-generate constructors for scoped pointers.
@@ -291,7 +299,7 @@ auto src::CodeGen::Constructor(Expr* type) -> std::optional<StringRef> {
     }
 
     Unreachable();
-}
+}*/
 
 template <typename T, typename... Args>
 auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...)) {
@@ -504,11 +512,13 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
         case Expr::Kind::BuiltinType: {
             switch (cast<BuiltinType>(type)->builtin_kind) {
                 using K = BuiltinTypeKind;
-                case K::Unknown: Unreachable();
                 case K::Void: return mlir::NoneType::get(mctx);
                 case K::Int: return mlir::IntegerType::get(mctx, 64); /// FIXME: Get width from context.
                 case K::Bool: return mlir::IntegerType::get(mctx, 1);
                 case K::NoReturn: return mlir::NoneType::get(mctx);
+                case K::Unknown:
+                case K::OverloadSet:
+                    Unreachable();
             }
             Unreachable();
         }
@@ -630,6 +640,8 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::BinaryExpr:
         case Expr::Kind::LocalDecl:
+        case Expr::Kind::OverloadSetExpr:
+        case Expr::Kind::ImplicitThisExpr:
             Unreachable();
     }
 
@@ -668,6 +680,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
             Unreachable();
+
+        case Expr::Kind::OverloadSetExpr:
+            Diag::ICE(ctx, expr->location, "Unresolved overload set in codegen");
 
         /// These are no-ops.
         case Expr::Kind::StructType:
@@ -1132,12 +1147,16 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// If the variable hasn’t already been allocated, do so now.
             if (not e->mlir) e->mlir = AllocateLocalVar(e);
-            if (e->init_args.size() == 1) {
-                Generate(e->init_args[0]);
-                Construct(e->init_args[0]->location.mlir(ctx), e->mlir, e->type, e->init_args[0]->mlir);
-            } else {
-                Construct(e->location.mlir(ctx), e->mlir, e->type);
-            }
+
+            /// Emit constructor args.
+            for (auto a : e->init_args) Generate(a);
+
+            /// Map exprs to values.
+            SmallVector<mlir::Value, 8> args;
+            for (auto a : e->init_args) args.push_back(a->mlir);
+
+            /// Handle construction.
+            Construct(e->location.mlir(ctx), e->mlir, e->ctor, args);
         } break;
 
         /// If expressions.
@@ -1277,6 +1296,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 } break;
             }
         } break;
+
+        case Expr::Kind::ImplicitThisExpr: {
+            Todo();
+        }
 
         /// Handled by the code that emits a DeclRefExpr.
         case Expr::Kind::ProcDecl: break;

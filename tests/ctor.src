@@ -1,10 +1,9 @@
 
-proc puts (i8&) extern;
 struct foo {
     i64 x;
 
     init {
-        x = 10;
+        .x = 10;
     }
 
     init (i64 x) {

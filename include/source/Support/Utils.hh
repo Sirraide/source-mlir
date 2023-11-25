@@ -343,6 +343,48 @@ void ReplaceAll(
     std::string_view from,
     std::string_view to
 );
+
+/// Get the smallest unique value in a range.
+///
+/// \param r The range to search.
+/// \param filter A filter to apply to determine whether an element should be included.
+/// \param proj A projection to apply to each element before comparison.
+/// \return An iterator to the smallest unique element, or `r.end()` if no such element exists.
+template <rgs::range Range, typename Filter, typename Proj = std::identity>
+auto UniqueMin(
+    Range&& r,
+    Filter filter,
+    Proj proj = {}
+) -> std::conditional_t< //
+    std::is_rvalue_reference_v<Range>,
+    rgs::dangling,
+    decltype(r.begin())> //
+{
+    if constexpr (std::is_rvalue_reference_v<Range>) return rgs::dangling{};
+    else {
+        /// Find the first valid element.
+        auto min_el = r.begin();
+        while (min_el != r.end() and not std::invoke(filter, *min_el)) ++min_el;
+        auto min_it = min_el;
+
+        /// Bail out early on an empty range.
+        if (min_it == r.end()) return r.end();
+
+        for (auto it = std::next(min_el), end = r.end(); it != end; ++it) {
+            if (not std::invoke(filter, *it)) continue;
+            auto&& value = std::invoke(proj, *it);
+            auto&& min = std::invoke(proj, *min_el);
+
+            /// Smaller than the minimum. This means we have a new unique minimum.
+            if (value < min) min_it = min_el = it;
+
+            /// Same as minimum value. This means we have a duplicate.
+            else if (value == min) min_it = r.end();
+        }
+
+        return min_it;
+    }
+}
 } // namespace utils
 
 } // namespace src

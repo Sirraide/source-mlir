@@ -185,6 +185,7 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
         std::move(name),
         *ty,
         {},
+        false,
         loc
     );
 }
@@ -672,6 +673,7 @@ auto src::Parser::ParseParamDeclList(
                 std::move(sig.name),
                 sig.type,
                 {},
+                true,
                 sig.loc
             ));
             param_types.push_back(sig.type);
@@ -699,6 +701,7 @@ auto src::Parser::ParseParamDeclList(
                 std::move(name),
                 *param_type,
                 {},
+                true,
                 tok.location
             ));
             param_types.push_back(*param_type);
@@ -776,7 +779,7 @@ auto src::Parser::ParseProc() -> Result<ProcDecl*> {
 auto src::Parser::ParseSignature() -> Signature {
     Signature sig;
     sig.loc = curr_loc;
-    auto init = At(Tk::Init);
+    const auto init = At(Tk::Init);
     Assert(Consume(Tk::Proc, Tk::Init));
 
     /// Parse name, if there is one.
@@ -816,8 +819,8 @@ auto src::Parser::ParseSignature() -> Signature {
     )); // clang-format on
 
     /// Finally, parse the return type.
-    Expr* ret_type = Type::Unknown;
-    if (Consume(Tk::RArrow)) {
+    Expr* ret_type = init ? Type::Void : Type::Unknown;
+    if (not init and Consume(Tk::RArrow)) {
         auto res = ParseType();
         if (not IsError(res)) ret_type = *res;
     }
