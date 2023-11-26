@@ -1248,6 +1248,11 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// Dereference the object until we get an lvalue.
                 auto desugared = object->type.strip_refs_and_pointers;
 
+                /// Strip references from the object.
+                auto StripRefs = [&] {
+                    InsertImplicitDereference(object, object->type.ref_depth);
+                };
+
                 /// A slice type has a `data` and a `size` member.
                 ///
                 /// Neither of these are lvalues since slices are
@@ -1256,12 +1261,14 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// the size or the data pointer.
                 if (auto slice = dyn_cast<SliceType>(desugared)) {
                     if (m->member == "data") {
+                        StripRefs();
                         m->stored_type = new (mod) ReferenceType(slice->elem, m->location);
                         Assert(Analyse(m->stored_type));
                         return {};
                     }
 
                     if (m->member == "size") {
+                        StripRefs();
                         m->stored_type = BuiltinType::Int(mod, m->location);
                         return {};
                     }
@@ -1287,6 +1294,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         m->member
                     );
 
+                    StripRefs();
                     m->field = &*f;
                     m->stored_type = m->field->type;
                     m->is_lvalue = true;
@@ -1808,7 +1816,7 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
     d->decl = decls->back();
 
     /// The type of this is the type of the referenced expression.
-    if (d->decl->sema.errored) return d->sema.set_errored();
+    if (not Analyse(d->decl)) return d->sema.set_errored();
 
     /// If this is a type, replace it w/ a sugared type.
     if (isa<Type>(d->decl)) {

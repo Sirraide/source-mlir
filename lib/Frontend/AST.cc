@@ -676,15 +676,16 @@ done:
 }
 
 auto src::Expr::TypeHandle::_strip_refs() -> TypeHandle {
-    if (auto ref = dyn_cast<ReferenceType>(desugared.ptr)) return ref->elem->as_type.strip_refs;
-    return *this;
+    auto d = desugared;
+    if (auto ref = dyn_cast<ReferenceType>(d.ptr)) return ref->elem->as_type.strip_refs;
+    else return d;
 }
 
 auto src::Expr::TypeHandle::_strip_refs_and_pointers() -> TypeHandle {
     auto d = desugared;
     if (isa<ReferenceType, ScopedPointerType>(d.ptr))
         return cast<SingleElementTypeBase>(d.ptr)->elem->as_type.strip_refs_and_pointers;
-    return *this;
+    return d;
 }
 
 bool src::Expr::TypeHandle::_yields_value() {

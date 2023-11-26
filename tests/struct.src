@@ -5,6 +5,8 @@
 /// p lit .
 /// d t %[0-9a-zA-Z_]+
 
+pragma nomangle;
+
 struct S {
     i8 a;
     i64 b;

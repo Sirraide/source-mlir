@@ -3,6 +3,8 @@
 /// d t %[a-zA-Z0-9_]+
 /// d b \^bb[0-9]+
 
+pragma nomangle;
+
 /// * hlir.func private @trivial
 /// + scope {
 /// + (?<C1>$t) = arith.constant 4
