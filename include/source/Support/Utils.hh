@@ -225,6 +225,7 @@ concept always_false = false;
 
 /// ANSI Terminal colours.
 enum struct Colour {
+    Bold = 1,
     Reset = 0,
     Red = 31,
     Green = 32,
@@ -260,6 +261,7 @@ struct Colours {
             case Colour::Magenta: return "\033[35m";
             case Colour::Cyan: return "\033[36m";
             case Colour::White: return "\033[37m";
+            case Colour::Bold: return "\033[1m";
         }
         return "";
     }

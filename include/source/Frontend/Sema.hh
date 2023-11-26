@@ -61,7 +61,7 @@ class Sema {
         Status s = Status::Viable;
         int score{};
 
-        LLVM_READONLY readonly(ProcType*, type, return cast<ProcType>(proc->type));
+        LLVM_READONLY readonly_const(ProcType*, type, return cast<ProcType>(proc->type));
         usz mismatch_index{};
     };
 

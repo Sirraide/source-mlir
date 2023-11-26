@@ -76,6 +76,29 @@ int src::Sema::ConvertImpl(
         return ++score;
     }
 
+    /// Overload sets are convertible to each of the procedure types in the
+    /// set, as well as any closures thereof.
+    if (auto os = cast<OverloadSetExpr>(e)) {
+        auto to_proc = dyn_cast<ProcType>(isa<ClosureType>(to) ? cast<ClosureType>(to)->proc_type : to);
+        if (not to_proc) return InvalidScore;
+        for (auto o : os->overloads) {
+            if (Type::Equal(o->type, to_proc)) {
+                /// Replace the overload set with a DeclRefExpr to the referenced procedure.
+                if constexpr (perform_conversion) {
+                    auto d = new (mod) DeclRefExpr(o->name, nullptr, e->location);
+                    d->stored_type = o->type;
+                    d->sema.set_done();
+                    d->decl = o;
+                    e = d;
+                }
+
+                return ++score;
+            }
+        }
+
+        return InvalidScore;
+    }
+
     /// Smaller integer types can be converted to larger integer types.
     if (from.is_int(true) and to.is_int(true)) {
         auto from_size = from.size(mod->context);
@@ -170,6 +193,11 @@ auto src::Sema::PerformOverloadResolution(
     MutableArrayRef<Expr*> args,
     bool required
 ) -> ProcDecl* {
+    /// First, analyse all arguments.
+    for (auto& a : args)
+        if (not Analyse(a))
+            return nullptr;
+
     /// 1.
     SmallVector<Candidate> candidates;
     candidates.reserve(overloads.size());
@@ -263,11 +291,69 @@ auto src::Sema::PerformOverloadResolution(
 }
 
 void src::Sema::ReportOverloadResolutionFailure(
-    [[maybe_unused]] Location where,
-    [[maybe_unused]] ArrayRef<Sema::Candidate> overloads,
-    [[maybe_unused]] ArrayRef<Expr*> args
+    Location where,
+    ArrayRef<Candidate> overloads,
+    ArrayRef<Expr*> args
 ) {
-    Todo();
+    using enum utils::Colour;
+    utils::Colours C{true};
+    Error(where, "Overload resolution failed");
+
+    /// Print all argument types.
+    fmt::print(stderr, "\n  {}{}Arguments:\n", C(Bold), C(White));
+    for (auto [i, e] : vws::enumerate(args))
+        fmt::print(stderr, "    {}{}{}. {}\n", C(Bold), C(White), i + 1, e->type.str(true));
+
+    /// Print overloads and why each one was invalid.
+    fmt::print(stderr, "\n  {}{}Overloads:\n", C(Bold), C(White));
+    for (auto [i, o] : vws::enumerate(overloads)) {
+        if (i != 0) fmt::print("\n");
+        fmt::print(
+            stderr,
+            "    {}{}{}. {}{}{}\n",
+            C(Bold),
+            C(White),
+            i + 1,
+            o.type->as_type.str(true),
+            C(White),
+            C(Reset)
+        );
+
+        if (o.proc->location.seekable(mod->context)) {
+            auto lc = o.proc->location.seek_line_column(mod->context);
+            fmt::print(
+                stderr,
+                "       at {}:{}:{}\n",
+                mod->context->files()[o.proc->location.file_id]->path().string(),
+                lc.line,
+                lc.col
+            );
+        }
+
+        fmt::print(stderr, "       ");
+        switch (o.s) {
+            case Candidate::Status::ArgumentCountMismatch:
+                fmt::print(stderr, "Requires {} arguments\n", o.type->param_types.size());
+                break;
+
+            case Candidate::Status::NoViableArgOverload:
+                fmt::print(stderr, "Overload set for argument {} contains no viable overload\n", o.mismatch_index + 1);
+                break;
+
+            case Candidate::Status::ArgumentTypeMismatch:
+                fmt::print(
+                    stderr,
+                    "Incompatible type for argument {}\n",
+                    o.mismatch_index + 1
+                );
+                break;
+
+            /// Viable here means that the overload was ambiguous.
+            case Candidate::Status::Viable:
+                fmt::print("Viable, but ambiguous\n");
+                break;
+        }
+    }
 }
 
 /// ===========================================================================
@@ -1104,6 +1190,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 auto callee = PerformOverloadResolution(invoke->location, o->overloads, invoke->args, true);
                 if (not callee) return e->sema.set_errored();
                 invoke->callee = callee;
+                invoke->stored_type = invoke->callee->type.callable->ret_type;
                 return true;
             }
 

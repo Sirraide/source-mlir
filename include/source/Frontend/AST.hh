@@ -784,7 +784,9 @@ public:
     /// The name of the declaration this refers to.
     std::string name;
 
-    /// The scope in which this name was found.
+    /// The scope in which this name was found. May be null
+    /// iff `ok` returns true (that is, if the scope is no
+    /// longer needed).
     BlockExpr* scope;
 
     /// The declaration this refers to.

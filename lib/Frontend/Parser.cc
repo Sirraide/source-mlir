@@ -675,6 +675,10 @@ auto src::Parser::ParseParamDeclList(
         /// Procedure.
         if (At(Tk::Proc)) {
             auto sig = ParseSignature();
+
+            /// Return type defaults to void.
+            if (Type::Equal(sig.type->ret_type, Type::Unknown)) sig.type->ret_type = Type::Void;
+
             param_decls.push_back(new (mod) LocalDecl(
                 nullptr,
                 std::move(sig.name),
