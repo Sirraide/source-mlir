@@ -3,6 +3,8 @@
 /// d t %[0-9a-zA-Z_]+
 /// d b \^bb[0-9]+
 
+pragma nomangle;
+
 proc a() extern -> bool;
 proc b() extern;
 

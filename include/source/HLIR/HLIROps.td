@@ -15,6 +15,7 @@ def FuncOp : HLIR_Op<"func", [
         LinkageAttr:$linkage,
         CConv:$cc,
         TypeAttrOf<FunctionType>:$function_type,
+        BoolAttr:$special_member,
         OptionalAttr<DictArrayAttr>:$arg_attrs,
         OptionalAttr<DictArrayAttr>:$res_attrs
     );
@@ -26,16 +27,30 @@ def FuncOp : HLIR_Op<"func", [
             "::mlir::LLVM::Linkage":$linkage,
             "::mlir::LLVM::CConv":$cc,
             "FunctionType":$type,
+            "bool":$special_member,
             CArg<"ArrayRef<NamedAttribute>", "{}">:$attrs
         ), [{
             buildWithEntryBlock($_builder, $_state, name, type, attrs, type.getInputs());
             $_state.addAttribute(getCcAttrName($_state.name), mlir::LLVM::CConvAttr::get($_state.getContext(), cc));
             $_state.addAttribute(getLinkageAttrName($_state.name), mlir::LLVM::LinkageAttr::get($_state.getContext(), linkage));
+            $_state.addAttribute(getSpecialMemberAttrName($_state.name), mlir::BoolAttr::get($_state.getContext(), special_member));
         }]>
     ];
 
     /// Most of this is copied from the func dialect’s FuncOp.
     let extraClassDeclaration = [{
+        /// Get the Nth explicit argument of this function.
+        Value getExplicitArgument(unsigned idx) {
+          if (getSpecialMember()) idx++;
+          return getArgument(idx);
+        }
+
+        /// Get implicit this parameter.
+        Value getImplicitThis() {
+          assert (getSpecialMember() && "this parameter only exists for special member procs");
+          return getArgument(0);
+        }
+
         //===------------------------------------------------------------------===//
         // CallableOpInterface
         //===------------------------------------------------------------------===//

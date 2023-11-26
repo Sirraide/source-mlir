@@ -6,6 +6,7 @@
 
 /// d t %[a-zA-Z0-9_]+
 
+pragma nomangle;
 proc j extern -> int;
 proc consume(int) extern;
 

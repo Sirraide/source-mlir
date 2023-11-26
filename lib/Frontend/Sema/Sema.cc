@@ -97,8 +97,10 @@ int src::Sema::ConvertImpl(
     return InvalidScore;
 }
 
-bool src::Sema::Convert(Expr*& e, Expr* type) {
-    return ConvertImpl<true>(e, type) != InvalidScore;
+bool src::Sema::Convert(Expr*& e, Expr* type, bool lvalue) {
+    bool ok = ConvertImpl<true>(e, type) != InvalidScore;
+    if (ok and not lvalue) InsertLValueToRValueConversion(e);
+    return ok;
 }
 
 auto src::Sema::CreateImplicitDereference(Expr* e, src::isz depth) -> Expr* {
@@ -827,9 +829,10 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Analyse initialiser types first in case they call each other since
             /// we will have to perform overload resolution in that case.
-            for (auto& i : s->initialisers)
-                if (not AnalyseProcedureType(i))
-                    e->sema.set_errored();
+            for (auto& i : s->initialisers) {
+                cast<ProcType>(i->type)->init_of = s;
+                if (not AnalyseProcedureType(i)) e->sema.set_errored();
+            }
 
             /// At this point, the type is complete.
             if (not e->sema.errored) e->sema.set_done();
@@ -962,9 +965,6 @@ bool src::Sema::Analyse(Expr*& e) {
                     r->value->type,
                     Type::Void->as_type
                 );
-
-                /// Operand of return is an rvalue.
-                InsertLValueToRValueConversion(r->value);
             }
 
             /// Return expression has no argument.
@@ -1097,7 +1097,7 @@ bool src::Sema::Analyse(Expr*& e) {
             }
 
             /// Otherwise, the callee must be a valid symbol.
-            else if (not Analyse(invoke->callee)) { return e->sema.set_errored(); }
+            if (not Analyse(invoke->callee)) { return e->sema.set_errored(); }
 
             /// Perform overload resolution, if need be.
             if (auto o = dyn_cast<OverloadSetExpr>(invoke->callee)) {
@@ -1384,7 +1384,10 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
 
             /// Parameters are currently move-only and need no special handling.
-            if (var->parameter) var->ctor = Constructor::MoveParameter();
+            if (var->parameter) {
+                if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
+                var->ctor = Constructor::MoveParameter();
+            }
 
             /// If the type is unknown, then we must infer it from
             /// the initialiser.
@@ -1421,8 +1424,7 @@ bool src::Sema::Analyse(Expr*& e) {
             /// itself can still be determined as it is independent of the
             /// condition.
             if (Analyse(i->cond)) {
-                if (Convert(i->cond, Type::Bool)) InsertLValueToRValueConversion(i->cond);
-                else Error(
+                if (not Convert(i->cond, Type::Bool)) Error(
                     i->cond->location,
                     "Type '{}' of condition of `if` must be convertible to '{}'",
                     i->cond->type.str(true),
@@ -1455,7 +1457,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// to one another, then the type of the if expression is that type.
                 /// Furthermore, ensure that either both clauses are lvalues or neither
                 /// is; in the former case, the entire expr is an lvalue.
-                else if (Convert(i->else_, i->then->type) or Convert(i->then, i->else_->type)) {
+                else if (Convert(i->else_, i->then->type, true) or Convert(i->then, i->else_->type, true)) {
                     i->stored_type = i->then->type;
                     if (i->then->is_lvalue and i->else_->is_lvalue) i->is_lvalue = true;
                     else {
@@ -1479,9 +1481,6 @@ bool src::Sema::Analyse(Expr*& e) {
                 w->cond->type.str(true),
                 Type::Bool->as_type.str(true)
             );
-
-            /// Condition is an rvalue.
-            InsertLValueToRValueConversion(w->cond);
 
             /// There is nothing left to do other than analyse the body. The
             /// type of this is always void, so sema for the while expression
@@ -1663,9 +1662,6 @@ bool src::Sema::Analyse(Expr*& e) {
                         b->lhs->type
                     );
 
-                    /// RHS is an rvalue.
-                    InsertLValueToRValueConversion(b->rhs);
-
                     /// The type of the expression is the type of the LHS.
                     b->stored_type = b->lhs->type;
                     b->is_lvalue = true;
@@ -1726,7 +1722,6 @@ bool src::Sema::Analyse(Expr*& e) {
                     }
 
                     /// 7.
-                    InsertLValueToRValueConversion(b->rhs);
                     b->stored_type = b->lhs->type;
                     b->is_lvalue = true;
                 } break;
@@ -1846,7 +1841,10 @@ void src::Sema::AnalyseExplicitCast(Expr*& e, [[maybe_unused]] bool is_hard) {
     if (Convert(c->operand, e->type)) return;
 
     /// Integer-to-integer conversions are fine.
-    if (c->operand->type.is_int(true) and e->type.is_int(true)) return;
+    if (c->operand->type.is_int(true) and e->type.is_int(true)) {
+        InsertLValueToRValueConversion(c->operand);
+        return;
+    }
 
     /// Other conversions may be added in the future.
     /// TODO: Actually add some hard casts.
@@ -1959,8 +1957,9 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
         Expr*& e = proc->body->exprs[0];
 
         /// Infer type.
-        if (Type::Equal(proc->ret_type, Type::Unknown))
+        if (Type::Equal(proc->ret_type, Type::Unknown)) {
             cast<ProcType>(proc->stored_type)->ret_type = body->type;
+        }
 
         /// Check that the type is valid.
         else if (not Convert(e, proc->ret_type)) {
@@ -2081,7 +2080,6 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
             var->type
         );
 
-        InsertLValueToRValueConversion(var->init_args[0]);
         var->ctor = Constructor::TrivialCopy();
         return true;
     };

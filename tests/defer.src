@@ -6,13 +6,13 @@
 ///L d t %[0-9a-zA-Z_]+
 ///L d b \^bb[0-9]+
 
-proc a extern;
-proc b extern;
-proc c extern;
-proc d extern;
-proc e extern;
-proc f extern;
-proc cond() extern -> bool;
+proc a extern nomangle;
+proc b extern nomangle;
+proc c extern nomangle;
+proc d extern nomangle;
+proc e extern nomangle;
+proc f extern nomangle;
+proc cond() extern nomangle -> bool;
 
 ///L !* scope {
 ///L !* defer {

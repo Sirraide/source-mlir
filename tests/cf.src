@@ -17,21 +17,21 @@
 ///L d t %[a-zA-Z0-9_]+
 ///L d b \^bb[0-9]+
 
-proc a() extern;
-proc b() extern;
-proc c() extern;
-proc d() extern;
-proc e() extern;
-proc f() extern;
-proc g() extern;
-proc h() extern;
-proc i() extern;
-proc j() extern;
-proc k() extern;
-proc l() extern;
-proc m() extern;
-proc n() extern;
-proc o() extern;
+proc a() extern nomangle;
+proc b() extern nomangle;
+proc c() extern nomangle;
+proc d() extern nomangle;
+proc e() extern nomangle;
+proc f() extern nomangle;
+proc g() extern nomangle;
+proc h() extern nomangle;
+proc i() extern nomangle;
+proc j() extern nomangle;
+proc k() extern nomangle;
+proc l() extern nomangle;
+proc m() extern nomangle;
+proc n() extern nomangle;
+proc o() extern nomangle;
 
 ///L !* scope
 ///L !* defer

@@ -202,6 +202,8 @@ void hlir::FuncOp::print(OpAsmPrinter& p) {
         p << ")";
     }
 
+    if (getSpecialMember()) p << " smf";
+
     if (ftype.getNumResults()) {
         Assert(ftype.getNumResults() == 1);
         p << " -> ";
@@ -217,6 +219,7 @@ void hlir::FuncOp::print(OpAsmPrinter& p) {
             getResAttrsAttrName(),
             getLinkageAttrName(),
             getCcAttrName(),
+            getSpecialMemberAttrName(),
             "sym_visibility",
         }
     );
@@ -341,7 +344,8 @@ auto hlir::StoreOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
 
 void hlir::StructGEPOp::print(OpAsmPrinter& p) {
     p << " " << getStructRef() << ", " << getIdx().getValue().getZExtValue();
-    p << " -> ref " << getType().getElem();
+    p << " -> ";
+    PrintType(getType(), p);
 }
 
 auto hlir::StructGEPOp::parse(OpAsmParser&, OperationState&) -> ParseResult {

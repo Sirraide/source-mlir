@@ -545,9 +545,6 @@ void src::Lexer::LexIdentifier() {
 
     /// Check for keywords and ints.
     LexSpecialToken();
-
-    /// Handle pragmas.
-    if (tok.type == Tk::Pragma and not pragma_handler()) tok.type = Tk::Invalid;
 }
 
 void src::Lexer::LexNumber() {

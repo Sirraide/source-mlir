@@ -20,6 +20,9 @@ class Parser : Lexer {
     readonly(BlockExpr*, curr_scope, return scope_stack.back());
     readonly(Location, curr_loc, return tok.location);
 
+    /// Default mangling scheme.
+    Mangling default_mangling = Mangling::Source;
+
 public:
     /// Parse a file into a module.
     static auto Parse(Context& ctx, File& f) -> Module*;
@@ -159,6 +162,7 @@ private:
     auto ParseIf() -> Result<Expr*>;
     auto ParseImplicitBlock() -> Result<BlockExpr*>;
     auto ParseParamDeclList(SVI<LocalDecl*>& param_decls, SVI<Expr*>& param_types) -> Location;
+    void ParsePragma();
     auto ParseProc() -> Result<ProcDecl*>;
     auto ParseProcBody() -> Result<BlockExpr*>;
     auto ParseSignature() -> Signature;

@@ -507,11 +507,18 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
     return lhs;
 }
 
-/// <exprs> ::= { [ <expr> ]  ";" }
+/// <exprs> ::= { <expr> | <pragma> | ";" }
 auto src::Parser::ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void> {
     while (not At(Tk::Eof, until)) {
         /// Yeet excess semicolons.
         while (Consume(Tk::Semicolon)) continue;
+
+        /// Handle pragmas.
+        /// FIXME: Include these in the AST or somewhere else for Source fidelity?
+        if (At(Tk::Pragma)) {
+            ParsePragma();
+            continue;
+        }
 
         /// Parse an expression.
         auto e = ParseExpr();
@@ -714,6 +721,24 @@ auto src::Parser::ParseParamDeclList(
     return loc;
 }
 
+/// <pragma> ::= PRAGMA "nomangle" ";"
+void src::Parser::ParsePragma() {
+    auto loc = curr_loc;
+    Assert(Consume(Tk::Pragma));
+
+    if (At(Tk::Identifier)) {
+        if (tok.text == "nomangle") {
+            default_mangling = Mangling::None;
+            Next();
+            if (not Consume(Tk::Semicolon)) Error("Expected ';'");
+            return;
+        }
+    }
+
+    Diag::Warning(ctx, loc, "Unknown pragma ignored");
+    Synchronise();
+}
+
 /// <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 /// <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
 /// <init-decl>      ::= INIT <proc-signature> <proc-body>
@@ -733,7 +758,7 @@ auto src::Parser::ParseProc() -> Result<ProcDecl*> {
         sig.type,
         std::move(sig.param_decls),
         sig.is_extern ? Linkage::Imported : Linkage::Internal,
-        sig.is_nomangle ? Mangling::None : Mangling::Source,
+        sig.is_nomangle ? Mangling::None : default_mangling,
         sig.loc
     );
 

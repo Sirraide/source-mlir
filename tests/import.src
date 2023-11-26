@@ -4,10 +4,10 @@
 
 import foo;
 
-/// * hlir.func external @x
+/// * hlir.func external @_SM3foo1xPiiE
 /// + hlir.func external @__src_main
 /// + scope
 /// + (?<three>$t) = arith.constant 3
 /// + (?<four>$t) = arith.constant 4
-/// + $t = call @x($three, $four)
+/// + $t = call @_SM3foo1xPiiE($three, $four)
 foo::x 3, 4;

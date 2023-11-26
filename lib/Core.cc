@@ -504,7 +504,7 @@ void src::detail::AssertFail(
 
     /// Print the message.
     if (not message.empty()) fmt::print(stderr, ": {}", message);
-    fmt::print("\n");
+    fmt::print(stderr, "\n");
 
     /// Print the backtrace and exit.
     PrintBacktrace();

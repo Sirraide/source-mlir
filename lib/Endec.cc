@@ -13,10 +13,10 @@ namespace src {
 /// ===========================================================================
 ///  Mangler.
 /// ===========================================================================
-auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
+auto Expr::TypeHandle::_mangled_name() -> std::string {
     auto FormatSEType = [&](Expr* t, std::string_view prefix) {
         auto se = cast<SingleElementTypeBase>(t);
-        return fmt::format("{}{}", prefix, se->elem->as_type.mangled_name(ctx));
+        return fmt::format("{}{}", prefix, se->elem->as_type.mangled_name);
     };
 
     switch (ptr->kind) {
@@ -43,7 +43,9 @@ auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
             Unreachable();
         }
 
-        case Expr::Kind::IntType: return fmt::format("I{}", cast<IntType>(ptr)->bits);
+        /// The underscore is so we know how many digits are part of the bit width.
+        case Expr::Kind::IntType:
+            return fmt::format("I{}_", cast<IntType>(ptr)->bits);
 
         case Expr::Kind::ReferenceType: return FormatSEType(ptr, "R");
         case Expr::Kind::ScopedPointerType: return FormatSEType(ptr, "U");
@@ -54,17 +56,16 @@ auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
 
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
-            return cast<SingleElementTypeBase>(ptr)->elem->as_type.mangled_name(ctx);
+            return cast<SingleElementTypeBase>(ptr)->elem->as_type.mangled_name;
 
         case Expr::Kind::ProcType: {
             auto p = cast<ProcType>(ptr);
-            Assert(not p->static_chain_parent, "Cannot mangle local function type");
 
             /// We don’t include the return type since you can’t
             /// overload on that anyway.
             std::string name{"P"};
-            name += fmt::format("{}", p->param_types.size());
-            for (auto a : p->param_types) name += a->as_type.mangled_name(ctx);
+            for (auto a : p->param_types) name += a->as_type.mangled_name;
+            name += "E";
             return name;
         }
 
@@ -118,6 +119,46 @@ auto Expr::TypeHandle::mangled_name(Context* ctx) -> std::string {
         case Expr::Kind::OverloadSetExpr:
         case Expr::Kind::ImplicitThisExpr:
             Unreachable("Not a type");
+    }
+}
+
+auto ObjectDecl::_mangled_name() -> StringRef {
+    auto& s = stored_mangled_name;
+    if (not s.empty()) return s;
+
+    /// Determine mangling.
+    switch (mangling) {
+        case Mangling::None: return name;
+
+        /// Actually compute the mangled name.
+        case Mangling::Source: break;
+    }
+
+    /// Append prefix.
+    s = "_S";
+    if (module->is_logical_module)
+        s += fmt::format("M{}{}", module->name.size(), module->name);
+
+    /// Procedure.
+    if (auto proc = dyn_cast<ProcDecl>(this)) {
+        /// Nested functions start with 'L' and the name of the parent function. Exclude
+        /// the '_S' prefix from the parent function’s name.
+        auto ty = cast<ProcType>(proc->type);
+        if (proc->parent != proc->module->top_level_func)
+            s += fmt::format("L{}", proc->parent->mangled_name.drop_front(2));
+
+        /// Constructors receive an extra 'C' at the beginning of the name followed
+        /// by the parent struct name and have no name themselves.
+        if (ty->is_init) s += fmt::format("C{}", ty->init_of->as_type.mangled_name);
+
+        /// All other functions just include the name.
+        else s += fmt::format("{}{}", name.size(), name);
+
+        /// The type is always included.
+        s += type.mangled_name;
+        return s;
+    } else {
+        Todo();
     }
 }
 

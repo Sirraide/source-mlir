@@ -1,7 +1,10 @@
 /// R %srcc %s --hlir
-proc discard (int a) extern;
 
 /// d t %[a-zA-Z0-9_]+
+
+pragma nomangle;
+
+proc discard (int a) extern;
 
 /// * hlir.func private @takes_int
 proc takes_int (int a) {

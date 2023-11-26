@@ -176,7 +176,7 @@ public:
         /// Get the mangled name of this type.
         ///
         /// Context may be null if this is a struct type.
-        auto mangled_name(Context* ctx) -> std::string;
+        readonly_decl(std::string, mangled_name);
 
         /// Check if this is any integer type.
         bool is_int(bool bool_is_int);
@@ -871,19 +871,36 @@ public:
 };
 
 class ObjectDecl : public Decl {
+    /// Mangled name.
+    std::string stored_mangled_name;
+
 public:
+    /// The module this declaration belongs to.
+    Module* module;
+
     /// Linkage of this object.
     Linkage linkage;
 
     /// Mangling scheme.
     Mangling mangling;
 
+    /// Get the mangled name of this object.
+    readonly_decl(StringRef, mangled_name);
+
     /// Whether this decl is imported or exported.
     readonly(bool, imported, return linkage == Linkage::Imported or linkage == Linkage::Reexported);
     readonly(bool, exported, return linkage == Linkage::Exported or linkage == Linkage::Reexported);
 
-    ObjectDecl(Kind k, std::string name, Expr* type, Linkage linkage, Mangling mangling, Location loc)
-        : Decl(k, std::move(name), type, loc),
+    ObjectDecl(
+        Kind k,
+        Module* mod,
+        std::string name,
+        Expr* type,
+        Linkage linkage,
+        Mangling mangling,
+        Location loc
+    ) : Decl(k, std::move(name), type, loc),
+          module(mod),
           linkage(linkage),
           mangling(mangling) {}
 
@@ -999,9 +1016,6 @@ public:
 
 class ProcDecl : public ObjectDecl {
 public:
-    /// The module this procedure belongs to.
-    Module* module;
-
     /// The parent function. Null if this is the top-level function. This
     /// is used for building static chains.
     ProcDecl* parent;
@@ -1431,6 +1445,12 @@ public:
 
     /// The procedure whose chain pointer this takes.
     ProcDecl* static_chain_parent{};
+
+    /// Get the type this is an initialiser of, if any.
+    StructType* init_of{};
+
+    /// Whether this is an initialiser.
+    readonly_const(bool, is_init, return init_of != nullptr);
 
     /// Whether this type is variadic.
     bool variadic{};

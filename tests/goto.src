@@ -3,6 +3,8 @@
 /// d b \^bb[0-9]+
 /// d t %[0-9a-zA-Z_]+
 
+pragma nomangle;
+
 proc a extern;
 proc b extern;
 proc c extern;

@@ -218,9 +218,6 @@ private:
     /// Lookahead tokens.
     std::deque<Token> lookahead_tokens;
 
-    /// Pragma handler.
-    std::function<bool()> pragma_handler;
-
     /// Macro definitions.
     std::deque<Macro> macro_definitions;
     StringMap<Macro*> macro_definitions_by_name;

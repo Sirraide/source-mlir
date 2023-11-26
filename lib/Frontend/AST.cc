@@ -45,8 +45,7 @@ src::ProcDecl::ProcDecl(
     Linkage linkage,
     Mangling mangling,
     Location loc
-) : ObjectDecl(Kind::ProcDecl, std::move(name), type, linkage, mangling, loc),
-    module(mod),
+) : ObjectDecl(Kind::ProcDecl, mod, std::move(name), type, linkage, mangling, loc),
     parent(parent),
     params(std::move(param_decls)),
     body(nullptr) {
@@ -942,9 +941,13 @@ struct ASTPrinter {
                 PrintLinkage(f->linkage);
                 PrintBasicHeader("ProcDecl", e);
                 out += fmt::format(
-                    " {}{} {}{}{}\n",
+                    " {}{} {}[{}{}{}] {}{}{}\n",
                     C(Green),
                     f->name,
+                    C(Red),
+                    C(Green),
+                    f->sema.ok ? f->mangled_name : "???",
+                    C(Red),
                     f->type.str(use_colour),
                     f->nested ? fmt::format(" {}nested", C(Blue)) : "",
                     f->takes_static_chain ? " chain" : ""
@@ -1243,7 +1246,7 @@ struct ASTPrinter {
                         s->name,
                         C(Red),
                         C(Cyan),
-                        s->as_type.mangled_name(mod ? mod->context : nullptr),
+                        s->sema.ok ? s->as_type.mangled_name : "???",
                         C(Red),
                         C(Yellow),
                         s->sema.ok ? std::to_string(s->stored_size) : "?",

@@ -9,7 +9,7 @@
 
 proc a = 22;
 
-/// * hlir.func private @b
+/// * hlir.func private @_S1bPCPEE
 /// + (?<c>$t) = local
 /// + store into $c
 /// + (?<cval>$t) = load $any from $c
@@ -19,15 +19,15 @@ proc b (proc c -> int) = c();
 
 /// u c
 /// u ret
-/// * hlir.func private @caller
+/// * hlir.func private @_S6callerPE
 /// + (?<vars>$t) = local
 /// + (?<x>$t) = structgep $vars
 /// + (?<twenty>$t) = arith.constant 20
 /// + store into $x, i64 $twenty
-/// + (?<cl1>$t) = makeclosure { @a, null }
-/// + (?<b1ret>$t) = call @b($cl1)
-/// + (?<cl2>$t) = makeclosure { @c, $vars }
-/// + (?<b2ret>$t) = call @b($cl2)
+/// + (?<cl1>$t) = makeclosure { @_S1aPE, null }
+/// + (?<b1ret>$t) = call @_S1bPCPEE($cl1)
+/// + (?<cl2>$t) = makeclosure { @_SL6callerPE1cPE, $vars }
+/// + (?<b2ret>$t) = call @_S1bPCPEE($cl2)
 /// + (?<ret>$t) = arith.addi $b1ret, $b2ret
 /// + return i64 $ret
 proc caller() -> int {

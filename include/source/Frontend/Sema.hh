@@ -105,11 +105,10 @@ private:
     bool AnalyseVariableInitialisation(LocalDecl* var);
 
     /// Convert an expression to a type, inserting implicit conversions
-    /// as needed. This prefers to yield lvalues over rvalues, so insert
-    /// an additional lvalue-to-rvalue conversion manually if needed;
-    /// however, it *will* perform lvalue-to-rvalue conversion if the
-    /// type conversion requires it.
-    bool Convert(Expr*& e, Expr* to);
+    /// as needed. This  *will* perform lvalue-to-rvalue conversion if
+    /// the type conversion requires it and also in any case unless \p
+    /// lvalue is true.
+    bool Convert(Expr*& e, Expr* to, bool lvalue = false);
 
     /// Implements Convert() and TryConvert().
     template <bool perform_conversion>

@@ -75,6 +75,7 @@ struct CodeGen {
         mlir::FunctionType type,
         StringRef name,
         Linkage linkage,
+        bool smf,
         Callable callable
     );
 
@@ -193,6 +194,7 @@ auto src::CodeGen::CreateProcedure(
     mlir::FunctionType type,
     StringRef name,
     Linkage linkage,
+    bool smf,
     Callable callable
 ) {
     mlir::OpBuilder::InsertionGuard guard{builder};
@@ -202,7 +204,8 @@ auto src::CodeGen::CreateProcedure(
         name,
         ConvertLinkage(linkage),
         mlir::LLVM::CConv::C,
-        type
+        type,
+        smf
     );
 
     builder.setInsertionPointToEnd(&func.getBody().front());
@@ -212,7 +215,7 @@ auto src::CodeGen::CreateProcedure(
 /// Create an external function.
 void src::CodeGen::CreateExternalProcedure(mlir::FunctionType type, StringRef name) {
     if (procs.contains(name)) return;
-    CreateProcedure(type, name, Linkage::Imported, [&](hlir::FuncOp proc) {
+    CreateProcedure(type, name, Linkage::Imported, false, [&](hlir::FuncOp proc) {
         proc.eraseBody();
         proc.setPrivate();
         procs.insert(proc.getName());
@@ -253,8 +256,14 @@ void src::CodeGen::Construct(
             );
         } break;
 
-        case Constructor::Kind::InitialiserCall:
-            Todo();
+        case Constructor::Kind::InitialiserCall: {
+            Create<hlir::ConstructOp>(
+                loc,
+                addr,
+                ctor.initialiser->mangled_name,
+                args
+            );
+        } break;
     }
 }
 
@@ -336,10 +345,10 @@ auto src::CodeGen::Destructor(Expr* type) -> std::optional<StringRef> {
         ///
         /// A destructor always takes a reference to the type being destroyed.
         auto fty = mlir::FunctionType::get(mctx, hlir::ReferenceType::get(Ty(sc)), {});
-        auto name = fmt::format("_SX{}", sc->as_type.mangled_name(ctx));
-        auto proc = CreateProcedure(fty, name, Linkage::LinkOnceODR, [&](hlir::FuncOp f) {
+        auto name = fmt::format("_SX{}", sc->as_type.mangled_name);
+        auto proc = CreateProcedure(fty, name, Linkage::LinkOnceODR, true, [&](hlir::FuncOp f) {
             /// Load the pointer.
-            auto ptr = Create<hlir::LoadOp>(builder.getUnknownLoc(), f.getArgument(0));
+            auto ptr = Create<hlir::LoadOp>(builder.getUnknownLoc(), f.getImplicitThis());
 
             /// Call the element type’s destructor, if any.
             Destroy(builder.getUnknownLoc(), ptr.getResult(), sc->elem);
@@ -364,7 +373,7 @@ auto src::CodeGen::EmitReference([[maybe_unused]] mlir::Location loc, src::Expr*
     if (auto p = dyn_cast<ProcDecl>(decl)) return Create<mlir::func::ConstantOp>(
         loc,
         Ty(p->type),
-        mlir::SymbolRefAttr::get(mctx, p->name)
+        mlir::SymbolRefAttr::get(mctx, p->mangled_name)
     );
 
     Unreachable();
@@ -474,8 +483,8 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
         Create<hlir::StoreOp>(
             builder.getUnknownLoc(),
             proc->captured_locals_ptr,
-            func.getArgument(u32(proc->params.size())), /// (!)
-            8                                           /// FIXME: Get alignment of pointer type from context.
+            func.getExplicitArgument(u32(proc->params.size())), /// (!)
+            8 /// FIXME: Get alignment of pointer type from context.
         );
     }
 }
@@ -565,6 +574,14 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
         case Expr::Kind::ProcType: {
             auto ty = cast<ProcType>(type);
             SmallVector<mlir::Type> params;
+
+            /// Sanity check.
+            Assert(not ty->is_init or not ty->static_chain_parent, "Initialisers can’t be nested procedures");
+
+            /// Add implicit this parameter, if any.
+            if (ty->is_init) params.push_back(hlir::ReferenceType::get(Ty(ty->init_of)));
+
+            /// Add regular parameters.
             for (auto p : ty->param_types) params.push_back(Ty(p));
 
             /// Add an extra parameter for the static chain pointer, unless
@@ -1297,9 +1314,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
             }
         } break;
 
-        case Expr::Kind::ImplicitThisExpr: {
-            Todo();
-        }
+        /// This is the first parameter of the current function.
+        case Expr::Kind::ImplicitThisExpr:
+            expr->mlir = cast<hlir::FuncOp>(curr_proc->mlir_func).getImplicitThis();
+            break;
 
         /// Handled by the code that emits a DeclRefExpr.
         case Expr::Kind::ProcDecl: break;
@@ -1385,15 +1403,17 @@ void src::CodeGen::GenerateModule() {
 
 void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
     /// Create the function.
-    auto ty = Ty(proc->type);
+    auto ptype = cast<ProcType>(proc->type);
+    auto ty = Ty(ptype);
     tempset curr_proc = proc;
 
     auto func = Create<hlir::FuncOp>(
         proc->location.mlir(ctx),
-        proc->name,
+        proc->mangled_name,
         ConvertLinkage(proc->linkage),
         mlir::LLVM::CConv::C,
-        ty.cast<mlir::FunctionType>()
+        ty.cast<mlir::FunctionType>(),
+        ptype->is_init
     );
 
     /// Associate the function with the procedure.
@@ -1424,7 +1444,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
             Create<hlir::StoreOp>(
                 p->location.mlir(ctx),
                 p->mlir,
-                func.getArgument(u32(i)),
+                func.getExplicitArgument(u32(i)),
                 p->type.align(ctx) / 8
             );
         }
