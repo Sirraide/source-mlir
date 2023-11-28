@@ -1206,8 +1206,13 @@ bool src::Sema::Analyse(Expr*& e) {
             if (auto o = dyn_cast<OverloadSetExpr>(invoke->callee)) {
                 auto callee = PerformOverloadResolution(invoke->location, o->overloads, invoke->args, true);
                 if (not callee) return e->sema.set_errored();
-                invoke->callee = callee;
-                invoke->stored_type = invoke->callee->type.callable->ret_type;
+                invoke->stored_type = callee->type.callable->ret_type;
+
+                /// Wrap the procedure with a DeclRefExpr, for backend reasons.
+                auto dr = new (mod) DeclRefExpr(callee->name, curr_scope, invoke->location);
+                dr->decl = callee;
+                invoke->callee = dr;
+                Assert(Analyse(invoke->callee));
                 return true;
             }
 
@@ -1854,12 +1859,6 @@ bool src::Sema::AnalyseAsType(Expr*& e) {
 template <bool allow_undefined>
 bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
     auto d = cast<DeclRefExpr>(e);
-    SmallVectorImpl<Expr*>* decls{};
-    d->scope->visit(d->name, false, [&](auto&& d) {
-        Assert(not d.empty(), "Ill-formed symbol table entry");
-        decls = &d;
-        return utils::StopIteration;
-    });
 
     /// Resolve a DeclRefExpr in place.
     auto ResolveInPlace = [&](Expr* decl) {
@@ -1867,57 +1866,68 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
         d->is_lvalue = false;
     };
 
-    /// If we couldn’t find a definition, check if this is a module name.
-    if (not decls) {
-        /// Check if this is an imported module.
-        auto m = rgs::find(mod->imports, d->name, &ImportedModuleRef::logical_name);
-        if (m != mod->imports.end()) {
-            e = new (mod) ModuleRefExpr(m->mod, d->location);
-            return true;
-        }
+    /// Some DeclRefExprs may already be resolved to a node. If this one
+    /// isn’t, find the nearest declaration with the given name.
+    if (not d->decl) {
+        SmallVectorImpl<Expr*>* decls{};
+        d->scope->visit(d->name, false, [&](auto&& d) {
+            Assert(not d.empty(), "Ill-formed symbol table entry");
+            decls = &d;
+            return utils::StopIteration;
+        });
 
-        /// Check if this is this module.
-        if (mod->is_logical_module and d->name == mod->name) {
-            e = new (mod) ModuleRefExpr(mod, d->location);
-            return true;
-        }
-    }
+        /// If we couldn’t find a definition, check if this is a module name.
+        if (not decls) {
+            /// Check if this is an imported module.
+            auto m = rgs::find(mod->imports, d->name, &ImportedModuleRef::logical_name);
+            if (m != mod->imports.end()) {
+                e = new (mod) ModuleRefExpr(m->mod, d->location);
+                return true;
+            }
 
-    /// Not defined.
-    if (not decls) {
-        if constexpr (allow_undefined) return true;
-        else return Error(e, "Unknown symbol '{}'", d->name);
-    }
-
-    /// If there are multiple declarations, and the declarations
-    /// are functions, then construct an overload set.
-    if (isa<ProcDecl>(decls->back()) and decls->size() > 1) {
-        /// Take all declarations, starting from the back, that are
-        /// procedure declarations; stop if we encounter a variable
-        /// declaration as that shadows everything before it.
-        SmallVector<ProcDecl*> overloads;
-        for (auto*& o : rgs::subrange(decls->begin(), decls->end()) | vws::reverse) {
-            if (auto p = dyn_cast<ProcDecl>(o)) {
-                if (not Analyse(o)) continue;
-                overloads.push_back(p);
-            } else {
-                break;
+            /// Check if this is this module.
+            if (mod->is_logical_module and d->name == mod->name) {
+                e = new (mod) ModuleRefExpr(mod, d->location);
+                return true;
             }
         }
 
-        /// If there is only one procedure, don’t construct an overload set.
-        if (overloads.size() == 1) {
-            ResolveInPlace(overloads.front());
+        /// Not defined.
+        if (not decls) {
+            if constexpr (allow_undefined) return true;
+            else return Error(e, "Unknown symbol '{}'", d->name);
+        }
+
+        /// If there are multiple declarations, and the declarations
+        /// are functions, then construct an overload set.
+        if (isa<ProcDecl>(decls->back()) and decls->size() > 1) {
+            /// Take all declarations, starting from the back, that are
+            /// procedure declarations; stop if we encounter a variable
+            /// declaration as that shadows everything before it.
+            SmallVector<ProcDecl*> overloads;
+            for (auto*& o : rgs::subrange(decls->begin(), decls->end()) | vws::reverse) {
+                if (auto p = dyn_cast<ProcDecl>(o)) {
+                    if (not Analyse(o)) continue;
+                    overloads.push_back(p);
+                } else {
+                    break;
+                }
+            }
+
+            /// If there is only one procedure, don’t construct an overload set.
+            if (overloads.size() == 1) {
+                ResolveInPlace(overloads.front());
+                return true;
+            }
+
+            /// Otherwise, construct an overload set.
+            e = new (mod) OverloadSetExpr(overloads, d->location);
             return true;
         }
 
-        /// Otherwise, construct an overload set.
-        e = new (mod) OverloadSetExpr(overloads, d->location);
-        return true;
+        /// Otherwise, only keep the last decl.
+        d->decl = decls->back();
     }
-
-    /// Otherwise, only keep the last decl.
-    d->decl = decls->back();
 
     /// The type of this is the type of the referenced expression.
     if (not Analyse(d->decl)) return d->sema.set_errored();

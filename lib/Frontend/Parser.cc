@@ -194,10 +194,16 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
 /// <expr-invoke>   ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
 /// <expr-paren>    ::= "(" <expr> ")"
 auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
-    auto lhs = Result<Expr*>::Null();
+    /// A ProcDecl must be wrapped in DeclRefExpr if it is not a full
+    /// expression or not preceded by 'export'.
+    const bool wrap_procedure_in_decl_ref = not full_expr_or_export;
+    tempset full_expr_or_export = false;
 
     /// See below.
     const auto start_token = tok.type;
+
+    /// Parse the LHS of a binary expression.
+    auto lhs = Result<Expr*>::Null();
     switch (start_token) {
         default: return Error("Expected expression");
 
@@ -276,9 +282,16 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             lhs = ParseAssertion();
             break;
 
-        case Tk::Proc:
+        case Tk::Proc: {
             lhs = ParseProc();
-            break;
+
+            /// The backend doesn’t like ProcDecls that are referenced directly in expressions.
+            if (wrap_procedure_in_decl_ref and lhs and isa<ProcDecl>(*lhs)) {
+                auto dr = new (mod) DeclRefExpr(cast<ProcDecl>(*lhs)->name, curr_scope, lhs->location);
+                dr->decl = *lhs;
+                lhs = dr;
+            }
+        } break;
 
         case Tk::If:
             lhs = ParseIf();
@@ -290,6 +303,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
         /// <expr-export> ::= EXPORT <expr>
         case Tk::Export: {
+            tempset full_expr_or_export = true;
             auto start = Next();
             lhs = ParseExpr();
             if (IsError(lhs)) return lhs.diag;
@@ -530,6 +544,7 @@ auto src::Parser::ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>
         }
 
         /// Parse an expression.
+        tempset full_expr_or_export = true;
         auto e = ParseExpr();
         if (IsError(e)) {
             Synchronise();

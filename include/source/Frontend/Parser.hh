@@ -23,6 +23,9 @@ class Parser : Lexer {
     /// Default mangling scheme.
     Mangling default_mangling = Mangling::Source;
 
+    /// Whether we’re parsing a full expression.
+    bool full_expr_or_export = false;
+
 public:
     /// Parse a file into a module.
     static auto Parse(Context& ctx, File& f) -> Module*;

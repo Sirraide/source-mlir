@@ -484,7 +484,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
             builder.getUnknownLoc(),
             proc->captured_locals_ptr,
             func.getExplicitArgument(u32(proc->params.size())), /// (!)
-            8 /// FIXME: Get alignment of pointer type from context.
+            8                                                   /// FIXME: Get alignment of pointer type from context.
         );
     }
 }
@@ -864,7 +864,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::ScopeAccessExpr: {
             auto sa = cast<ScopeAccessExpr>(expr);
             Generate(sa->object);
-            Generate(sa->resolved);
             sa->mlir = EmitReference(sa->location.mlir(ctx), sa->resolved);
         } break;
 
@@ -917,7 +916,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                             auto chain = GetStaticChainPointer(proc_type->static_chain_parent);
                             c->mlir = Create<hlir::MakeClosureOp>(
                                 c->location.mlir(ctx),
-                                proc->mangled_name,
+                                proc.getValue(),
                                 Ty(c->type),
                                 chain
                             );
@@ -928,7 +927,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                         else {
                             c->mlir = Create<hlir::MakeClosureOp>(
                                 c->location.mlir(ctx),
-                                proc->mangled_name,
+                                proc.getValue(),
                                 Ty(c->type)
                             );
                         }
@@ -1041,7 +1040,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
         /// Nothing to do here other than emitting the underlying decl.
         case Expr::Kind::ExportExpr: {
             auto e = cast<ExportExpr>(expr);
-            Generate(e->expr);
+
+            /// Do not attempt to emit procedures here.
+            if (not isa<ProcDecl>(e->expr)) Generate(e->expr);
         } break;
 
         case Expr::Kind::ReturnExpr: {
@@ -1338,8 +1339,15 @@ void src::CodeGen::Generate(src::Expr* expr) {
             expr->mlir = cast<hlir::FuncOp>(curr_proc->mlir_func).getImplicitThis();
             break;
 
-        /// Handled by the code that emits a DeclRefExpr.
-        case Expr::Kind::ProcDecl: break;
+        /// It is an error to have a ProcDecl directly referenced by anything that
+        /// is not a DeclRefExpr or ScopeAccess. The reason for this is that we need
+        /// to emit a ConstantOp for each use of the procedure, but we can’t do that
+        /// every time it’s used if it’s the same procedure node.
+        case Expr::Kind::ProcDecl: Diag::ICE(
+            ctx,
+            expr->location,
+            "ProcDecl may only be ‘Generate()’d by a call to EmitReference()."
+        );
     }
 }
 
