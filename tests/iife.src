@@ -1,0 +1,15 @@
+/// R %srcc %s --lowered
+
+/// d t %[0-9a-zA-Z_]+
+
+proc call (int) extern nomangle;
+
+/// * hlir.func external @__src_main
+/// + (?<const>$t) = call @_S15__srcc_lambda_0PE
+/// + call @call($const)
+/// + return
+call ((proc = 42)());
+
+/// * hlir.func private @_S15__srcc_lambda_0PE
+/// + (?<c>$t) = arith.constant 42
+/// + return i64 $c
