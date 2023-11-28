@@ -135,9 +135,16 @@ int main(int argc, char** argv) {
         return mod->run(int(opts.get_or<"-O">(0)));
     }
 
-    /// Emit the module to disk.
+    /// Determine output file path.
     auto dir = opts.get_or<"--dir">(std::filesystem::current_path());
-    mod->emit_object_file(int(opts.get_or<"-O">(0)), fmt::format("{}/{}.o", dir, mod->name));
+    auto oname = fmt::format(
+        "{}/{}.o",
+        dir,
+        not mod->name.empty() ? mod->name : f.path().filename().replace_extension("").string()
+    );
+
+    /// Emit the module to disk.
+    mod->emit_object_file(int(opts.get_or<"-O">(0)), oname);
 
     /*    /// Notes:
         /// - ‘freeze’ keyword that makes a value const rather than forcing
