@@ -311,6 +311,10 @@ add_mlir_dialect_library(MLIRSourceHLIR
 
 include_directories(SYSTEM "${CMAKE_CURRENT_BINARY_DIR}/include")
 
+## Our tablegen executable.
+add_llvm_executable(srcc-tblgen "${PROJECT_SOURCE_DIR}/src/Tablegen.cc")
+target_link_libraries(srcc-tblgen PRIVATE options)
+
 #[[## Get the libraries via LLVM config.
 execute_process(
     COMMAND "${LLVM_TOOLS_BINARY_DIR}/llvm-config" --libs
@@ -330,7 +334,7 @@ target_link_libraries(options INTERFACE
 ##  Executables and libraries.
 ## ============================================================================
 ## Everything in ‘src’ is part of the project.
-file(GLOB_RECURSE sources lib/*.cc src/*.cc)
+file(GLOB_RECURSE sources lib/*.cc)
 
 ## As well as everything in ‘include’, if it exists.
 if (EXISTS "${PROJECT_SOURCE_DIR}/include")
@@ -339,7 +343,7 @@ if (EXISTS "${PROJECT_SOURCE_DIR}/include")
 endif()
 
 ## Add the executable.
-add_llvm_executable(srcc ${sources})
+add_llvm_executable(srcc src/Main.cc ${sources})
 set_target_properties(srcc PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}")
 target_link_libraries(srcc PRIVATE options cpptrace)
 target_precompile_headers(srcc PRIVATE

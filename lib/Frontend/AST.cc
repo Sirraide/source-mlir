@@ -1211,8 +1211,6 @@ struct ASTPrinter {
             case K::DeferExpr: {
                 auto d = cast<DeferExpr>(e);
                 PrintBasicHeader("DeferExpr", e);
-                if (d->contains_deferred_material)
-                    out += fmt::format(" {}complex", C(Yellow));
                 out += "\n";
                 return;
             }

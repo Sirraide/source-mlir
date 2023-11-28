@@ -956,7 +956,6 @@ bool src::Sema::Analyse(Expr*& e) {
         /// nested `defer defer` expressions, albeit degenerate, are
         /// accepted.
         case Expr::Kind::DeferExpr: {
-            if (curr_defer) curr_defer->contains_deferred_material = true;
             protected_subexpressions.push_back(e);
             tempset curr_defer = cast<DeferExpr>(e);
             Analyse(curr_defer->expr);

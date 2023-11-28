@@ -290,10 +290,6 @@ public:
     /// The deferred expression.
     Expr* expr;
 
-    /// Whether this defer expression contains other deferred
-    /// expressions or variable declarations that have destructors.
-    bool contains_deferred_material = false;
-
     DeferExpr(Expr* expr, Location loc)
         : Expr(Kind::DeferExpr, loc),
           expr(expr) {}
@@ -415,9 +411,6 @@ public:
 
     /// The resolved labelled expression.
     LabelExpr* target{};
-
-    /// Whether this is a forward goto.
-    bool forward{};
 
     GotoExpr(std::string label, Location loc)
         : UnwindExpr(Kind::GotoExpr, loc),
