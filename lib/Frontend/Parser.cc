@@ -18,10 +18,8 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
         case Tk::Dot:
             return 10'000;
 
-        case Tk::LParen:
-            return 1'000;
-
-            /// Prefix operator precedence: 900.
+        /// InvokePrecedence = 1000;
+        /// PrefixPrecedence = 900.
 
         case Tk::As:
         case Tk::AsBang:
@@ -62,8 +60,7 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
             return 70;
 
         /// Naked invoke precedence is very low.
-        case Tk::RParen:
-            return 10;
+        /// NakedInvokePrecedence = 10;
 
         /// Assignment has the lowest precedence.
         case Tk::Assign:
@@ -111,6 +108,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Integer:
         case Tk::IntegerType:
         case Tk::LBrace:
+        case Tk::LParen:
         case Tk::NoReturn:
         case Tk::Proc:
         case Tk::Return:
@@ -128,9 +126,9 @@ constexpr bool MayStartAnExpression(Tk k) {
     }
 }
 
+constexpr inline int InvokePrecedence = 1'000;
 constexpr inline int PrefixPrecedence = 900;
-constexpr inline int InvokePrecedence = BinaryOrPostfixPrecedence(Tk::LParen);
-constexpr inline int NakedInvokePrecedence = BinaryOrPostfixPrecedence(Tk::RParen);
+constexpr inline int NakedInvokePrecedence = 10;
 
 } // namespace
 } // namespace src
@@ -194,6 +192,7 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
 /// <expr-access>   ::= [ <expr> ] "." IDENTIFIER
 /// <expr-literal>  ::= INTEGER_LITERAL | STRING_LITERAL
 /// <expr-invoke>   ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
+/// <expr-paren>    ::= "(" <expr> ")"
 auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
     auto lhs = Result<Expr*>::Null();
 
@@ -337,6 +336,16 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 lhs = new (mod) UnaryPrefixExpr(start_token, *operand, {start, operand->location});
             }
         } break;
+
+        /// Parenthesised expression.
+        case Tk::LParen: {
+            auto start = Next();
+            auto expr = ParseExpr();
+            if (not At(Tk::RParen)) return Error("Expected ')'");
+            if (IsError(expr)) return expr.diag;
+            lhs = new (mod) ParenExpr(*expr, {start, curr_loc});
+            Next();
+        } break;
     }
 
     /// Stop here if there was an error.
@@ -370,7 +379,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
                 /// Only allow invoking certain kinds of expressions.
                 /// TODO: Allow invoking invoke expressions so `deque int a;` works.
-                if (not isa<Type, DeclRefExpr, MemberAccessExpr, ScopeAccessExpr>(*lhs)) break;
+                if (not isa<Type, DeclRefExpr, MemberAccessExpr, ScopeAccessExpr, ParenExpr>(*lhs)) break;
 
                 /// We specifically disallow blocks in this position so that, e.g.
                 /// in `if a {`, `a {` does not get parsed as an invoke expression.

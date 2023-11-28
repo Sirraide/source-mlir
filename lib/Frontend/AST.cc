@@ -114,6 +114,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::LocalDecl:
         case Kind::OverloadSetExpr:
         case Kind::ImplicitThisExpr:
+        case Kind::ParenExpr:
             return "<?>";
 
         case Kind::ModuleRefExpr:
@@ -192,6 +193,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::UnaryPrefixExpr:
         case Kind::LocalDecl:
         case Kind::ImplicitThisExpr:
+        case Kind::ParenExpr:
             return cast<TypedExpr>(this)->stored_type;
 
         /// Already a type.
@@ -322,6 +324,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::LocalDecl:
         case Kind::OverloadSetExpr:
         case Kind::ImplicitThisExpr:
+        case Kind::ParenExpr:
             Unreachable(".align accessed on non-type expression");
     }
 
@@ -393,6 +396,7 @@ bool src::Expr::TypeHandle::_default_constructible() {
         case Kind::ProcDecl:
         case Kind::OverloadSetExpr:
         case Kind::ImplicitThisExpr:
+        case Kind::ParenExpr:
             Unreachable("Not a type");
     }
 }
@@ -514,6 +518,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::LocalDecl:
         case Kind::OverloadSetExpr:
         case Kind::ImplicitThisExpr:
+        case Kind::ParenExpr:
             Unreachable(".size accessed on non-type expression");
     }
 
@@ -667,6 +672,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::BinaryExpr:
         case Kind::LocalDecl:
         case Kind::ImplicitThisExpr:
+        case Kind::ParenExpr:
             return cast<TypedExpr>(ptr)->stored_type->type.str(use_colour);
     }
 
@@ -797,6 +803,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::LocalDecl:
         case Kind::OverloadSetExpr:
         case Kind::ImplicitThisExpr:
+        case Kind::ParenExpr:
             Unreachable("Not a type");
     }
 
@@ -1196,6 +1203,7 @@ struct ASTPrinter {
             case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
             case K::OverloadSetExpr: PrintBasicNode("OverloadSetExpr", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
+            case K::ParenExpr: PrintBasicNode("ParenExpr", e, e->type); return;
             case K::ConstExpr: PrintBasicNode("ConstExpr", e, e->type); return;
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, e->type); return;
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, e->type); return;
@@ -1466,6 +1474,9 @@ struct ASTPrinter {
                 PrintChildren(cast<CastExpr>(e)->operand, leading_text);
                 break;
 
+            case K::ParenExpr:
+                PrintChildren(cast<ParenExpr>(e)->expr, leading_text);
+                break;
         }
     }
 

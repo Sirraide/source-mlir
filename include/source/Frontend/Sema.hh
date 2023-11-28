@@ -76,6 +76,9 @@ class Sema {
     /// Expressions eligible for `.x` access.
     SmallVector<Expr*> with_stack;
 
+    /// Number of anonymous procedures.
+    usz lambda_counter = 0;
+
 public:
     /// Use Context::has_error to check for errors.
     static void Analyse(Module* mod) {

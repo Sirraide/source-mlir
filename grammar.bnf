@@ -26,6 +26,7 @@
          | <expr-jump>
          | <expr-export>
          | <expr-qual-name>
+         | <expr-paren>
          | <type-struct>
          | <decl>
 
@@ -48,6 +49,7 @@
 <expr-jump>      ::= GOTO IDENTIFIER
 <expr-export>    ::= EXPORT <expr>
 <expr-qual-name> ::= <expr> "::" IDENTIFIER
+<expr-paren>     ::= "(" <expr> ")"
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>

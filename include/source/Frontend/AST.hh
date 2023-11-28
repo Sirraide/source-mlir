@@ -108,6 +108,7 @@ public:
         BinaryExpr,
         DeclRefExpr,
         LocalRefExpr,
+        ParenExpr,
         BoolLiteralExpr,
         IntegerLiteralExpr,
         StringLiteralExpr,
@@ -816,6 +817,19 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::LocalRefExpr; }
+};
+
+class ParenExpr : public TypedExpr {
+public:
+    /// The expression inside the parentheses.
+    Expr* expr;
+
+    ParenExpr(Expr* expr, Location loc)
+        : TypedExpr(Kind::ParenExpr, detail::UnknownType, loc),
+          expr(expr) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ParenExpr; }
 };
 
 class IntLitExpr : public TypedExpr {

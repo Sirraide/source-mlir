@@ -118,6 +118,7 @@ auto Expr::TypeHandle::_mangled_name() -> std::string {
         case Expr::Kind::ProcDecl:
         case Expr::Kind::OverloadSetExpr:
         case Expr::Kind::ImplicitThisExpr:
+        case Expr::Kind::ParenExpr:
             Unreachable("Not a type");
     }
 }

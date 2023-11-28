@@ -659,6 +659,7 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
         case Expr::Kind::LocalDecl:
         case Expr::Kind::OverloadSetExpr:
         case Expr::Kind::ImplicitThisExpr:
+        case Expr::Kind::ParenExpr:
             Unreachable();
     }
 
@@ -781,6 +782,12 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             Unreachable();
         }
+
+        case Expr::Kind::ParenExpr: {
+            auto p = cast<ParenExpr>(expr);
+            Generate(p->expr);
+            p->mlir = p->expr->mlir;
+        } break;
 
         case Expr::Kind::DeclRefExpr: {
             auto e = cast<DeclRefExpr>(expr);
@@ -910,7 +917,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                             auto chain = GetStaticChainPointer(proc_type->static_chain_parent);
                             c->mlir = Create<hlir::MakeClosureOp>(
                                 c->location.mlir(ctx),
-                                proc.getValue(),
+                                proc->mangled_name,
                                 Ty(c->type),
                                 chain
                             );
@@ -921,7 +928,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                         else {
                             c->mlir = Create<hlir::MakeClosureOp>(
                                 c->location.mlir(ctx),
-                                proc.getValue(),
+                                proc->mangled_name,
                                 Ty(c->type)
                             );
                         }
@@ -1077,10 +1084,22 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// Associate block with scope op.
             e->scope_op = b;
 
-            /// Emit contained expressions.
+            /// Insert in scope.
             mlir::OpBuilder::InsertionGuard guard{builder};
             builder.setInsertionPointToEnd(&b.getBody().front());
-            for (auto s : e->exprs) Generate(s);
+
+            /// Emit expressions.
+            ///
+            /// Note that some expressions—e.g. ProcDecls are not emitted
+            /// at block scope because there is either no point in that,
+            /// or really no way of doing so (for instance, how are we
+            /// supposed to emit a module reference at block scope?).
+            for (auto s : e->exprs) {
+                if (isa<ProcDecl, OverloadSetExpr, ModuleRefExpr, Type>(s)) continue;
+                Generate(s);
+            }
+
+            /// Determine yield.
             if (yields_value) e->mlir = b.getRes();
             if (not Closed(builder.getBlock())) {
                 Create<hlir::YieldOp>(

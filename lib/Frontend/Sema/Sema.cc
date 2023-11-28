@@ -78,18 +78,27 @@ int src::Sema::ConvertImpl(
 
     /// Overload sets are convertible to each of the procedure types in the
     /// set, as well as any closures thereof.
-    if (auto os = cast<OverloadSetExpr>(e)) {
+    if (auto os = dyn_cast<OverloadSetExpr>(e)) {
         auto to_proc = dyn_cast<ProcType>(isa<ClosureType>(to) ? cast<ClosureType>(to)->proc_type : to);
         if (not to_proc) return InvalidScore;
         for (auto o : os->overloads) {
             if (Type::Equal(o->type, to_proc)) {
-                /// Replace the overload set with a DeclRefExpr to the referenced procedure.
                 if constexpr (perform_conversion) {
-                    auto d = new (mod) DeclRefExpr(o->name, nullptr, e->location);
-                    d->stored_type = o->type;
-                    d->sema.set_done();
-                    d->decl = o;
-                    e = d;
+                    /// Replace the overload set with a DeclRefExpr to the referenced procedure...
+                    /// FIXME: Shouldn’t this be run unconditionally?
+                    if (not isa<ProcType>(to)) {
+                        auto d = new (mod) DeclRefExpr(o->name, nullptr, e->location);
+                        d->stored_type = o->type;
+                        d->sema.set_done();
+                        d->decl = o;
+                        e = d;
+                    }
+
+                    /// ... and make it a closure, if need be.
+                    if (isa<ClosureType>(to)) {
+                        InsertLValueToRValueConversion(e);
+                        InsertImplicitCast(e, type);
+                    }
                 }
 
                 return ++score;
@@ -792,6 +801,14 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::IntegerLiteralExpr:
             cast<IntLitExpr>(e)->stored_type = BuiltinType::Int(mod, e->location);
             break;
+
+        /// Parens just forward whatever is inside.
+        case Expr::Kind::ParenExpr: {
+            auto p = cast<ParenExpr>(e);
+            if (not Analyse(p->expr)) return e->sema.set_errored();
+            p->stored_type = p->expr->type;
+            p->is_lvalue = p->expr->is_lvalue;
+        } break;
 
         /// String literals are u8 slices.
         case Expr::Kind::StringLiteralExpr: {
@@ -2017,6 +2034,10 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
 
     /// Protected subexpressions never cross a procedure boundary.
     defer { protected_subexpressions.clear(); };
+
+    /// Assign a name to the procedure if it doesn’t have one.
+    if (proc->name.empty())
+        proc->name = fmt::format("__srcc_lambda_{}", lambda_counter++);
 
     /// Sanity check.
     if (Type::Equal(proc->ret_type, Type::Unknown) and not proc->body->implicit) Diag::ICE(
