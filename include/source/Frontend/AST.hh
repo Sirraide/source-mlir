@@ -273,8 +273,9 @@ public:
     /// The optional message of this assertion.
     Expr* msg;
 
-    /// TODO: Remove this once we allow arbitrary expressions as messages.
-    std::string message_string;
+    /// Condition and filename strings.
+    Expr* cond_str{};
+    Expr* file_str{};
 
     AssertExpr(Expr* cond, Expr* msg, Location loc)
         : Expr(Kind::AssertExpr, loc),

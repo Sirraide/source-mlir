@@ -1086,6 +1086,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
         /// Assertions take a bool and an optional message.
         case Expr::Kind::AssertExpr: {
+            Assert(e->location.seekable(mod->context), "Assertion requires location information");
             auto a = cast<AssertExpr>(e);
             if (Analyse(a->cond) and not Convert(a->cond, Type::Bool)) {
                 Error(
@@ -1096,24 +1097,29 @@ bool src::Sema::Analyse(Expr*& e) {
                 );
             }
 
-            /// Get the condition as a source string.
-            a->message_string = a->cond->location.seekable(mod->context)
-                                  ? fmt::format("Assertion failed: '{}'", a->cond->location.text(mod->context))
-                                  : "Assertion failed: <invalid source location>";
+            /// Message must be an i8[].
+            auto i8slice = new (mod) SliceType(Type::I8, {});
+            i8slice->sema.set_done();
+            if (a->msg and Analyse(a->msg) and not Convert(a->msg, i8slice)) Error(
+                a->msg->location,
+                "Message of 'assert' must be of type '{}', but was '{}'",
+                i8slice->as_type,
+                a->msg->type
+            );
 
-            /// Append the message if there is one.
-            if (a->msg) {
-                auto s = dyn_cast<StrLitExpr>(a->msg);
-                if (not s) Diag::ICE(
-                    mod->context,
-                    a->msg->location,
-                    "Sorry, assertion message must currently be a string literal"
-                );
+            /// Create string literals for the condition and file name.
+            a->cond_str = new (mod) StrLitExpr(
+                mod->strtab.intern(a->cond->location.text(mod->context)),
+                a->location
+            );
 
-                /// Exclude null terminator.
-                auto v = mod->strtab[s->index];
-                a->message_string += fmt::format(". Message: {}", v.substr(0, v.size() - 1));
-            }
+            a->file_str = new (mod) StrLitExpr(
+                mod->strtab.intern(mod->context->files()[a->location.file_id]->path().string()),
+                a->location
+            );
+
+            Analyse(a->cond_str);
+            Analyse(a->file_str);
         } break;
 
         /// The type of a block is the type of the last expression that is not

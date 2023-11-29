@@ -5,6 +5,7 @@
 proc call (int) extern nomangle;
 
 /// * hlir.func external @__src_main
+/// + call @__src_static_init.__src_runtime
 /// + (?<const>$t) = call @_S15__srcc_lambda_0PE
 /// + call @call($const)
 /// + return

@@ -6,6 +6,8 @@ import foo;
 
 /// * hlir.func external @_SM3foo1xPiiE
 /// * hlir.func external @__src_main
+/// + call @__src_static_init.foo
+/// + call @__src_static_init.__src_runtime
 /// + scope
 /// + (?<three>$t) = arith.constant 3
 /// + (?<four>$t) = arith.constant 4

@@ -288,6 +288,14 @@ void hlir::NewOp::print(OpAsmPrinter& p) {
 
 auto hlir::NewOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
+
+void hlir::NilOp::print(OpAsmPrinter& p) {
+    p << " ";
+    PrintType(getResult().getType(), p);
+}
+
+auto hlir::NilOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
 void hlir::ReturnOp::print(OpAsmPrinter& p) {
     if (getYield()) {
         p << " ";

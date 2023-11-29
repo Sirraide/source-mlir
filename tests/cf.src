@@ -40,9 +40,11 @@ proc o() extern nomangle;
 ///L !* unwind
 
 ///  * hlir.func external @__src_main {
+///  + call @__src_static_init.__src_runtime
 ///  + scope {
 ///  + (?<T>$t) = local i1
 ///L * hlir.func external @__src_main {
+///L + call @__src_static_init.__src_runtime
 ///L + (?<T>$t) = local i1
 bool t = true;
 

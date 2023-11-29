@@ -566,6 +566,22 @@ struct NewOpLowering : public ConversionPattern {
     }
 };
 
+struct NilOpLowering : public ConversionPattern {
+    explicit NilOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::NilOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value>,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto nil = cast<hlir::NilOp>(op);
+        rewriter.replaceOpWithNewOp<LLVM::ZeroOp>(op, getTypeConverter()->convertType(nil.getType()));
+        return success();
+    }
+};
+
 struct InvokeClosureOpLowering : public ConversionPattern {
     explicit InvokeClosureOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
         : ConversionPattern(tc, hlir::InvokeClosureOp::getOperationName(), 1, ctx) {
@@ -799,6 +815,7 @@ struct HLIRToLLVMLoweringPass
             LocalOpLowering,
             MakeClosureOpLowering,
             NewOpLowering,
+            NilOpLowering,
             ReturnOpLowering,
             SliceDataOpLowering,
             SliceSizeOpLowering,

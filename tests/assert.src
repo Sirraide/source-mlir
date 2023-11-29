@@ -1,7 +1,9 @@
 /// R %srcc %s --hlir
 
-/// * cf.assert
-assert true;
+bool b = true;
 
-/// * cf.assert
-assert true, "Ok";
+/// * call @__src_assert_fail
+assert b;
+
+/// * call @__src_assert_fail
+assert false, "Ok";

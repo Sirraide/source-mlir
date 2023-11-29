@@ -188,7 +188,6 @@ auto ConvertLinkage(src::Linkage l) -> mlir::LLVM::Linkage {
     }
 }
 
-/// Create a function and execute a callback to populate its body.
 template <typename Callable>
 auto src::CodeGen::CreateProcedure(
     mlir::FunctionType type,
@@ -213,7 +212,6 @@ auto src::CodeGen::CreateProcedure(
     return std::invoke(std::forward<Callable>(callable), func);
 }
 
-/// Create an external function.
 void src::CodeGen::CreateExternalProcedure(mlir::FunctionType type, StringRef name) {
     if (procs.contains(name)) return;
     CreateProcedure(type, name, Linkage::Imported, false, [&](hlir::FuncOp proc) {
@@ -1060,14 +1058,75 @@ void src::CodeGen::Generate(src::Expr* expr) {
             }
         } break;
 
+        /// There is no AssertOp in HLIR since assertions require control flow.
         case Expr::Kind::AssertExpr: {
             auto a = cast<AssertExpr>(expr);
             Generate(a->cond);
-            Create<mlir::cf::AssertOp>(
-                expr->location.mlir(ctx),
+
+            /// Only emit assertion message if the assertion fails.
+            auto r = builder.getBlock()->getParent();
+            auto loc = a->location.mlir(ctx);
+            auto fail = new mlir::Block;
+            auto cont = new mlir::Block;
+            Create<mlir::cf::CondBranchOp>(
+                loc,
                 a->cond->mlir,
-                std::string_view{a->message_string}
+                cont,
+                fail
             );
+
+            /// Failure case.
+            mlir::Value message;
+            r->getBlocks().insertAfter(builder.getBlock()->getIterator(), fail);
+            builder.setInsertionPointToEnd(fail);
+
+            /// Emit message.
+            if (a->msg) {
+                Generate(a->msg);
+                message = a->msg->mlir;
+            } else {
+                message = Create<hlir::NilOp>(
+                    loc,
+                    hlir::SliceType::get(Ty(Type::I8))
+                );
+            }
+
+            /// export proc __src_assert_fail(
+            ///     i8[] cond,
+            ///     i8[] message,
+            ///     i8[] file,
+            ///     int line,
+            ///     int col
+            /// )
+            auto lc = a->location.seek_line_column(ctx);
+            auto line = Create<mlir::arith::ConstantIntOp>(loc, lc.line, Type::Int->as_type.size(ctx));
+            auto col = Create<mlir::arith::ConstantIntOp>(loc, lc.col, Type::Int->as_type.size(ctx));
+            Generate(a->cond_str);
+            Generate(a->file_str);
+
+            mlir::Value args[]{
+                a->cond_str->mlir,
+                message,
+                a->file_str->mlir,
+                line,
+                col,
+            };
+
+            Create<hlir::CallOp>(
+                loc,
+                mlir::TypeRange{},
+                "__src_assert_fail",
+                false,
+                mlir::LLVM::CConv::C,
+                args
+            );
+
+            /// Should never return.
+            Create<hlir::UnreachableOp>(loc);
+
+            /// Continue as normal.
+            r->getBlocks().insertAfter(builder.getBlock()->getIterator(), cont);
+            builder.setInsertionPointToEnd(cont);
         } break;
 
         case Expr::Kind::BlockExpr: {

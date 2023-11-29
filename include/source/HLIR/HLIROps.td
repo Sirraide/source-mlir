@@ -343,6 +343,24 @@ def GlobalRefOp : HLIR_Op<"global_ref"> {
     let hasVerifier = 0;
 }
 
+def NilOp : HLIR_Op<"nil"> {
+    let summary = "Nil value of a given type";
+    let results = (outs HLIR_Type:$res);
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins "::mlir::Type":$type), [{
+            build(
+                $_builder,
+                $_state,
+                type,
+                {}
+            );
+        }]>
+    ];
+}
+
 def LoadOp : HLIR_Op<"load"> {
     let summary = "Load a value from a reference";
     let arguments = (ins HLIR_ReferenceType:$operand);

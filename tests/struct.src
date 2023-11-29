@@ -15,6 +15,7 @@ struct S {
 }
 
 /// * hlir.func external @__src_main
+/// + call @__src_static_init.__src_runtime
 /// + $t = scope i8 {
 /// + (?<S>$t) = local
 /// + construct $S zeroinit

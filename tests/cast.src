@@ -3,7 +3,7 @@
 /// d t %[0-9a-zA-Z_]+
 
 /// * hlir.func external @__src_main
-/// + $t = scope
+/// * $t = scope
 /// + (?<A>$t) = local i64
 i64 a = 42;
 

@@ -9,7 +9,7 @@
 
 proc exit (i32) extern nomangle -> noreturn;
 ///O * define void @__src_main()
-///O + tail call void @exit(i32 42)
+///O * tail call void @exit(i32 42)
 
 /// * hlir.func private @_S2p1PE
 /// + (?<CHAIN1>$t) = local !llvm.struct<"struct.anon.0"

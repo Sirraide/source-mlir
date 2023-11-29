@@ -20,7 +20,7 @@ struct foo {
 
 /// b
 /// * hlir.func external @__src_main
-/// + scope
+/// * scope
 /// + (?<a>$t) = local
 /// + construct $a init @_SC3fooPE
 /// + (?<b>$t) = local
