@@ -1453,6 +1453,77 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         /// Entry block must be created first so we can access parameter values.
         builder.setInsertionPointToEnd(&func.front());
 
+        /// Perform static construction.
+        if (proc == mod->top_level_func) {
+            if (mod->is_logical_module) {
+                /// Create init guard variable.
+                auto name = mod->init_guard_name();
+                auto uloc = builder.getUnknownLoc();
+                auto int32 = Ty(Type::I32);
+                mlir::LLVM::GlobalOp init_guard;
+                {
+                    mlir::OpBuilder::InsertionGuard guard{builder};
+                    builder.setInsertionPointToEnd(&cast<mlir::ModuleOp>(mod->mlir_module_op).getBodyRegion().back());
+                    init_guard = Create<mlir::LLVM::GlobalOp>(
+                        uloc,
+                        int32,
+                        false,
+                        mlir::LLVM::Linkage::Private,
+                        name,
+                        mlir::IntegerAttr::get(int32, 0),
+                        Type::I32->as_type.align(ctx)
+                    );
+                }
+
+                /// Create init guard check.
+                auto ref = Create<mlir::LLVM::AddressOfOp>(uloc, init_guard);
+                auto one = Create<mlir::LLVM::ConstantOp>(uloc, int32, mlir::IntegerAttr::get(int32, 1));
+                auto inc = Create<mlir::LLVM::AtomicRMWOp>(
+                    uloc,
+                    mlir::LLVM::AtomicBinOp::add,
+                    ref,
+                    one,
+                    mlir::LLVM::AtomicOrdering::acq_rel
+                );
+
+                /// Init if the old value was zero.
+                auto zero = Create<mlir::LLVM::ConstantOp>(uloc, int32, mlir::IntegerAttr::get(int32, 0));
+                auto cond = Create<mlir::arith::CmpIOp>(
+                    uloc,
+                    mlir::arith::CmpIPredicate::eq,
+                    inc.getResult(),
+                    zero
+                );
+
+                auto ret = new mlir::Block;
+                auto init = new mlir::Block;
+                Create<mlir::cf::CondBranchOp>(
+                    uloc,
+                    cond.getResult(),
+                    init,
+                    ret
+                );
+
+                builder.getBlock()->getParent()->push_back(ret);
+                builder.setInsertionPointToEnd(ret);
+                Create<hlir::ReturnOp>(uloc);
+
+                builder.getBlock()->getParent()->push_back(init);
+                builder.setInsertionPointToEnd(init);
+            }
+
+            /// Initialise imported modules.
+            for (auto& i : mod->imports) {
+                Create<hlir::CallOp>(
+                    builder.getUnknownLoc(),
+                    mlir::TypeRange{},
+                    i.mod->module_initialiser_name(),
+                    false,
+                    mlir::LLVM::CConv::C
+                );
+            }
+        }
+
         /// Create, but do not insert, blocks for all labels that are actually branched to.
         for (auto& [_, l] : proc->labels)
             if (l->used)

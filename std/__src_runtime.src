@@ -36,3 +36,5 @@ export proc main(
     __src_main();
     return 0 as i32;
 }
+
+printf "foobar\n".data;

@@ -386,6 +386,16 @@ public:
     /// Emit code to an object file. Implemented in Emit.cc
     void emit_object_file(int opt_level, const fs::path& location);
 
+    /// Get the name to use for the guard variable for this module’s initialiser.
+    [[nodiscard]] auto init_guard_name() const -> std::string {
+        return fmt::format("__src_init_guard.{}", name);
+    }
+
+    /// Get the name to use for the module initialiser of this module.
+    [[nodiscard]] auto module_initialiser_name() const -> std::string {
+        return fmt::format("__src_static_init.{}", name);
+    }
+
     /// Print the AST of the module to stdout. Implemented
     /// in AST.cc
     void print_ast(bool use_colour) const;

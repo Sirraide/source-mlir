@@ -249,8 +249,6 @@ add_definitions(
     ${LLVM_DEFINITIONS}
     ${MLIR_DEFINITIONS}
     ${CLANG_DEFINITIONS}
-    "-D__SRCC_CLANG_EXE=\"${LLVM_TOOLS_BINARY_DIR}/clang\""
-    "-D__SRCC_PROJECT_DIR_NAME=\"Source-MLIR\""
 )
 
 ## Use llvm-config to get all LLVM libraries.
@@ -358,6 +356,9 @@ add_compile_definitions(
     "__SRCC_RT_PATH=\"${SOURCE_RUNTIME_PATH}.o\""
     "__SRCC_BUILTIN_MODULE_PATH=\"${SOURCE_BUILTIN_MODULE_PATH}\""
     "__SRCC_RUNTIME_NAME=\"${SOURCE_RUNTIME_NAME}\""
+    "__SRCC_CLANG_EXE=\"${LLVM_TOOLS_BINARY_DIR}/clang\""
+    "__SRCC_PROJECT_DIR_NAME=\"Source-MLIR\""
+    "__SRCC_OBJ_FILE_EXT=\".o\""
     "__LLVM_DEBUG_METADATA_VERSION=3"
 )
 

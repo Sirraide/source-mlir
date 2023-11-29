@@ -278,7 +278,7 @@ src::Module::Module(Context* ctx, std::string name, Location module_decl_locatio
     top_level_func = new (this) ProcDecl{
         this,
         nullptr,
-        is_logical_module ? fmt::format("_S.static.initialisation.{}", name) : "__src_main",
+        is_logical_module ? module_initialiser_name() : "__src_main",
         new (this) ProcType({}, BuiltinType::Void(this), false, {}),
         {},
         Linkage::Exported,

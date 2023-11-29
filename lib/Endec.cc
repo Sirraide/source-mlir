@@ -302,6 +302,10 @@ struct Serialiser {
             for (auto e : vec)
                 SerialiseType(cast<Type>(e->type));
 
+        /// Serialise top-level function.
+        SerialiseType(cast<Type>(mod->top_level_func->type));
+        SerialiseDecl(mod->top_level_func);
+
         /// Serialise the exports themselves.
         for (auto& [_, vec] : mod->exports)
             for (auto e : vec)

@@ -2140,7 +2140,7 @@ void src::Sema::AnalyseModule() {
     for (auto& i : mod->imports) {
         for (auto& p : mod->context->import_paths) {
             auto mod_path = p / i.linkage_name;
-            mod_path.replace_extension(".o");
+            mod_path.replace_extension(__SRCC_OBJ_FILE_EXT);
 
             std::error_code ec;
             if (auto ok = fs::exists(mod_path, ec); not ok or ec) continue;

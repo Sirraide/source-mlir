@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
     if (mod->is_logical_module) {
         auto dir = opts.get_or<"--dir">(std::filesystem::current_path());
         auto oname = fmt::format(
-            "{}/{}",
+            "{}/{}" __SRCC_OBJ_FILE_EXT,
             dir,
             not mod->name.empty() ? mod->name : f.path().filename().replace_extension("").string()
         );

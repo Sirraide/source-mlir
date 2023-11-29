@@ -830,7 +830,11 @@ void src::LowerToLLVM(Module* mod, bool debug_llvm_lowering, bool no_verify) {
 
 void src::Module::GenerateLLVMIR(int opt_level) {
     if (not llvm) {
-        llvm = mlir::translateModuleToLLVMIR(mlir, context->llvm);
+        llvm = mlir::translateModuleToLLVMIR(
+            mlir,
+            context->llvm,
+            is_logical_module ? name : "Source Executable"
+        );
 
         /// Optimise the module, if requested.
         /// TODO: -O4, aka -march=native.
