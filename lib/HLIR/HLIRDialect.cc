@@ -203,6 +203,7 @@ void hlir::FuncOp::print(OpAsmPrinter& p) {
     }
 
     if (getSpecialMember()) p << " smf";
+    if (getVariadic()) p << " variadic";
 
     if (ftype.getNumResults()) {
         Assert(ftype.getNumResults() == 1);
@@ -220,6 +221,7 @@ void hlir::FuncOp::print(OpAsmPrinter& p) {
             getLinkageAttrName(),
             getCcAttrName(),
             getSpecialMemberAttrName(),
+            getVariadicAttrName(),
             "sym_visibility",
         }
     );
@@ -324,10 +326,22 @@ void hlir::ScopeOp::print(OpAsmPrinter& p) {
 auto hlir::ScopeOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::SliceDataOp::print(OpAsmPrinter& p) {
-    p << " ref " << getType().getElem() << " " << getOperand();
+    p << " ";
+    PrintType(getOperand().getType(), p);
+    p << " " << getOperand();
 }
 
 auto hlir::SliceDataOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
+    Todo();
+}
+
+void hlir::SliceSizeOp::print(OpAsmPrinter& p) {
+    p << " ";
+    PrintType(getOperand().getType(), p);
+    p << " " << getOperand();
+}
+
+auto hlir::SliceSizeOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
     Todo();
 }
 
@@ -402,8 +416,10 @@ auto hlir::CallOp::verifySymbolUses(SymbolTableCollection& symbolTable) -> Logic
 
     // Verify that the operand and result types match the callee.
     auto fnType = fn.getFunctionType();
-    if (fnType.getNumInputs() != getNumOperands())
-        return emitOpError("incorrect number of operands for callee");
+    if (
+        getNumOperands() < fnType.getNumInputs() or
+        (getNumOperands() > fnType.getNumInputs() and not fn.getVariadic())
+    ) return emitOpError("incorrect number of operands for callee");
 
     for (unsigned i = 0, e = fnType.getNumInputs(); i != e; ++i)
         if (getOperand(i).getType() != fnType.getInput(i))

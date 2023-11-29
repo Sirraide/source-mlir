@@ -380,6 +380,9 @@ public:
         return fmt::format(".__src_module__description__.{}", name);
     }
 
+    /// Emit an executable. Implemented in Emit.cc.
+    void emit_executable(int opt_level, const fs::path& location);
+
     /// Emit code to an object file. Implemented in Emit.cc
     void emit_object_file(int opt_level, const fs::path& location);
 

@@ -16,6 +16,7 @@ def FuncOp : HLIR_Op<"func", [
         CConv:$cc,
         TypeAttrOf<FunctionType>:$function_type,
         BoolAttr:$special_member,
+        BoolAttr:$variadic,
         OptionalAttr<DictArrayAttr>:$arg_attrs,
         OptionalAttr<DictArrayAttr>:$res_attrs
     );
@@ -28,12 +29,14 @@ def FuncOp : HLIR_Op<"func", [
             "::mlir::LLVM::CConv":$cc,
             "FunctionType":$type,
             "bool":$special_member,
+            "bool":$variadic,
             CArg<"ArrayRef<NamedAttribute>", "{}">:$attrs
         ), [{
             buildWithEntryBlock($_builder, $_state, name, type, attrs, type.getInputs());
             $_state.addAttribute(getCcAttrName($_state.name), mlir::LLVM::CConvAttr::get($_state.getContext(), cc));
             $_state.addAttribute(getLinkageAttrName($_state.name), mlir::LLVM::LinkageAttr::get($_state.getContext(), linkage));
             $_state.addAttribute(getSpecialMemberAttrName($_state.name), mlir::BoolAttr::get($_state.getContext(), special_member));
+            $_state.addAttribute(getVariadicAttrName($_state.name), mlir::BoolAttr::get($_state.getContext(), variadic));
         }]>
     ];
 
@@ -327,8 +330,8 @@ def SliceDataOp : HLIR_Op<"slice_data"> {
 def SliceSizeOp : HLIR_Op<"slice_size"> {
     let summary = "Get the size of a slice";
     let arguments = (ins HLIR_SliceType:$operand);
-    let results = (outs HLIR_Int:$res);
-    let assemblyFormat = "$operand attr-dict `:` type($operand)";
+    let results = (outs HLIR_Type:$res);
+    let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
 }
 

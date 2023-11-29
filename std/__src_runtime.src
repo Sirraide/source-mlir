@@ -1,0 +1,23 @@
+module __src_runtime;
+
+proc printf(i8&) extern nomangle variadic -> int;
+proc exit(i32) extern nomangle -> noreturn;
+
+export proc __src_assert_fail(
+    i8[] cond,
+    i8[] message,
+    i8[] file,
+    int line,
+    int col
+) nomangle -> noreturn {
+    printf "%.*:%zu:%zu: Assertion failed '%.*s'".data,
+        file.size as i32, file.data,
+        line, col,
+        cond.size as i32, cond.data;
+
+    if message.size > 0 then
+        printf ": %.*s".data, message.size as i32, message.data;
+
+    printf "\n".data;
+    exit 17 as i32;
+}

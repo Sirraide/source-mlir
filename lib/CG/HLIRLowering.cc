@@ -390,6 +390,22 @@ struct StructGepOpLowering : public ConversionPattern {
     }
 };
 
+struct UnreachableOpLowering : public ConversionPattern {
+    explicit UnreachableOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::UnreachableOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value>,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        rewriter.create<LLVM::UnreachableOp>(op->getLoc());
+        rewriter.eraseOp(op);
+        return success();
+    }
+};
+
 /// Lowering for chain extractlocal.
 struct ChainExtractLocalOpLowering : public ConversionPattern {
     explicit ChainExtractLocalOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
@@ -613,7 +629,7 @@ struct FuncOpLowering : public ConversionPattern {
 
         /// Convert arguments.
         TypeConverter::SignatureConversion res{func.getNumArguments()};
-        auto converted = tc->convertFunctionSignature(ftype, false, true, res);
+        auto converted = tc->convertFunctionSignature(ftype, func.getVariadic(), true, res);
         if (not converted) return failure();
 
         /// Create the function.
@@ -789,6 +805,7 @@ struct HLIRToLLVMLoweringPass
             StoreOpLowering,
             StringOpLowering,
             StructGepOpLowering,
+            UnreachableOpLowering,
             ZeroInitOpLowering
         >(&getContext(), tc);
         // clang-format on

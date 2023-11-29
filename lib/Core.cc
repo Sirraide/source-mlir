@@ -1,4 +1,5 @@
 #include <cpptrace/cpptrace.hpp>
+#include <llvm/ADT/StringExtras.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/Unicode.h>
@@ -278,7 +279,7 @@ src::Module::Module(Context* ctx, std::string name, Location module_decl_locatio
         this,
         nullptr,
         is_logical_module ? fmt::format("_S.static.initialisation.{}", name) : "__src_main",
-        new (this) ProcType({}, BuiltinType::Void(this), {}),
+        new (this) ProcType({}, BuiltinType::Void(this), false, {}),
         {},
         Linkage::Exported,
         Mangling::None,
@@ -519,8 +520,10 @@ void src::Diag::HandleFatalErrors() {
     }
 
     /// Exit on a fatal error.
-    if (kind == Kind::FError)
-        std::exit(FatalExitCode); /// Separate line so we can put a breakpoint here.
+    if (kind == Kind::FError) {
+        PrintBacktrace();
+        std::exit(FatalExitCode);
+    }
 }
 
 /// Print a diagnostic with no (valid) location info.
@@ -673,6 +676,13 @@ void src::utils::Decompress(
 
     if (::ZSTD_isError(sz)) Diag::Fatal("decompression failed: {}", sz);
     if (sz != uncompressed_size) Diag::Fatal("Invalid uncompressed size");
+}
+
+auto src::utils::Escape(StringRef str) -> std::string {
+    std::string s;
+    llvm::raw_string_ostream os{s};
+    os.write_escaped(str, true);
+    return s;
 }
 
 void src::utils::ReplaceAll(

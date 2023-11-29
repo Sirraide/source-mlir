@@ -64,6 +64,7 @@ auto Expr::TypeHandle::_mangled_name() -> std::string {
             /// We don’t include the return type since you can’t
             /// overload on that anyway.
             std::string name{"P"};
+            if (p->variadic) name += "q";
             for (auto a : p->param_types) name += a->as_type.mangled_name;
             name += "E";
             return name;
@@ -283,7 +284,7 @@ struct Serialiser {
     std::vector<u8> out{};
 
     /// Map from types to indices.
-    std::unordered_map<Type*, TD, std::hash<Type*>, CompareTypes> type_map{};
+    llvm::DenseMap<Type*, TD, Type::DenseMapInfo> type_map{};
 
     /// Larger section of the header.
     CompressedHeaderV0 hdr{
@@ -324,12 +325,8 @@ struct Serialiser {
 
     /// Serialise a type.
     auto SerialiseType(Type* t) -> TD {
-        const auto AllocateTD = [&] {
-            /// Don’t write the same type twice.
+        const auto FindTD =  [&] -> TD {
             if (auto td = type_map.find(t); td != type_map.end()) return td->second;
-
-            /// Type still has to be serialised.
-            type_map[t] = hdr.type_count++;
             return TD{};
         };
 
@@ -372,10 +369,10 @@ struct Serialiser {
                     case 64: return TD(SerialisedTypeTag::I64);
                 }
 
-                if (auto td = AllocateTD(); td != TD{}) return td;
+                if (auto td = FindTD(); td != TD{}) return td;
                 *this << SerialisedTypeTag::SizedInteger;
                 *this << i->bits;
-                return type_map[t];
+                return type_map[t] = TD{hdr.type_count++};
             }
 
             case Expr::Kind::ReferenceType:
@@ -383,7 +380,7 @@ struct Serialiser {
             case Expr::Kind::SliceType:
             case Expr::Kind::ArrayType:
             case Expr::Kind::OptionalType: {
-                if (auto td = AllocateTD(); td != TD{}) return td;
+                if (auto td = FindTD(); td != TD{}) return td;
                 auto elem = SerialiseType(cast<Type>(cast<SingleElementTypeBase>(t)->elem));
                 switch (t->kind) {
                     default: Unreachable();
@@ -398,29 +395,31 @@ struct Serialiser {
                 /// Also write the size, if applicable.
                 if (auto a = dyn_cast<ArrayType>(t)) *this << u64(a->dimension());
 
-                return type_map[t];
+                return type_map[t] = TD{hdr.type_count++};
             }
 
             /// TODO: Do we at all care about the static chain here?
             case Expr::Kind::ProcType: {
-                if (auto td = AllocateTD(); td != TD{}) return td;
+                if (auto td = FindTD(); td != TD{}) return td;
                 auto p = cast<ProcType>(t);
 
                 auto ret = SerialiseType(cast<Type>(p->ret_type));
-                SmallVector<TD, 8> params;
+                std::vector<TD> params;
                 for (auto a : p->param_types) params.push_back(SerialiseType(cast<Type>(a)));
 
                 *this << SerialisedTypeTag::Procedure;
-                *this << ret << params.size();
+                *this << ret << params.size() << p->variadic;
                 for (auto td : params) *this << td;
-                return type_map[t];
+                return type_map[t] = TD{hdr.type_count++};
             }
 
             case Expr::Kind::StructType: {
-                if (auto td = AllocateTD(); td != TD{}) return td;
+                if (auto td = FindTD(); td != TD{}) return td;
                 auto s = cast<StructType>(t);
 
-                /// Write name, size, alignment, and number of fields.
+                /// Create struct type descriptor first to support recursive
+                /// types; write name, size, alignment, and number of fields.
+                type_map[t] = hdr.type_count++;
                 *this << SerialisedTypeTag::Struct;
                 *this << s->name << s->stored_size << s->stored_alignment << s->all_fields.size();
 
@@ -662,6 +661,12 @@ struct Deserialiser {
     }
 
     auto DeserialiseType() -> Type* {
+        auto ty = DeserialiseTypeImpl();
+        ty->sema.set_done();
+        return ty;
+    }
+
+    auto DeserialiseTypeImpl() -> Type* {
         auto tag = rd<SerialisedTypeTag>();
         switch (tag) {
             /// Unfortunately, we have to deserialise these and
@@ -710,12 +715,13 @@ struct Deserialiser {
             case SerialisedTypeTag::Procedure: {
                 Type* ret = Map(rd<TD>());
                 u64 params = rd<u64>();
+                bool variadic = rd<bool>();
 
                 SmallVector<Expr*> param_types{};
                 param_types.resize(params);
                 for (auto& t : param_types) t = Map(rd<TD>());
 
-                return new (&*mod) ProcType(std::move(param_types), ret, {});
+                return new (&*mod) ProcType(std::move(param_types), ret, variadic, {});
             }
 
             case SerialisedTypeTag::Struct: {
@@ -790,12 +796,13 @@ struct Deserialiser {
                     {}
                 );
 
+                p->sema.set_done();
                 mod->exports[p->name].push_back(p);
                 return;
             }
         }
 
-        Unreachable();
+        Unreachable("Invalid SerialisedDeclTag: {}", +tag);
     }
 
     /// Convert serialised mangling scheme to mangling scheme.
@@ -861,7 +868,8 @@ struct Deserialiser {
     auto operator>>(std::string& str) -> Deserialiser& {
         u64 sz;
         *this >> sz;
-        str.resize_and_overwrite(sz, [this](char* data, usz sz) {
+        str.resize_and_overwrite(sz, [&](char* data, usz allocated) {
+            Assert(allocated >= sz, "std::string::resize_and_overwrite() is broken");
             *this >> std::span<u8>(reinterpret_cast<u8*>(data), sz);
             return sz;
         });

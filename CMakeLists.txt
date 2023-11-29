@@ -350,6 +350,17 @@ target_precompile_headers(srcc PRIVATE
     include/source/Support/Utils.hh
 )
 
+set(SOURCE_RUNTIME_NAME "__src_runtime")
+set(SOURCE_RUNTIME_PATH "${PROJECT_SOURCE_DIR}/modules/${SOURCE_RUNTIME_NAME}")
+set(SOURCE_BUILTIN_MODULE_PATH "${PROJECT_SOURCE_DIR}/modules")
+add_compile_definitions(
+    "__SRCC_DIR=\"${PROJECT_SOURCE_DIR}\""
+    "__SRCC_RT_PATH=\"${SOURCE_RUNTIME_PATH}.o\""
+    "__SRCC_BUILTIN_MODULE_PATH=\"${SOURCE_BUILTIN_MODULE_PATH}\""
+    "__SRCC_RUNTIME_NAME=\"${SOURCE_RUNTIME_NAME}\""
+    "__LLVM_DEBUG_METADATA_VERSION=3"
+)
+
 #llvm_update_compile_flags(srcc)
 #mlir_check_all_link_libraries(srcc)
 
@@ -365,3 +376,27 @@ FCHKAddAllTestsInDir(
     ARGS -P re -P nocap -l . -D "srcc=$<TARGET_FILE:srcc>"
     RECURSIVE
 )
+
+## ============================================================================
+##  Stdlib.
+## ============================================================================
+set(source-compiler "$<TARGET_FILE:srcc>")
+
+add_custom_target(source-std ALL)
+
+## Build runtime.
+add_custom_target(source-runtime
+    COMMAND "${source-compiler}"
+        "${PROJECT_SOURCE_DIR}/std/__src_runtime.src"
+        --dir "${PROJECT_SOURCE_DIR}/modules"
+        -O3
+        --nostdrt --nostdinc
+    DEPENDS srcc
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    BYPRODUCTS
+        "${SOURCE_RUNTIME_PATH}.o"
+    SOURCES "${PROJECT_SOURCE_DIR}/std/__src_runtime.src"
+    COMMENT "Compiling Source runtime"
+)
+
+add_dependencies(source-std source-runtime)

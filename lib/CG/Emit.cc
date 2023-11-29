@@ -9,6 +9,11 @@
 #include <llvm/TargetParser/Host.h>
 #include <source/Core.hh>
 
+void src::Module::emit_executable(int opt_level, const fs::path& location) {
+    Assert(not is_logical_module, "Cannot emit logical module as executable");
+    Todo();
+}
+
 void src::Module::emit_object_file(int opt_level, const fs::path& location) {
     GenerateLLVMIR(opt_level);
 

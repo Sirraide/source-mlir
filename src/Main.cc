@@ -23,6 +23,8 @@ using options = clopts< // clang-format off
     flag<"--hlir", "Print the HLIR of the module">,
     flag<"--llvm", "Print the LLVM IR of the module">,
     flag<"--no-verify", "Disable MLIR verification; CAUTION: this may lead to miscompilations">,
+    flag<"--nostdinc", "Do not add standard module directories to the module search path">,
+    flag<"--nostdrt", "Do not import the standard runtime module">,
     flag<"--sema", "Run sema only and always exit with code 0 unless there is an ICE">,
     flag<"--syntax-only", "Skip the semantic analysis step">,
     flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
@@ -82,6 +84,16 @@ int main(int argc, char** argv) {
         if (opts.get<"--ast">()) mod->print_ast(use_colour);
         std::exit(0);
     }
+
+    /// Import standard modules, if requested.
+    if (not opts.get<"--nostdinc">()) ctx.import_paths.emplace_back(__SRCC_BUILTIN_MODULE_PATH);
+    if (not opts.get<"--nostdrt">()) mod->imports.push_back(src::ImportedModuleRef{
+        .linkage_name = __SRCC_RUNTIME_NAME,
+        .logical_name = __SRCC_RUNTIME_NAME,
+        .import_location = {},
+        .is_open = false,
+        .is_cxx_header = false,
+    });
 
     /// Perform semantic analysis.
     src::Sema::Analyse(mod);
@@ -144,7 +156,8 @@ int main(int argc, char** argv) {
     );
 
     /// Emit the module to disk.
-    mod->emit_object_file(int(opts.get_or<"-O">(0)), oname);
+    if (mod->is_logical_module) mod->emit_object_file(int(opts.get_or<"-O">(0)), oname);
+    else mod->emit_executable(int(opts.get_or<"-O">(0)), oname);
 
     /*    /// Notes:
         /// - ‘freeze’ keyword that makes a value const rather than forcing

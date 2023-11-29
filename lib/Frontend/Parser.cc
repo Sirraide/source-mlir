@@ -866,9 +866,11 @@ auto src::Parser::ParseSignature() -> Signature {
     };
 
     /// Parse attributes.
+    bool variadic = false;
     while (At(Tk::Identifier) and ( // clang-format off
         ParseAttr("nomangle", sig.is_nomangle) or
-        ParseAttr("extern", sig.is_extern)
+        ParseAttr("extern", sig.is_extern) or
+        ParseAttr("variadic", variadic)
     )); // clang-format on
 
     /// Finally, parse the return type.
@@ -882,6 +884,7 @@ auto src::Parser::ParseSignature() -> Signature {
     sig.type = new (mod) ProcType(
         std::move(param_types),
         ret_type,
+        variadic,
         sig.loc
     );
     return sig;
@@ -960,7 +963,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 /// <type-prim>      ::= INTEGER_TYPE | INT
 /// <type-named>     ::= IDENTIFIER
 /// <type-qualified> ::= <type> { <type-qual> }
-/// <type-qual>      ::= "&" | "^"
+/// <type-qual>      ::= "&" | "^" | "[" "]"
 auto src::Parser::ParseType() -> Result<Expr*> {
     /// Parse base type.
     Expr* base_type = nullptr;
@@ -1016,6 +1019,13 @@ auto src::Parser::ParseType() -> Result<Expr*> {
 
             case Tk::Caret:
                 base_type = new (mod) ScopedPointerType(base_type, {base_type->location, curr_loc});
+                Next();
+                break;
+
+            case Tk::LBrack:
+                Next();
+                if (tok.type != Tk::RBrack) Error("Expected ']'");
+                base_type = new (mod) SliceType(base_type, {base_type->location, curr_loc});
                 Next();
                 break;
         }

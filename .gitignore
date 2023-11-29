@@ -7,6 +7,9 @@
 /.tmp/
 /out/
 /srcc
+/modules/*
+
+!/modules/.gitkeep
 
 ## Valgrind.
 callgrind.out.*

@@ -205,7 +205,8 @@ auto src::CodeGen::CreateProcedure(
         ConvertLinkage(linkage),
         mlir::LLVM::CConv::C,
         type,
-        smf
+        smf,
+        false
     );
 
     builder.setInsertionPointToEnd(&func.getBody().front());
@@ -1440,7 +1441,8 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         ConvertLinkage(proc->linkage),
         mlir::LLVM::CConv::C,
         ty.cast<mlir::FunctionType>(),
-        ptype->is_init
+        ptype->is_init,
+        ptype->variadic
     );
 
     /// Associate the function with the procedure.

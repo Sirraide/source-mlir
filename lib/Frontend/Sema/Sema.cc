@@ -1229,20 +1229,28 @@ bool src::Sema::Analyse(Expr*& e) {
                         e->sema.set_errored();
 
                 /// Make sure the types match.
-                for (auto&& [param, arg] : llvm::zip(ptype->param_types, invoke->args)) {
-                    if (not Convert(arg, param)) {
-                        e->sema.set_errored();
-                        Error(
-                            arg,
-                            "Argument type '{}' is not convertible to parameter type '{}'",
-                            arg->type,
-                            param
-                        );
+                for (usz i = 0; i < invoke->args.size(); i++) {
+                    if (i < ptype->param_types.size()) {
+                        if (not Convert(invoke->args[i], ptype->param_types[i])) {
+                            e->sema.set_errored();
+                            Error(
+                                invoke->args[i],
+                                "Argument type '{}' is not convertible to parameter type '{}'",
+                                invoke->args[i]->type,
+                                ptype->param_types[i]
+                            );
+                        }
                     }
+
+                    /// Variadic arguments only undergo lvalue-to-rvalue conversion.
+                    else { InsertLValueToRValueConversion(invoke->args[i]); }
                 }
 
                 /// Make sure there are as many arguments as parameters.
-                if (invoke->args.size() != ptype->param_types.size()) {
+                if (
+                    invoke->args.size() < ptype->param_types.size() or
+                    (invoke->args.size() > ptype->param_types.size() and not ptype->variadic)
+                ) {
                     e->sema.set_errored();
                     Error(
                         invoke,
@@ -1369,6 +1377,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// the size or the data pointer.
                 if (auto slice = dyn_cast<SliceType>(desugared)) {
                     if (m->member == "data") {
+                        InsertLValueToRValueConversion(object);
                         StripRefs();
                         m->stored_type = new (mod) ReferenceType(slice->elem, m->location);
                         Assert(Analyse(m->stored_type));
@@ -1376,6 +1385,7 @@ bool src::Sema::Analyse(Expr*& e) {
                     }
 
                     if (m->member == "size") {
+                        InsertLValueToRValueConversion(object);
                         StripRefs();
                         m->stored_type = BuiltinType::Int(mod, m->location);
                         return {};
@@ -2103,11 +2113,19 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
 
     /// Make sure all paths return a value.
     else if (not Type::Equal(proc->ret_type, Type::Void)) {
-        if (not Type::Equal(body->type, Type::NoReturn)) Error(
-            proc->location,
-            "Procedure '{}' does not return a value on all paths",
-            proc->name
-        );
+        if (not Type::Equal(body->type, Type::NoReturn)) {
+            if (Type::Equal(proc->ret_type, Type::NoReturn)) Error(
+                proc->location,
+                "Procedure '{}' returns despite being marked as 'noreturn'",
+                proc->name
+            );
+
+            else Error(
+                proc->location,
+                "Procedure '{}' does not return a value on all paths",
+                proc->name
+            );
+        }
     }
 
     /// Handle unwinding.

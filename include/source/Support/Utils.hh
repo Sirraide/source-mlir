@@ -318,6 +318,9 @@ void Decompress(
     usz uncompressed_size
 );
 
+/// Escape non-printable characters in a string.
+auto Escape(StringRef str) -> std::string;
+
 /// Compute the maximum value of an n-bit integer.
 constexpr usz MaxBitValue(usz bits) {
     /// Example for 8 bits:
@@ -388,6 +391,12 @@ auto UniqueMin(
     }
 }
 } // namespace utils
+
+template <typename T>
+requires std::is_enum_v<T>
+constexpr auto operator+(T val) -> std::underlying_type_t<T> {
+    return std::to_underlying(val);
+}
 
 } // namespace src
 

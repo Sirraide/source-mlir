@@ -909,9 +909,9 @@ public:
         Mangling mangling,
         Location loc
     ) : Decl(k, std::move(name), type, loc),
-          module(mod),
-          linkage(linkage),
-          mangling(mangling) {}
+        module(mod),
+        linkage(linkage),
+        mangling(mangling) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind >= Kind::ProcDecl; }
@@ -1136,8 +1136,8 @@ protected:
 
 public:
     struct DenseMapInfo {
-        static auto getEmptyKey() -> Expr* { return nullptr; }
-        static auto getTombstoneKey() -> Expr* { return reinterpret_cast<Expr*>(1); }
+        static auto getEmptyKey() -> Type* { return nullptr; }
+        static auto getTombstoneKey() -> Type* { return reinterpret_cast<Type*>(1); }
         static bool isEqual(const Expr* a, const Expr* b) {
             /// Expr::Equal doesn’t handle nullptr or tombstones.
             uptr ap = uptr(a), bp = uptr(b);
@@ -1464,10 +1464,11 @@ public:
     /// Whether this type is variadic.
     bool variadic{};
 
-    ProcType(SmallVector<Expr*> param_types, Expr* ret_type, Location loc)
+    ProcType(SmallVector<Expr*> param_types, Expr* ret_type, bool variadic, Location loc)
         : Type(Kind::ProcType, loc),
           param_types(std::move(param_types)),
-          ret_type(ret_type) {}
+          ret_type(ret_type),
+          variadic(variadic) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ProcType; }

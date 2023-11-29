@@ -5,7 +5,7 @@
 import foo;
 
 /// * hlir.func external @_SM3foo1xPiiE
-/// + hlir.func external @__src_main
+/// * hlir.func external @__src_main
 /// + scope
 /// + (?<three>$t) = arith.constant 3
 /// + (?<four>$t) = arith.constant 4

@@ -605,6 +605,8 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
                 out += ")";
             }
 
+            if (p->variadic) out += " variadic";
+
             /// Avoid relying on operator==() for this.
             if (
                 not isa<BuiltinType>(p->ret_type) or
@@ -749,6 +751,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
             auto pb = cast<ProcType>(b);
 
             if (pa->param_types.size() != pb->param_types.size()) return false;
+            if (pa->variadic != pb->variadic) return false;
             for (auto [p1, p2] : llvm::zip_equal(pa->param_types, pb->param_types))
                 if (not Type::Equal(p1, p2))
                     return false;
@@ -948,18 +951,29 @@ struct ASTPrinter {
                 auto f = cast<ProcDecl>(e);
                 PrintLinkage(f->linkage);
                 PrintBasicHeader("ProcDecl", e);
-                out += fmt::format(
-                    " {}{} {}[{}{}{}] {}{}{}\n",
-                    C(Green),
-                    f->name,
-                    C(Red),
-                    C(Green),
-                    f->sema.ok ? f->mangled_name : "???",
-                    C(Red),
-                    f->type.str(use_colour),
-                    f->nested ? fmt::format(" {}nested", C(Blue)) : "",
-                    f->takes_static_chain ? " chain" : ""
-                );
+                if (f->mangling != Mangling::None) {
+                    out += fmt::format(
+                        " {}{} {}[{}{}{}] {}{}{}\n",
+                        C(Green),
+                        f->name,
+                        C(Red),
+                        C(Green),
+                        f->sema.ok ? f->mangled_name : "???",
+                        C(Red),
+                        f->type.str(use_colour),
+                        f->nested ? fmt::format(" {}nested", C(Blue)) : "",
+                        f->takes_static_chain ? " chain" : ""
+                    );
+                } else {
+                    out += fmt::format(
+                        " {}{} {}{}{}\n",
+                        C(Green),
+                        f->name,
+                        f->type.str(use_colour),
+                        f->nested ? fmt::format(" {}nested", C(Blue)) : "",
+                        f->takes_static_chain ? " chain" : ""
+                    );
+                }
                 return;
             }
 
@@ -1022,7 +1036,7 @@ struct ASTPrinter {
                     out += fmt::format(
                         " {}\"{}\" {}\n",
                         C(Yellow),
-                        mod->strtab[i->index],
+                        utils::Escape(mod->strtab[i->index].drop_back(1)),
                         i->type.str(use_colour)
                     );
                 } else {
@@ -1209,7 +1223,6 @@ struct ASTPrinter {
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, e->type); return;
 
             case K::DeferExpr: {
-                auto d = cast<DeferExpr>(e);
                 PrintBasicHeader("DeferExpr", e);
                 out += "\n";
                 return;
