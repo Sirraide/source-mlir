@@ -1,8 +1,10 @@
 module __src_runtime;
 
+/// Libc functions that we need.
 proc printf(i8&) extern nomangle variadic -> int;
 proc exit(i32) extern nomangle -> noreturn;
 
+/// Called when an `assert` fails.
 export proc __src_assert_fail(
     i8[] cond,
     i8[] message,
@@ -20,4 +22,17 @@ export proc __src_assert_fail(
 
     printf "\n".data;
     exit 17 as i32;
+}
+
+/// Entry point emitted by the compiler.
+proc __src_main extern nomangle;
+
+/// Actual main function.
+export proc main(
+    i32 arc,
+    i8&& argv,
+    i8&& envp
+) nomangle -> i32 {
+    __src_main();
+    return 0 as i32;
 }

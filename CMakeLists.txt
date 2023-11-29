@@ -345,7 +345,7 @@ endif()
 ## Add the executable.
 add_llvm_executable(srcc src/Main.cc ${sources})
 set_target_properties(srcc PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}")
-target_link_libraries(srcc PRIVATE options cpptrace)
+target_link_libraries(srcc PRIVATE options cpptrace-lib)
 target_precompile_headers(srcc PRIVATE
     include/source/Support/Utils.hh
 )

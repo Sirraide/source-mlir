@@ -12,6 +12,7 @@ using options = clopts< // clang-format off
     positional<"file", "The file to compile">,
     option<"--colour", "Enable coloured output (default: auto)", values<"always", "auto", "never">>,
     option<"--dir", "Set module output directory">,
+    option<"-o", "Output file name. Ignored for modules">,
     multiple<option<"-I", "Add module import directory">>,
     experimental::short_option<"-O", "Optimisation level", values<0, 1, 2, 3, 4>>,
     flag<"-r", "JIT-compile and run the program after compiling">,
@@ -147,17 +148,22 @@ int main(int argc, char** argv) {
         return mod->run(int(opts.get_or<"-O">(0)));
     }
 
-    /// Determine output file path.
-    auto dir = opts.get_or<"--dir">(std::filesystem::current_path());
-    auto oname = fmt::format(
-        "{}/{}.o",
-        dir,
-        not mod->name.empty() ? mod->name : f.path().filename().replace_extension("").string()
-    );
-
     /// Emit the module to disk.
-    if (mod->is_logical_module) mod->emit_object_file(int(opts.get_or<"-O">(0)), oname);
-    else mod->emit_executable(int(opts.get_or<"-O">(0)), oname);
+    if (mod->is_logical_module) {
+        auto dir = opts.get_or<"--dir">(std::filesystem::current_path());
+        auto oname = fmt::format(
+            "{}/{}",
+            dir,
+            not mod->name.empty() ? mod->name : f.path().filename().replace_extension("").string()
+        );
+        mod->emit_object_file(int(opts.get_or<"-O">(0)), oname);
+    }
+
+    /// Emit executables in the cwd.
+    else {
+        auto oname = opts.get_or<"-o">(f.path().filename().replace_extension("").string());
+        mod->emit_executable(int(opts.get_or<"-O">(0)), oname);
+    }
 
     /*    /// Notes:
         /// - ‘freeze’ keyword that makes a value const rather than forcing

@@ -2144,9 +2144,10 @@ void src::Sema::AnalyseModule() {
 
             std::error_code ec;
             if (auto ok = fs::exists(mod_path, ec); not ok or ec) continue;
+            i.resolved_path = std::move(mod_path);
 
             /// Load the module.
-            auto& f = mod->context->get_or_load_file(mod_path);
+            auto& f = mod->context->get_or_load_file(i.resolved_path);
             i.mod = Module::Deserialise(
                 mod->context,
                 i.linkage_name,

@@ -445,11 +445,11 @@ void PrintBacktrace() {
         /// Print the line.
         fmt::print(
             stderr,
-            "#{:<{}} {}{:#016x} {}in {}{} {}at {}{}{}:{}{}{}\n",
+            "#{:<{}} {}{} {}in {}{} {}at {}{}{}:{}{}{}\n",
             i,
             utils::NumberWidth(trace.frames.size()),
             C(Blue),
-            frame.address,
+            fmt::ptr((void*)frame.address),
             C(Reset),
             C(Yellow),
             sym,
@@ -458,7 +458,7 @@ void PrintBacktrace() {
             filename,
             C(Reset),
             C(Blue),
-            frame.line,
+            u64(frame.line.raw_value),
             C(Reset)
         );
 

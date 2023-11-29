@@ -3,6 +3,7 @@
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/Program.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
@@ -11,7 +12,35 @@
 
 void src::Module::emit_executable(int opt_level, const fs::path& location) {
     Assert(not is_logical_module, "Cannot emit logical module as executable");
-    Todo();
+
+    /// Emit object file to a temporary path.
+    auto ofile = File::TempPath(".o");
+    emit_object_file(opt_level, ofile);
+    defer { fs::remove(ofile); };
+
+#ifdef __linux__
+    /// Find linker.
+    auto link = llvm::sys::findProgramByName(__SRCC_CLANG_EXE);
+    if (link.getError()) link = llvm::sys::findProgramByName("clang");
+    if (auto e = link.getError()) Diag::Fatal("Could not find linker: {}", e.message());
+
+    /// Add the object file as well as all imported modules.
+    SmallVector<std::string> args;
+    args.push_back(link.get());
+    args.push_back(fs::absolute(ofile).string());
+    args.push_back("-o");
+    args.push_back(fs::absolute(location).string());
+    for (auto& m : imports) args.push_back(fs::absolute(m.resolved_path).string());
+    SmallVector<llvm::StringRef> args_ref;
+    for (auto& a : args) args_ref.push_back(a);
+
+    /// Run the linker.
+    auto ret = llvm::sys::ExecuteAndWait(link.get(), args_ref);
+    if (ret != 0) Diag::Fatal("Linker returned non-zero exit code: {}", ret);
+
+#else
+#    error Sorry, unsupported platform
+#endif
 }
 
 void src::Module::emit_object_file(int opt_level, const fs::path& location) {
