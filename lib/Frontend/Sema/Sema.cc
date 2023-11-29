@@ -1568,6 +1568,9 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not Analyse(i->then) or (i->else_ and not Analyse(i->else_)))
                 return e->sema.set_errored();
 
+            /// Type is void, unless one of the conditions below applies.
+            i->stored_type = Type::Void;
+
             /// If there is an else clause, then the type of this expression is a bit
             /// more difficult to determine.
             if (i->else_) {
@@ -1599,8 +1602,6 @@ bool src::Sema::Analyse(Expr*& e) {
                         InsertLValueToRValueConversion(i->else_);
                     }
                 }
-            } else {
-                i->stored_type = Type::Void;
             }
         } break;
 
