@@ -5,25 +5,21 @@ proc consume (i64) extern;
 i64 a = i();
 i64 b = i();
 
-consume a + b;   /// * arith.addi
-consume a - b;   /// * arith.subi
-consume a * b;   /// * arith.muli
-consume a ** b;  /// * math.ipowi
-consume a / b;   /// * arith.divsi
-consume a % b;   /// * arith.remsi
-consume a and b; /// * arith.andi
-consume a or b;  /// * arith.ori
-consume a xor b; /// * arith.xori
-consume a << b;  /// * arith.shli
-consume a >> b;  /// * arith.shrsi
-consume a >>> b; /// * arith.shrui
-consume a == b;  /// * arith.cmpi eq
-consume a != b;  /// * arith.cmpi ne
-consume a < b;   /// * arith.cmpi slt
-consume a <= b;  /// * arith.cmpi sle
-consume a > b;   /// * arith.cmpi sgt
-consume a >= b;  /// * arith.cmpi sge
-
-
-
-
+consume a + b;    /// * arith.addi
+consume a - b;    /// * arith.subi
+consume a * b;    /// * arith.muli
+consume a ** b;   /// * math.ipowi
+consume a / b;    /// * arith.divsi
+consume a % b;    /// * arith.remsi
+consume a land b; /// * arith.andi
+consume a lor b;  /// * arith.ori
+consume a xor b;  /// * arith.xori
+consume a << b;   /// * arith.shli
+consume a >> b;   /// * arith.shrsi
+consume a >>> b;  /// * arith.shrui
+consume a == b;   /// * arith.cmpi eq
+consume a != b;   /// * arith.cmpi ne
+consume a < b;    /// * arith.cmpi slt
+consume a <= b;   /// * arith.cmpi sle
+consume a > b;    /// * arith.cmpi sgt
+consume a >= b;   /// * arith.cmpi sge

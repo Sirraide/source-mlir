@@ -1701,19 +1701,55 @@ bool src::Sema::Analyse(Expr*& e) {
             switch (b->op) {
                 default: Unreachable("Invalid binary operator");
 
-                /// Arithmetic operators.
-                ///
                 /// Note: `and` and `or` are emitted lazily, but this
                 /// is irrelevant to semantic analysis, so we don’t
                 /// care about that here.
+                case Tk::And:
+                case Tk::Or: {
+                    /// Operands are rvalues of non-reference type.
+                    InsertLValueToRValueConversion(b->lhs);
+                    InsertLValueToRValueConversion(b->rhs);
+
+                    /// Operands must be booleans.
+                    auto Check = [&](Expr*& e) {
+                        if (Convert(e, Type::Bool)) return;
+                        if (e->type.is_int(false)) {
+                            /// TODO: Fix-it hint.
+                            Error(
+                                e,
+                                "Operands of '{}' must be of type '{}', but was '{}'. "
+                                "Help: did you mean to use 'l{}' instead for a bitwise operation?",
+                                Spelling(b->op),
+                                Type::Bool->as_type,
+                                e->type,
+                                Spelling(b->op)
+                            );
+                        } else {
+                            Error(
+                                e,
+                                "Operands of '{}' must be of type '{}', but was '{}'",
+                                Spelling(b->op),
+                                Type::Bool->as_type,
+                                e->type
+                            );
+                        }
+                    };
+
+                    /// Even if this fail, we know that the type of this is bool.
+                    Check(b->lhs);
+                    Check(b->rhs);
+                    b->stored_type = Type::Bool;
+                } break;
+
+                /// Arithmetic, bitwise, and boolean operators.
                 case Tk::Plus:
                 case Tk::Minus:
                 case Tk::Star:
                 case Tk::StarStar:
                 case Tk::Slash:
                 case Tk::Percent:
-                case Tk::And:
-                case Tk::Or:
+                case Tk::Land:
+                case Tk::Lor:
                 case Tk::Xor:
                 case Tk::ShiftLeft:
                 case Tk::ShiftRight:

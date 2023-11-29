@@ -52,6 +52,8 @@ const StringMap<Tk> keywords = {
     {"not", Tk::Not},
     {"and", Tk::And},
     {"or", Tk::Or},
+    {"land", Tk::Land},
+    {"lor", Tk::Lor},
     {"xor", Tk::Xor},
     {"true", Tk::True},
     {"false", Tk::False},
@@ -968,6 +970,8 @@ auto src::Spelling(Tk t) -> std::string_view {
         case Tk::Not: return "not";
         case Tk::And: return "and";
         case Tk::Or: return "or";
+        case Tk::Land: return "land";
+        case Tk::Lor: return "lor";
         case Tk::Xor: return "xor";
         case Tk::True: return "true";
         case Tk::False: return "false";
@@ -1099,6 +1103,8 @@ bool src::operator==(const Token& a, const Token& b) {
         case Tk::Not:
         case Tk::And:
         case Tk::Or:
+        case Tk::Land:
+        case Tk::Lor:
         case Tk::Xor:
         case Tk::True:
         case Tk::False:

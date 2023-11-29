@@ -38,11 +38,15 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
             return 90;
 
         /// Shifts have higher precedence than logical/bitwise
-        /// operators so e.g.  `a and 1 << 3` works properly.
+        /// operators so e.g.  `a land 1 << 3` works properly.
         case Tk::ShiftLeft:
         case Tk::ShiftRight:
         case Tk::ShiftRightLogical:
             return 85;
+
+        case Tk::Land:
+        case Tk::Lor:
+            return 82;
 
         case Tk::Lt:
         case Tk::Gt:

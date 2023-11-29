@@ -1373,10 +1373,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 case Tk::Gt: GenerateCmpOp<CmpIOp>(b, CmpIPredicate::sgt); break;
                 case Tk::Le: GenerateCmpOp<CmpIOp>(b, CmpIPredicate::sle); break;
                 case Tk::Ge: GenerateCmpOp<CmpIOp>(b, CmpIPredicate::sge); break;
-
-                /// TODO: Short-circuiting if operating on bool.
-                case Tk::And: GenerateBinOp<AndIOp>(b); break;
-                case Tk::Or: GenerateBinOp<OrIOp>(b); break;
+                case Tk::Land: GenerateBinOp<AndIOp>(b); break;
+                case Tk::Lor: GenerateBinOp<OrIOp>(b); break;
 
                 /// Assignment and reference binding.
                 case Tk::Assign:

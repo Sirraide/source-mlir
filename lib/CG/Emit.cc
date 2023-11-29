@@ -18,7 +18,7 @@ void src::Module::emit_executable(int opt_level, const fs::path& location) {
     emit_object_file(opt_level, ofile);
     defer { fs::remove(ofile); };
 
-#ifdef __linux__
+#ifdef LLVM_ON_UNIX
     /// Find linker.
     auto link = llvm::sys::findProgramByName(__SRCC_CLANG_EXE);
     if (link.getError()) link = llvm::sys::findProgramByName("clang");

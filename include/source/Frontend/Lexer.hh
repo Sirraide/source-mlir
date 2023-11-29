@@ -47,6 +47,8 @@ enum struct Tk {
     Not,
     And,
     Or,
+    Land,
+    Lor,
     Xor,
     True,
     False,
