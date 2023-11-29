@@ -1351,6 +1351,55 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::BinaryExpr: {
             auto b = cast<BinaryExpr>(expr);
+            if (b->op == Tk::And or b->op == Tk::Or) {
+                Generate(b->lhs);
+                auto loc = b->location.mlir(ctx);
+                auto rhs = new mlir::Block;
+                auto res = new mlir::Block;
+                res->addArgument(Ty(Type::Bool), loc);
+
+                /// Then-block is rhs, else-block is res w/ false.
+                if (b->op == Tk::And) {
+                    Create<mlir::cf::CondBranchOp>(
+                        loc,
+                        b->lhs->mlir,
+                        rhs,
+                        mlir::ValueRange{},
+                        res,
+                        mlir::ValueRange{b->lhs->mlir}
+                    );
+                }
+
+                /// Then-block is res w/ true, else-block is rhs.
+                else {
+                    Create<mlir::cf::CondBranchOp>(
+                        loc,
+                        b->lhs->mlir,
+                        res,
+                        mlir::ValueRange{b->lhs->mlir},
+                        rhs,
+                        mlir::ValueRange{}
+                    );
+                }
+
+                /// Emit RHS.
+                auto& r = builder.getBlock()->getParent()->getBlocks();
+                r.insertAfter(builder.getBlock()->getIterator(), rhs);
+                builder.setInsertionPointToEnd(rhs);
+                Generate(b->rhs);
+                Create<mlir::cf::BranchOp>(
+                    loc,
+                    res,
+                    b->rhs->mlir
+                );
+
+                /// Join block.
+                r.insertAfter(builder.getBlock()->getIterator(), res);
+                builder.setInsertionPointToEnd(res);
+                b->mlir = res->getArgument(0);
+                break;
+            }
+
             Generate(b->lhs);
             Generate(b->rhs);
             switch (b->op) {
