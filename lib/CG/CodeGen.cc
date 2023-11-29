@@ -1471,7 +1471,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
                         mlir::LLVM::Linkage::Private,
                         name,
                         mlir::IntegerAttr::get(int32, 0),
-                        Type::I32->as_type.align(ctx)
+                        Type::I32->as_type.align(ctx) / 8
                     );
                 }
 
