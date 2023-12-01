@@ -18,8 +18,11 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
         case Tk::Dot:
             return 10'000;
 
-        /// InvokePrecedence = 1000;
-        /// PrefixPrecedence = 900.
+        case Tk::LBrack:
+            return 5'000;
+
+            /// InvokePrecedence = 1000;
+            /// PrefixPrecedence = 900.
 
         case Tk::As:
         case Tk::AsBang:
@@ -197,6 +200,7 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
 /// <expr-literal>  ::= INTEGER_LITERAL | STRING_LITERAL
 /// <expr-invoke>   ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
 /// <expr-paren>    ::= "(" <expr> ")"
+/// <expr-subscript> ::= <expr> "[" <expr> "]"
 auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
     /// A ProcDecl must be wrapped in DeclRefExpr if it is not a full
     /// expression or not preceded by 'export'.
@@ -485,6 +489,16 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
                 /// Yeet ')'
                 if (not Consume(Tk::RParen)) Error("Expected ')'");
+                continue;
+            }
+
+            /// Subscripting.
+            case Tk::LBrack: {
+                Next();
+                auto e = ParseExpr();
+                if (IsError(e)) return e.diag;
+                lhs = new (mod) SubscriptExpr(*lhs, *e, {lhs->location, curr_loc});
+                if (not Consume(Tk::RBrack)) Error("Expected ']'");
                 continue;
             }
 
@@ -967,7 +981,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 /// <type-prim>      ::= INTEGER_TYPE | INT
 /// <type-named>     ::= IDENTIFIER
 /// <type-qualified> ::= <type> { <type-qual> }
-/// <type-qual>      ::= "&" | "^" | "[" "]"
+/// <type-qual>      ::= "&" | "^" | "[" [ <expr> ] "]"
 auto src::Parser::ParseType() -> Result<Expr*> {
     /// Parse base type.
     Expr* base_type = nullptr;
@@ -986,7 +1000,7 @@ auto src::Parser::ParseType() -> Result<Expr*> {
             break;
 
         case Tk::IntegerType:
-            base_type = new (mod) IntType(tok.integer, tok.location);
+            base_type = new (mod) IntType(Size::Bits(tok.integer.getZExtValue()), tok.location);
             Next();
             break;
 
@@ -1028,9 +1042,16 @@ auto src::Parser::ParseType() -> Result<Expr*> {
 
             case Tk::LBrack:
                 Next();
-                if (tok.type != Tk::RBrack) Error("Expected ']'");
-                base_type = new (mod) SliceType(base_type, {base_type->location, curr_loc});
-                Next();
+
+                if (tok.type == Tk::RBrack) base_type = new (mod) SliceType(base_type, base_type->location);
+                else {
+                    auto dim = ParseExpr();
+                    if (IsError(dim)) return dim.diag;
+                    base_type = new (mod) ArrayType(base_type, *dim, base_type->location);
+                }
+
+                base_type->location = {base_type->location, curr_loc};
+                if (not Consume(Tk::RBrack)) Error("Expected ']'");
                 break;
         }
     }

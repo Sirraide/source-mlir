@@ -136,6 +136,12 @@ private:
         return false;
     }
 
+    /// Evaluate a constant expression.
+    bool Evaluate(Expr* e, EvalResult& out, bool must_succeed = true);
+
+    /// Evaluate an integral constant expression and replace it with the result.
+    bool EvaluateAsIntegerInPlace(Expr*& e, bool must_succeed = true);
+
     void InsertImplicitCast(Expr*& e, Expr* to);
 
     /// Dereference a reference, yielding an lvalue.

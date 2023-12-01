@@ -19,17 +19,20 @@ extern Expr* const UnknownType;
 }
 
 class EvalResult {
-    std::variant<std::monostate, isz, Expr*> value{};
+    std::variant<std::monostate, APInt, Expr*> value{};
 
 public:
     Expr* type = detail::UnknownType;
 
     EvalResult() : value(std::monostate{}) {}
-    EvalResult(isz value) : value(value) {}
-    EvalResult(Expr* value) : value(value) {}
+    EvalResult(APInt value, Expr* type) : value(std::move(value)), type(type) {}
+    EvalResult(Expr* type) : value(type), type(type) {}
 
-    auto as_int() -> isz { return std::get<isz>(value); }
+    auto as_int() -> APInt& { return std::get<APInt>(value); }
     auto as_type() -> Expr* { return std::get<Expr*>(value); }
+
+    bool is_int() const { return std::holds_alternative<APInt>(value); }
+    bool is_type() const { return std::holds_alternative<Expr*>(value); }
 };
 
 /// ===========================================================================
@@ -109,6 +112,7 @@ public:
         DeclRefExpr,
         LocalRefExpr,
         ParenExpr,
+        SubscriptExpr,
         BoolLiteralExpr,
         IntegerLiteralExpr,
         StringLiteralExpr,
@@ -162,8 +166,8 @@ public:
         TypeHandle(Expr* ptr) : ptr(ptr) {}
         TypeHandle(std::nullptr_t) = delete;
 
-        /// Get the alignment of this type, in bits.
-        auto align(Context* ctx) -> isz;
+        /// Get the alignment of this type, in *bytes*.
+        auto align(Context* ctx) -> Align;
 
         /// Get the procedure type from a closure or proc.
         readonly_decl(ProcType*, callable);
@@ -188,14 +192,8 @@ public:
         /// Get the number of nested reference levels in this type.
         readonly_decl(isz, ref_depth);
 
-        /// Get the size of this type, in bits.
-        auto size(Context* ctx) -> isz;
-
-        /// Get the size of this type, in bytes.
-        auto size_bytes(Context* ctx) {
-            auto sz = size(ctx);
-            return sz / 8 + (sz % 8 != 0);
-        }
+        /// Get the size of this type.
+        auto size(Context* ctx) -> Size;
 
         /// Get a string representation of this type.
         auto str(bool use_colour) const -> std::string;
@@ -650,17 +648,16 @@ public:
 
 class ConstExpr : public TypedExpr {
 public:
-    /// The underlying expression.
-    Expr* expr;
+    /// The underlying expression. May be null if this was constructed by sema.
+    Expr* expr{};
 
     /// Cached result.
     EvalResult value;
 
     ConstExpr(Expr* expr, EvalResult cached, Location loc)
-        : TypedExpr(Kind::ConstExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::ConstExpr, cached.type, loc),
           expr(expr),
           value(std::move(cached)) {
-        Assert(expr);
         sema.set_done();
     }
 
@@ -826,14 +823,28 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::ParenExpr; }
 };
 
+class SubscriptExpr : public TypedExpr {
+public:
+    Expr* object;
+    Expr* index;
+
+    SubscriptExpr(Expr* object, Expr* index, Location loc)
+        : TypedExpr(Kind::SubscriptExpr, detail::UnknownType, loc),
+          object(object),
+          index(index) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::SubscriptExpr; }
+};
+
 class IntLitExpr : public TypedExpr {
 public:
     /// The value of this literal.
-    isz value;
+    APInt value;
 
-    IntLitExpr(isz value, Location loc)
+    IntLitExpr(APInt value, Location loc)
         : TypedExpr(Kind::IntegerLiteralExpr, detail::UnknownType, loc),
-          value(value) {}
+          value(std::move(value)) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::IntegerLiteralExpr; }
@@ -1190,12 +1201,12 @@ public:
 class IntType : public Type {
 public:
     /// The size of this integer type, in bits.
-    isz bits;
+    Size size;
 
-    IntType(isz bits, Location loc)
-        : Type(Kind::IntType, loc), bits(bits) {}
+    IntType(Size size, Location loc)
+        : Type(Kind::IntType, loc), size(size) {}
 
-    static auto Create(Module* mod, isz size, Location loc = {}) -> IntType* {
+    static auto Create(Module* mod, Size size, Location loc = {}) -> IntType* {
         return new (mod) IntType(size, loc);
     }
 
@@ -1269,7 +1280,7 @@ public:
     struct Field {
         std::string name;
         Expr* type;
-        isz offset{};
+        Size offset{};
         u32 index{};
         bool padding{};
     };
@@ -1290,8 +1301,8 @@ public:
     BlockExpr* scope;
 
     /// Cached size and alignment, in bits.
-    isz stored_size{};
-    isz stored_alignment{1};
+    Size stored_size{};
+    Align stored_alignment{1};
 
     /// MLIR type.
     SOURCE_MLIR_TYPE_MEMBER(mlir);
@@ -1374,9 +1385,9 @@ public:
           dim_expr(dim_expr) {}
 
     /// Get the dimension of this array type.
-    isz dimension() {
-        auto cexpr = dyn_cast<ConstExpr>(dim_expr);
-        if (not sema.ok or not cexpr) return 0;
+    auto dimension() -> const APInt& {
+        Assert(sema.ok);
+        auto cexpr = cast<ConstExpr>(dim_expr);
         return cexpr->value.as_int();
     }
 
@@ -1386,11 +1397,11 @@ public:
     /// this in the frontend as it offers no location information
     /// whatsoever.
     static auto GetByteArray(Module* mod, isz dim) -> ArrayType* {
-        auto lit = new (mod) IntLitExpr(dim, {});
+        auto lit = new (mod) IntLitExpr(APInt(64, usz(dim)), {});
         lit->stored_type = Type::Int;
         lit->sema.set_done();
 
-        auto cexpr = new (mod) ConstExpr(lit, EvalResult(dim), {});
+        auto cexpr = new (mod) ConstExpr(lit, EvalResult(APInt(64, usz(dim)), Type::Int), {});
         auto arr = new (mod) ArrayType(Type::I8, cexpr, {});
         arr->sema.set_done();
         return arr;

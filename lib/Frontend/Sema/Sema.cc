@@ -798,9 +798,17 @@ bool src::Sema::Analyse(Expr*& e) {
             break;
 
         /// Integers are of type int.
-        case Expr::Kind::IntegerLiteralExpr:
-            cast<IntLitExpr>(e)->stored_type = BuiltinType::Int(mod, e->location);
-            break;
+        case Expr::Kind::IntegerLiteralExpr: {
+            auto i = cast<IntLitExpr>(e);
+            if (i->value.getBitWidth() > 64) Diag::ICE(
+                mod->context,
+                e->location,
+                "Sorry, integer literals of size > i64 are currently not supported"
+            );
+
+            i->stored_type = BuiltinType::Int(mod, e->location);
+            i->value = i->value.zext(64);
+        } break;
 
         /// Parens just forward whatever is inside.
         case Expr::Kind::ParenExpr: {
@@ -814,7 +822,7 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::StringLiteralExpr: {
             auto str = cast<StrLitExpr>(e);
             auto loc = str->location;
-            Expr* u8 = IntType::Create(mod, 8);
+            Expr* u8 = IntType::Create(mod, Size::Bits(8));
             Analyse(u8);
 
             /// Unlike in C++, string literals are *not* lvalues; rather a
@@ -831,7 +839,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
         /// `i0` is illegal.
         case Expr::Kind::IntType:
-            if (cast<IntType>(e)->bits == 0) Error(e, "Integer type bit width cannot be 0");
+            if (cast<IntType>(e)->size.bits() == 0) Error(e, "Integer type bit width cannot be 0");
             break;
 
         /// Array size must be a valid constant expression.
@@ -840,10 +848,8 @@ bool src::Sema::Analyse(Expr*& e) {
             auto arr = cast<ArrayType>(e);
             if (not Analyse(arr->dim_expr)) return e->sema.set_errored();
 
-            /// TODO: Proper constant expression evaluation.
-            auto integer = dyn_cast<IntLitExpr>(arr->dim_expr);
-            if (not integer) return Error(e, "Sorry, non-trivial constant expression evaluation is not supported yet");
-            arr->dim_expr = new (mod) ConstExpr(arr->dim_expr, integer->value, integer->location);
+            /// Determine size.
+            if (not EvaluateAsIntegerInPlace(arr->dim_expr)) return e->sema.set_errored();
 
             /// Element type must be legal in a declaration.
             if (not AnalyseAsType(arr->elem) or not MakeDeclType<true>(arr->elem))
@@ -881,8 +887,8 @@ bool src::Sema::Analyse(Expr*& e) {
             u32 index = 0;
 
             /// Create a padding field at the given location to serve as padding.
-            const auto CreatePaddingField = [&](isz padding, auto insert_before) {
-                auto ty = ArrayType::GetByteArray(mod, padding / 8);
+            const auto CreatePaddingField = [&](Size padding, auto insert_before) {
+                auto ty = ArrayType::GetByteArray(mod, isz(padding.bytes()));
                 StructType::Field f({fmt::format("#padding{}", padding_count++), ty});
                 f.offset = s->stored_size;
                 f.padding = true;
@@ -892,11 +898,11 @@ bool src::Sema::Analyse(Expr*& e) {
             };
 
             /// Helper to align a field to its alignment.
-            const auto AlignField = [&](isz alignment, usz& it) {
+            const auto AlignField = [&](Align alignment, usz& it) {
                 /// Check if we need to insert padding.
-                auto pad = utils::AlignTo<isz>(utils::AlignPadding(s->stored_size, alignment), 8);
+                auto pad = s->stored_size.align_to(alignment).bytes() - s->stored_size.bytes();
                 if (pad == 0) return;
-                CreatePaddingField(pad, s->all_fields.begin() + it);
+                CreatePaddingField(Size::Bytes(pad), s->all_fields.begin() + it);
 
                 /// Move iterator forward past the padding to the actual element.
                 it++;
@@ -922,13 +928,13 @@ bool src::Sema::Analyse(Expr*& e) {
                 AlignField(align, i);
                 s->all_fields[i].offset = s->stored_size;
                 s->all_fields[i].index = index++;
-                s->stored_alignment = std::max<isz>(s->stored_alignment, align);
+                s->stored_alignment = std::max(s->stored_alignment, align);
                 s->stored_size += s->all_fields[i].type->as_type.size(mod->context);
             }
 
             /// Size must be a multiple of the alignment.
-            auto pad = utils::AlignTo<isz>(utils::AlignPadding(s->stored_size, s->stored_alignment), 8);
-            if (pad != 0) CreatePaddingField(pad, s->all_fields.end());
+            auto pad = s->stored_size.align_to(s->stored_alignment).bytes() - s->stored_size.bytes();
+            if (pad != 0) CreatePaddingField(Size::Bytes(pad), s->all_fields.end());
 
             /// Analyse initialiser types first in case they call each other since
             /// we will have to perform overload resolution in that case.
@@ -1693,6 +1699,11 @@ bool src::Sema::Analyse(Expr*& e) {
             }
         } break;
 
+        /// Array, slice, and tuple subscripting, as well as array types.
+        case Expr::Kind::SubscriptExpr: {
+            Todo();
+        }
+
         /// Binary operators are complicated.
         case Expr::Kind::BinaryExpr: {
             auto b = cast<BinaryExpr>(e);
@@ -2320,7 +2331,17 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
             return true;
         }
 
-        case Expr::Kind::ArrayType: Todo();
+        case Expr::Kind::ArrayType: {
+            auto arr = cast<ArrayType>(ty);
+            Expr* base = arr;
+            while (auto a = dyn_cast<ArrayType>(base)) base = a->elem;
+            if (isa<IntType, BuiltinType, FFIType>(base) and var->init_args.empty()) {
+                var->ctor = Constructor::Zeroinit();
+                return true;
+            }
+
+            Todo("Non-trivial array initialisation");
+        }
         case Expr::Kind::ProcType: Todo();
         case Expr::Kind::ScopedPointerType: Todo();
         case Expr::Kind::SliceType: Todo();

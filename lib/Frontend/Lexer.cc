@@ -255,7 +255,12 @@ void src::Lexer::NextImpl() {
 
             /// Validate name.
             if (tok.type == Tk::Identifier or tok.type == Tk::Integer) {
-                if (tok.type == Tk::Integer) tok.text = std::to_string(tok.integer);
+                if (tok.type == Tk::Integer) {
+                    SmallVector<char, 32> buf;
+                    tok.integer.toStringUnsigned(buf, 10);
+                    tok.text.assign(buf.begin(), buf.end());
+                }
+
                 tok.type = Tk::MacroParameter;
                 tok.location = {l, tok.location};
             } else {
@@ -551,7 +556,7 @@ void src::Lexer::LexIdentifier() {
 
 void src::Lexer::LexNumber() {
     /// Helper function that actually parses a number.
-    auto lex_number_impl = [this](bool pred(char), usz conv(char), usz base) {
+    auto lex_number_impl = [this](bool pred(char), unsigned base) {
         /// Need at least one digit.
         if (not pred(lastc)) {
             Error(CurrLoc() << 1 <<= 1, "Invalid integer literal");
@@ -559,28 +564,8 @@ void src::Lexer::LexNumber() {
         }
 
         /// Parse the literal.
-        usz value{};
-        do {
-            usz old_value = value;
-            value *= base;
-
-            /// Check for overflow.
-            if (value < old_value) {
-            overflow:
-                /// Consume the remaining digits so we can highlight the entire thing in the error.
-                while (pred(lastc)) NextChar();
-                Error(Location{tok.location, CurrLoc()} >>= -1, "Integer literal overflow");
-                return;
-            }
-
-            /// Add the next digit.
-            old_value = value;
-            value += conv(lastc);
-            if (value < old_value) goto overflow;
-
-            /// Yeet it.
-            NextChar();
-        } while (pred(lastc));
+        SmallString<64> buf;
+        while (pred(lastc)) { buf += lastc; NextChar(); }
 
         /// The next character must not be a start character.
         if (IsStart(lastc)) {
@@ -590,7 +575,9 @@ void src::Lexer::LexNumber() {
 
         /// We have a valid integer literal!
         tok.type = Tk::Integer;
-        tok.integer = isz(value);
+
+        /// Note: This returns true on error!
+        Assert(not buf.str().getAsInteger(base, tok.integer));
     };
 
     /// If the first character is a 0, then this might be a non-decimal constant.
@@ -600,35 +587,19 @@ void src::Lexer::LexNumber() {
         /// Hexadecimal literal.
         if (lastc == 'x' or lastc == 'X') {
             NextChar();
-            static const auto xctoi = [](char c) -> usz {
-                switch (c) {
-                    case '0' ... '9': return static_cast<usz>(c - '0');
-                    case 'a' ... 'f': return static_cast<usz>(c - 'a');
-                    case 'A' ... 'F': return static_cast<usz>(c - 'A');
-                    default: Unreachable();
-                }
-            };
-            return lex_number_impl(IsHex, xctoi, 16);
+            return lex_number_impl(IsHex, 16);
         }
 
         /// Octal literal.
         if (lastc == 'o' or lastc == 'O') {
             NextChar();
-            return lex_number_impl(
-                IsOctal,
-                [](char c) { return static_cast<usz>(c - '0'); },
-                8
-            );
+            return lex_number_impl(IsOctal, 8);
         }
 
         /// Binary literal.
         if (lastc == 'b' or lastc == 'B') {
             NextChar();
-            return lex_number_impl(
-                IsBinary,
-                [](char c) { return static_cast<usz>(c - '0'); },
-                2
-            );
+            return lex_number_impl(IsBinary, 2);
         }
 
         /// Multiple leading 0’s are not permitted.
@@ -650,11 +621,7 @@ void src::Lexer::LexNumber() {
     }
 
     /// If the first character is not 0, then we have a decimal literal.
-    return lex_number_impl(
-        IsDecimal,
-        [](char c) { return static_cast<usz>(c - '0'); },
-        10
-    );
+    return lex_number_impl(IsDecimal, 10);
 }
 
 void src::Lexer::LexString(char delim) {

@@ -33,9 +33,21 @@ i64 e = a as i64;
 
 /// * (?<F>$t) = local i1
 /// + (?<A_5>$t) = load i64 from $A
-/// + (?<ATRUNC_5>$t) = arith.trunci $A_5 : i64 to i1
-/// + construct $F trivial i1 $ATRUNC_5
+/// + (?<ZERO>$t) = arith.constant 0
+/// + (?<ACMP_1>$t) = arith.cmpi ne, $A_5, $ZERO
+/// + construct $F trivial i1 $ACMP_1
 bool f = a as bool;
+
+/// i1 differs from bool in that `4 as bool` is `true`,
+/// but `4 as i1` is `0`, as the former yields `true` if
+/// the number is non-zero, and the latter just truncates
+/// the number to 1 bit.
+///
+/// * (?<FI>$t) = local i1
+/// + (?<A_6>$t) = load i64 from $A
+/// + (?<ATRUNC_5>$t) = arith.trunci $A_6 : i64 to i1
+/// + construct $FI trivial i1 $ATRUNC_5
+i1 fi = a as i1;
 
 /// ===== SIGN-EXTENDING CASTS  =====
 /// * (?<G>$t) = local i8

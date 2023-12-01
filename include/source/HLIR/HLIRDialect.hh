@@ -13,6 +13,7 @@
 #include <mlir/IR/OperationSupport.h>
 #include <mlir/IR/OpImplementation.h>
 #include <mlir/Interfaces/VectorInterfaces.h>
+#include <llvm/Support/Alignment.h>
 
 #include <source/HLIR/HLIROpsDialect.h.inc>
 

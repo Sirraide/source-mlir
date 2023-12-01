@@ -45,7 +45,7 @@ auto Expr::TypeHandle::_mangled_name() -> std::string {
 
         /// The underscore is so we know how many digits are part of the bit width.
         case Expr::Kind::IntType:
-            return fmt::format("I{}_", cast<IntType>(ptr)->bits);
+            return fmt::format("I{}_", cast<IntType>(ptr)->size.bits());
 
         case Expr::Kind::ReferenceType: return FormatSEType(ptr, "R");
         case Expr::Kind::ScopedPointerType: return FormatSEType(ptr, "U");
@@ -120,6 +120,7 @@ auto Expr::TypeHandle::_mangled_name() -> std::string {
         case Expr::Kind::OverloadSetExpr:
         case Expr::Kind::ImplicitThisExpr:
         case Expr::Kind::ParenExpr:
+        case Expr::Kind::SubscriptExpr:
             Unreachable("Not a type");
     }
 }
@@ -365,7 +366,7 @@ struct Serialiser {
 
             case Expr::Kind::IntType: {
                 auto i = cast<IntType>(t);
-                switch (i->bits) {
+                switch (i->size.bits()) {
                     default: break;
                     case 8: return TD(SerialisedTypeTag::I8);
                     case 16: return TD(SerialisedTypeTag::I16);
@@ -375,7 +376,7 @@ struct Serialiser {
 
                 if (auto td = FindTD(); td != TD{}) return td;
                 *this << SerialisedTypeTag::SizedInteger;
-                *this << i->bits;
+                *this << i->size.bits();
                 return type_map[t] = TD{hdr.type_count++};
             }
 
@@ -397,8 +398,7 @@ struct Serialiser {
                 *this << elem;
 
                 /// Also write the size, if applicable.
-                if (auto a = dyn_cast<ArrayType>(t)) *this << u64(a->dimension());
-
+                if (auto a = dyn_cast<ArrayType>(t)) *this << a->dimension().getZExtValue();
                 return type_map[t] = TD{hdr.type_count++};
             }
 
@@ -698,7 +698,7 @@ struct Deserialiser {
                     case 64: return Type::I64;
                 }
 
-                return new (&*mod) IntType(isz(bits), {});
+                return new (&*mod) IntType(Size::Bits(bits), {});
             }
 
             case SerialisedTypeTag::Reference: return CreateSEType<ReferenceType>();
@@ -711,7 +711,7 @@ struct Deserialiser {
                 auto dim = isz(rd<u64>());
                 return new (&*mod) ArrayType(
                     elem,
-                    new (&*mod) ConstExpr(new (&*mod) IntLitExpr(dim, {}), EvalResult{dim}, {}),
+                    new (&*mod) ConstExpr(nullptr, EvalResult{APInt(64, usz(dim)), Type::Int}, {}),
                     {}
                 );
             }
@@ -730,8 +730,8 @@ struct Deserialiser {
 
             case SerialisedTypeTag::Struct: {
                 auto name = rd<std::string>();
-                auto size = rd<u64>();
-                auto align = rd<u64>();
+                auto size = rd<Size>();
+                auto align = rd<Align>();
                 auto field_count = rd<u64>();
 
                 /// Read field types.
@@ -749,7 +749,7 @@ struct Deserialiser {
                 /// Read fields.
                 for (auto& f : fields) {
                     f.padding = rd<bool>();
-                    f.offset = isz(rd<u64>());
+                    f.offset = rd<Size>();
                     if (not f.padding) f.name = rd<std::string>();
                     f.type = field_types[f.index];
                 }
@@ -765,8 +765,8 @@ struct Deserialiser {
                 );
 
                 /// Set size and alignment.
-                s->stored_alignment = isz(align);
-                s->stored_size = isz(size);
+                s->stored_alignment = align;
+                s->stored_size = size;
                 return s;
             }
         }

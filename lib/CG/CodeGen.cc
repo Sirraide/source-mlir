@@ -157,7 +157,7 @@ auto src::CodeGen::AllocateLocalVar(src::LocalDecl* decl) -> mlir::Value {
     return Create<hlir::LocalOp>(
         decl->location.mlir(ctx),
         Ty(decl->type),
-        decl->type.align(ctx) / 8,
+        decl->type.align(ctx).value(),
         decl->deleted_or_moved
     );
 }
@@ -398,8 +398,8 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     for (auto v : proc->captured_locals) {
         captured.push_back({
             v,
-            u64(v->type.size_bytes(ctx)),
-            llvm::Align(u64(v->type.align(ctx) / 8)),
+            u64(v->type.size(ctx).bytes()),
+            v->type.align(ctx),
             llvm::OptimizedStructLayoutField::FlexibleOffset,
         });
     }
@@ -412,18 +412,18 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     /// each field to its required offset since LLVM doesn’t know anything
     /// about the offsets.
     SmallVector<StructType::Field> fields;
-    isz total_size = 0;
+    Size total_size;
     for (const auto& [i, var] : vws::enumerate(captured)) {
         /// Zero is the static chain.
         if (proc->takes_static_chain and i == 0) {
             fields.emplace_back(
                 "",
                 new (mod) ReferenceType(proc->parent->captured_locals_type, {}),
-                0,
+                Size::Bytes(0),
                 false
             );
 
-            total_size += 8; /// FIXME: Get pointer alignment from context.
+            total_size += Size::Bytes(8); /// FIXME: Get pointer alignment from context.
             continue;
         }
 
@@ -434,21 +434,21 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
         v->capture_index = isz(i);
 
         /// Insert padding if required.
-        if (total_size != isz(var.Offset)) {
+        if (total_size.bytes() != var.Offset) {
             v->capture_index++;
             fields.emplace_back(
                 "",
-                ArrayType::GetByteArray(mod, isz(var.Offset) - total_size),
+                ArrayType::GetByteArray(mod, isz(usz(var.Offset) - total_size.bytes())),
                 total_size,
                 true
             );
         }
 
-        total_size = isz(var.Offset) + v->type.size_bytes(ctx);
+        total_size = Size::Bytes(var.Offset) + v->type.size(ctx);
         fields.emplace_back(
             "",
             v->type,
-            isz(var.Offset),
+            Size::Bytes(var.Offset),
             false
         );
     }
@@ -461,8 +461,8 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     /// they should be. In particular, we need *not* ensure that the size is
     /// a multiple of the alignment, as we will never have an array of these
     /// anyway.
-    s->stored_alignment = isz(align.value());
-    s->stored_size = isz(size);
+    s->stored_alignment = align;
+    s->stored_size = Size::Bytes(size);
     s->sema.set_done();
 
     /// Associate it with the procedure and create the vars area.
@@ -470,7 +470,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     proc->captured_locals_ptr = Create<hlir::LocalOp>(
         builder.getUnknownLoc(),
         Ty(s),
-        s->stored_alignment,
+        s->stored_alignment.value(),
         false
     );
 
@@ -542,7 +542,7 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
 
         case Expr::Kind::IntType: {
             auto ty = cast<IntType>(type);
-            return mlir::IntegerType::get(mctx, unsigned(ty->bits));
+            return mlir::IntegerType::get(mctx, unsigned(ty->size.bits()));
         }
 
         case Expr::Kind::SliceType: {
@@ -558,7 +558,7 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
 
         case Expr::Kind::ArrayType: {
             auto ty = cast<ArrayType>(type);
-            return hlir::ArrayType::get(Ty(ty->elem), usz(ty->dimension()));
+            return hlir::ArrayType::get(Ty(ty->elem), ty->dimension().getZExtValue());
         }
 
         case Expr::Kind::SugaredType:
@@ -659,6 +659,7 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
         case Expr::Kind::OverloadSetExpr:
         case Expr::Kind::ImplicitThisExpr:
         case Expr::Kind::ParenExpr:
+        case Expr::Kind::SubscriptExpr:
             Unreachable();
     }
 
@@ -939,11 +940,32 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
                         /// Truncation.
                         if (from_size > to_size) {
-                            c->mlir = Create<mlir::arith::TruncIOp>(
-                                c->location.mlir(ctx),
-                                mlir::IntegerType::get(mctx, unsigned(to_size)),
-                                c->operand->mlir
-                            );
+                            /// Casts to bool never actually truncate, but are instead
+                            /// equivalent to != 0. Note that that only applies to bool,
+                            /// not i1!
+                            if (Type::Equal(c->type, Type::Bool)) {
+                                auto int_type = mlir::IntegerType::get(mctx, unsigned(from_size.bits()));
+                                auto zero = Create<mlir::arith::ConstantOp>(
+                                    c->location.mlir(ctx),
+                                    int_type,
+                                    mlir::IntegerAttr::get(int_type, 0)
+                                );
+
+                                c->mlir = Create<mlir::arith::CmpIOp>(
+                                    c->location.mlir(ctx),
+                                    mlir::IntegerType::get(mctx, 1),
+                                    mlir::arith::CmpIPredicate::ne,
+                                    c->operand->mlir,
+                                    zero
+                                );
+                            } else {
+                                c->mlir = Create<mlir::arith::TruncIOp>(
+                                    c->location.mlir(ctx),
+                                    mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
+                                    c->operand->mlir
+                                );
+                            }
+
                         }
 
                         /// Extension.
@@ -952,16 +974,16 @@ void src::CodeGen::Generate(src::Expr* expr) {
                             /// extension, except that, if we’re extending an i1, we use
                             /// zero-extension, as in case of an i1 with the value 1 (true)
                             /// sign-extension would yield -1 instead of 1.
-                            if (from_size == 1) {
+                            if (from_size.bits() == 1) {
                                 c->mlir = Create<mlir::arith::ExtUIOp>(
                                     c->location.mlir(ctx),
-                                    mlir::IntegerType::get(mctx, unsigned(to_size)),
+                                    mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
                                     c->operand->mlir
                                 );
                             } else {
                                 c->mlir = Create<mlir::arith::ExtSIOp>(
                                     c->location.mlir(ctx),
-                                    mlir::IntegerType::get(mctx, unsigned(to_size)),
+                                    mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
                                     c->operand->mlir
                                 );
                             }
@@ -1099,8 +1121,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
             ///     int col
             /// )
             auto lc = a->location.seek_line_column(ctx);
-            auto line = Create<mlir::arith::ConstantIntOp>(loc, lc.line, Type::Int->as_type.size(ctx));
-            auto col = Create<mlir::arith::ConstantIntOp>(loc, lc.col, Type::Int->as_type.size(ctx));
+            auto line = Create<mlir::arith::ConstantIntOp>(loc, lc.line, Type::Int->as_type.size(ctx).bits());
+            auto col = Create<mlir::arith::ConstantIntOp>(loc, lc.col, Type::Int->as_type.size(ctx).bits());
             Generate(a->cond_str);
             Generate(a->file_str);
 
@@ -1221,10 +1243,11 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// Explicit-width integer types.
             if (auto int_ty = dyn_cast<IntType>(e->type)) {
+                if (int_ty->size.bits() > 64) Todo("Create > 64 bit integer constant");
                 e->mlir = Create<mlir::arith::ConstantIntOp>(
                     e->location.mlir(ctx),
-                    e->value,
-                    mlir::IntegerType::get(mctx, unsigned(int_ty->bits))
+                    e->value.getZExtValue(),
+                    mlir::IntegerType::get(mctx, unsigned(int_ty->size.bits()))
                 );
             }
 
@@ -1233,7 +1256,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 e->mlir = Create<mlir::arith::ConstantOp>(
                     e->location.mlir(ctx),
                     Ty(Type::Int),
-                    builder.getI64IntegerAttr(e->value)
+                    builder.getI64IntegerAttr(i64(e->value.getZExtValue()))
                 );
             }
         } break;
@@ -1349,6 +1372,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
             }
         } break;
 
+        case Expr::Kind::SubscriptExpr: {
+            Todo();
+        }
+
         case Expr::Kind::BinaryExpr: {
             auto b = cast<BinaryExpr>(expr);
             if (b->op == Tk::And or b->op == Tk::Or) {
@@ -1432,7 +1459,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                         b->location.mlir(ctx),
                         b->lhs->mlir,
                         b->rhs->mlir,
-                        b->type.align(ctx) / 8
+                        b->type.align(ctx).value()
                     );
 
                     /// Yields lhs as lvalue.
@@ -1577,7 +1604,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
                         mlir::LLVM::Linkage::Private,
                         name,
                         mlir::IntegerAttr::get(int32, 0),
-                        Type::I32->as_type.align(ctx) / 8
+                        Type::I32->as_type.align(ctx).value()
                     );
                 }
 
@@ -1651,7 +1678,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
                 p->location.mlir(ctx),
                 p->mlir,
                 func.getExplicitArgument(u32(i)),
-                p->type.align(ctx) / 8
+                p->type.align(ctx).value()
             );
         }
 

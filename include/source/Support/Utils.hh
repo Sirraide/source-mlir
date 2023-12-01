@@ -12,6 +12,7 @@
 #include <fmt/color.h>
 #include <fmt/format.h>
 #include <functional>
+#include <llvm/ADT/APInt.h>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/DenseSet.h>
@@ -398,6 +399,43 @@ constexpr auto operator+(T val) -> std::underlying_type_t<T> {
     return std::to_underlying(val);
 }
 
+/// Used to represent the size of a type.
+///
+/// This is just a wrapper around an integer, but it requires us
+/// to be explicit as to whether we want bits or bytes, which is
+/// useful for avoiding mistakes.
+class Size {
+    usz raw;
+
+    constexpr explicit Size(usz raw) : raw{raw} {}
+
+public:
+    constexpr Size() : raw{0} {}
+
+    [[nodiscard]] static constexpr Size Bits(usz bits) { return Size{bits}; }
+    [[nodiscard]] static constexpr Size Bytes(usz bytes) { return Size{bytes * 8}; }
+
+    /// Use of `align.value()` is necessary here because we use bits, not bytes.
+    [[nodiscard]] Size align_to(Align align) const { return Size{utils::AlignTo(bytes(), align.value())}; }
+
+    [[nodiscard]] constexpr Size align_to(Size align) const { return Size{utils::AlignTo(raw, align.raw)}; }
+    [[nodiscard]] constexpr auto bits() const -> usz { return raw; }
+    [[nodiscard]] constexpr auto bytes() const -> usz { return utils::AlignTo<usz>(raw, 8) / 8; }
+
+    constexpr Size operator+=(Size rhs) { return Size{raw += rhs.raw}; }
+    constexpr Size operator-=(Size rhs) { return Size{raw -= rhs.raw}; }
+    constexpr Size operator*=(usz rhs) { return Size{raw *= rhs}; }
+
+    /// Only provided for Size*Integer since that basically means scaling a size. Multiplying
+    /// two sizes w/ one another doesn’t make sense, so that operation is not provided.
+    [[nodiscard]] friend constexpr Size operator*(Size lhs, usz rhs) { return Size{lhs.raw * rhs}; }
+
+    [[nodiscard]] friend constexpr Size operator+(Size lhs, Size rhs) { return Size{lhs.raw + rhs.raw};}
+    [[nodiscard]] friend constexpr Size operator-(Size lhs, Size rhs) { return Size{lhs.raw - rhs.raw};}
+    [[nodiscard]] friend constexpr bool operator==(Size lhs, Size rhs) = default;
+    [[nodiscard]] friend constexpr auto operator<=>(Size lhs, Size rhs) = default;
+};
+
 } // namespace src
 
 template <>
@@ -405,6 +443,24 @@ struct fmt::formatter<llvm::StringRef> : fmt::formatter<std::string_view> {
     template <typename FormatContext>
     auto format(llvm::StringRef s, FormatContext& ctx) {
         return fmt::formatter<std::string_view>::format(std::string_view{s.data(), s.size()}, ctx);
+    }
+};
+
+template <>
+struct fmt::formatter<src::Size> : fmt::formatter<src::u64> {
+    template <typename FormatContext>
+    auto format(const src::Size& sz, FormatContext& ctx) {
+        return fmt::formatter<src::u64>::format(sz.bits(), ctx);
+    }
+};
+
+template <>
+struct fmt::formatter<llvm::APInt> : fmt::formatter<std::string_view> {
+    template <typename FormatContext>
+    auto format(const llvm::APInt& i, FormatContext& ctx) {
+        llvm::SmallVector<char, 32> buf;
+        i.toStringSigned(buf, 10);
+        return fmt::formatter<std::string_view>::format(std::string_view{buf.data(), buf.size()}, ctx);
     }
 };
 

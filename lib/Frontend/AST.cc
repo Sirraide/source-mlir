@@ -10,10 +10,10 @@ src::BuiltinType NoReturnTypeInstance{src::BuiltinTypeKind::NoReturn, {}};
 src::BuiltinType OverloadSetTypeInstance{src::BuiltinTypeKind::OverloadSet, {}};
 src::ReferenceType VoidRefTypeInstance{&VoidTypeInstance, {}};
 src::ReferenceType VoidRefRefTypeInstance{&VoidTypeInstance, {}};
-src::IntType IntType8Instance{8, {}};
-src::IntType IntType16Instance{16, {}};
-src::IntType IntType32Instance{32, {}};
-src::IntType IntType64Instance{64, {}};
+src::IntType IntType8Instance{src::Size::Bits(8), {}};
+src::IntType IntType16Instance{src::Size::Bits(16), {}};
+src::IntType IntType32Instance{src::Size::Bits(32), {}};
+src::IntType IntType64Instance{src::Size::Bits(64), {}};
 src::FFIType FFITypeCCharInstance{src::FFITypeKind::CChar, {}};
 src::FFIType FFITypeCIntInstance{src::FFITypeKind::CInt, {}};
 } // namespace
@@ -115,6 +115,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::OverloadSetExpr:
         case Kind::ImplicitThisExpr:
         case Kind::ParenExpr:
+        case Kind::SubscriptExpr:
             return "<?>";
 
         case Kind::ModuleRefExpr:
@@ -194,6 +195,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::LocalDecl:
         case Kind::ImplicitThisExpr:
         case Kind::ParenExpr:
+        case Kind::SubscriptExpr:
             return cast<TypedExpr>(this)->stored_type;
 
         /// Already a type.
@@ -242,40 +244,40 @@ src::StructType::StructType(
 }
 
 /// FIXME: Use llvm::Align for this.
-auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
+auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> Align {
     switch (ptr->kind) {
         case Kind::BuiltinType:
             switch (cast<BuiltinType>(ptr)->builtin_kind) {
-                case BuiltinTypeKind::Unknown: return 8;
-                case BuiltinTypeKind::Void: return 8;
-                case BuiltinTypeKind::Int: return 64; /// FIXME: Use context.
-                case BuiltinTypeKind::Bool: return 8;
-                case BuiltinTypeKind::NoReturn: return 1;    /// Alignment can’t be 0.
-                case BuiltinTypeKind::OverloadSet: return 1; /// Alignment can’t be 0.
+                case BuiltinTypeKind::Unknown: return Align(1);
+                case BuiltinTypeKind::Void: return Align(1);
+                case BuiltinTypeKind::Int: return Align(8); /// FIXME: Use context.
+                case BuiltinTypeKind::Bool: return Align(1);
+                case BuiltinTypeKind::NoReturn: return Align(1);    /// Alignment can’t be 0.
+                case BuiltinTypeKind::OverloadSet: return Align(1); /// Alignment can’t be 0.
             }
 
             Unreachable();
 
         case Kind::FFIType:
             switch (cast<FFIType>(ptr)->ffi_kind) {
-                case FFITypeKind::CChar: return 8;
-                case FFITypeKind::CInt: return 32; /// FIXME: Use context.
+                case FFITypeKind::CChar: return Align(1);
+                case FFITypeKind::CInt: return Align(4); /// FIXME: Use context.
             }
 
             Unreachable();
 
         case Kind::IntType:
             /// FIXME: Use context.
-            return isz(std::min<usz>(64, std::bit_ceil(usz(cast<IntType>(ptr)->bits))));
+            return Align(std::min<usz>(1, std::bit_ceil(usz(cast<IntType>(ptr)->size.bytes()))));
 
         case Kind::ReferenceType:
-            return 64; /// FIXME: Use context.
+            return Align(8); /// FIXME: Use context.
 
         case Kind::ScopedPointerType:
-            return 64; /// FIXME: Use context.
+            return Align(8); /// FIXME: Use context.
 
         case Kind::SliceType:
-            return 64; /// FIXME: Use context.
+            return Align(8); /// FIXME: Use context.
 
         case Kind::ArrayType:
         case Kind::SugaredType:
@@ -286,7 +288,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
             return cast<StructType>(ptr)->stored_alignment;
 
         case Kind::ClosureType:
-            return 64; /// FIXME: Use context.
+            return Align(8); /// FIXME: Use context.
 
         case Kind::OptionalType:
             Todo();
@@ -325,6 +327,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::OverloadSetExpr:
         case Kind::ImplicitThisExpr:
         case Kind::ParenExpr:
+        case Kind::SubscriptExpr:
             Unreachable(".align accessed on non-type expression");
     }
 
@@ -397,6 +400,7 @@ bool src::Expr::TypeHandle::_default_constructible() {
         case Kind::OverloadSetExpr:
         case Kind::ImplicitThisExpr:
         case Kind::ParenExpr:
+        case Kind::SubscriptExpr:
             Unreachable("Not a type");
     }
 }
@@ -434,49 +438,49 @@ auto src::Expr::TypeHandle::_ref_depth() -> isz {
 }
 
 /// FIXME: Use llvm::APInt for this.
-auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
+auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> Size {
     switch (ptr->kind) {
         case Kind::BuiltinType:
             switch (cast<BuiltinType>(ptr)->builtin_kind) {
-                case BuiltinTypeKind::Unknown: return 0;
-                case BuiltinTypeKind::Void: return 0;
-                case BuiltinTypeKind::Int: return 64; /// FIXME: Use context.
-                case BuiltinTypeKind::Bool: return 1;
-                case BuiltinTypeKind::NoReturn: return 0;
-                case BuiltinTypeKind::OverloadSet: return 0;
+                case BuiltinTypeKind::Unknown: return {};
+                case BuiltinTypeKind::Void: return {};
+                case BuiltinTypeKind::Int: return Size::Bits(64); /// FIXME: Use context.
+                case BuiltinTypeKind::Bool: return Size::Bits(1);
+                case BuiltinTypeKind::NoReturn: return {};
+                case BuiltinTypeKind::OverloadSet: return {};
             }
 
             Unreachable();
 
         case Kind::FFIType:
             switch (cast<FFIType>(ptr)->ffi_kind) {
-                case FFITypeKind::CChar: return 1;
-                case FFITypeKind::CInt: return 32; /// FIXME: Use context.
+                case FFITypeKind::CChar: return Size::Bits(8);
+                case FFITypeKind::CInt: return Size::Bits(32); /// FIXME: Use context.
             }
 
             Unreachable();
 
         case Kind::IntType:
-            return cast<IntType>(ptr)->bits;
+            return cast<IntType>(ptr)->size;
 
         case Kind::ReferenceType:
-            return 64; /// FIXME: Use context.
+            return Size::Bits(64); /// FIXME: Use context.
 
         case Kind::ScopedPointerType:
-            return 64; /// FIXME: Use context.
+            return Size::Bits(64); /// FIXME: Use context.
 
         case Kind::SliceType:
         case Kind::ClosureType:
-            return 128; /// FIXME: Use context.
+            return Size::Bits(128); /// FIXME: Use context.
 
         case Kind::SugaredType:
         case Kind::ScopedType:
             return cast<SingleElementTypeBase>(ptr)->elem->type.size(ctx);
 
         case Kind::ArrayType: {
-            if (not ptr->sema.ok) return 0;
+            if (not ptr->sema.ok) return {};
             auto a = cast<ArrayType>(ptr);
-            return a->elem->type.size(ctx) * a->dimension();
+            return a->elem->type.size(ctx) * a->dimension().getZExtValue();
         }
 
         case Kind::StructType:
@@ -519,6 +523,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> isz {
         case Kind::OverloadSetExpr:
         case Kind::ImplicitThisExpr:
         case Kind::ParenExpr:
+        case Kind::SubscriptExpr:
             Unreachable(".size accessed on non-type expression");
     }
 
@@ -542,7 +547,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::ScopedPointerType: WriteSElem("^"); break;
         case Kind::OptionalType: WriteSElem("?"); break;
         case Kind::SliceType: WriteSElem("[]"); break;
-        case Kind::IntType: out += fmt::format("i{}", cast<IntType>(ptr)->bits); break;
+        case Kind::IntType: out += fmt::format("i{}", cast<IntType>(ptr)->size); break;
         case Kind::SugaredType: out += cast<SugaredType>(ptr)->name; break;
 
         case Kind::ScopedType: {
@@ -580,7 +585,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
                 a->elem->as_type.str(use_colour),
                 C(Red),
                 C(Magenta),
-                a->dimension(),
+                a->sema.ok ? std::to_string(a->dimension().getZExtValue()) : "???",
                 C(Red)
             );
         } break;
@@ -675,6 +680,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::LocalDecl:
         case Kind::ImplicitThisExpr:
         case Kind::ParenExpr:
+        case Kind::SubscriptExpr:
             return cast<TypedExpr>(ptr)->stored_type->type.str(use_colour);
     }
 
@@ -725,7 +731,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
             return cast<FFIType>(a)->ffi_kind == cast<FFIType>(b)->ffi_kind;
 
         case Kind::IntType:
-            return cast<IntType>(a)->bits == cast<IntType>(b)->bits;
+            return cast<IntType>(a)->size == cast<IntType>(b)->size;
 
         case Kind::ArrayType: {
             auto arr_a = cast<ArrayType>(a);
@@ -807,6 +813,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::OverloadSetExpr:
         case Kind::ImplicitThisExpr:
         case Kind::ParenExpr:
+        case Kind::SubscriptExpr:
             Unreachable("Not a type");
     }
 
@@ -1218,6 +1225,7 @@ struct ASTPrinter {
             case K::OverloadSetExpr: PrintBasicNode("OverloadSetExpr", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
             case K::ParenExpr: PrintBasicNode("ParenExpr", e, e->type); return;
+            case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, e->type); return;
             case K::ConstExpr: PrintBasicNode("ConstExpr", e, e->type); return;
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, e->type); return;
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, e->type); return;
@@ -1269,10 +1277,10 @@ struct ASTPrinter {
                         s->sema.ok ? s->as_type.mangled_name : "???",
                         C(Red),
                         C(Yellow),
-                        s->sema.ok ? std::to_string(s->stored_size) : "?",
+                        s->sema.ok ? std::to_string(s->stored_size.bits()) : "?",
                         C(Red),
                         C(Yellow),
-                        s->sema.ok ? std::to_string(s->stored_alignment) : "?"
+                        s->sema.ok ? std::to_string(s->stored_alignment.value()) : "?"
                     );
                     return;
                 }
@@ -1341,7 +1349,7 @@ struct ASTPrinter {
                         f.name,
                         C(Red),
                         C(Yellow),
-                        s->sema.ok ? std::to_string(f.offset) : "?"
+                        s->sema.ok ? std::to_string(f.offset.bits()) : "?"
                     );
                 }
 
@@ -1426,6 +1434,11 @@ struct ASTPrinter {
                 PrintChildren({b->lhs, b->rhs}, leading_text);
             } break;
 
+            case K::SubscriptExpr: {
+                auto s = cast<SubscriptExpr>(e);
+                PrintChildren({s->object, s->index}, leading_text);
+            } break;
+
             case K::WhileExpr: {
                 auto w = cast<WhileExpr>(e);
                 PrintChildren({w->cond, w->body}, leading_text);
@@ -1457,16 +1470,17 @@ struct ASTPrinter {
                 PrintChildren(r->init, leading_text);
             } break;
 
+            case K::ConstExpr: {
+                auto c = cast<ConstExpr>(e);
+                if (c->expr) PrintChildren(c->expr, leading_text);
+            } break;
+
             case K::LabelExpr:
                 PrintChildren(cast<LabelExpr>(e)->expr, leading_text);
                 break;
 
             case K::ExportExpr:
                 PrintChildren(cast<ExportExpr>(e)->expr, leading_text);
-                break;
-
-            case K::ConstExpr:
-                PrintChildren(cast<ConstExpr>(e)->expr, leading_text);
                 break;
 
             case K::DeferExpr:

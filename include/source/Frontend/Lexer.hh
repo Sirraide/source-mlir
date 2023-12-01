@@ -146,7 +146,7 @@ struct Token {
     std::string text{};
 
     /// Number.
-    isz integer{};
+    APInt integer{};
 
     /// Source location.
     Location location{};
