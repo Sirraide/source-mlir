@@ -288,13 +288,25 @@ void hlir::NewOp::print(OpAsmPrinter& p) {
 
 auto hlir::NewOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
-
 void hlir::NilOp::print(OpAsmPrinter& p) {
     p << " ";
     PrintType(getResult().getType(), p);
 }
 
 auto hlir::NilOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+void hlir::PointerEqOp::print(OpAsmPrinter& p) {
+    p << " " << getLhs() << ", " << getRhs();
+}
+
+auto hlir::PointerEqOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+
+void hlir::PointerNeOp::print(OpAsmPrinter& p) {
+    p << " " << getLhs() << ", " << getRhs();
+}
+
+auto hlir::PointerNeOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::ReturnOp::print(OpAsmPrinter& p) {
     if (getYield()) {

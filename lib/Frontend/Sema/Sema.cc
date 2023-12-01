@@ -1672,7 +1672,27 @@ bool src::Sema::Analyse(Expr*& e) {
             if (Analyse(i->cond)) EnsureCondition(i->cond);
 
             /// Analyse the branches.
-            if (not Analyse(i->then) or (i->else_ and not Analyse(i->else_)))
+            ///
+            /// If the condition tests whether an optional is nil, set the
+            /// active state of the optional to true in the branch where it
+            /// isn’t.
+            if (
+                auto c = dyn_cast<CastExpr>(i->cond->ignore_lv2rv);
+                c and
+                c->cast_kind == CastKind::OptionalNilTest and
+                isa<LocalRefExpr>(c->operand->ignore_lv2rv)
+            ) {
+                {
+                    auto local = cast<LocalRefExpr>(c->operand->ignore_lv2rv)->decl;
+                    tempset local->has_value = true;
+                    if (not Analyse(i->then)) return e->sema.set_errored();
+                }
+
+                if (i->else_ and not Analyse(i->else_)) return e->sema.set_errored();
+            }
+
+            /// Otherwise, there is nothing to infer.
+            else if (not Analyse(i->then) or (i->else_ and not Analyse(i->else_)))
                 return e->sema.set_errored();
 
             /// Type is void, unless one of the conditions below applies.

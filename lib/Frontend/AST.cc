@@ -77,6 +77,12 @@ void src::LocalDecl::set_captured() {
     parent->captured_locals.push_back(this);
 }
 
+auto src::Expr::_ignore_lv2rv() -> Expr* {
+    if (auto c = dyn_cast<CastExpr>(this); c and c->cast_kind == CastKind::LValueToRValue)
+        return c->operand;
+    return this;
+}
+
 auto src::Expr::_ignore_paren_cast_refs() -> Expr* {
     if (auto p = dyn_cast<ParenExpr>(this)) return p->expr->ignore_paren_cast_refs;
     if (auto d = dyn_cast<DeclRefExpr>(this)) return d->decl->ignore_paren_cast_refs;
@@ -319,8 +325,11 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> Align {
         case Kind::ClosureType:
             return Align(8); /// FIXME: Use context.
 
-        case Kind::OptionalType:
+        case Kind::OptionalType: {
+            auto opt = cast<OptionalType>(ptr);
+            if (isa<ReferenceType>(opt->elem)) return opt->elem->as_type.align(ctx);
             Todo();
+        }
 
         /// Invalid.
         case Kind::ProcType:

@@ -26,17 +26,6 @@ using namespace mlir;
 
 namespace src {
 namespace {
-/*auto TypeSize(const LLVMTypeConverter* tc, Type t) -> isz {
-    DataLayout
-    if (isa<hlir::ReferenceType, hlir::ScopedPointerType>(t)) return tc->getPointerBitwidth(0);
-    if (auto i = dyn_cast<IntegerType>(t)) return utils::AlignTo<isz>(i.getWidth(), 8);
-    if (auto a = dyn_cast<hlir::ArrayType>(t)) return isz(a.getSize()) * TypeSize(tc, a.getElem());
-    if (auto s = dyn_cast<LLVM::LLVMStructType>(t)) tc->getDataLayout().getTypeSizeInBits(s);
-    if (isa<hlir::DeferTokenType>(t)) Diag::ICE("TypeSize is not a permitted operation on DeferTokenType");
-    t.dump();
-
-    Todo("Implement TypeSize()");
-}*/
 constexpr llvm::StringLiteral LibCFree = "free";
 } // namespace
 
@@ -582,6 +571,52 @@ struct NilOpLowering : public ConversionPattern {
     }
 };
 
+struct PointerEqOpLowering : public ConversionPattern {
+    explicit PointerEqOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::PointerEqOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        /// This is a comparison of two pointers.
+        auto cmp = rewriter.create<LLVM::ICmpOp>(
+            op->getLoc(),
+            LLVM::ICmpPredicate::eq,
+            args[0],
+            args[1]
+        );
+
+        rewriter.replaceOp(op, cmp.getResult());
+        return success();
+    }
+};
+
+struct PointerNeOpLowering : public ConversionPattern {
+    explicit PointerNeOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::PointerNeOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        /// This is a comparison of two pointers.
+        auto cmp = rewriter.create<LLVM::ICmpOp>(
+            op->getLoc(),
+            LLVM::ICmpPredicate::ne,
+            args[0],
+            args[1]
+        );
+
+        rewriter.replaceOp(op, cmp.getResult());
+        return success();
+    }
+};
+
 struct InvokeClosureOpLowering : public ConversionPattern {
     explicit InvokeClosureOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
         : ConversionPattern(tc, hlir::InvokeClosureOp::getOperationName(), 1, ctx) {
@@ -816,6 +851,8 @@ struct HLIRToLLVMLoweringPass
             MakeClosureOpLowering,
             NewOpLowering,
             NilOpLowering,
+            PointerEqOpLowering,
+            PointerNeOpLowering,
             ReturnOpLowering,
             SliceDataOpLowering,
             SliceSizeOpLowering,

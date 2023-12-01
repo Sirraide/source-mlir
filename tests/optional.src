@@ -1,14 +1,44 @@
+/// R %srcc %s --lowered
+
+/// d t %[a-zA-Z0-9_]+
+/// d b \^bb[0-9]+
 
 pragma nomangle;
 
-proc a extern;
-proc b(int) extern;
+proc a(int) extern;
 
+/// * (?<X>$t) = local i64
+/// + zeroinitialiser $X
 int x;
+
+/// + (?<REF>$t) = local i64&
+/// + zeroinitialiser $REF
 int&? ref;
+
+/// + (?<REF2>$t) = local i64&
+/// + store into $REF2, i64& $X
 int&? ref2 = x;
-if ref then a();
+
+/// + (?<VAL>$t) = load i64& from $REF
+/// + (?<NIL>$t) = nil i64&
+/// + (?<NEQ>$t) = ptrne $VAL, $NIL
+/// + cf.cond_br $NEQ, (?<THEN>$b), (?<ELSE>$b)
+/// + $THEN:
+/// + (?<VAL2>$t) = load i64& from $REF
+/// + (?<VAL3>$t) = load i64 from $VAL2
+/// + call @a($VAL3)
+/// + br $ELSE
+if ref then a ref;
+
+/// + $ELSE:
+/// + store into $REF, i64& $X
+/// + (?<VAL4>$t) = load i64& from $REF
+/// + (?<C>$t) = arith.constant 42
+/// + store into $VAL4, i64 $C
+/// + (?<VAL5>$t) = load i64& from $REF2
+/// + (?<VAL6>$t) = load i64 from $VAL5
+/// + call @a($VAL6)
 ref => x;
 ref = 42;
-b ref2;
+a ref2;
 

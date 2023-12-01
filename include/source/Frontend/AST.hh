@@ -251,6 +251,11 @@ public:
     /// expression.
     readonly(TypeHandle, as_type, return TypeHandle(this));
 
+    /// Strip lvalue-to-rvalue conversion. This only removes one
+    /// level of lvalue-to-rvalue conversion, not lvalue-ref-to-lvalue
+    /// conversion.
+    readonly_decl(Expr*, ignore_lv2rv);
+
     /// Strip parentheses, implicit casts, and DeclRefExprs.
     readonly_decl(Expr*, ignore_paren_cast_refs);
 

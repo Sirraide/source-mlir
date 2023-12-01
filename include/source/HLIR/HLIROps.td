@@ -710,4 +710,20 @@ def UnreachableOp : HLIR_Op<"unreachable", [Terminator]> {
     let hasCustomAssemblyFormat = 1;
 }
 
+def PointerEqOp : HLIR_Op<"ptreq"> {
+    let summary = "Test pointer equality";
+    let arguments = (ins HLIR_ReferenceType:$lhs, HLIR_ReferenceType:$rhs);
+    let results = (outs HLIR_Bool:$res);
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 0;
+}
+
+def PointerNeOp : HLIR_Op<"ptrne"> {
+    let summary = "Test pointer inequality";
+    let arguments = (ins HLIR_ReferenceType:$lhs, HLIR_ReferenceType:$rhs);
+    let results = (outs HLIR_Bool:$res);
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 0;
+}
+
 #endif // HLIR_OPS_TD

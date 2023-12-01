@@ -625,8 +625,11 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
             else return mlir::FunctionType::get(mctx, params, Ty(ty->ret_type));
         }
 
-        case Expr::Kind::OptionalType:
+        case Expr::Kind::OptionalType: {
+            auto opt = cast<OptionalType>(type);
+            if (isa<ReferenceType>(opt->elem)) return Ty(opt->elem);
             Todo();
+        }
 
         case Expr::Kind::StructType: {
             auto s = cast<StructType>(type);
@@ -926,10 +929,35 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     break;
 
                 /// Test if an optional is nil.
-                case CastKind::OptionalNilTest: Todo();
+                case CastKind::OptionalNilTest: {
+                    auto opt = cast<OptionalType>(c->operand->type);
+
+                    /// Compare optional references against null.
+                    if (isa<ReferenceType>(opt->elem)) {
+                        auto nil = Create<hlir::NilOp>(c->operand->location.mlir(ctx), Ty(opt->elem));
+                        c->mlir = Create<hlir::PointerNeOp>(
+                            c->location.mlir(ctx),
+                            c->operand->mlir,
+                            nil
+                        );
+                        break;
+                    }
+
+                    Todo();
+                }
 
                 /// Access the value of an optional.
-                case CastKind::OptionalUnwrap: Todo();
+                case CastKind::OptionalUnwrap: {
+                    auto opt = cast<OptionalType>(c->operand->type);
+
+                    /// No-op for optional references.
+                    if (isa<ReferenceType>(opt->elem)) {
+                        c->mlir = c->operand->mlir;
+                        break;
+                    }
+
+                    Todo();
+                }
 
                 /// Proper casts are all handled the same.
                 case CastKind::Implicit:
