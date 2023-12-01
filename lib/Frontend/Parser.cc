@@ -999,7 +999,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 /// <type-prim>      ::= INTEGER_TYPE | INT
 /// <type-named>     ::= IDENTIFIER
 /// <type-qualified> ::= <type> { <type-qual> }
-/// <type-qual>      ::= "&" | "^" | "[" [ <expr> ] "]"
+/// <type-qual>      ::= "&" | "^" | "?" | "[" [ <expr> ] "]"
 auto src::Parser::ParseType() -> Result<Expr*> {
     /// Parse base type.
     Expr* base_type = nullptr;
@@ -1055,6 +1055,11 @@ auto src::Parser::ParseType() -> Result<Expr*> {
 
             case Tk::Caret:
                 base_type = new (mod) ScopedPointerType(base_type, {base_type->location, curr_loc});
+                Next();
+                break;
+
+            case Tk::Question:
+                base_type = new (mod) OptionalType(base_type, {base_type->location, curr_loc});
                 Next();
                 break;
 

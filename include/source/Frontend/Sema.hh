@@ -76,6 +76,10 @@ class Sema {
     /// Expressions eligible for `.x` access.
     SmallVector<Expr*> with_stack;
 
+    /// Locals of optional type whose active state has changed in this scope,
+    /// as well as the value of that state in the previous scope.
+    DenseMap<LocalDecl*, bool> active_optionals;
+
     /// Number of anonymous procedures.
     usz lambda_counter = 0;
 
@@ -115,10 +119,18 @@ private:
 
     /// Implements Convert() and TryConvert().
     template <bool perform_conversion>
-    int ConvertImpl(std::conditional_t<perform_conversion, Expr*&, Expr*> e, Expr* to);
+    int ConvertImpl(
+        std::conditional_t<perform_conversion, Expr*&, Expr*> e,
+        Expr* from, /// Required for recursive calls in non-conversion mode.
+        Expr* to
+    );
+
+    /// Ensure that an expression is valid as the condition of an if expression,
+    /// while loop, etc.
+    bool EnsureCondition(Expr*& e);
 
     /// Create an implicit dereference, but do not overwrite the original expression.
-    auto CreateImplicitDereference(Expr* e, isz depth) -> Expr*;
+    [[nodiscard]] auto CreateImplicitDereference(Expr* e, isz depth) -> Expr*;
 
     /// Returns false for convenience.
     template <typename... Args>
@@ -197,6 +209,13 @@ private:
     /// issue any diagnostics, and returns a score suitable for overload
     /// resolution.
     int TryConvert(Expr* e, Expr* to);
+
+    /// Strip references and optionals (if they’re active) from the expression
+    /// to yield the underlying value.
+    [[nodiscard]] Expr* Unwrap(Expr* e, bool keep_lvalues = false);
+
+    /// Unwrap an expression and replace it with the unwrapped expression.
+    void UnwrapInPlace(Expr*& e, bool keep_lvalues = false);
 
     /// Unwinder.
     ///

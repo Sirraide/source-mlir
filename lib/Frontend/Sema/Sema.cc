@@ -11,20 +11,40 @@ enum : int {
 template <bool perform_conversion>
 int src::Sema::ConvertImpl(
     std::conditional_t<perform_conversion, Expr*&, Expr*> e,
+    Expr* from_ty,
     Expr* type
 ) {
     /// Sanity checks.
     if (e->sema.errored or type->sema.errored) return false;
-    Assert(type->sema.ok, "Cannot convert to unanalysed type");
+    Assert(from_ty->sema.ok and type->sema.ok, "Cannot convert to unanalysed type");
     Assert(isa<Type>(type));
-    auto from = e->type;
     auto to = type->as_type;
+    auto from = from_ty->as_type;
     int score = 0;
 
-    /// Place conversions involving reference first, as we may
+    /// Active optionals are convertible to the type they contain. There
+    /// are no other valid conversions involving optionals at the moment.
+    if (
+        auto local = dyn_cast<LocalDecl>(e->ignore_paren_refs);
+        local and
+        local->has_value
+    ) {
+        auto ty = cast<OptionalType>(local->type);
+        if constexpr (perform_conversion) {
+            e = new (mod) CastExpr(CastKind::OptionalUnwrap, e, ty->elem, e->location);
+            Analyse(e);
+        }
+
+        return ConvertImpl<perform_conversion>(e, ty->elem, type);
+    }
+
+    /// Place conversions involving references first, as we may
     /// have to chain several conversions to get e.g. from an
     /// `i32&` to an `i64`.
-    if (isa<ReferenceType, ScopedPointerType>(from) or isa<ReferenceType>(to)) {
+    if (
+        auto to_ref = dyn_cast<ReferenceType>(to);
+        to_ref or isa<ReferenceType, ScopedPointerType>(from)
+    ) {
         /// Base types are equal.
         if (Type::Equal(from.strip_refs_and_pointers, to.strip_refs)) {
             auto from_depth = from.ref_depth;
@@ -59,6 +79,22 @@ int src::Sema::ConvertImpl(
                     for (isz i = diff; i; i--) from = cast<ReferenceType>(from)->elem;
                 }
             }
+        }
+
+        /// Array lvalues can be converted to references to their first element.
+        else if (
+            auto array = dyn_cast<ArrayType>(from);
+            e->is_lvalue and array and Type::Equal(array->elem, to_ref->elem)
+        ) {
+            if constexpr (perform_conversion) {
+                e = new (mod) CastExpr(CastKind::LValueToReference, e, type, e->location);
+                Analyse(e);
+            }
+
+            /// This involves both adding a reference level and changing the
+            /// type, so make this a worse conversion than either one on its
+            /// own.
+            return score + 2;
         }
     }
 
@@ -145,12 +181,12 @@ int src::Sema::ConvertImpl(
 }
 
 bool src::Sema::Convert(Expr*& e, Expr* type, bool lvalue) {
-    bool ok = ConvertImpl<true>(e, type) != InvalidScore;
+    bool ok = ConvertImpl<true>(e, e->type, type) != InvalidScore;
     if (ok and not lvalue) InsertLValueToRValueConversion(e);
     return ok;
 }
 
-auto src::Sema::CreateImplicitDereference(Expr* e, src::isz depth) -> Expr* {
+auto src::Sema::CreateImplicitDereference(Expr* e, isz depth) -> Expr* {
     for (isz i = depth; i; i--) {
         e = new (mod) CastExpr(
             CastKind::ReferenceToLValue,
@@ -163,6 +199,26 @@ auto src::Sema::CreateImplicitDereference(Expr* e, src::isz depth) -> Expr* {
     }
 
     return e;
+}
+
+bool src::Sema::EnsureCondition(Expr*& e) {
+    UnwrapInPlace(e);
+
+    /// Optionals can be tested for nil.
+    if (isa<OptionalType>(e->type)) {
+        e = new (mod) CastExpr(CastKind::OptionalNilTest, e, Type::Bool, e->location);
+        Analyse(e);
+        return true;
+    }
+
+    /// Try other possible conversions to bool.
+    if (Convert(e, Type::Bool)) return true;
+    return Error(
+        e->location,
+        "Type '{}' of condition must be convertible to '{}'",
+        e->type.str(true),
+        Type::Bool->as_type.str(true)
+    );
 }
 
 void src::Sema::InsertImplicitCast(Expr*& e, Expr* to) {
@@ -203,7 +259,33 @@ bool src::Sema::MakeDeclType(Expr*& e) {
 }
 
 int src::Sema::TryConvert(src::Expr* e, src::Expr* to) {
-    return ConvertImpl<false>(e, to);
+    return ConvertImpl<false>(e, e->type, to);
+}
+
+auto src::Sema::Unwrap(Expr* e, bool keep_lvalues) -> Expr* {
+    Assert(e->sema.ok, "Unwrap() called on broken or unanalysed expression");
+
+    /// Unwrap active optionals.
+    if (e->is_active_optional) {
+        auto opt = cast<OptionalType>(e->type);
+        e = new (mod) CastExpr(CastKind::OptionalUnwrap, e, opt->elem, e->location);
+        Analyse(e);
+        return Unwrap(e, keep_lvalues);
+    }
+
+    /// Load references and pointers.
+    if (isa<ReferenceType, ScopedPointerType>(e->type)) {
+        InsertImplicitDereference(e, 1);
+        return Unwrap(e, keep_lvalues);
+    }
+
+    /// Convert to an rvalue, if requested.
+    if (not keep_lvalues) InsertLValueToRValueConversion(e);
+    return e;
+}
+
+void src::Sema::UnwrapInPlace(Expr*& e, bool keep_lvalues) {
+    e = Unwrap(e, keep_lvalues);
 }
 
 /// ===========================================================================
@@ -1149,6 +1231,14 @@ bool src::Sema::Analyse(Expr*& e) {
             auto b = cast<BlockExpr>(e);
             tempset curr_scope = b;
 
+            /// Track what optionals were made active in this scope and reset
+            /// their active state when we leave it.
+            tempset active_optionals = decltype(active_optionals){};
+            defer {
+                for (auto& [local, old_value] : active_optionals)
+                    local->has_value = old_value;
+            };
+
             /// Skip ProcDecls for the purpose of determining the type of the block.
             isz last = std::ssize(b->exprs) - 1;
             while (last >= 0) {
@@ -1367,6 +1457,17 @@ bool src::Sema::Analyse(Expr*& e) {
                     m->stored_type = new (mod) ReferenceType(m->operand->type, m->location);
                     break;
 
+                /// Only generated by sema. Convert an optional to a bool.
+                case CastKind::OptionalNilTest:
+                    m->stored_type = Type::Bool;
+                    break;
+
+                /// Only generated by sema. Access the value of an optional.
+                case CastKind::OptionalUnwrap:
+                    m->stored_type = cast<OptionalType>(m->operand->type)->elem;
+                    m->is_lvalue = m->operand->is_lvalue;
+                    break;
+
                 /// Only generated by sema. No-op here. Currently, there
                 /// is no implicit cast that yields an lvalue.
                 case CastKind::Implicit: break;
@@ -1387,14 +1488,7 @@ bool src::Sema::Analyse(Expr*& e) {
             auto TryAccess = [&](Expr*& object) -> Result<void> {
                 /// Analyse the accessed object.
                 if (not Analyse(object)) return Diag();
-
-                /// Dereference the object until we get an lvalue.
-                auto desugared = object->type.strip_refs_and_pointers;
-
-                /// Strip references from the object.
-                auto StripRefs = [&] {
-                    InsertImplicitDereference(object, object->type.ref_depth);
-                };
+                auto unwrapped = object->unwrapped_type;
 
                 /// A slice type has a `data` and a `size` member.
                 ///
@@ -1402,18 +1496,16 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// supposed to be pretty much immutable, and you
                 /// should create a new one rather than changing
                 /// the size or the data pointer.
-                if (auto slice = dyn_cast<SliceType>(desugared)) {
+                if (auto slice = dyn_cast<SliceType>(unwrapped)) {
                     if (m->member == "data") {
-                        InsertLValueToRValueConversion(object);
-                        StripRefs();
+                        UnwrapInPlace(object);
                         m->stored_type = new (mod) ReferenceType(slice->elem, m->location);
                         Assert(Analyse(m->stored_type));
                         return {};
                     }
 
                     if (m->member == "size") {
-                        InsertLValueToRValueConversion(object);
-                        StripRefs();
+                        UnwrapInPlace(object);
                         m->stored_type = BuiltinType::Int(mod, m->location);
                         return {};
                     }
@@ -1427,8 +1519,8 @@ bool src::Sema::Analyse(Expr*& e) {
                     );
                 }
 
-                /// Struct field accesses are lvalues.
-                if (auto s = dyn_cast<StructType>(desugared)) {
+                /// Struct field accesses are lvalues if the struct is an lvalue.
+                if (auto s = dyn_cast<StructType>(unwrapped)) {
                     auto fields = s->fields();
                     auto f = rgs::find(fields, m->member, [](auto& f) { return f.name; });
                     if (f == fields.end()) return Diag::Error(
@@ -1439,10 +1531,10 @@ bool src::Sema::Analyse(Expr*& e) {
                         m->member
                     );
 
-                    StripRefs();
+                    UnwrapInPlace(object, true);
                     m->field = &*f;
                     m->stored_type = m->field->type;
-                    m->is_lvalue = true;
+                    m->is_lvalue = object->is_lvalue;
                     return {};
                 }
 
@@ -1456,10 +1548,11 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Object may be missing if this is a `.x` access.
             if (not m->object) {
-                for (auto& w : with_stack | vws::reverse) {
+                /// Iterate by value so we don’t overwrite the objects on the with stack.
+                for (auto w : with_stack | vws::reverse) {
                     auto res = TryAccess(w);
                     if (not res.is_diag) {
-                        m->object = CreateImplicitDereference(w, w->type.ref_depth);
+                        m->object = w;
                         return true;
                     } else {
                         res.diag.suppress();
@@ -1576,14 +1669,7 @@ bool src::Sema::Analyse(Expr*& e) {
             /// If the condition has an error, the type of the if expression
             /// itself can still be determined as it is independent of the
             /// condition.
-            if (Analyse(i->cond)) {
-                if (not Convert(i->cond, Type::Bool)) Error(
-                    i->cond->location,
-                    "Type '{}' of condition of `if` must be convertible to '{}'",
-                    i->cond->type.str(true),
-                    Type::Bool->as_type.str(true)
-                );
-            }
+            if (Analyse(i->cond)) EnsureCondition(i->cond);
 
             /// Analyse the branches.
             if (not Analyse(i->then) or (i->else_ and not Analyse(i->else_)))
@@ -1850,9 +1936,9 @@ bool src::Sema::Analyse(Expr*& e) {
                 case Tk::ShiftRightEq:
                 case Tk::ShiftRightLogicalEq:
                 case Tk::Assign: {
-                    /// This operator never performs reference reassignment, which
+                    /// These operators never perform reference reassignment, which
                     /// means the LHS must not be of reference type.
-                    InsertImplicitDereference(b->lhs, b->lhs->type.ref_depth);
+                    UnwrapInPlace(b->lhs, true);
                     if (not b->lhs->is_lvalue) return Error(
                         b,
                         "Left-hand side of `=` must be an lvalue"
@@ -1895,7 +1981,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 ///       whether all possible interactions are actually valid.
                 case Tk::RDblArrow: {
                     /// 1.
-                    if (not isa<ReferenceType, ScopedPointerType>(b->lhs->type)) return Error(
+                    if (not isa<ReferenceType, ScopedPointerType, OptionalType>(b->lhs->type)) return Error(
                         b,
                         "LHS of reference binding must be a reference, but was '{}'",
                         b->lhs->type
@@ -1907,11 +1993,42 @@ bool src::Sema::Analyse(Expr*& e) {
 
                     /// 2/3.
                     if (not b->lhs->is_lvalue) InsertImplicitDereference(b->lhs, 1);
-                    if (not isa<ReferenceType, ScopedPointerType>(b->lhs->type)) return Error(
+                    if (not isa<ReferenceType, ScopedPointerType, OptionalType>(b->lhs->type)) return Error(
                         b,
-                        "LHS of reference binding is not an lvalue",
-                        b->lhs->type
+                        "LHS of reference binding is not an lvalue"
                     );
+
+                    /// A single optional level is allowed.
+                    if (auto opt = dyn_cast<OptionalType>(b->lhs->type)) {
+                        if (not isa<ReferenceType, ScopedPointerType>(opt->elem)) return Error(
+                            b,
+                            "LHS of reference binding must be an (optional) reference, but was {}",
+                            b->lhs->type
+                        );
+
+                        if (not Convert(b->rhs, opt->elem)) return Error(
+                            b,
+                            "No implicit conversion from '{}' to '{}'",
+                            b->rhs->type,
+                            opt->elem
+                        );
+
+                        /// If the initialiser a non-optional reference, and this is a variable
+                        /// declaration, then this is active now.
+                        if (
+                            auto ref = dyn_cast<LocalRefExpr>(b->lhs);
+                            ref and
+                            isa<LocalDecl>(ref->decl)
+                        ) {
+                            auto l = cast<LocalDecl>(ref->decl);
+                            active_optionals.try_emplace(l, l->has_value);
+                            l->has_value = true;
+                        }
+
+                        b->stored_type = b->lhs->type;
+                        b->is_lvalue = true;
+                        break;
+                    }
 
                     /// 4/5.
                     auto d_l = b->lhs->type.ref_depth;
@@ -2311,12 +2428,12 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
     };
 
     /// Helper to emit a trivial copy.
-    auto TrivialCopy = [&] {
-        if (not Convert(var->init_args[0], var->type)) return Error(
+    auto TrivialCopy = [&](Expr* type) {
+        if (not Convert(var->init_args[0], type)) return Error(
             var->init_args[0],
             "Cannot convert '{}' to '{}'",
             var->init_args[0]->type,
-            var->type
+            type
         );
 
         var->ctor = Constructor::TrivialCopy();
@@ -2339,7 +2456,7 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
                 return true;
             }
 
-            if (var->init_args.size() == 1) return TrivialCopy();
+            if (var->init_args.size() == 1) return TrivialCopy(var->type);
             return InvalidArgs();
         }
 
@@ -2351,7 +2468,7 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
                 var->name
             );
 
-            if (var->init_args.size() == 1) return TrivialCopy();
+            if (var->init_args.size() == 1) return TrivialCopy(var->type);
             return InvalidArgs();
         }
 
@@ -2383,10 +2500,29 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
 
             Todo("Non-trivial array initialisation");
         }
+
+        case Expr::Kind::OptionalType: {
+            auto opt = cast<OptionalType>(ty);
+            if (not isa<ReferenceType>(opt->elem)) Todo("Non-reference optionals");
+
+            /// Nil.
+            if (var->init_args.empty()) {
+                var->ctor = Constructor::Zeroinit();
+                return true;
+            }
+
+            /// Single argument.
+            if (var->init_args.size() == 1) {
+                var->has_value = true;
+                return TrivialCopy(opt->elem);
+            }
+
+            return InvalidArgs();
+        }
+
         case Expr::Kind::ProcType: Todo();
         case Expr::Kind::ScopedPointerType: Todo();
         case Expr::Kind::SliceType: Todo();
-        case Expr::Kind::OptionalType: Todo();
         case Expr::Kind::ClosureType: Todo();
     }
 }

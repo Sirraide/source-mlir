@@ -1,0 +1,14 @@
+
+pragma nomangle;
+
+proc a extern;
+proc b(int) extern;
+
+int x;
+int&? ref;
+int&? ref2 = x;
+if ref then a();
+ref => x;
+ref = 42;
+b ref2;
+

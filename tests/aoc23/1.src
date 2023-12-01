@@ -1,0 +1,29 @@
+/// Features added today:
+///
+/// - Simple stdio module.
+/// - Optionals (nullable refs only for now)
+/// - nil
+/// - var
+
+proc fopen(i8&, i8&) extern nomangle -> i8&?;
+proc fclose(i8&) extern nomangle -> i32;
+proc fgets(i8&, i32, i8&) extern nomangle -> i8&?;
+proc printf(i8&) extern nomangle variadic -> i32;
+proc perror(i8&?) extern nomangle;
+proc exit(i32) extern nomangle -> noreturn;
+
+proc die(i8[] message) -> noreturn {
+    printf "%.*s: ".data, message.size as i32, message.data;
+    perror nil;
+    exit 1;
+}
+
+i8[16384] buffer;
+var file = fopen "input".data, "rb".data;
+if not file then die "Could not open input file";
+defer fclose file;
+
+/// Because of the check above, the compiler knows that
+/// `file` is non-nil here, so it unwraps it automatically.
+while var line = fgets buffer as i8&, 16384, file do
+    printf "%s".data, buffer as i8&;

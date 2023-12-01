@@ -77,6 +77,26 @@ void src::LocalDecl::set_captured() {
     parent->captured_locals.push_back(this);
 }
 
+auto src::Expr::_ignore_paren_cast_refs() -> Expr* {
+    if (auto p = dyn_cast<ParenExpr>(this)) return p->expr->ignore_paren_cast_refs;
+    if (auto d = dyn_cast<DeclRefExpr>(this)) return d->decl->ignore_paren_cast_refs;
+    if (auto d = dyn_cast<LocalRefExpr>(this)) return d->decl->ignore_paren_cast_refs;
+    if (auto c = dyn_cast<CastExpr>(this)) return c->operand->ignore_paren_cast_refs;
+    return this;
+}
+
+auto src::Expr::_ignore_paren_refs() -> Expr* {
+    if (auto p = dyn_cast<ParenExpr>(this)) return p->expr->ignore_paren_refs;
+    if (auto d = dyn_cast<DeclRefExpr>(this)) return d->decl->ignore_paren_refs;
+    if (auto d = dyn_cast<LocalRefExpr>(this)) return d->decl->ignore_paren_refs;
+    return this;
+}
+
+bool src::Expr::_is_active_optional() {
+    auto local = dyn_cast<LocalDecl>(this->ignore_paren_refs);
+    return isa<OptionalType>(this->type) and local and local->has_value;
+}
+
 auto src::Expr::_scope_name() -> std::string {
     switch (kind) {
         case Kind::BuiltinType:
@@ -214,6 +234,15 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::ScopedType:
             return this;
     }
+}
+
+auto src::Expr::_unwrapped_type() -> TypeHandle {
+    if (is_active_optional) {
+        auto opt = cast<OptionalType>(this->type);
+        return opt->type->unwrapped_type;
+    }
+
+    return type.strip_refs_and_pointers;
 }
 
 auto src::ProcDecl::_ret_type() -> TypeHandle {
@@ -1101,6 +1130,8 @@ struct ASTPrinter {
                     case CastKind::LValueRefToLValue: out += " LValueRefToLValue"; break;
                     case CastKind::LValueToRValue: out += " LValueToRValue"; break;
                     case CastKind::LValueToReference: out += " LValueToReference"; break;
+                    case CastKind::OptionalNilTest: out += " OptionalNilTest"; break;
+                    case CastKind::OptionalUnwrap: out += " OptionalUnwrap"; break;
                     case CastKind::Soft: out += " Soft"; break;
                     case CastKind::Hard: out += " Hard"; break;
                 }

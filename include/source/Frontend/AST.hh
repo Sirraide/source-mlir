@@ -251,6 +251,16 @@ public:
     /// expression.
     readonly(TypeHandle, as_type, return TypeHandle(this));
 
+    /// Strip parentheses, implicit casts, and DeclRefExprs.
+    readonly_decl(Expr*, ignore_paren_cast_refs);
+
+    /// Strip parentheses, and DeclRefExprs.
+    readonly_decl(Expr*, ignore_paren_refs);
+
+    /// Whether this is an optional that is known to be active in
+    /// the current scope.
+    readonly_decl(bool, is_active_optional);
+
     /// Get a string representation of the name of the scope of
     /// this expression, if it has one.
     readonly_decl(std::string, scope_name);
@@ -258,6 +268,10 @@ public:
     /// Get the type of this expression; returns void if
     /// this expression has no type.
     readonly_decl(TypeHandle, type);
+
+    /// Get the type of this when unwrapped. This will strip an
+    /// optional type iff the expression is known to be active.
+    readonly_decl(TypeHandle, unwrapped_type);
 
     /// Print this expression to stdout.
     void print(bool print_children = true) const;
@@ -489,6 +503,13 @@ enum struct CastKind {
     /// Convert an reference lvalue to an lvalue of the referenced type. Same
     /// as performing LValueToRValue and then ReferenceToLValue.
     LValueRefToLValue,
+
+    /// Test if an optional is nil, yielding an rvalue bool.
+    OptionalNilTest,
+
+    /// Unwrap an optional. This yields an lvalue of the contained type
+    /// iff the optional is itself an lvalue.
+    OptionalUnwrap,
 
     /// Any other implicit conversion.
     Implicit,
@@ -977,6 +998,10 @@ public:
 
     /// Whether this is actually a parameter.
     bool parameter = false;
+
+    /// If this is a variable of optional type, whether a value
+    /// is currently present.
+    bool has_value = false;
 
     /// Whether this declaration is captured.
     readonly(bool, captured, return is_captured);

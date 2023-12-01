@@ -925,6 +925,12 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     c->mlir = c->operand->mlir;
                     break;
 
+                /// Test if an optional is nil.
+                case CastKind::OptionalNilTest: Todo();
+
+                /// Access the value of an optional.
+                case CastKind::OptionalUnwrap: Todo();
+
                 /// Proper casts are all handled the same.
                 case CastKind::Implicit:
                 case CastKind::Soft:

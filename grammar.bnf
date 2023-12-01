@@ -86,7 +86,7 @@
 <type-prim>      ::= INTEGER_TYPE | INT
 <type-named>     ::= IDENTIFIER
 <type-qualified> ::= <type> { <type-qual> }
-<type-qual>      ::= "&" | "^" | "[" [ <expr> ] "]"
+<type-qual>      ::= "&" | "^" | "?" | "[" [ <expr> ] "]"
 
 /// ===========================================================================
 ///  Pragmas
