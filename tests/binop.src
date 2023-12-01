@@ -1,25 +1,182 @@
 /// R %srcc %s --hlir
+
+pragma nomangle;
 proc i extern -> i64;
 proc consume (i64) extern;
+proc consumeb (bool) extern;
 
+/// d t %[0-9a-zA-Z_]+
+
+/// * scope
+/// + (?<A>$t) = local i64
+/// + $t = call @i
+/// + construct $A
+/// + (?<B>$t) = local i64
+/// + $t = call @i
+/// + construct $B
 i64 a = i();
 i64 b = i();
 
-consume a + b;    /// * arith.addi
-consume a - b;    /// * arith.subi
-consume a * b;    /// * arith.muli
-consume a ** b;   /// * math.ipowi
-consume a / b;    /// * arith.divsi
-consume a % b;    /// * arith.remsi
-consume a land b; /// * arith.andi
-consume a lor b;  /// * arith.ori
-consume a xor b;  /// * arith.xori
-consume a << b;   /// * arith.shli
-consume a >> b;   /// * arith.shrsi
-consume a >>> b;  /// * arith.shrui
-consume a == b;   /// * arith.cmpi eq
-consume a != b;   /// * arith.cmpi ne
-consume a < b;    /// * arith.cmpi slt
-consume a <= b;   /// * arith.cmpi sle
-consume a > b;    /// * arith.cmpi sgt
-consume a >= b;   /// * arith.cmpi sge
+/// b
+/// + (?<A1>$t) = load i64 from $A
+/// + (?<B1>$t) = load i64 from $B
+/// + (?<ADD>$t) = arith.addi $A1, $B1
+/// + call @consume($ADD)
+consume a + b;
+
+/// + (?<A2>$t) = load i64 from $A
+/// + (?<B2>$t) = load i64 from $B
+/// + (?<SUB>$t) = arith.subi $A2, $B2
+/// + call @consume($SUB)
+consume a - b;
+
+/// + (?<A3>$t) = load i64 from $A
+/// + (?<B3>$t) = load i64 from $B
+/// + (?<MUL>$t) = arith.muli $A3, $B3
+/// + call @consume($MUL)
+consume a * b;
+
+/// + (?<A4>$t) = load i64 from $A
+/// + (?<B4>$t) = load i64 from $B
+/// + (?<POW>$t) = math.ipowi $A4, $B4
+/// + call @consume($POW)
+consume a ** b;
+
+/// + (?<A5>$t) = load i64 from $A
+/// + (?<B5>$t) = load i64 from $B
+/// + (?<DIV>$t) = arith.divsi $A5, $B5
+/// + call @consume($DIV)
+consume a / b;
+
+/// + (?<A6>$t) = load i64 from $A
+/// + (?<B6>$t) = load i64 from $B
+/// + (?<REM>$t) = arith.remsi $A6, $B6
+/// + call @consume($REM)
+consume a % b;
+
+/// + (?<A7>$t) = load i64 from $A
+/// + (?<B7>$t) = load i64 from $B
+/// + (?<AND>$t) = arith.andi $A7, $B7
+/// + call @consume($AND)
+consume a land b;
+
+/// + (?<A8>$t) = load i64 from $A
+/// + (?<B8>$t) = load i64 from $B
+/// + (?<OR>$t) = arith.ori $A8, $B8
+/// + call @consume($OR)
+consume a lor b;
+
+/// + (?<A9>$t) = load i64 from $A
+/// + (?<B9>$t) = load i64 from $B
+/// + (?<XOR>$t) = arith.xori $A9, $B9
+/// + call @consume($XOR)
+consume a xor b;
+
+/// + (?<A10>$t) = load i64 from $A
+/// + (?<B10>$t) = load i64 from $B
+/// + (?<SHL>$t) = arith.shli $A10, $B10
+/// + call @consume($SHL)
+consume a << b;
+
+/// + (?<A11>$t) = load i64 from $A
+/// + (?<B11>$t) = load i64 from $B
+/// + (?<SHRS>$t) = arith.shrsi $A11, $B11
+/// + call @consume($SHRS)
+consume a >> b;
+
+/// + (?<A12>$t) = load i64 from $A
+/// + (?<B12>$t) = load i64 from $B
+/// + (?<SHRUS>$t) = arith.shrui $A12, $B12
+/// + call @consume($SHRUS)
+consume a >>> b;
+
+/// + (?<A13>$t) = load i64 from $A
+/// + (?<B13>$t) = load i64 from $B
+/// + (?<CMP>$t) = arith.cmpi eq, $A13, $B13
+/// + call @consumeb($CMP)
+consumeb a == b;
+
+/// + (?<A14>$t) = load i64 from $A
+/// + (?<B14>$t) = load i64 from $B
+/// + (?<CMP1>$t) = arith.cmpi ne, $A14, $B14
+/// + call @consumeb($CMP1)
+consumeb a != b;
+
+/// + (?<A15>$t) = load i64 from $A
+/// + (?<B15>$t) = load i64 from $B
+/// + (?<CMP2>$t) = arith.cmpi slt, $A15, $B15
+/// + call @consumeb($CMP2)
+consumeb a < b;
+
+/// + (?<A16>$t) = load i64 from $A
+/// + (?<B16>$t) = load i64 from $B
+/// + (?<CMP3>$t) = arith.cmpi sle, $A16, $B16
+/// + call @consumeb($CMP3)
+consumeb a <= b;
+
+/// + (?<A17>$t) = load i64 from $A
+/// + (?<B17>$t) = load i64 from $B
+/// + (?<CMP4>$t) = arith.cmpi sgt, $A17, $B17
+/// + call @consumeb($CMP4)
+consumeb a > b;
+
+/// + (?<A18>$t) = load i64 from $A
+/// + (?<B18>$t) = load i64 from $B
+/// + (?<CMP5>$t) = arith.cmpi sge, $A18, $B18
+/// + call @consumeb($CMP5)
+consumeb a >= b;
+
+/// b
+/// + (?<B1>$t) = load i64 from $B
+/// + (?<A1>$t) = load i64 from $A
+/// + (?<ADD>$t) = arith.addi $A1, $B1
+/// + store into $A, i64 $ADD
+a += b;
+
+/// + (?<B2>$t) = load i64 from $B
+/// + (?<A2>$t) = load i64 from $A
+/// + (?<SUB>$t) = arith.subi $A2, $B2
+/// + store into $A, i64 $SUB
+a -= b;
+
+/// + (?<B3>$t) = load i64 from $B
+/// + (?<A3>$t) = load i64 from $A
+/// + (?<MUL>$t) = arith.muli $A3, $B3
+/// + store into $A, i64 $MUL
+a *= b;
+
+/// + (?<B4>$t) = load i64 from $B
+/// + (?<A4>$t) = load i64 from $A
+/// + (?<POW>$t) = math.ipowi $A4, $B4
+/// + store into $A, i64 $POW
+a **= b;
+
+/// + (?<B5>$t) = load i64 from $B
+/// + (?<A5>$t) = load i64 from $A
+/// + (?<DIV>$t) = arith.divsi $A5, $B5
+/// + store into $A, i64 $DIV
+a /= b;
+
+/// + (?<B6>$t) = load i64 from $B
+/// + (?<A6>$t) = load i64 from $A
+/// + (?<REM>$t) = arith.remsi $A6, $B6
+/// + store into $A, i64 $REM
+a %= b;
+
+/// + (?<B7>$t) = load i64 from $B
+/// + (?<A7>$t) = load i64 from $A
+/// + (?<SHL>$t) = arith.shli $A7, $B7
+/// + store into $A, i64 $SHL
+a <<= b;
+
+/// + (?<B8>$t) = load i64 from $B
+/// + (?<A8>$t) = load i64 from $A
+/// + (?<SAR>$t) = arith.shrsi $A8, $B8
+/// + store into $A, i64 $SAR
+a >>= b;
+
+/// + (?<B9>$t) = load i64 from $B
+/// + (?<A9>$t) = load i64 from $A
+/// + (?<SHR>$t) = arith.shrui $A9, $B9
+/// + store into $A, i64 $SHR
+a >>>= b;

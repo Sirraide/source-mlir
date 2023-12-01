@@ -93,6 +93,9 @@ struct CodeGen {
     auto EndLifetime(LocalDecl* decl);
 
     template <typename Op>
+    void GenerateAssignBinOp(BinaryExpr* b);
+
+    template <typename Op>
     void GenerateBinOp(BinaryExpr* b);
 
     template <typename Op>
@@ -1450,7 +1453,20 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 case Tk::Le: GenerateCmpOp<CmpIOp>(b, CmpIPredicate::sle); break;
                 case Tk::Ge: GenerateCmpOp<CmpIOp>(b, CmpIPredicate::sge); break;
                 case Tk::Land: GenerateBinOp<AndIOp>(b); break;
-                case Tk::Lor: GenerateBinOp<OrIOp>(b); break;
+                case Tk::Lor:
+                    GenerateBinOp<OrIOp>(b);
+                    break;
+
+                /// Compound assignment.
+                case Tk::PlusEq: GenerateAssignBinOp<AddIOp>(b); break;
+                case Tk::MinusEq: GenerateAssignBinOp<SubIOp>(b); break;
+                case Tk::StarEq: GenerateAssignBinOp<MulIOp>(b); break;
+                case Tk::StarStarEq: GenerateAssignBinOp<mlir::math::IPowIOp>(b); break;
+                case Tk::SlashEq: GenerateAssignBinOp<DivSIOp>(b); break;
+                case Tk::PercentEq: GenerateAssignBinOp<RemSIOp>(b); break;
+                case Tk::ShiftLeftEq: GenerateAssignBinOp<ShLIOp>(b); break;
+                case Tk::ShiftRightEq: GenerateAssignBinOp<ShRSIOp>(b); break;
+                case Tk::ShiftRightLogicalEq: GenerateAssignBinOp<ShRUIOp>(b); break;
 
                 /// Assignment and reference binding.
                 case Tk::Assign:
@@ -1483,6 +1499,18 @@ void src::CodeGen::Generate(src::Expr* expr) {
             "ProcDecl may only be ‘Generate()’d by a call to EmitReference()."
         );
     }
+}
+
+template <typename Op>
+void src::CodeGen::GenerateAssignBinOp(src::BinaryExpr* b) {
+    /// LHS is an lvalue, so load it first. Perform the binary
+    /// operation and store the result back into the lvalue; the
+    /// yield of the entire expression is the lvalue.
+    auto align = b->type.align(ctx).value();
+    auto lhs = Create<hlir::LoadOp>(b->lhs->location.mlir(ctx), b->lhs->mlir);
+    auto res = Create<Op>(b->location.mlir(ctx), lhs, b->rhs->mlir);
+    Create<hlir::StoreOp>(b->location.mlir(ctx), b->lhs->mlir, res, align);
+    b->mlir = b->lhs->mlir;
 }
 
 template <typename Op>

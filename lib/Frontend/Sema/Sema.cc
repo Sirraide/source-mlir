@@ -1771,8 +1771,8 @@ bool src::Sema::Analyse(Expr*& e) {
 
                     /// Both types must be integers.
                     if (
-                        not b->lhs->type.is_int(true) or
-                        not b->rhs->type.is_int(true)
+                        not b->lhs->type.is_int(false) or
+                        not b->rhs->type.is_int(false)
                     ) return Error( //
                         b,
                         "Operands of '{}' must be integers, but got '{}' and '{}'",
@@ -1825,6 +1825,15 @@ bool src::Sema::Analyse(Expr*& e) {
                 } break;
 
                 /// Value assignment. The LHS has to be an lvalue.
+                case Tk::PlusEq:
+                case Tk::MinusEq:
+                case Tk::StarEq:
+                case Tk::StarStarEq:
+                case Tk::SlashEq:
+                case Tk::PercentEq:
+                case Tk::ShiftLeftEq:
+                case Tk::ShiftRightEq:
+                case Tk::ShiftRightLogicalEq:
                 case Tk::Assign: {
                     /// This operator never performs reference reassignment, which
                     /// means the LHS must not be of reference type.
@@ -1833,6 +1842,23 @@ bool src::Sema::Analyse(Expr*& e) {
                         b,
                         "Left-hand side of `=` must be an lvalue"
                     );
+
+                    /// Compound assignment.
+                    if (b->op != Tk::Assign) {
+                        InsertLValueToRValueConversion(b->rhs);
+
+                        /// Both types must be integers.
+                        if (
+                            not b->lhs->type.is_int(false) or
+                            not b->rhs->type.is_int(false)
+                        ) return Error( //
+                            b,
+                            "Operands of '{}' must be integers, but got '{}' and '{}'",
+                            Spelling(b->op),
+                            b->lhs->type,
+                            b->rhs->type
+                        );
+                    }
 
                     /// The RHS must be convertible to the LHS.
                     if (not Convert(b->rhs, b->lhs->type)) return Error(

@@ -72,6 +72,15 @@ constexpr int BinaryOrPostfixPrecedence(Tk t) {
         /// Assignment has the lowest precedence.
         case Tk::Assign:
         case Tk::RDblArrow:
+        case Tk::PlusEq:
+        case Tk::MinusEq:
+        case Tk::StarEq:
+        case Tk::StarStarEq:
+        case Tk::SlashEq:
+        case Tk::PercentEq:
+        case Tk::ShiftLeftEq:
+        case Tk::ShiftRightEq:
+        case Tk::ShiftRightLogicalEq:
             return 1;
 
         default:
@@ -84,6 +93,15 @@ constexpr bool IsRightAssociative(Tk t) {
         case Tk::StarStar:
         case Tk::Assign:
         case Tk::RDblArrow:
+        case Tk::PlusEq:
+        case Tk::MinusEq:
+        case Tk::StarEq:
+        case Tk::StarStarEq:
+        case Tk::SlashEq:
+        case Tk::PercentEq:
+        case Tk::ShiftLeftEq:
+        case Tk::ShiftRightEq:
+        case Tk::ShiftRightLogicalEq:
             return true;
 
         default:
