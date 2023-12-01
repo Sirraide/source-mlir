@@ -654,7 +654,7 @@ public:
     /// Cached result.
     EvalResult value;
 
-    ConstExpr(Expr* expr, EvalResult cached, Location loc)
+    ConstExpr(Expr* expr, EvalResult&& cached, Location loc)
         : TypedExpr(Kind::ConstExpr, cached.type, loc),
           expr(expr),
           value(std::move(cached)) {

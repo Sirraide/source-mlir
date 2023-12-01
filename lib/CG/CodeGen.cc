@@ -69,6 +69,8 @@ struct CodeGen {
     template <typename T, typename... Args>
     auto Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
 
+    auto CreateInt(mlir::Location loc, const APInt& value, Expr* type) -> mlir::Value;
+
     /// Create a function and execute a callback to populate its body.
     template <typename Callable>
     auto CreateProcedure(
@@ -323,6 +325,30 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
 
     /// Create the instruction.
     return builder.create<T>(loc, std::forward<Args>(args)...);
+}
+
+auto src::CodeGen::CreateInt(mlir::Location loc, const APInt& value, Expr* type) -> mlir::Value {
+    /// Explicit-width integer types.
+    if (auto int_ty = dyn_cast<IntType>(type)) {
+        if (int_ty->size.bits() > 64) Todo("Create > 64 bit integer constant");
+        return Create<mlir::arith::ConstantIntOp>(
+            loc,
+            value.getZExtValue(),
+            mlir::IntegerType::get(mctx, unsigned(int_ty->size.bits()))
+        );
+    }
+
+    /// `int` type.
+    else if (Type::Equal(type, Type::Int)) {
+        return Create<mlir::arith::ConstantOp>(
+            loc,
+            Ty(Type::Int),
+            builder.getI64IntegerAttr(i64(value.getZExtValue()))
+        );
+    }
+
+    /// Invalid.
+    else { Unreachable(); }
 }
 
 auto src::CodeGen::Destroy(mlir::Location loc, mlir::Value addr, Expr* type) -> mlir::Value {
@@ -1005,8 +1031,11 @@ void src::CodeGen::Generate(src::Expr* expr) {
             }
         } break;
 
-        case Expr::Kind::ConstExpr:
-            Todo();
+        case Expr::Kind::ConstExpr: {
+            auto c = cast<ConstExpr>(expr);
+            Assert(c->value.is_int(), "Can only generate integer constant expressions");
+            c->mlir = CreateInt(c->location.mlir(ctx), c->value.as_int(), c->type);
+        } break;
 
         case Expr::Kind::DeferExpr: {
             auto d = Create<hlir::DeferOp>(expr->location.mlir(ctx));
@@ -1243,25 +1272,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         /// Create an integer constant.
         case Expr::Kind::IntegerLiteralExpr: {
             auto e = cast<IntLitExpr>(expr);
-
-            /// Explicit-width integer types.
-            if (auto int_ty = dyn_cast<IntType>(e->type)) {
-                if (int_ty->size.bits() > 64) Todo("Create > 64 bit integer constant");
-                e->mlir = Create<mlir::arith::ConstantIntOp>(
-                    e->location.mlir(ctx),
-                    e->value.getZExtValue(),
-                    mlir::IntegerType::get(mctx, unsigned(int_ty->size.bits()))
-                );
-            }
-
-            /// `int` type.
-            else if (Type::Equal(e->type, Type::Int)) {
-                e->mlir = Create<mlir::arith::ConstantOp>(
-                    e->location.mlir(ctx),
-                    Ty(Type::Int),
-                    builder.getI64IntegerAttr(i64(e->value.getZExtValue()))
-                );
-            }
+            e->mlir = CreateInt(e->location.mlir(ctx), e->value, e->type);
         } break;
 
         case Expr::Kind::LocalDecl: {

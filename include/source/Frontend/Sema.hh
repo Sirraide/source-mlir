@@ -115,7 +115,7 @@ private:
 
     /// Implements Convert() and TryConvert().
     template <bool perform_conversion>
-    int ConvertImpl(std::conditional_t<perform_conversion, Expr*&, Expr* const> e, Expr* to);
+    int ConvertImpl(std::conditional_t<perform_conversion, Expr*&, Expr*> e, Expr* to);
 
     /// Create an implicit dereference, but do not overwrite the original expression.
     auto CreateImplicitDereference(Expr* e, isz depth) -> Expr*;

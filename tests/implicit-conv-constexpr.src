@@ -1,0 +1,8 @@
+/// R %srcc %s --lowered
+
+/// d t %[0-9a-zA-Z_]+
+
+/// * (?<A>$t) = local i8
+/// + (?<C>$t) = arith.constant 127
+/// + store into $A, i8 $C
+i8 a = 127;

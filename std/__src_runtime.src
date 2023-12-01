@@ -21,7 +21,7 @@ export proc __src_assert_fail(
         printf ": %.*s".data, message.size as i32, message.data;
 
     printf "\n".data;
-    exit 17 as i32;
+    exit 17;
 }
 
 /// Entry point emitted by the compiler.
@@ -34,5 +34,5 @@ export proc main(
     i8&& envp
 ) nomangle -> i32 {
     __src_main();
-    return 0 as i32;
+    return 0;
 }

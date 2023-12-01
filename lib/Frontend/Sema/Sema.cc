@@ -10,7 +10,7 @@ enum : int {
 
 template <bool perform_conversion>
 int src::Sema::ConvertImpl(
-    std::conditional_t<perform_conversion, Expr*&, Expr* const> e,
+    std::conditional_t<perform_conversion, Expr*&, Expr*> e,
     Expr* type
 ) {
     /// Sanity checks.
@@ -108,10 +108,25 @@ int src::Sema::ConvertImpl(
         return InvalidScore;
     }
 
-    /// Smaller integer types can be converted to larger integer types.
+    /// Integer-to-integer conversions.
     if (from.is_int(true) and to.is_int(true)) {
         auto from_size = from.size(mod->context);
         auto to_size = to.size(mod->context);
+
+        /// Try evaluating the expression. We allow implicit conversions
+        /// to a smaller type if the value is known to fit at compile time.
+        EvalResult value;
+        if (Evaluate(e, value, false) and value.as_int().getSignificantBits() <= to_size.bits()) {
+            if constexpr (perform_conversion) {
+                value.type = to;
+                value.as_int() = value.as_int().trunc(unsigned(to_size.bits()));
+                e = new (mod) ConstExpr(e, std::move(value), e->location);
+            }
+
+            return ++score;
+        }
+
+        /// Smaller integer types can be converted to larger integer types.
         if (from_size <= to_size) {
             if constexpr (perform_conversion) {
                 InsertLValueToRValueConversion(e);

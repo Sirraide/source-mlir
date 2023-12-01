@@ -206,6 +206,6 @@ bool src::Sema::EvaluateAsIntegerInPlace(Expr*& e, bool must_succeed) {
         return false;
     }
 
-    e = new (mod) ConstExpr(e, res, e->location);
+    e = new (mod) ConstExpr(e, std::move(res), e->location);
     return true;
 }
