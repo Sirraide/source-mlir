@@ -627,17 +627,26 @@ void src::Parser::ParseFile() {
         /// Skip duplicate imports.
         if (rgs::contains(mod->imports, tok.text, &ImportedModuleRef::linkage_name)) {
             Diag::Warning(ctx, start, "Duplicate import '{}' ignored", tok.text);
-        } else {
-            mod->imports.emplace_back(
-                tok.text,
-                tok.text,
-                Location{start, tok.location},
-                false,
-                false
-            );
+            Synchronise();
+            continue;
         }
 
+        auto& i = mod->imports.emplace_back(
+            tok.text,
+            tok.text,
+            Location{start, tok.location},
+            false,
+            false
+        );
+
+        /// Check whether this is an open import.
         Next();
+        if (At(Tk::Dot) and Is(LookAhead(1), Tk::Star)) {
+            i.is_open = true;
+            Next();
+            Next();
+        }
+
         if (not Consume(Tk::Semicolon)) Error("Expected ';'");
     }
 

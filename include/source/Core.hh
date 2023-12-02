@@ -429,7 +429,7 @@ private:
 /// A diagnostic. The diagnostic is issued when the destructor is called.
 struct Diag {
     /// Diagnostic severity.
-    enum struct Kind {
+    enum struct Kind : u8 {
         None,    ///< Not an error. Do not emit this diagnostic.
         Note,    ///< Informational note.
         Warning, ///< Warning, but no hard error.
@@ -441,6 +441,7 @@ struct Diag {
 private:
     const Context* ctx;
     Kind kind;
+    bool include_stack_trace = true;
     Location where;
     std::string msg;
 
@@ -449,6 +450,9 @@ private:
 
     /// Print a diagnostic with no (valid) location info.
     void PrintDiagWithoutLocation();
+
+    /// Do not print a stack trace.
+    void NoTrace() { include_stack_trace = false; }
 
 public:
     static constexpr u8 ICEExitCode = 17;
@@ -590,6 +594,13 @@ public:
     template <typename... Args>
     [[noreturn]] static void Fatal(fmt::format_string<Args...> fmt, Args&&... args) {
         Diag{Kind::FError, fmt::format(fmt, std::forward<Args>(args)...)};
+        std::terminate(); /// Should never be reached.
+    }
+
+    /// Same as Fatal(), but do not print a stacktrace.
+    template <typename... Args>
+    [[noreturn]] static void FatalNoTrace(fmt::format_string<Args...> fmt, Args&&... args) {
+        Diag{Kind::FError, fmt::format(fmt, std::forward<Args>(args)...)}.NoTrace();
         std::terminate(); /// Should never be reached.
     }
 };

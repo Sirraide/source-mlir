@@ -627,7 +627,8 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
 
         case Expr::Kind::OptionalType: {
             auto opt = cast<OptionalType>(type);
-            if (isa<ReferenceType>(opt->elem)) return Ty(opt->elem);
+            if (auto ref = dyn_cast<ReferenceType>(opt->elem))
+                return hlir::OptRefType::get(Ty(ref->elem));
             Todo();
         }
 
@@ -910,7 +911,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto c = cast<CastExpr>(expr);
 
             /// Emit the operand.
-            Generate(c->operand);
+            if (not isa<Nil>(c->operand)) Generate(c->operand);
 
             /// Note that some of the casts perform the same operation,
             /// but they are logically distinct in that they yield different
@@ -933,6 +934,14 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 case CastKind::ReferenceToLValue:
                 case CastKind::LValueToReference:
                     c->mlir = c->operand->mlir;
+                    break;
+
+                /// Technically a no-op, but the type is different.
+                case CastKind::ArrayToElemRef:
+                    c->mlir = Create<hlir::ArrayDecayOp>(
+                        c->location.mlir(ctx),
+                        c->operand->mlir
+                    );
                     break;
 
                 /// Test if an optional is nil.
@@ -959,7 +968,15 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
                     /// No-op for optional references.
                     if (isa<ReferenceType>(opt->elem)) {
-                        c->mlir = c->operand->mlir;
+                        auto res = c->is_lvalue
+                                     ? hlir::ReferenceType::get(Ty(opt->elem))
+                                     : Ty(opt->elem);
+
+                        c->mlir = Create<hlir::BitCastOp>(
+                            c->location.mlir(ctx),
+                            res,
+                            c->operand->mlir
+                        );
                         break;
                     }
 
@@ -970,8 +987,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 case CastKind::Implicit:
                 case CastKind::Soft:
                 case CastKind::Hard: {
+                    /// Create a nil of the target type.
+                    if (isa<Nil>(c->operand)) {
+                        c->mlir = Create<hlir::NilOp>(c->location.mlir(ctx), Ty(c->type));
+                    }
+
                     /// No-op.
-                    if (Type::Equal(c->operand->type, c->type)) {
+                    else if (Type::Equal(c->operand->type, c->type)) {
                         c->mlir = c->operand->mlir;
                     }
 
@@ -1066,7 +1088,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     }
 
                     else {
-                        Unreachable();
+                        Diag::ICE(
+                            ctx,
+                            c->location,
+                            "Unsupported cast from {} to {} in backend",
+                            c->operand->type.str(true),
+                            c->type.str(true)
+                        );
                     }
                 }
             }
@@ -1416,6 +1444,14 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Generate(u->operand);
             switch (u->op) {
                 default: Unreachable("Invalid unary operator: {}", Spelling(u->op));
+
+                /// Negation.
+                case Tk::Not: {
+                    u->mlir = Create<hlir::NotOp>(
+                        u->location.mlir(ctx),
+                        u->operand->mlir
+                    );
+                } break;
 
                 /// Dereference.
                 case Tk::Star: {

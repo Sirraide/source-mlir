@@ -5,12 +5,7 @@
 /// - nil
 /// - var
 
-proc fopen(i8&, i8&) extern nomangle -> i8&?;
-proc fclose(i8&) extern nomangle -> i32;
-proc fgets(i8&, i32, i8&) extern nomangle -> i8&?;
-proc printf(i8&) extern nomangle variadic -> i32;
-proc perror(i8&?) extern nomangle;
-proc exit(i32) extern nomangle -> noreturn;
+import libc.*;
 
 proc die(i8[] message) -> noreturn {
     printf "%.*s: ".data, message.size as i32, message.data;
@@ -23,7 +18,34 @@ var file = fopen "input".data, "rb".data;
 if not file then die "Could not open input file";
 defer fclose file;
 
+int sum;
+
 /// Because of the check above, the compiler knows that
 /// `file` is non-nil here, so it unwraps it automatically.
-while var line = fgets buffer as i8&, 1024, file do
-    printf "%s".data, buffer as i8&;
+while var line = fgets buffer as i8&, 1024, file {
+    int i;
+
+    /// Find first and last number.
+    while line[i] != 0 and (line[i] < '0'[0] or line[i] > '9'[0]) i += 1;
+    var first = line[i] - '0'[0];
+
+    i = 1024 - 1;
+    while line[i] != 0 and (line[i] < '0'[0] or line[i] > '9'[0]) i -= 1;
+    var last = line[i] - '0'[0];
+
+    sum += first + last;
+}
+
+printf "Sum: %d\n".data, sum;
+
+
+
+
+
+
+
+
+
+
+
+

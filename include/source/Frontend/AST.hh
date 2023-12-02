@@ -525,6 +525,9 @@ enum struct CastKind {
     /// iff the optional is itself an lvalue.
     OptionalUnwrap,
 
+    /// Convert an array lvalue to a reference rvalue to the first element.
+    ArrayToElemRef,
+
     /// Any other implicit conversion.
     Implicit,
 
@@ -555,7 +558,7 @@ enum struct ScopeKind : u8 {
 
 class BlockExpr : public TypedExpr {
 public:
-    using Symbols = StringMap<SmallVector<Expr*, 1>>;
+    using Symbols = SmallVector<Expr*, 1>;
 
     /// The expressions that are part of this block.
     SmallVector<Expr*> exprs;
@@ -567,7 +570,7 @@ public:
     Module* module;
 
     /// Symbols in this scope.
-    Symbols symbol_table;
+    StringMap<Symbols> symbol_table;
 
     /// Pointer to parent full expression. Points to this
     /// if this is a full expression.
@@ -607,6 +610,14 @@ public:
         symbol_table[name].push_back(value);
     }
 
+    /// Find a (vector of) symbol(s) in this scope.
+    auto find(StringRef name, bool this_scope_only) -> Symbols* {
+        if (auto sym = symbol_table.find(name); sym != symbol_table.end())
+            return &sym->second;
+        if (parent and not this_scope_only) return parent->find(name, false);
+        return nullptr;
+    }
+
     /// Mark this scope as a function scope. This cannot be undone.
     void set_function_scope() {
         Assert(scope_kind == ScopeKind::Block);
@@ -617,15 +628,6 @@ public:
     void set_struct_scope() {
         Assert(scope_kind == ScopeKind::Block);
         scope_kind = ScopeKind::Struct;
-    }
-
-    /// Visit each symbol with the given name.
-    template <typename Func>
-    void visit(StringRef name, bool this_scope_only, Func f) {
-        if (auto sym = symbol_table.find(name); sym != symbol_table.end())
-            if (std::invoke(f, sym->second) == utils::StopIteration)
-                return;
-        if (parent and not this_scope_only) parent->visit(name, false, f);
     }
 
     /// Find the NCA of two blocks in a function. Returns nullptr
@@ -1251,7 +1253,10 @@ public:
     Size size;
 
     IntType(Size size, Location loc)
-        : Type(Kind::IntType, loc), size(size) {}
+        : Type(Kind::IntType, loc), size(size) {
+        /// TODO: Maybe allow `i0` so we can set this unconditionally?
+        if (size.bits() > 0) sema.set_done();
+    }
 
     static auto Create(Module* mod, Size size, Location loc = {}) -> IntType* {
         return new (mod) IntType(size, loc);

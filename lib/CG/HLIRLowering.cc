@@ -268,6 +268,43 @@ struct ArrayDecayOpLowering : public ConversionPattern {
     }
 };
 
+struct BitCastOpLowering : public ConversionPattern {
+    explicit BitCastOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::BitCastOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto bitcast = cast<hlir::BitCastOp>(op);
+
+        /// No-op.
+        if (
+            isa<hlir::ReferenceType, hlir::OptRefType>(bitcast.getType()) and
+            isa<hlir::ReferenceType, hlir::OptRefType>(bitcast.getOperand().getType())
+        ) {
+            rewriter.replaceOp(op, args[0]);
+        }
+
+        /// This is mainly used for pointer casts, so this should probably not be reached.
+        else {
+            std::string from, to;
+            llvm::raw_string_ostream from_os{from}, to_os{to};
+            bitcast.getType().print(from_os);
+            args[0].getType().print(to_os);
+            Diag::ICE(
+                "Unsupported lowering for BitCastOp from {} to {}",
+                from,
+                to
+            );
+        }
+
+        return success();
+    }
+};
+
 /// Lowering for var decls.
 struct LocalOpLowering : public ConversionPattern {
     explicit LocalOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
@@ -571,6 +608,37 @@ struct NilOpLowering : public ConversionPattern {
     }
 };
 
+struct NotOpLowering : public ConversionPattern {
+    explicit NotOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::NotOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto loc = op->getLoc();
+
+        /// This is a xor with 1.
+        auto one = rewriter.create<LLVM::ConstantOp>(
+            loc,
+            rewriter.getI1Type(),
+            rewriter.getIntegerAttr(rewriter.getI1Type(), 1)
+        );
+
+        auto xor_op = rewriter.create<LLVM::XOrOp>(
+            loc,
+            rewriter.getI1Type(),
+            args[0],
+            one
+        );
+
+        rewriter.replaceOp(op, xor_op.getResult());
+        return success();
+    }
+};
+
 struct PointerEqOpLowering : public ConversionPattern {
     explicit PointerEqOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
         : ConversionPattern(tc, hlir::PointerEqOp::getOperationName(), 1, ctx) {
@@ -810,6 +878,11 @@ struct HLIRToLLVMLoweringPass
             return LLVM::LLVMPointerType::get(&getContext());
         });
 
+        /// Convert optional references to ptr.
+        tc.addConversion([&](hlir::OptRefType) {
+            return LLVM::LLVMPointerType::get(&getContext());
+        });
+
         /// Convert array types to arrays.
         tc.addConversion([&](hlir::ArrayType arr) {
             auto elem = tc.convertType(arr.getElem());
@@ -839,6 +912,7 @@ struct HLIRToLLVMLoweringPass
         // clang-format off
         patterns.add<
             ArrayDecayOpLowering,
+            BitCastOpLowering,
             CallOpLowering,
             ChainExtractLocalOpLowering,
             DeleteOpLowering,
@@ -851,6 +925,7 @@ struct HLIRToLLVMLoweringPass
             MakeClosureOpLowering,
             NewOpLowering,
             NilOpLowering,
+            NotOpLowering,
             PointerEqOpLowering,
             PointerNeOpLowering,
             ReturnOpLowering,

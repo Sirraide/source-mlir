@@ -389,7 +389,7 @@ add_custom_target(source-std ALL)
 add_custom_target(source-runtime
     COMMAND "${source-compiler}"
         "${PROJECT_SOURCE_DIR}/std/__src_runtime.src"
-        --dir "${PROJECT_SOURCE_DIR}/modules"
+        --dir "${SOURCE_BUILTIN_MODULE_PATH}"
         -O3
         --nostdrt --nostdinc
     DEPENDS srcc
@@ -401,3 +401,24 @@ add_custom_target(source-runtime
 )
 
 add_dependencies(source-std source-runtime)
+
+## Build a stdlib module.
+function(source_stdlib_module name)
+    list(TRANSFORM ARGN PREPEND "source-module-")
+    string(REPLACE "." "/" path "${name}")
+    add_custom_target("source-module-${name}"
+        COMMAND "${source-compiler}"
+            "${PROJECT_SOURCE_DIR}/std/${path}.src"
+            --dir "${SOURCE_BUILTIN_MODULE_PATH}"
+            -O3
+        DEPENDS srcc source-runtime ${ARGN}
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        BYPRODUCTS
+            "${SOURCE_BUILTIN_MODULE_PATH}/${name}.o"
+        SOURCES "${PROJECT_SOURCE_DIR}/std/${path}.src"
+        COMMENT "Compiling standard library module '${name}'"
+    )
+    add_dependencies(source-std "source-module-${name}")
+endfunction()
+
+source_stdlib_module(libc)

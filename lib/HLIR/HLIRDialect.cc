@@ -15,6 +15,7 @@ static void PrintType(mlir::Type t, mlir::AsmPrinter& p) {
         .Case<ArrayType>([&](auto t) { t.print(p); })
         .Case<ClosureType>([&](auto t) { t.print(p); })
         .Case<ReferenceType>([&](auto t) { t.print(p); })
+        .Case<OptRefType>([&](auto t) { t.print(p); })
         .Case<SliceType>([&](auto t) { t.print(p); })
         .Case<TokenType>([&](auto) { p << "<token>"; })
         .Default([&](auto t) { p.printType(t); });
@@ -38,6 +39,13 @@ void hlir::ClosureType::print(AsmPrinter& p) const {
 
 ::mlir::Type hlir::ClosureType::parse(AsmParser&) { Todo(); }
 
+void hlir::OptRefType::print(AsmPrinter& p) const {
+    PrintType(getElem(), p);
+    p << "&?";
+}
+
+::mlir::Type hlir::OptRefType::parse(AsmParser&) { Todo(); }
+
 void hlir::ReferenceType::print(AsmPrinter& p) const {
     PrintType(getElem(), p);
     p << "&";
@@ -46,14 +54,15 @@ void hlir::ReferenceType::print(AsmPrinter& p) const {
 ::mlir::Type hlir::ReferenceType::parse(AsmParser&) { Todo(); }
 
 void hlir::SliceType::print(AsmPrinter& p) const {
-    p << getElem();
+    PrintType(getElem(), p);
     p << "[]";
 }
 
 ::mlir::Type hlir::SliceType::parse(AsmParser&) { Todo(); }
 
 void hlir::ArrayDecayOp::print(OpAsmPrinter& p) {
-    p << " " << getOperand() << " to ref " << getType().getElem();
+    p << " " << getOperand() << " to ";
+    PrintType(getType(), p);
 }
 
 auto hlir::ArrayDecayOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
@@ -77,7 +86,10 @@ void hlir::CallOp::print(OpAsmPrinter& p) {
     }
 
     auto res = getYield();
-    if (res != Value{}) p << " -> " << res.getType();
+    if (res) {
+        p << " -> ";
+        PrintType(res.getType(), p);
+    }
 
     p.printOptionalAttrDict(
         (*this)->getAttrs(),
@@ -295,6 +307,12 @@ void hlir::NilOp::print(OpAsmPrinter& p) {
 
 auto hlir::NilOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
+void hlir::NotOp::print(OpAsmPrinter& p) {
+    p << " " << getOperand();
+}
+
+auto hlir::NotOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
 void hlir::PointerEqOp::print(OpAsmPrinter& p) {
     p << " " << getLhs() << ", " << getRhs();
 }
@@ -389,6 +407,17 @@ auto hlir::StructGEPOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
 void hlir::UnreachableOp::print(OpAsmPrinter&) {}
 
 auto hlir::UnreachableOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+void hlir::BitCastOp::print(OpAsmPrinter& p) {
+    p << " ";
+    PrintType(getOperand().getType(), p);
+    p << " " << getOperand() << " to ";
+    PrintType(getType(), p);
+}
+
+auto hlir::BitCastOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
+    Todo();
+}
 
 void hlir::YieldOp::print(OpAsmPrinter& p) {
     if (getYield()) {
@@ -492,6 +521,7 @@ auto hlir::CallOp::verifySymbolUses(SymbolTableCollection& symbolTable) -> Logic
 DEFINE_DEFAULT_DATA_LAYOUT(SliceType, 128, 8)
 DEFINE_DEFAULT_DATA_LAYOUT(ClosureType, 64, 8)
 DEFINE_DEFAULT_DATA_LAYOUT(ReferenceType, 64, 8)
+DEFINE_DEFAULT_DATA_LAYOUT(OptRefType, 64, 8)
 
 auto hlir::ArrayType::getTypeSizeInBits(
     const ::mlir::DataLayout& dl,

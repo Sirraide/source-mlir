@@ -515,13 +515,13 @@ void src::detail::AssertFail(
 void src::Diag::HandleFatalErrors() {
     /// Abort on ICE.
     if (kind == Kind::ICError) {
-        PrintBacktrace();
+        if (include_stack_trace) PrintBacktrace();
         std::exit(ICEExitCode);
     }
 
     /// Exit on a fatal error.
     if (kind == Kind::FError) {
-        PrintBacktrace();
+        if (include_stack_trace)  PrintBacktrace();
         std::exit(FatalExitCode);
     }
 }

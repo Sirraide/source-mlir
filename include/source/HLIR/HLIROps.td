@@ -712,7 +712,7 @@ def UnreachableOp : HLIR_Op<"unreachable", [Terminator]> {
 
 def PointerEqOp : HLIR_Op<"ptreq"> {
     let summary = "Test pointer equality";
-    let arguments = (ins HLIR_ReferenceType:$lhs, HLIR_ReferenceType:$rhs);
+    let arguments = (ins HLIR_Type:$lhs, HLIR_Type:$rhs);
     let results = (outs HLIR_Bool:$res);
     let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
@@ -720,8 +720,24 @@ def PointerEqOp : HLIR_Op<"ptreq"> {
 
 def PointerNeOp : HLIR_Op<"ptrne"> {
     let summary = "Test pointer inequality";
-    let arguments = (ins HLIR_ReferenceType:$lhs, HLIR_ReferenceType:$rhs);
+    let arguments = (ins HLIR_Type:$lhs, HLIR_Type:$rhs);
     let results = (outs HLIR_Bool:$res);
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 0;
+}
+
+def NotOp : HLIR_Op<"not"> {
+    let summary = "Logical not";
+    let arguments = (ins HLIR_Bool:$operand);
+    let results = (outs HLIR_Bool:$res);
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 0;
+}
+
+def BitCastOp : HLIR_Op<"bitcast"> {
+    let summary = "Cast between two types of the same size";
+    let arguments = (ins HLIR_Type:$operand);
+    let results = (outs HLIR_Type:$res);
     let hasCustomAssemblyFormat = 1;
     let hasVerifier = 0;
 }

@@ -89,6 +89,7 @@ def HLIR_TokenType : HLIR_Type<"Token", "token">;
 def HLIR_SliceType : HLIR_SingleElementType<"Slice", "slice">;
 def HLIR_ReferenceType : HLIR_SingleElementType<"Reference", "ref">;
 def HLIR_ClosureType : HLIR_SingleElementType<"Closure", "closure">;
+def HLIR_OptRefType : HLIR_SingleElementType<"OptRef", "optref">;
 
 def HLIR_ArrayType : HLIR_SingleElementType<"Array", "array"> {
     let parameters = (ins "Type":$elem, "std::size_t":$size);
@@ -112,6 +113,7 @@ def HLIR_Type : AnyTypeOf<[
     HLIR_SliceType,
     HLIR_ArrayType,
     HLIR_ReferenceType,
+    HLIR_OptRefType,
     HLIR_TokenType,
 ]>;
 

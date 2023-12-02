@@ -1,6 +1,6 @@
 <file> ::= <module-part> <exprs>
 
-<module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT IDENTIFIER }
+<module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT IDENTIFIER [ "." "*" ] }
 
 /// ===========================================================================
 ///  Expressions

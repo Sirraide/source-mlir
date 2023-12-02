@@ -628,10 +628,7 @@ struct Deserialiser {
         /// forward references to types defined later on, so we have
         /// to be able to map type descriptors (= indices, roughly) to
         /// types later on.
-        for (usz i = 0; i < hdr.type_count; i++) {
-            types.push_back(DeserialiseType());
-            types.back()->sema.set_done();
-        }
+        for (usz i = 0; i < hdr.type_count; i++) types.push_back(DeserialiseType());
 
         /// Fixup types.
         for (auto [t, td] : type_fixup_list) *t = Map(td);

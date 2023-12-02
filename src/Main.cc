@@ -36,7 +36,7 @@ using detail::options;
 
 int main(int argc, char** argv) {
     /// Parse options.
-    auto opts = options::parse(argc, argv, [](auto&& s) -> bool { src::Diag::Fatal("{}", s); });
+    auto opts = options::parse(argc, argv, [](auto&& s) -> bool { src::Diag::FatalNoTrace("{}", s); });
 
     /// Check if we want to use colours.
     bool use_colour = isatty(fileno(stdout));
