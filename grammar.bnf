@@ -83,7 +83,7 @@
 ///  Types
 /// ===========================================================================
 <type>           ::= <type-prim> | <type-qualified> | <type-named> | <type-struct> | <struct-anon>
-<type-prim>      ::= INTEGER_TYPE | INT
+<type-prim>      ::= INTEGER_TYPE | INT | BOOL | NIL | VOID | NORETURN | VAR
 <type-named>     ::= IDENTIFIER
 <type-qualified> ::= <type> { <type-qual> }
 <type-qual>      ::= "&" | "^" | "?" | "[" [ <expr> ] "]"

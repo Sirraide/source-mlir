@@ -52,7 +52,7 @@ enum struct Tk {
     Xor,
     True,
     False,
-    Null,
+    Nil,
     Proc,
     Var,
     Val,

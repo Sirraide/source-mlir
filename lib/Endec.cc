@@ -25,13 +25,16 @@ auto Expr::TypeHandle::_mangled_name() -> std::string {
                 case BuiltinTypeKind::Void: return "v";
                 case BuiltinTypeKind::Int: return "i";
                 case BuiltinTypeKind::Bool: return "b";
-                case BuiltinTypeKind::NoReturn: return "n";
+                case BuiltinTypeKind::NoReturn: return "r";
                 case BuiltinTypeKind::Unknown:
                 case BuiltinTypeKind::OverloadSet:
                     Unreachable("Builtin type must be resolved before mangling");
             }
 
             Unreachable();
+
+        case Expr::Kind::Nil:
+            return "n";
 
         /// Need to keep these since we allow overloading on them.
         case Expr::Kind::FFIType: {

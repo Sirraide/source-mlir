@@ -19,6 +19,9 @@ int&? ref;
 /// + store into $REF2, i64& $X
 int&? ref2 = x;
 
+/// Optional is automatically unwrapped in the then-block
+/// because it is guarded by the condition of the if.
+///
 /// + (?<VAL>$t) = load i64& from $REF
 /// + (?<NIL>$t) = nil i64&
 /// + (?<NEQ>$t) = ptrne $VAL, $NIL
@@ -41,4 +44,3 @@ if ref then a ref;
 ref => x;
 ref = 42;
 a ref2;
-

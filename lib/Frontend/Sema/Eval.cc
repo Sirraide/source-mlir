@@ -1,5 +1,7 @@
 #include <source/Frontend/Sema.hh>
 
+src::EvalResult::EvalResult(std::nullptr_t) : value(nullptr), type(Type::Nil) {}
+
 bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
     Assert(e->sema.ok, "Refusing evaluate broken or unanalysed expression");
     switch (e->kind) {
@@ -45,6 +47,10 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         not_constexpr:
             if (must_succeed) Error(e, "Not a constant expression");
             return false;
+
+        case Expr::Kind::Nil:
+            out = nullptr;
+            return true;
 
         case Expr::Kind::ParenExpr:
             return Evaluate(cast<ParenExpr>(e)->expr, out, must_succeed);

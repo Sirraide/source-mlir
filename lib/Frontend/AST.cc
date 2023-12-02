@@ -16,6 +16,7 @@ src::IntType IntType32Instance{src::Size::Bits(32), {}};
 src::IntType IntType64Instance{src::Size::Bits(64), {}};
 src::FFIType FFITypeCCharInstance{src::FFITypeKind::CChar, {}};
 src::FFIType FFITypeCIntInstance{src::FFITypeKind::CInt, {}};
+src::Nil NilInstance{{}};
 } // namespace
 src::Expr* const src::detail::UnknownType = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Int = &IntTypeInstance;
@@ -32,6 +33,7 @@ src::IntType* const src::Type::I32 = &IntType32Instance;
 src::IntType* const src::Type::I64 = &IntType64Instance;
 src::FFIType* const src::Type::CChar = &FFITypeCCharInstance;
 src::FFIType* const src::Type::CInt = &FFITypeCIntInstance;
+src::Nil* const src::Type::Nil = &NilInstance;
 
 /// ===========================================================================
 ///  Expressions
@@ -103,6 +105,10 @@ bool src::Expr::_is_active_optional() {
     return isa<OptionalType>(this->type) and local and local->has_value;
 }
 
+bool src::Expr::_is_nil() {
+    return isa<Nil>(this);
+}
+
 auto src::Expr::_scope_name() -> std::string {
     switch (kind) {
         case Kind::BuiltinType:
@@ -142,6 +148,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::ImplicitThisExpr:
         case Kind::ParenExpr:
         case Kind::SubscriptExpr:
+        case Kind::Nil:
             return "<?>";
 
         case Kind::ModuleRefExpr:
@@ -238,6 +245,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::ArrayType:
         case Kind::SugaredType:
         case Kind::ScopedType:
+        case Kind::Nil:
             return this;
     }
 }
@@ -287,8 +295,8 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> Align {
                 case BuiltinTypeKind::Void: return Align(1);
                 case BuiltinTypeKind::Int: return Align(8); /// FIXME: Use context.
                 case BuiltinTypeKind::Bool: return Align(1);
-                case BuiltinTypeKind::NoReturn: return Align(1);    /// Alignment can’t be 0.
-                case BuiltinTypeKind::OverloadSet: return Align(1); /// Alignment can’t be 0.
+                case BuiltinTypeKind::NoReturn: return Align(1);
+                case BuiltinTypeKind::OverloadSet: return Align(1);
             }
 
             Unreachable();
@@ -304,6 +312,9 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> Align {
         case Kind::IntType:
             /// FIXME: Use context.
             return Align(std::min<usz>(1, std::bit_ceil(usz(cast<IntType>(ptr)->size.bytes()))));
+
+        case Kind::Nil:
+            return Align(1);
 
         case Kind::ReferenceType:
             return Align(8); /// FIXME: Use context.
@@ -387,6 +398,7 @@ bool src::Expr::TypeHandle::_default_constructible() {
         case Kind::OptionalType:
         case Kind::ScopedPointerType:
         case Kind::SliceType:
+        case Kind::Nil:
             return true;
 
         case Kind::ClosureType:
@@ -461,6 +473,10 @@ bool src::Expr::TypeHandle::is_int(bool bool_is_int) {
     }
 }
 
+bool src::Expr::TypeHandle::_is_nil() {
+    return isa<Nil>(ptr);
+}
+
 bool src::Expr::TypeHandle::_is_noreturn() {
     return Type::Equal(ptr, Type::NoReturn);
 }
@@ -500,6 +516,9 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> Size {
 
         case Kind::IntType:
             return cast<IntType>(ptr)->size;
+
+        case Kind::Nil:
+            return Size::Bits(0);
 
         case Kind::ReferenceType:
             return Size::Bits(64); /// FIXME: Use context.
@@ -587,6 +606,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::SliceType: WriteSElem("[]"); break;
         case Kind::IntType: out += fmt::format("i{}", cast<IntType>(ptr)->size); break;
         case Kind::SugaredType: out += cast<SugaredType>(ptr)->name; break;
+        case Kind::Nil: out += "nil"; break;
 
         case Kind::ScopedType: {
             auto sc = cast<ScopedType>(ptr);
@@ -761,6 +781,9 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::SugaredType:
         case Kind::ScopedType:
             Unreachable();
+
+        case Kind::Nil:
+            return true;
 
         case Kind::BuiltinType:
             return cast<BuiltinType>(a)->builtin_kind == cast<BuiltinType>(b)->builtin_kind;
@@ -1038,7 +1061,7 @@ struct ASTPrinter {
                 if (v->sema.ok) {
                     switch (v->ctor.kind) {
                         using enum Constructor::Kind;
-                        case Invalid: out += "<invalid-ctor-kind>"; break;
+                        case Invalid: out += " <invalid-ctor-kind>"; break;
                         case MoveParameter: out += " move"; break;
                         case Zeroinit: out += " zeroinit"; break;
                         case TrivialCopy: out += " trivial"; break;
@@ -1263,6 +1286,7 @@ struct ASTPrinter {
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
             case K::OverloadSetExpr: PrintBasicNode("OverloadSetExpr", e, nullptr); return;
+            case K::Nil: PrintBasicNode("Nil", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, e->type); return;
             case K::ParenExpr: PrintBasicNode("ParenExpr", e, e->type); return;
             case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, e->type); return;
@@ -1361,7 +1385,7 @@ struct ASTPrinter {
             case K::EmptyExpr:
                 break;
 
-            /// We don’t print types here.
+            /// We don’t print children of most types here.
             case K::BuiltinType:
             case K::ProcType:
             case K::ClosureType:
@@ -1374,6 +1398,7 @@ struct ASTPrinter {
             case K::SliceType:
             case K::SugaredType:
             case K::ScopedType:
+            case K::Nil:
                 break;
 
             case K::StructType: {

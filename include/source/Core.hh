@@ -478,7 +478,9 @@ public:
     Diag& operator=(const Diag&) = delete;
 
     /// The destructor prints the diagnostic, if it hasn’t been moved from.
-    ~Diag();
+    ~Diag() {
+        if (kind != Kind::None) print();
+    }
 
     /// Issue a diagnostic.
     Diag(const Context* ctx, Kind kind, Location where, std::string msg)

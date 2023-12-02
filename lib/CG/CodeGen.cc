@@ -661,6 +661,9 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
             return s->mlir;
         }
 
+        case Expr::Kind::Nil:
+            Diag::ICE(ctx, type->location, "Nil type has no representation in the IR");
+
         case Expr::Kind::ExportExpr:
         case Expr::Kind::AssertExpr:
         case Expr::Kind::ConstExpr:
@@ -739,6 +742,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::ModuleRefExpr:
         case Expr::Kind::EmptyExpr:
             break;
+
+        /// Nil should always be wrapped in a cast expression.
+        case Expr::Kind::Nil:
+            Diag::ICE(ctx, expr->location, "Nil has no representation in the IR");
 
         case Expr::Kind::InvokeExpr: {
             auto e = cast<InvokeExpr>(expr);

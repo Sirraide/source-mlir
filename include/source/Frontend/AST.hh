@@ -13,18 +13,20 @@ class LocalDecl;
 class StructType;
 class ProcType;
 class BlockExpr;
+class Nil;
 
 namespace detail {
 extern Expr* const UnknownType;
 }
 
 class EvalResult {
-    std::variant<std::monostate, APInt, Expr*> value{};
+    std::variant<std::monostate, APInt, Expr*, std::nullptr_t> value{};
 
 public:
     Expr* type = detail::UnknownType;
 
     EvalResult() : value(std::monostate{}) {}
+    EvalResult(std::nullptr_t); /// Nil.
     EvalResult(APInt value, Expr* type) : value(std::move(value)), type(type) {}
     EvalResult(Expr* type) : value(type), type(type) {}
 
@@ -68,6 +70,7 @@ public:
         FFIType,
         StructType,
         IntType,
+        Nil,
         ProcType,
 
         /// SingleElementType [begin]
@@ -186,6 +189,9 @@ public:
         /// Check if this is any integer type.
         bool is_int(bool bool_is_int);
 
+        /// Check if this is 'nil'.
+        readonly_decl(bool, is_nil);
+
         /// Check if this is the builtin 'noreturn' type.
         readonly_decl(bool, is_noreturn);
 
@@ -265,6 +271,9 @@ public:
     /// Whether this is an optional that is known to be active in
     /// the current scope.
     readonly_decl(bool, is_active_optional);
+
+    /// Check if this is 'nil'.
+    readonly_decl(bool, is_nil);
 
     /// Get a string representation of the name of the scope of
     /// this expression, if it has one.
@@ -712,6 +721,13 @@ public:
         return cast_kind == CastKind::Implicit or
                cast_kind == CastKind::Soft or
                cast_kind == CastKind::Hard
+    );
+
+    /// Whether this is an optional test cast.
+    readonly(
+        bool,
+        is_opt_test,
+        return cast_kind == CastKind::OptionalNilTest
     );
 
     /// RTTI.
@@ -1191,8 +1207,8 @@ public:
         static auto getHashValue(const Expr* t) -> usz;
     };
 
-    /// Prefer to create new instances of these initially
-    /// for better location tracking.
+    /// In the parser, prefer to create new instances of these
+    /// initially for better location tracking.
     static BuiltinType* const Int;
     static BuiltinType* const Unknown;
     static BuiltinType* const Void;
@@ -1207,6 +1223,7 @@ public:
     static IntType* const I64;
     static FFIType* const CChar;
     static FFIType* const CInt;
+    static Nil* const Nil;
 
     /// It is too goddamn easy to forget to dereference at least
     /// one of the expressions when comparing them w/ operator==,
@@ -1242,6 +1259,15 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::IntType; }
+};
+
+/// This is both the nil type and the nil literal.
+class Nil : public Type {
+public:
+    Nil(Location loc) : Type(Kind::Nil, loc) { sema.set_done(); }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::Nil; }
 };
 
 class BuiltinType : public Type {
@@ -1287,7 +1313,9 @@ private:
 
 public:
     FFIType(FFITypeKind kind, Location loc)
-        : Type(Kind::FFIType, loc), ffi_kind(kind) {}
+        : Type(Kind::FFIType, loc), ffi_kind(kind) {
+        sema.set_done();
+    }
 
     /// Get the underlying type.
     auto underlying(Context* ctx) const -> Type*;

@@ -18,12 +18,12 @@ proc die(i8[] message) -> noreturn {
     exit 1;
 }
 
-i8[16384] buffer;
+i8[1024] buffer;
 var file = fopen "input".data, "rb".data;
 if not file then die "Could not open input file";
 defer fclose file;
 
 /// Because of the check above, the compiler knows that
 /// `file` is non-nil here, so it unwraps it automatically.
-while var line = fgets buffer as i8&, 16384, file do
+while var line = fgets buffer as i8&, 1024, file do
     printf "%s".data, buffer as i8&;

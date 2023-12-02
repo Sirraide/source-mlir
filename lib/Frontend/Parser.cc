@@ -134,7 +134,9 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::IntegerType:
         case Tk::LBrace:
         case Tk::LParen:
+        case Tk::Nil:
         case Tk::NoReturn:
+        case Tk::Not:
         case Tk::Proc:
         case Tk::Return:
         case Tk::Star:
@@ -142,6 +144,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::StringLiteral:
         case Tk::Struct:
         case Tk::True:
+        case Tk::Var:
         case Tk::Void:
         case Tk::While:
             return true;
@@ -238,6 +241,8 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::Bool:
         case Tk::Void:
         case Tk::NoReturn:
+        case Tk::Nil:
+        case Tk::Var:
             lhs = ParseType();
             break;
 
@@ -365,7 +370,8 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         } break;
 
         case Tk::Star:
-        case Tk::StarStar: {
+        case Tk::StarStar:
+        case Tk::Not: {
             auto start = Next();
             auto operand = ParseExpr(PrefixPrecedence);
             if (IsError(operand)) return operand.diag;
@@ -996,7 +1002,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 }
 
 /// <type>           ::= <type-prim> | <type-qualified> | <type-named> | <type-struct> | <struct-anon>
-/// <type-prim>      ::= INTEGER_TYPE | INT
+/// <type-prim>      ::= INTEGER_TYPE | INT | BOOL | NIL | VOID | NORETURN | VAR
 /// <type-named>     ::= IDENTIFIER
 /// <type-qualified> ::= <type> { <type-qual> }
 /// <type-qual>      ::= "&" | "^" | "?" | "[" [ <expr> ] "]"
@@ -1032,6 +1038,11 @@ auto src::Parser::ParseType() -> Result<Expr*> {
             Next();
             break;
 
+        case Tk::Var:
+            base_type = BuiltinType::Unknown(mod, tok.location);
+            Next();
+            break;
+
         case Tk::Void:
             base_type = BuiltinType::Void(mod, tok.location);
             Next();
@@ -1039,6 +1050,11 @@ auto src::Parser::ParseType() -> Result<Expr*> {
 
         case Tk::NoReturn:
             base_type = BuiltinType::NoReturn(mod, tok.location);
+            Next();
+            break;
+
+        case Tk::Nil:
+            base_type = new (mod) Nil(curr_loc);
             Next();
             break;
     }

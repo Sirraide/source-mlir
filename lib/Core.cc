@@ -534,8 +534,6 @@ void src::Diag::PrintDiagWithoutLocation() {
     HandleFatalErrors();
 }
 
-src::Diag::~Diag() { print(); }
-
 void src::Diag::print() {
     using fmt::fg;
     using enum fmt::emphasis;
