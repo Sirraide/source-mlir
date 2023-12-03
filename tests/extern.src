@@ -4,9 +4,9 @@
 
 /// * hlir.string 0, "Hello, world!\\00"
 /// * (?<str>$t) = global_ref @".str.data.0"
-/// + (?<ptr>$t) = array_decay $str to ref i8
+/// + (?<ptr>$t) = array_decay $str to i8&
 /// + (?<len>$t) = index.constant 13
-/// + (?<slc>$t) = literal slice ref i8 $ptr, $len
+/// + (?<slc>$t) = literal i8\[\] $ptr, $len
 /// + (?<dat>$t) = slice_data i8\[\] $slc
 /// + $t = call @puts($dat)
 puts "Hello, world!".data;

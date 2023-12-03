@@ -22,12 +22,13 @@ int&? ref2 = x;
 /// Optional is automatically unwrapped in the then-block
 /// because it is guarded by the condition of the if.
 ///
-/// + (?<VAL>$t) = load i64& from $REF
+/// + (?<VAL>$t) = load i64&\? from $REF
 /// + (?<NIL>$t) = nil i64&
 /// + (?<NEQ>$t) = ptrne $VAL, $NIL
 /// + cf.cond_br $NEQ, (?<THEN>$b), (?<ELSE>$b)
 /// + $THEN:
-/// + (?<VAL2>$t) = load i64& from $REF
+/// + (?<CAST>$t) = bitcast i64&\?& $REF to i64&&
+/// + (?<VAL2>$t) = load i64& from $CAST
 /// + (?<VAL3>$t) = load i64 from $VAL2
 /// + call @a($VAL3)
 /// + br $ELSE
@@ -35,10 +36,12 @@ if ref then a ref;
 
 /// + $ELSE:
 /// + store into $REF, i64& $X
-/// + (?<VAL4>$t) = load i64& from $REF
+/// + (?<CST2>$t) = bitcast i64&\?& $REF to i64&&
+/// + (?<VAL4>$t) = load i64& from $CST2
 /// + (?<C>$t) = arith.constant 42
 /// + store into $VAL4, i64 $C
-/// + (?<VAL5>$t) = load i64& from $REF2
+/// + (?<CST3>$t) = bitcast i64&\?& $REF2 to i64&&
+/// + (?<VAL5>$t) = load i64& from $CST3
 /// + (?<VAL6>$t) = load i64 from $VAL5
 /// + call @a($VAL6)
 ref => x;
