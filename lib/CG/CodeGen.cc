@@ -1006,6 +1006,23 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     Todo();
                 }
 
+                /// Create an optional from a value.
+                case CastKind::OptionalWrap: {
+                    auto opt = cast<OptionalType>(c->type);
+
+                    /// No-op for optional references. This is always an rvalue.
+                    if (isa<ReferenceType>(opt->elem)) {
+                        c->mlir = Create<hlir::BitCastOp>(
+                            c->location.mlir(ctx),
+                            Ty(c->type),
+                            c->operand->mlir
+                        );
+                        break;
+                    }
+
+                    Todo();
+                }
+
                 /// Proper casts are all handled the same.
                 case CastKind::Implicit:
                 case CastKind::Soft:

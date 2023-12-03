@@ -562,6 +562,9 @@ enum struct CastKind {
     /// iff the optional is itself an lvalue.
     OptionalUnwrap,
 
+    /// Wrap a value, creating an optional. This always yields an rvalue.
+    OptionalWrap,
+
     /// Convert an array lvalue to a reference rvalue to the first element.
     ArrayToElemRef,
 

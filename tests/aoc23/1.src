@@ -12,50 +12,42 @@ import libc.*;
 proc isdigit(i8 c) = c >= '0'[0] and c <= '9'[0];
 
 proc die(i8[] message) -> noreturn {
-    printf "%.*s: ".data, message.size as i32, message.data;
+    printf "%.*s ".data, message.size as i32, message.data;
     perror nil;
     exit 1;
 }
 
 i8[1024] buffer;
-var file = fopen "input".data, "rb".data;
+var file = fopen "tests/aoc23/inputs/1.txt".data, "rb".data;
 if not file then die "Could not open input file";
 defer fclose file;
 
-int sum;
+part_one buffer, file;
 
-/// Because of the check above, the compiler knows that
-/// `file` is non-nil here, so it unwraps it automatically.
-while fgets buffer, 1024, file {
-    i8[] line = buffer, strlen buffer;
-    i8 first;
-    i8 last;
+proc part_one (i8[1024]& buffer, i8& file) {
+    int sum;
 
-    /// Find first number.
-    for c in line if isdigit c {
-        first = c - '0'[0];
-        break;
+    /// Because of the check above, the compiler knows that
+    /// `file` is non-nil here, so it unwraps it automatically.
+    while fgets buffer, buffer.size, file {
+        i8[] line = buffer, strlen buffer;
+        i8 first;
+        i8 last;
+
+        /// Find first number.
+        for c in line if isdigit c {
+            first = c - '0'[0];
+            break;
+        }
+
+        /// Find last number.
+        for~ c in line if isdigit c {
+            last = c - '0'[0];
+            break;
+        }
+
+        sum += first * 10 + last;
     }
 
-    /// Find last number.
-    for~ c in line if isdigit c {
-        last = c - '0'[0];
-        break;
-    }
-
-    sum += first * 10 + last;
+    printf "[Part 1] Sum: %d\n".data, sum;
 }
-
-printf "Sum: %d\n".data, sum;
-
-
-
-
-
-
-
-
-
-
-
-

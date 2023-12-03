@@ -1173,6 +1173,7 @@ struct ASTPrinter {
                     case CastKind::LValueToReference: out += " LValueToReference"; break;
                     case CastKind::OptionalNilTest: out += " OptionalNilTest"; break;
                     case CastKind::OptionalUnwrap: out += " OptionalUnwrap"; break;
+                    case CastKind::OptionalWrap: out += " OptionalWrap"; break;
                     case CastKind::ArrayToElemRef: out += " ArrayToElemRef"; break;
                     case CastKind::Soft: out += " Soft"; break;
                     case CastKind::Hard: out += " Hard"; break;
