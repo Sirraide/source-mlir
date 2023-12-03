@@ -336,8 +336,8 @@ public:
     BlockExpr* body;
 
     /// For the backend.
-    mlir::Block* cond_block{};
-    mlir::Block* join_block{};
+    mlir::Block* continue_block{};
+    mlir::Block* break_block{};
 
     Loop(Kind k, BlockExpr* body, Location loc)
         : Expr(k, loc),
@@ -1078,6 +1078,16 @@ public:
 
     /// Whether this variable is ever deleted or moved from.
     readonly(bool, deleted_or_moved, return deleted);
+
+    /// Some variables (e.g. the variable of a for-in loop) cannot
+    /// be captured since they do not correspond to a stack variable
+    /// (and capturing them would also not be desirable as that is
+    /// a common bug in loops).
+    readonly_const(
+        bool,
+        is_legal_to_capture,
+        return  local_kind != LocalKind::Synthesised
+    );
 
     LocalDecl(
         ProcDecl* parent,

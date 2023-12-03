@@ -59,6 +59,7 @@ struct CodeGen {
     void Construct(
         mlir::Location loc,
         mlir::Value addr,
+        Expr* type,
         const Constructor& ctor,
         ArrayRef<mlir::Value> args = {}
     );
@@ -151,7 +152,7 @@ mlir::ModuleOp src::Module::_mlir() {
     return cast<mlir::ModuleOp>(mlir_module_op);
 }
 
-auto src::CodeGen::AllocateLocalVar(src::LocalDecl* decl) -> mlir::Value {
+auto src::CodeGen::AllocateLocalVar(LocalDecl* decl) -> mlir::Value {
     /// Captured variables are stored in the static chain area.
     if (decl->captured) return Create<hlir::StructGEPOp>(
         decl->location.mlir(ctx),
@@ -233,6 +234,7 @@ bool src::CodeGen::Closed(mlir::Block* block) {
 void src::CodeGen::Construct(
     mlir::Location loc,
     mlir::Value addr,
+    Expr* type,
     const Constructor& ctor,
     ArrayRef<mlir::Value> args
 ) {
@@ -265,8 +267,20 @@ void src::CodeGen::Construct(
 
         /// Create a slice from a reference+size.
         case Constructor::Kind::SliceFromParts: {
-            Todo();
-        }
+            auto slice = Create<hlir::LiteralOp>(
+                loc,
+                cast<hlir::SliceType>(Ty(type)),
+                args[0],
+                args[1]
+            );
+
+            Create<hlir::StoreOp>(
+                loc,
+                addr,
+                slice,
+                type->as_type.align(ctx).value()
+            );
+        } break;
 
         case Constructor::Kind::InitialiserCall: {
             Create<hlir::ConstructOp>(
@@ -1135,7 +1149,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// Emit the branch.
             Create<hlir::DirectBrOp>(
                 loc,
-                l->is_continue ? l->target->cond_block : l->target->join_block,
+                l->is_continue ? l->target->continue_block : l->target->break_block,
                 UnwindValues(l->unwind)
             );
         } break;
@@ -1354,7 +1368,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::LocalDecl: {
-            /// Currently, we only have local variables.
             auto e = cast<LocalDecl>(expr);
 
             /// If the variable hasn’t already been allocated, do so now.
@@ -1368,7 +1381,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             for (auto a : e->init_args) args.push_back(a->mlir);
 
             /// Handle construction.
-            Construct(e->location.mlir(ctx), e->mlir, e->ctor, args);
+            Construct(e->location.mlir(ctx), e->mlir, e->type, e->ctor, args);
         } break;
 
         /// If expressions.
@@ -1428,29 +1441,165 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// Create a new block for the condition so we can branch
             /// to it and emit the condition there.
             auto region = builder.getBlock()->getParent();
-            w->cond_block = Attach(region, new mlir::Block);
-            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), w->cond_block);
-            builder.setInsertionPointToEnd(w->cond_block);
+            w->continue_block = Attach(region, new mlir::Block);
+            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), w->continue_block);
+            builder.setInsertionPointToEnd(w->continue_block);
             Generate(w->cond);
 
             /// Emit the branch to the body.
             auto body = Attach(region, new mlir::Block);
-            w->join_block = new mlir::Block;
-            Create<mlir::cf::CondBranchOp>(w->location.mlir(ctx), w->cond->mlir, body, w->join_block);
+            w->break_block = new mlir::Block;
+            Create<mlir::cf::CondBranchOp>(w->location.mlir(ctx), w->cond->mlir, body, w->break_block);
 
             /// Emit the body.
             builder.setInsertionPointToEnd(body);
             Generate(w->body);
-            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), w->cond_block);
+            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), w->continue_block);
 
             /// Insert the join block and continue inserting there.
-            Attach(region, w->join_block);
-            builder.setInsertionPointToEnd(w->join_block);
+            Attach(region, w->break_block);
+            builder.setInsertionPointToEnd(w->break_block);
         } break;
 
+        /// Emit a for-in loop.
+        ///
+        /// If we are not iterating in reverse, this will emit the
+        /// logical equivalent of:
+        ///
+        /// \code
+        /// for (int __i = 0, __size = range.size; __i < __size; __i++) {
+        ///     var iter = lvalue to range.data + __i;
+        ///     <body>
+        /// }
+        /// \endcode
+        ///
+        /// If we are iterating in reverse, this will emit the logical
+        /// equivalent of:
+        ///
+        /// \code
+        /// for (int __i = size; __i > 0; __i--) {
+        ///     var iter = lvalue to range.data + __i - 1;
+        ///     <body>
+        /// }
+        /// \endcode
         case Expr::Kind::ForInExpr: {
-            Todo();
-        }
+            auto f = cast<ForInExpr>(expr);
+            if (not isa<SliceType>(f->range->type)) Diag::ICE(
+                ctx,
+                f->range->location,
+                "Sorry, we only support iterating over slices for now."
+            );
+
+            /// Emit the range, but not the iteration variable, since that
+            /// one requires special handling as it’s not actually a variable.
+            Generate(f->range);
+
+            /// Get the size of the range.
+            auto size = Create<hlir::SliceSizeOp>(
+                builder.getUnknownLoc(),
+                mlir::IndexType::get(mctx),
+                f->range->mlir
+            );
+
+            /// Create the index used for the iteration. We just store the index
+            /// in a block argument since it’s not exposed anyway.
+            auto zero = Create<mlir::index::ConstantOp>(f->location.mlir(ctx), 0);
+            auto region = builder.getBlock()->getParent();
+
+            /// This needs to be a new block so we can branch to it.
+            auto cond_block = Attach(region, new mlir::Block);
+            cond_block->addArgument(mlir::IndexType::get(mctx), builder.getUnknownLoc());
+            Create<mlir::cf::BranchOp>(
+                f->location.mlir(ctx),
+                cond_block,
+                mlir::ValueRange{f->reverse ? size.getRes() : zero}
+            );
+
+            /// Test the condition.
+            using Pred = mlir::index::IndexCmpPredicate;
+            builder.setInsertionPointToEnd(cond_block);
+            auto should_continue = Create<mlir::index::CmpOp>(
+                builder.getUnknownLoc(),
+                f->reverse ? Pred::UGT : Pred::ULT,
+                cond_block->getArgument(0),
+                f->reverse ? zero : size.getRes()
+            );
+
+            /// Branch depending on the condition. Also creat, but do not insert,
+            /// the continue and break blocks here since any continue/break in
+            /// the loop body will have to branch to one of them.
+            auto body = Attach(region, new mlir::Block);
+            f->continue_block = new mlir::Block;
+            f->break_block = new mlir::Block;
+            Create<mlir::cf::CondBranchOp>(
+                builder.getUnknownLoc(),
+                should_continue,
+                body,
+                f->break_block
+            );
+
+            /// Before emitting the body, get the slice data pointer and create
+            /// a gep to the current index for the loop variable.
+            builder.setInsertionPointToEnd(body);
+            auto data = Create<hlir::SliceDataOp>(
+                builder.getUnknownLoc(),
+                f->range->mlir
+            );
+
+            /// Offset is `i` if we’re iterating forward and `i - 1` otherwise.
+            mlir::Value offset = cond_block->getArgument(0);
+            if (f->reverse) {
+                offset = Create<mlir::index::SubOp>(
+                    builder.getUnknownLoc(),
+                    offset,
+                    Create<mlir::index::ConstantOp>(f->location.mlir(ctx), 1)
+                );
+            }
+
+            f->iter->emitted = true;
+            f->iter->mlir = Create<hlir::OffsetOp>(
+                builder.getUnknownLoc(),
+                data,
+                offset
+            );
+
+            /// Dew it.
+            Generate(f->body);
+
+            /// Increment/decrement the index and go back to the condition. This is also
+            /// where we branch to in case of a continue.
+            Attach(region, f->continue_block);
+            if (not Closed(builder.getBlock())) Create<mlir::cf::BranchOp>(
+                builder.getUnknownLoc(),
+                f->continue_block
+            );
+
+            mlir::Value inc;
+            builder.setInsertionPointToEnd(f->continue_block);
+            if (f->reverse) {
+                inc = Create<mlir::index::SubOp>(
+                    builder.getUnknownLoc(),
+                    cond_block->getArgument(0),
+                    Create<mlir::index::ConstantOp>(f->location.mlir(ctx), 1)
+                );
+            } else {
+                inc = Create<mlir::index::AddOp>(
+                    builder.getUnknownLoc(),
+                    cond_block->getArgument(0),
+                    Create<mlir::index::ConstantOp>(f->location.mlir(ctx), 1)
+                );
+            }
+
+            Create<mlir::cf::BranchOp>(
+                builder.getUnknownLoc(),
+                cond_block,
+                mlir::ValueRange{inc}
+            );
+
+            /// Insert the break block and continue inserting there.
+            Attach(region, f->break_block);
+            builder.setInsertionPointToEnd(f->break_block);
+        } break;
 
         case Expr::Kind::UnaryPrefixExpr: {
             auto u = cast<UnaryPrefixExpr>(expr);
@@ -1477,8 +1626,27 @@ void src::CodeGen::Generate(src::Expr* expr) {
         } break;
 
         case Expr::Kind::SubscriptExpr: {
-            Todo();
-        }
+            auto f = cast<SubscriptExpr>(expr);
+            if (not isa<SliceType>(f->object->type)) Diag::ICE(
+                ctx,
+                f->object->location,
+                "Sorry, we only support subscripting slices for now."
+            );
+
+            Generate(f->index);
+            Generate(f->object);
+
+            auto ptr = Create<hlir::SliceDataOp>(
+                f->location.mlir(ctx),
+                f->object->mlir
+            );
+
+            f->mlir = Create<hlir::OffsetOp>(
+                f->location.mlir(ctx),
+                ptr,
+                f->index->mlir
+            );
+        } break;
 
         case Expr::Kind::BinaryExpr: {
             auto b = cast<BinaryExpr>(expr);

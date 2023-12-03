@@ -556,6 +556,28 @@ def StructGEPOp : HLIR_Op<"structgep"> {
     ];
 }
 
+def OffsetOp : HLIR_Op<"offset"> {
+    let summary = "Offset a pointer";
+    let arguments = (ins HLIR_ReferenceType:$pointer, SignlessIntegerLike:$offset);
+    let results = (outs HLIR_ReferenceType:$res);
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 0;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$pointer,
+            "::mlir::Value":$offset
+        ), [{
+            build(
+                $_builder,
+                $_state,
+                pointer.getType(),
+                {pointer, offset}
+            );
+        }]>
+    ];
+}
+
 def ChainExtractLocalOp : HLIR_Op<"extractlocal"> {
     let summary = "Extract a local variable from a static chain area";
     let arguments = (ins HLIR_ReferenceType:$struct_ref, Builtin_IntegerAttr:$idx);

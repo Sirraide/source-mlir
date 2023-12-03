@@ -1693,7 +1693,16 @@ bool src::Sema::Analyse(Expr*& e) {
         /// its declaration. Type and lvalueness is already set by the ctor.
         case Expr::Kind::LocalRefExpr: {
             auto var = cast<LocalRefExpr>(e);
-            if (var->parent != var->decl->parent) var->decl->set_captured();
+            if (var->parent != var->decl->parent) {
+                /// Synthesised variables (e.g. loop variables) should never be captured.
+                if (not var->decl->is_legal_to_capture) return Error(
+                    var,
+                    "Cannot capture synthesised variable '{}'",
+                    var->decl->name
+                );
+
+                var->decl->set_captured();
+            }
         } break;
 
         /// Variable declaration.
@@ -1854,11 +1863,22 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Make sure the range is something we can iterate over; currently,
             /// that’s only arrays and slices.
             if (not Analyse(f->range)) return e->sema.set_errored();
-            UnwrapInPlace(f->range);
-            if (not isa<ArrayType, SliceType>(f->range->type)) return Error(
+            UnwrapInPlace(f->range, true);
+            if (not isa<ArrayType, SliceType>(f->range->type.strip_refs_and_pointers)) return Error(
                 f->range,
                 "Type '{}' is not iterable",
                 f->range->type
+            );
+
+            /// Slices can just be loaded whole.
+            /// TODO: Figure out what to do in general w/ rvalue arrays, objects, etc
+            ///       wrt variables, iterations, subscripting, and member access—preferably
+            ///       in a way that doesn’t require the backend to deal w/ all of that again.
+            if (isa<SliceType>(f->range->type)) InsertLValueToRValueConversion(f->range);
+            else if (not f->range->is_lvalue) Diag::ICE(
+                mod->context,
+                f->range->location,
+                "Sorry, iterating over rvalue arrays is currently not supported"
             );
 
             /// The loop variable is an lvalue of the element type of the range.
@@ -1960,19 +1980,19 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Handle arrays and slices.
             UnwrapInPlace(s->object, true);
-            if (isa<ArrayType, SliceType>(s->object->type)) {
+            if (isa<SliceType>(s->object->type)) {
                 auto ty = cast<SingleElementTypeBase>(s->object->type);
 
                 /// Index must be an integer.
                 if (Analyse(s->index) and not Convert(s->index, Type::Int)) Error(
                     s->index,
-                    "Index of array or slice must be an integer, but was '{}'",
+                    "Index of subscript must be an integer, but was '{}'",
                     s->index->type
                 );
 
-                /// Subscripts are lvalues if the object is an lvalue.
+                /// Slice subscripts are always lvalues.
                 s->stored_type = ty->elem;
-                s->is_lvalue = s->object->is_lvalue;
+                s->is_lvalue = true;
                 break;
             }
 

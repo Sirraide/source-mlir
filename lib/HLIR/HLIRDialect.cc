@@ -67,6 +67,17 @@ void hlir::ArrayDecayOp::print(OpAsmPrinter& p) {
 
 auto hlir::ArrayDecayOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
+void hlir::BitCastOp::print(OpAsmPrinter& p) {
+    p << " ";
+    PrintType(getOperand().getType(), p);
+    p << " " << getOperand() << " to ";
+    PrintType(getType(), p);
+}
+
+auto hlir::BitCastOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
+    Todo();
+}
+
 void hlir::CallOp::print(OpAsmPrinter& p) {
     if (getInlineCall()) p << " inline";
     if (auto cc = getCc().getCallingConv(); cc != LLVM::CConv::C)
@@ -259,7 +270,9 @@ auto hlir::InvokeClosureOp::parse(OpAsmParser&, OperationState&) -> ParseResult 
 
 void hlir::LiteralOp::print(OpAsmPrinter& p) {
     if (auto s = dyn_cast<SliceType>(getType())) {
-        p << " slice ref " << s.getElem() << " " << getOperand(0);
+        p << " ";
+        PrintType(getType(), p);
+        p << " " << getOperand(0);
         p << ", " << getOperand(1);
     } else {
         Unreachable();
@@ -312,6 +325,16 @@ void hlir::NotOp::print(OpAsmPrinter& p) {
 }
 
 auto hlir::NotOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+void hlir::OffsetOp::print(OpAsmPrinter& p) {
+    p << " ";
+    PrintType(getPointer().getType(), p);
+    p << " " << getPointer() << ", " << getOffset();
+}
+
+auto hlir::OffsetOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
+    Todo();
+}
 
 void hlir::PointerEqOp::print(OpAsmPrinter& p) {
     p << " " << getLhs() << ", " << getRhs();
@@ -407,17 +430,6 @@ auto hlir::StructGEPOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
 void hlir::UnreachableOp::print(OpAsmPrinter&) {}
 
 auto hlir::UnreachableOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
-
-void hlir::BitCastOp::print(OpAsmPrinter& p) {
-    p << " ";
-    PrintType(getOperand().getType(), p);
-    p << " " << getOperand() << " to ";
-    PrintType(getType(), p);
-}
-
-auto hlir::BitCastOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
-    Todo();
-}
 
 void hlir::YieldOp::print(OpAsmPrinter& p) {
     if (getYield()) {
