@@ -26,8 +26,8 @@ int sum;
 
 /// Because of the check above, the compiler knows that
 /// `file` is non-nil here, so it unwraps it automatically.
-while fgets buffer.data, 1024, file {
-    i8[] line = buffer, strlen buffer.data;
+while fgets buffer, 1024, file {
+    i8[] line = buffer, strlen buffer;
     i8 first;
     i8 last;
 

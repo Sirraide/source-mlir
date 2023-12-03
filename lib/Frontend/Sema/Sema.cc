@@ -1539,13 +1539,12 @@ bool src::Sema::Analyse(Expr*& e) {
                 if (not Analyse(object)) return Diag();
                 auto unwrapped = object->unwrapped_type;
 
-                /// A slice/array type has a `data` and a `size` member.
+                /// A slice type has a `data` and a `size` member.
                 ///
                 /// Neither of these are lvalues since slices are supposed
-                /// to be pretty much immutable (and arrays are *actually*
-                /// immutable in this respect), and you should create a new
+                /// to be pretty much immutable, and you should create a new
                 /// one rather than changing the size or the data pointer.
-                if (isa<ArrayType, SliceType>(unwrapped)) {
+                if (isa<SliceType>(unwrapped)) {
                     auto ty = dyn_cast<SingleElementTypeBase>(unwrapped);
                     if (m->member == "data") {
                         UnwrapInPlace(object);
@@ -1565,6 +1564,30 @@ bool src::Sema::Analyse(Expr*& e) {
                         m->location,
                         "Type '{}' has no '{}' member",
                         ty->as_type.str(true),
+                        m->member
+                    );
+                }
+
+                /// Arrays only have a `size`.
+                if (auto arr = dyn_cast<ArrayType>(unwrapped)) {
+                    /// Type is known at compile time, so the object is never emitted. Note:
+                    /// we should emit a warning if evaluating the object has side effects,
+                    /// as it will never be evaluated.
+                    if (m->member == "size") {
+                        e = new (mod) ConstExpr(
+                            e,
+                            EvalResult{arr->dimension(), Type::Int},
+                            m->location
+                        );
+
+                        return {};
+                    }
+
+                    return Diag::Error(
+                        mod->context,
+                        m->location,
+                        "Type '{}' has no '{}' member",
+                        arr->as_type.str(true),
                         m->member
                     );
                 }
