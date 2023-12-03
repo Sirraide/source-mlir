@@ -639,6 +639,30 @@ struct NotOpLowering : public ConversionPattern {
     }
 };
 
+struct OffsetOpLowering : public ConversionPattern {
+    explicit OffsetOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::OffsetOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto tc = getTypeConverter();
+        auto offset = cast<hlir::OffsetOp>(op);
+        rewriter.replaceOpWithNewOp<LLVM::GEPOp>(
+            op,
+            tc->convertType(offset.getPointer().getType()),
+            tc->convertType(offset.getPointer().getType().getElem()),
+            args[0],
+            ArrayRef{LLVM::GEPArg(args[1])},
+            true
+        );
+        return success();
+    }
+};
+
 struct PointerEqOpLowering : public ConversionPattern {
     explicit PointerEqOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
         : ConversionPattern(tc, hlir::PointerEqOp::getOperationName(), 1, ctx) {
@@ -926,6 +950,7 @@ struct HLIRToLLVMLoweringPass
             NewOpLowering,
             NilOpLowering,
             NotOpLowering,
+            OffsetOpLowering,
             PointerEqOpLowering,
             PointerNeOpLowering,
             ReturnOpLowering,
