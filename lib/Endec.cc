@@ -28,6 +28,7 @@ auto Expr::TypeHandle::_mangled_name() -> std::string {
                 case BuiltinTypeKind::NoReturn: return "r";
                 case BuiltinTypeKind::Unknown:
                 case BuiltinTypeKind::OverloadSet:
+                case BuiltinTypeKind::EmptyArray:
                     Unreachable("Builtin type must be resolved before mangling");
             }
 
@@ -125,6 +126,7 @@ auto Expr::TypeHandle::_mangled_name() -> std::string {
         case Expr::Kind::ImplicitThisExpr:
         case Expr::Kind::ParenExpr:
         case Expr::Kind::SubscriptExpr:
+        case Expr::Kind::ArrayLiteralExpr:
             Unreachable("Not a type");
     }
 }
@@ -353,6 +355,7 @@ struct Serialiser {
                     case BuiltinTypeKind::NoReturn: return TD(SerialisedTypeTag::NoReturn);
                     case BuiltinTypeKind::Unknown:
                     case BuiltinTypeKind::OverloadSet:
+                    case BuiltinTypeKind::EmptyArray:
                         Unreachable();
                 }
 

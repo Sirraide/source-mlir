@@ -8,6 +8,7 @@ src::BuiltinType VoidTypeInstance{src::BuiltinTypeKind::Void, {}};
 src::BuiltinType BoolTypeInstance{src::BuiltinTypeKind::Bool, {}};
 src::BuiltinType NoReturnTypeInstance{src::BuiltinTypeKind::NoReturn, {}};
 src::BuiltinType OverloadSetTypeInstance{src::BuiltinTypeKind::OverloadSet, {}};
+src::BuiltinType EmptyArrayTypeInstance{src::BuiltinTypeKind::EmptyArray, {}};
 src::ReferenceType VoidRefTypeInstance{&VoidTypeInstance, {}};
 src::ReferenceType VoidRefRefTypeInstance{&VoidTypeInstance, {}};
 src::IntType IntType8Instance{src::Size::Bits(8), {}};
@@ -25,6 +26,7 @@ src::BuiltinType* const src::Type::Unknown = &UnknownTypeInstance;
 src::BuiltinType* const src::Type::Bool = &BoolTypeInstance;
 src::BuiltinType* const src::Type::NoReturn = &NoReturnTypeInstance;
 src::BuiltinType* const src::Type::OverloadSet = &OverloadSetTypeInstance;
+src::BuiltinType* const src::Type::EmptyArray = &EmptyArrayTypeInstance;
 src::ReferenceType* const src::Type::VoidRef = &VoidRefTypeInstance;
 src::ReferenceType* const src::Type::VoidRefRef = &VoidRefRefTypeInstance;
 src::IntType* const src::Type::I8 = &IntType8Instance;
@@ -143,6 +145,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::LocalRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
+        case Kind::ArrayLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::LocalDecl:
         case Kind::OverloadSetExpr:
@@ -221,6 +224,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::LocalRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
+        case Kind::ArrayLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::ProcDecl:
         case Kind::CastExpr:
@@ -231,7 +235,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::ImplicitThisExpr:
         case Kind::ParenExpr:
         case Kind::SubscriptExpr:
-            return cast<TypedExpr>(this)->stored_type;
+            return cast<TypedExpr>(this)->stored_type->as_type;
 
         /// Already a type.
         case Kind::BuiltinType:
@@ -248,7 +252,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::SugaredType:
         case Kind::ScopedType:
         case Kind::Nil:
-            return this;
+            return as_type;
     }
 }
 
@@ -262,7 +266,7 @@ auto src::Expr::_unwrapped_type() -> TypeHandle {
 }
 
 auto src::ProcDecl::_ret_type() -> TypeHandle {
-    return cast<ProcType>(stored_type)->ret_type;
+    return cast<ProcType>(stored_type)->ret_type->as_type;
 }
 
 bool src::ProcDecl::_takes_static_chain() {
@@ -299,6 +303,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> Align {
                 case BuiltinTypeKind::Bool: return Align(1);
                 case BuiltinTypeKind::NoReturn: return Align(1);
                 case BuiltinTypeKind::OverloadSet: return Align(1);
+                case BuiltinTypeKind::EmptyArray: return Align(1);
             }
 
             Unreachable();
@@ -373,6 +378,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> Align {
         case Kind::BinaryExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
+        case Kind::ArrayLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::ProcDecl:
         case Kind::LocalDecl:
@@ -448,6 +454,7 @@ bool src::Expr::TypeHandle::_default_constructible() {
         case Kind::LocalRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
+        case Kind::ArrayLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::LocalDecl:
         case Kind::ProcDecl:
@@ -506,6 +513,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> Size {
                 case BuiltinTypeKind::Bool: return Size::Bits(1);
                 case BuiltinTypeKind::NoReturn: return {};
                 case BuiltinTypeKind::OverloadSet: return {};
+                case BuiltinTypeKind::EmptyArray: return {};
             }
 
             Unreachable();
@@ -579,6 +587,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> Size {
         case Kind::BinaryExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
+        case Kind::ArrayLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::ProcDecl:
         case Kind::LocalDecl:
@@ -627,6 +636,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
                 case BuiltinTypeKind::Bool: out += "bool"; goto done;
                 case BuiltinTypeKind::NoReturn: out += "noreturn"; goto done;
                 case BuiltinTypeKind::OverloadSet: out += "<overload set>"; goto done;
+                case BuiltinTypeKind::EmptyArray: out += "<empty array literal>"; goto done;
             }
 
             out += fmt::format("<invalid builtin type: {}>", int(bk));
@@ -735,6 +745,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::LocalRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
+        case Kind::ArrayLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::ProcDecl:
         case Kind::CastExpr:
@@ -871,6 +882,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::LocalRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
+        case Kind::ArrayLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::ProcDecl:
         case Kind::CastExpr:
@@ -897,7 +909,7 @@ auto src::Type::DenseMapInfo::getHashValue(const Expr* t) -> usz {
     /// Include element types for types that have them.
     else if (auto* s = dyn_cast<SingleElementTypeBase>(t)) {
         do {
-            hash = llvm::hash_combine(hash, s->elem->kind);
+            hash = llvm::hash_combine(hash, s->elem.ptr->kind);
             s = dyn_cast<SingleElementTypeBase>(s->elem);
         } while (s);
     }
@@ -1312,6 +1324,7 @@ struct ASTPrinter {
             case K::ConstExpr: PrintBasicNode("ConstExpr", e, e->type); return;
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, e->type); return;
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, e->type); return;
+            case K::ArrayLiteralExpr: PrintBasicNode("ArrayLiteralExpr", e, e->type); return;
 
             case K::DeferExpr: {
                 PrintBasicHeader("DeferExpr", e);
@@ -1563,6 +1576,10 @@ struct ASTPrinter {
                 auto c = cast<ConstExpr>(e);
                 if (c->expr) PrintChildren(c->expr, leading_text);
             } break;
+
+            case K::ArrayLiteralExpr:
+                PrintChildren(cast<ArrayLitExpr>(e)->elements, leading_text);
+                break;
 
             case K::LabelExpr:
                 PrintChildren(cast<LabelExpr>(e)->expr, leading_text);

@@ -120,6 +120,7 @@ public:
         LocalRefExpr,
         ParenExpr,
         SubscriptExpr,
+        ArrayLiteralExpr,
         BoolLiteralExpr,
         IntegerLiteralExpr,
         StringLiteralExpr,
@@ -166,11 +167,11 @@ public:
     };
 
     /// Helper type that makes accessing properties of types easier.
-    class TypeHandle {
+    struct TypeHandle {
         Expr* ptr;
 
-    public:
-        TypeHandle(Expr* ptr) : ptr(ptr) {}
+        explicit TypeHandle(Expr* ptr) : ptr(ptr) {}
+        TypeHandle(Type* ptr);
         TypeHandle(std::nullptr_t) = delete;
 
         /// Get the alignment of this type, in *bytes*.
@@ -921,6 +922,19 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::SubscriptExpr; }
 };
 
+class ArrayLitExpr : public TypedExpr {
+public:
+    /// The elements of this array literal.
+    SmallVector<Expr*> elements;
+
+    ArrayLitExpr(SmallVector<Expr*> elements, Location loc)
+        : TypedExpr(Kind::ArrayLiteralExpr, detail::UnknownType, loc),
+          elements(std::move(elements)) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ArrayLiteralExpr; }
+};
+
 class IntLitExpr : public TypedExpr {
 public:
     /// The value of this literal.
@@ -1243,6 +1257,7 @@ enum struct BuiltinTypeKind {
     Bool,
     NoReturn,
     OverloadSet,
+    EmptyArray,
 };
 
 enum struct FFITypeKind {
@@ -1277,6 +1292,7 @@ public:
     static BuiltinType* const Bool;
     static BuiltinType* const NoReturn;
     static BuiltinType* const OverloadSet;
+    static BuiltinType* const EmptyArray;
     static ReferenceType* const VoidRef;
     static ReferenceType* const VoidRefRef;
     static IntType* const I8;
@@ -1306,6 +1322,8 @@ public:
         return e->kind >= Kind::BuiltinType and e->kind <= Kind::ClosureType;
     }
 };
+
+inline Expr::TypeHandle::TypeHandle(Type* ptr) : ptr(ptr) {}
 
 class IntType : public Type {
 public:
@@ -1459,7 +1477,7 @@ public:
 class SingleElementTypeBase : public Type {
 public:
     /// The element type.
-    Expr* elem;
+    Expr::TypeHandle elem;
 
 protected:
     SingleElementTypeBase(Kind k, Expr* elem, Location loc)
@@ -1617,7 +1635,7 @@ public:
         sema = proc_type->sema;
     }
 
-    readonly(ProcType*, proc_type, return cast<ProcType>(elem));
+    readonly(ProcType*, proc_type, return cast<ProcType>(static_cast<Expr*>(elem)));
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ClosureType; }

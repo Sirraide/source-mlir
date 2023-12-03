@@ -28,6 +28,7 @@
          | <expr-qual-name>
          | <expr-paren>
          | <expr-subscript>
+         | <expr-for-in>
          | <type-struct>
          | <decl>
 
@@ -37,7 +38,7 @@
 <expr-block>     ::= "{" <exprs> "}"
 <expr-decl-ref>  ::= IDENTIFIER
 <expr-access>    ::= [ <expr> ] "." IDENTIFIER
-<expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL
+<expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL | <array-literal>
 <expr-prefix>    ::= <prefix-op> <expr>
 <expr-binary>    ::= <expr> <binary-op> <expr>
 <expr-if>        ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
@@ -64,6 +65,7 @@
 <param-decl>     ::= <type> [ IDENTIFIER ] | PROC [ IDENTIFIER ] <proc-signature>
 <then>           ::= [ THEN ] <implicit-block>
 <do>             ::= [ DO ] <implicit-block>
+<array-literal>  ::= "[" { <expr>  "," } [ <expr> ] "]"
 <implicit-block> ::= <expr> /// Syntactically any expression, but wrapped in an implicit block if it isn’t already one.
 <prefix-op>      ::= /// All prefix operators.
 <binary-op>      ::= /// All binary operators.

@@ -577,6 +577,7 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
                 case K::NoReturn: return mlir::NoneType::get(mctx);
                 case K::Unknown:
                 case K::OverloadSet:
+                case K::EmptyArray:
                     Unreachable();
             }
             Unreachable();
@@ -705,6 +706,7 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
         case Expr::Kind::ModuleRefExpr:
         case Expr::Kind::LocalRefExpr:
         case Expr::Kind::BoolLiteralExpr:
+        case Expr::Kind::ArrayLiteralExpr:
         case Expr::Kind::IntegerLiteralExpr:
         case Expr::Kind::StringLiteralExpr:
         case Expr::Kind::ProcDecl:
@@ -1383,6 +1385,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto e = cast<IntLitExpr>(expr);
             e->mlir = CreateInt(e->location.mlir(ctx), e->value, e->type);
         } break;
+
+        case Expr::Kind::ArrayLiteralExpr: Todo();
 
         case Expr::Kind::LocalDecl: {
             auto e = cast<LocalDecl>(expr);

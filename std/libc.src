@@ -8,3 +8,4 @@ export proc perror(i8&?) extern nomangle;
 export proc exit(i32) extern nomangle -> noreturn;
 export proc strlen(i8&) extern nomangle -> int;
 export proc rewind(i8&) extern nomangle -> void;
+export proc memcmp(i8&, i8&, int) extern nomangle -> i32;

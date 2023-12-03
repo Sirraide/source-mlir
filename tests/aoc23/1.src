@@ -6,6 +6,11 @@
 /// - var
 /// - for in
 /// - for~ in
+/// - for enum
+/// - array literals
+/// - exclusive ranges
+/// - iterating over ranges
+/// - slice subscripting with a range
 
 import libc.*;
 
@@ -22,13 +27,14 @@ var file = fopen "tests/aoc23/inputs/1.txt".data, "rb".data;
 if not file then die "Could not open input file";
 defer fclose file;
 
+/// Because of the check above, the compiler knows that
+/// `file` is non-nil here, so it unwraps it automatically.
 part_one buffer, file;
+rewind file;
+part_two buffer, file;
 
 proc part_one (i8[1024]& buffer, i8& file) {
     int sum;
-
-    /// Because of the check above, the compiler knows that
-    /// `file` is non-nil here, so it unwraps it automatically.
     while fgets buffer, buffer.size, file {
         i8[] line = buffer, strlen buffer;
         i8 first;
@@ -50,4 +56,53 @@ proc part_one (i8[1024]& buffer, i8& file) {
     }
 
     printf "[Part 1] Sum: %d\n".data, sum;
+}
+
+proc part_two (i8[1024]& buffer, i8& file) {
+    int sum;
+    i8[][9] numbers = [
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+    ];
+
+    /// The ‘proper’ way of doing this would be to use a prefix
+    /// tree and suffix tree, but I’m lazy, so we’re doing this
+    /// the stupid way.
+    proc match(i8[] line, i8& out) -> bool {
+        if line.size == 0 return false;
+        if isdigit line[0] {
+            out = line[0] - '0'[0];
+            return true;
+        }
+
+        for enum i, number in numbers {
+            if line.size < number.size continue;
+            if memcmp (line, number, number.size) == 0 {
+                out = i;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    while fgets buffer, buffer.size, file {
+        i8[] line = buffer, strlen buffer;
+        i8 first;
+        i8 last;
+
+        for  i in 0..<line.size if match line[i..], first break;
+        for~ i in 0..<line.size if match line[i..], last break;
+
+        sum += first * 10 + last;
+    }
+
+    printf "[Part 2] Sum: %d\n".data, sum;
 }

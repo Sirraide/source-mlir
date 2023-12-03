@@ -135,6 +135,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Integer:
         case Tk::IntegerType:
         case Tk::LBrace:
+        case Tk::LBrack:
         case Tk::LParen:
         case Tk::Nil:
         case Tk::NoReturn:
@@ -218,12 +219,13 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
     );
 }
 
-/// <expr-decl-ref> ::= IDENTIFIER
-/// <expr-access>   ::= [ <expr> ] "." IDENTIFIER
-/// <expr-literal>  ::= INTEGER_LITERAL | STRING_LITERAL
-/// <expr-invoke>   ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
-/// <expr-paren>    ::= "(" <expr> ")"
+/// <expr-decl-ref>  ::= IDENTIFIER
+/// <expr-access>    ::= [ <expr> ] "." IDENTIFIER
+/// <expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL
+/// <expr-invoke>    ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
+/// <expr-paren>     ::= "(" <expr> ")"
 /// <expr-subscript> ::= <expr> "[" <expr> "]"
+/// <array-literal>  ::= "[" { <expr>  "," } [ <expr> ] "]"
 auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
     /// A ProcDecl must be wrapped in DeclRefExpr if it is not a full
     /// expression or not preceded by 'export'.
@@ -398,6 +400,21 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             if (IsError(expr)) return expr.diag;
             lhs = new (mod) ParenExpr(*expr, {start, curr_loc});
             Next();
+        } break;
+
+        /// Array literal.
+        case Tk::LBrack: {
+            auto start = Next();
+            SmallVector<Expr*> exprs;
+            while (not At(Tk::RBrack, Tk::Eof)) {
+                auto expr = ParseExpr();
+                if (IsError(expr)) return expr.diag;
+                exprs.push_back(*expr);
+                if (not Consume(Tk::Comma)) break;
+            }
+
+            lhs = new (mod) ArrayLitExpr(std::move(exprs), {start, curr_loc});
+            if (not Consume(Tk::RBrack)) Error("Expected ']'");
         } break;
     }
 

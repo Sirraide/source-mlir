@@ -115,14 +115,14 @@ private:
     /// as needed. This  *will* perform lvalue-to-rvalue conversion if
     /// the type conversion requires it and also in any case unless \p
     /// lvalue is true.
-    bool Convert(Expr*& e, Expr* to, bool lvalue = false);
+    bool Convert(Expr*& e, Expr::TypeHandle to, bool lvalue = false);
 
     /// Implements Convert() and TryConvert().
     template <bool perform_conversion>
     int ConvertImpl(
         std::conditional_t<perform_conversion, Expr*&, Expr*> e,
-        Expr* from, /// Required for recursive calls in non-conversion mode.
-        Expr* to
+        Expr::TypeHandle from, /// Required for recursive calls in non-conversion mode.
+        Expr::TypeHandle to
     );
 
     /// Ensure that an expression is valid as the condition of an if expression,
@@ -208,7 +208,7 @@ private:
     /// Like Convert(), but does not perform the conversion, does not
     /// issue any diagnostics, and returns a score suitable for overload
     /// resolution.
-    int TryConvert(Expr* e, Expr* to);
+    int TryConvert(Expr* e, Expr::TypeHandle to);
 
     /// Strip references and optionals (if they’re active) from the expression
     /// to yield the underlying value.

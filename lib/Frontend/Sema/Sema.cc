@@ -48,8 +48,8 @@ enum : int {
 template <bool perform_conversion>
 int src::Sema::ConvertImpl(
     std::conditional_t<perform_conversion, Expr*&, Expr*> e,
-    Expr* from_ty,
-    Expr* type
+    Expr::TypeHandle from_ty,
+    Expr::TypeHandle type
 ) {
     /// Sanity checks.
     if (e->sema.errored or type->sema.errored) return false;
@@ -253,7 +253,7 @@ int src::Sema::ConvertImpl(
     return InvalidScore;
 }
 
-bool src::Sema::Convert(Expr*& e, Expr* type, bool lvalue) {
+bool src::Sema::Convert(Expr*& e, Expr::TypeHandle type, bool lvalue) {
     bool ok = ConvertImpl<true>(e, e->type, type) != InvalidScore;
     if (ok and not lvalue) InsertLValueToRValueConversion(e);
     return ok;
@@ -331,7 +331,7 @@ bool src::Sema::MakeDeclType(Expr*& e) {
     return true;
 }
 
-int src::Sema::TryConvert(src::Expr* e, src::Expr* to) {
+int src::Sema::TryConvert(src::Expr* e, Expr::TypeHandle to) {
     return ConvertImpl<false>(e, e->type, to);
 }
 
@@ -401,7 +401,7 @@ auto src::Sema::PerformOverloadResolution(
         /// 2c.
         for (usz j = 0; j < params.size(); j++) {
             if (isa<OverloadSetExpr>(args[j])) continue;
-            auto s = TryConvert(args[j], params[j]);
+            auto s = TryConvert(args[j], params[j]->as_type);
             if (s == InvalidScore) {
                 ci.s = Candidate::Status::ArgumentTypeMismatch;
                 ci.mismatch_index = j;
@@ -419,7 +419,7 @@ auto src::Sema::PerformOverloadResolution(
 
             /// Compute scores for each overload.
             SmallVector<int> scores(os->overloads.size());
-            for (auto [i, o] : vws::enumerate(os->overloads)) scores[usz(i)] = TryConvert(o, params[j]);
+            for (auto [i, o] : vws::enumerate(os->overloads)) scores[usz(i)] = TryConvert(o, params[j]->as_type);
             auto it = utils::UniqueMin(scores, [](int i) { return i != InvalidScore; });
             if (it == scores.end()) {
                 ci.s = Candidate::Status::NoViableArgOverload;
@@ -451,7 +451,7 @@ auto src::Sema::PerformOverloadResolution(
     auto& params = cast<ProcType>(proc->type)->param_types;
     for (usz i = 0; i < args.size(); i++) {
         if (i < params.size()) {
-            auto ok = Convert(args[i], params[i]);
+            auto ok = Convert(args[i], params[i]->as_type);
             Assert(ok, "Convert() must succeed if TryConvert() did");
         }
 
@@ -986,6 +986,47 @@ bool src::Sema::Analyse(Expr*& e) {
             p->is_lvalue = p->expr->is_lvalue;
         } break;
 
+        case Expr::Kind::ArrayLiteralExpr: {
+            auto a = cast<ArrayLitExpr>(e);
+            for (auto& elem : a->elements)
+                if (not Analyse(elem))
+                    return e->sema.set_errored();
+
+            /// Empty array is a special type since it has no inherent type.
+            if (a->elements.empty()) {
+                a->stored_type = Type::EmptyArray;
+                break;
+            }
+
+            /// Elements must all be of the same type.
+            for (usz i = 1; i < a->elements.size(); i++) {
+                if (not Convert(a->elements[i], a->elements[0]->type)) {
+                    Error(
+                        a->elements[i],
+                        "Type '{}' is not convertible to the array element type",
+                        a->elements[i]->type,
+                        a->elements[0]->type
+                    );
+
+                    Diag::Note(
+                        mod->context,
+                        a->elements[0]->location,
+                        "Array literal element type was deduced to be '{}' here",
+                        a->elements[0]->type.str(true)
+                    );
+
+                    return e->sema.set_errored();
+                }
+            }
+
+            /// Array type is the type of the first element.
+            a->stored_type = new (mod) ArrayType(
+                a->elements[0]->type,
+                new (mod) ConstExpr(nullptr, EvalResult(APInt(64, a->elements.size()), Type::Int), a->location),
+                a->location
+            );
+        } break;
+
         /// String literals are u8 slices.
         case Expr::Kind::StringLiteralExpr: {
             auto str = cast<StrLitExpr>(e);
@@ -1020,7 +1061,7 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not EvaluateAsIntegerInPlace(arr->dim_expr)) return e->sema.set_errored();
 
             /// Element type must be legal in a declaration.
-            if (not AnalyseAsType(arr->elem) or not MakeDeclType<true>(arr->elem))
+            if (not AnalyseAsType(arr->elem.ptr) or not MakeDeclType<true>(arr->elem.ptr))
                 return e->sema.set_errored();
         } break;
 
@@ -1030,7 +1071,7 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::OptionalType: /// TODO: `bool?` should be ill-formed or require special syntax.
         case Expr::Kind::SliceType:
         case Expr::Kind::ClosureType:
-            Analyse(cast<SingleElementTypeBase>(e)->elem);
+            Analyse(cast<SingleElementTypeBase>(e)->elem.ptr);
             break;
 
         /// Parameters and return type must be complete.
@@ -1419,7 +1460,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// Make sure the types match.
                 for (usz i = 0; i < invoke->args.size(); i++) {
                     if (i < ptype->param_types.size()) {
-                        if (not Convert(invoke->args[i], ptype->param_types[i])) {
+                        if (not Convert(invoke->args[i], ptype->param_types[i]->as_type)) {
                             e->sema.set_errored();
                             Error(
                                 invoke->args[i],
@@ -2666,7 +2707,7 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
 
     /// Helper to emit a trivial copy.
     auto TrivialCopy = [&](Expr* type) {
-        if (not Convert(var->init_args[0], type)) return Error(
+        if (not Convert(var->init_args[0], type->as_type)) return Error(
             var->init_args[0],
             "Cannot convert '{}' to '{}'",
             var->init_args[0]->type,
@@ -2753,7 +2794,7 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
                 Analyse(ref);
 
                 /// First argument must be a reference.
-                if (not Convert(var->init_args[0], ref)) return Error(
+                if (not Convert(var->init_args[0], ref->as_type)) return Error(
                     var,
                     "Cannot convert '{}' to '{}'",
                     var->init_args[0]->type,
