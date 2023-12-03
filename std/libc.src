@@ -6,3 +6,4 @@ export proc fgets(i8&, i32, i8&) extern nomangle -> i8&?;
 export proc printf(i8&) extern nomangle variadic -> i32;
 export proc perror(i8&?) extern nomangle;
 export proc exit(i32) extern nomangle -> noreturn;
+export proc strlen(i8&) extern nomangle -> int;

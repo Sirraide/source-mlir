@@ -4,8 +4,12 @@
 /// - Optionals (nullable refs only for now)
 /// - nil
 /// - var
+/// - for in
+/// - for~ in
 
 import libc.*;
+
+proc isdigit(i8 c) = c >= '0'[0] and c <= '9'[0];
 
 proc die(i8[] message) -> noreturn {
     printf "%.*s: ".data, message.size as i32, message.data;
@@ -22,18 +26,24 @@ int sum;
 
 /// Because of the check above, the compiler knows that
 /// `file` is non-nil here, so it unwraps it automatically.
-while var line = fgets buffer as i8&, 1024, file {
-    int i;
+while fgets buffer.data, 1024, file {
+    i8[] line = buffer, strlen buffer.data;
+    i8 first;
+    i8 last;
 
-    /// Find first and last number.
-    while line[i] != 0 and (line[i] < '0'[0] or line[i] > '9'[0]) i += 1;
-    var first = line[i] - '0'[0];
+    /// Find first number.
+    for c in line if isdigit c {
+        first = c - '0'[0];
+        break;
+    }
 
-    i = 1024 - 1;
-    while line[i] != 0 and (line[i] < '0'[0] or line[i] > '9'[0]) i -= 1;
-    var last = line[i] - '0'[0];
+    /// Find last number.
+    for~ c in line if isdigit c {
+        last = c - '0'[0];
+        break;
+    }
 
-    sum += first + last;
+    sum += first * 10 + last;
 }
 
 printf "Sum: %d\n".data, sum;

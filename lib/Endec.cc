@@ -97,6 +97,7 @@ auto Expr::TypeHandle::_mangled_name() -> std::string {
         case Expr::Kind::ReturnExpr:
         case Expr::Kind::DeferExpr:
         case Expr::Kind::WhileExpr:
+        case Expr::Kind::ForInExpr:
         case Expr::Kind::ExportExpr:
         case Expr::Kind::LoopControlExpr:
         case Expr::Kind::GotoExpr:

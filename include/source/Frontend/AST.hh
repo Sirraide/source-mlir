@@ -85,9 +85,13 @@ public:
         /// SingleElementType [end]
         /// Type [end]
 
+        /// Loop [begin]
+        WhileExpr,
+        ForInExpr,
+        /// Loop [end]
+
         AssertExpr,
         DeferExpr,
-        WhileExpr,
         ExportExpr,
         LabelExpr,
         EmptyExpr,
@@ -325,11 +329,9 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::DeferExpr; }
 };
 
-class WhileExpr : public Expr {
+/// Base class for loops.
+class Loop : public Expr {
 public:
-    /// The condition of this while loop.
-    Expr* cond;
-
     /// The body of this while loop.
     BlockExpr* body;
 
@@ -337,13 +339,48 @@ public:
     mlir::Block* cond_block{};
     mlir::Block* join_block{};
 
-    WhileExpr(Expr* cond, BlockExpr* body, Location loc)
-        : Expr(Kind::WhileExpr, loc),
-          cond(cond),
+    Loop(Kind k, BlockExpr* body, Location loc)
+        : Expr(k, loc),
           body(body) {}
 
     /// RTTI.
+    static bool classof(const Expr* e) {
+        return e->kind >= Kind::WhileExpr and e->kind <= Kind::ForInExpr;
+    }
+};
+
+class WhileExpr : public Loop {
+public:
+    /// The condition of this while loop.
+    Expr* cond;
+
+    WhileExpr(Expr* cond, BlockExpr* body, Location loc)
+        : Loop(Kind::WhileExpr, body, loc),
+          cond(cond) {}
+
+    /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::WhileExpr; }
+};
+
+class ForInExpr : public Loop {
+public:
+    /// The iteration variable of this for-in loop.
+    LocalDecl* iter;
+
+    /// The range that we’re iterating over.
+    Expr* range;
+
+    /// Whether we’re iterating in reverse.
+    bool reverse;
+
+    ForInExpr(LocalDecl* iter, Expr* range, BlockExpr* body, bool reverse, Location loc)
+        : Loop(Kind::ForInExpr, body, loc),
+          iter(iter),
+          range(range),
+          reverse(reverse) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ForInExpr; }
 };
 
 /// Base class for expressions that unwind the stack.
@@ -384,7 +421,7 @@ public:
 
     /// Resolved expression. This is set to the parent
     /// if there is no label. This is resolved in Sema.
-    WhileExpr* target{};
+    Loop* target{};
 
     /// Whether this is a continue or break.
     bool is_continue;
@@ -978,9 +1015,11 @@ class Constructor {
 public:
     enum struct Kind {
         Invalid,
+        Uninitialised,
         MoveParameter,
         Zeroinit,
         TrivialCopy,
+        SliceFromParts,
         InitialiserCall,
     } k;
 
@@ -996,9 +1035,17 @@ public:
 
     static auto InitialiserCall(ProcDecl* init) -> Constructor { return {Kind::InitialiserCall, init}; }
     static auto MoveParameter() -> Constructor { return {Kind::MoveParameter}; }
+    static auto SliceFromParts() -> Constructor { return {Kind::SliceFromParts}; }
     static auto TrivialCopy() -> Constructor { return {Kind::TrivialCopy}; }
+    static auto Uninitialised() -> Constructor { return {Kind::Uninitialised}; }
     static auto Unset() -> Constructor { return {Kind::Invalid}; }
     static auto Zeroinit() -> Constructor { return {Kind::Zeroinit}; }
+};
+
+enum struct LocalKind {
+    Variable,    /// Regular stack variable.
+    Parameter,   /// Procedure parameter.
+    Synthesised, /// Named lvalue that points to an object somewhere else.
 };
 
 /// Local variable declaration.
@@ -1019,8 +1066,8 @@ public:
     /// Index in capture list of parent procedure, if any.
     isz capture_index{};
 
-    /// Whether this is actually a parameter.
-    bool parameter = false;
+    /// What kind of variable this is.
+    LocalKind local_kind;
 
     /// If this is a variable of optional type, whether a value
     /// is currently present.
@@ -1037,12 +1084,12 @@ public:
         std::string name,
         Expr* type,
         SmallVector<Expr*> init,
-        bool parameter,
+        LocalKind kind,
         Location loc
     ) : Decl(Kind::LocalDecl, std::move(name), type, loc),
         parent(parent),
         init_args(std::move(init)),
-        parameter(parameter) {
+        local_kind(kind) {
     }
 
     /// Mark this declaration as captured.

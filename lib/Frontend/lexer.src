@@ -115,6 +115,13 @@ dynamic struct Expr {
 /// character or substring (e.g. `if "foo" in s { ... }`).
 
 
+/// Iteration over multiple sequences at once:
+///
+/// for var i in A, var j in B do ...
+///
+/// Iteration + index:
+/// for enum i, var x in A do ...
+
 module lexer;
 
 export enum Tk {

@@ -59,14 +59,13 @@ int src::Sema::ConvertImpl(
     auto from = from_ty->as_type;
     int score = 0;
 
+    /// If the types are equal, then they’re convertible to one another.
+    if (Type::Equal(from, to)) return score;
+
     /// Active optionals are convertible to the type they contain. There
     /// are no other valid conversions involving optionals at the moment.
-    if (
-        auto local = dyn_cast<LocalDecl>(e->ignore_paren_refs);
-        local and
-        local->has_value
-    ) {
-        auto ty = cast<OptionalType>(local->type);
+    if (e->is_active_optional) {
+        auto ty = cast<OptionalType>(e->ignore_paren_refs->type);
         if constexpr (perform_conversion) {
             e = new (mod) CastExpr(CastKind::OptionalUnwrap, e, ty->elem, e->location);
             Analyse(e);
@@ -135,7 +134,7 @@ int src::Sema::ConvertImpl(
         }
     }
 
-    /// If the types are equal, then they’re convertible to one another.
+    /// Check for equality one more time.
     if (Type::Equal(from, to)) return score;
 
     /// Procedures are convertible to closures, but *not* the other way around.
@@ -1145,7 +1144,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 if (target == curr_proc->labels.end()) return Error(l->location, "Unknown label '{}'", l->label);
 
                 /// Make sure the label labels a loop.
-                auto loop = dyn_cast<WhileExpr>(target->second->expr);
+                auto loop = dyn_cast<Loop>(target->second->expr);
                 if (not loop) return Error(l->location, "Label '{}' does not label a loop", l->label);
 
                 /// Set the target to the label and make sure we’re
@@ -1446,7 +1445,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         cast<DeclRefExpr>(name)->name,
                         invoke->callee,
                         std::move(init),
-                        false,
+                        LocalKind::Variable,
                         name->location
                     );
                 };
@@ -1540,16 +1539,17 @@ bool src::Sema::Analyse(Expr*& e) {
                 if (not Analyse(object)) return Diag();
                 auto unwrapped = object->unwrapped_type;
 
-                /// A slice type has a `data` and a `size` member.
+                /// A slice/array type has a `data` and a `size` member.
                 ///
-                /// Neither of these are lvalues since slices are
-                /// supposed to be pretty much immutable, and you
-                /// should create a new one rather than changing
-                /// the size or the data pointer.
-                if (auto slice = dyn_cast<SliceType>(unwrapped)) {
+                /// Neither of these are lvalues since slices are supposed
+                /// to be pretty much immutable (and arrays are *actually*
+                /// immutable in this respect), and you should create a new
+                /// one rather than changing the size or the data pointer.
+                if (isa<ArrayType, SliceType>(unwrapped)) {
+                    auto ty = dyn_cast<SingleElementTypeBase>(unwrapped);
                     if (m->member == "data") {
                         UnwrapInPlace(object);
-                        m->stored_type = new (mod) ReferenceType(slice->elem, m->location);
+                        m->stored_type = new (mod) ReferenceType(ty->elem, m->location);
                         Assert(Analyse(m->stored_type));
                         return {};
                     }
@@ -1564,7 +1564,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         mod->context,
                         m->location,
                         "Type '{}' has no '{}' member",
-                        slice->as_type.str(true),
+                        ty->as_type.str(true),
                         m->member
                     );
                 }
@@ -1680,9 +1680,15 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
 
             /// Parameters are currently move-only and need no special handling.
-            if (var->parameter) {
+            if (var->local_kind == LocalKind::Parameter) {
                 if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
                 var->ctor = Constructor::MoveParameter();
+            }
+
+            /// Synthesised variables are just lvalues that point somewhere else.
+            else if (var->local_kind == LocalKind::Synthesised) {
+                if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
+                var->ctor = Constructor::Uninitialised();
             }
 
             /// If the type is unknown, then we must infer it from
@@ -1818,6 +1824,38 @@ bool src::Sema::Analyse(Expr*& e) {
             Assert(b == w->body, "Body of while expression must be a block");
         } break;
 
+        /// For in loops.
+        case Expr::Kind::ForInExpr: {
+            auto f = cast<ForInExpr>(e);
+
+            /// Make sure the range is something we can iterate over; currently,
+            /// that’s only arrays and slices.
+            if (not Analyse(f->range)) return e->sema.set_errored();
+            UnwrapInPlace(f->range);
+            if (not isa<ArrayType, SliceType>(f->range->type)) return Error(
+                f->range,
+                "Type '{}' is not iterable",
+                f->range->type
+            );
+
+            /// The loop variable is an lvalue of the element type of the range.
+            auto s = cast<SingleElementTypeBase>(f->range->type);
+            f->iter->stored_type = s->elem;
+
+            /// Now check the loop variable. We can’t analyse the body if this fails
+            /// since it is probably going to use it.
+            Expr* expr = f->iter;
+            if (not Analyse(expr)) return e->sema.set_errored();
+            Assert(expr == f->iter, "Must not wrap loop variable");
+
+            /// Finally, check the body.
+            loop_stack.push_back(f);
+            defer { loop_stack.pop_back(); };
+            expr = f->body;
+            Analyse(expr);
+            Assert(expr == f->body, "Body of for-in expression must be a block");
+        } break;
+
         /// Export.
         case Expr::Kind::ExportExpr: {
             auto exp = cast<ExportExpr>(e);
@@ -1894,8 +1932,33 @@ bool src::Sema::Analyse(Expr*& e) {
 
         /// Array, slice, and tuple subscripting, as well as array types.
         case Expr::Kind::SubscriptExpr: {
-            Todo();
-        }
+            auto s = cast<SubscriptExpr>(e);
+            if (not Analyse(s->object)) return e->sema.set_errored();
+
+            /// Handle arrays and slices.
+            UnwrapInPlace(s->object, true);
+            if (isa<ArrayType, SliceType>(s->object->type)) {
+                auto ty = cast<SingleElementTypeBase>(s->object->type);
+
+                /// Index must be an integer.
+                if (Analyse(s->index) and not Convert(s->index, Type::Int)) Error(
+                    s->index,
+                    "Index of array or slice must be an integer, but was '{}'",
+                    s->index->type
+                );
+
+                /// Subscripts are lvalues if the object is an lvalue.
+                s->stored_type = ty->elem;
+                s->is_lvalue = s->object->is_lvalue;
+                break;
+            }
+
+            Error(
+                s,
+                "Cannot perform subscripting on type '{}'",
+                s->object->type
+            );
+        } break;
 
         /// Binary operators are complicated.
         case Expr::Kind::BinaryExpr: {
@@ -2596,6 +2659,43 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
             Todo("Non-trivial array initialisation");
         }
 
+        case Expr::Kind::SliceType: {
+            if (var->init_args.empty()) {
+                var->ctor = Constructor::Zeroinit();
+                return true;
+            }
+
+            if (var->init_args.size() == 1) return TrivialCopy(var->type);
+
+            /// A slice can be constructed from a reference+size.
+            auto s = cast<SliceType>(ty);
+            if (var->init_args.size() == 2) {
+                Expr* ref = new (mod) ReferenceType(s->elem, var->location);
+                Analyse(ref);
+
+                /// First argument must be a reference.
+                if (not Convert(var->init_args[0], ref)) return Error(
+                    var,
+                    "Cannot convert '{}' to '{}'",
+                    var->init_args[0]->type,
+                    ref
+                );
+
+                /// Second argument must be an integer.
+                if (not Convert(var->init_args[1], Type::Int)) return Error(
+                    var,
+                    "Cannot convert '{}' to '{}'",
+                    var->init_args[1]->type,
+                    Type::Int->as_type
+                );
+
+                var->ctor = Constructor::SliceFromParts();
+                return true;
+            }
+
+            return InvalidArgs();
+        }
+
         case Expr::Kind::OptionalType: {
             auto opt = cast<OptionalType>(ty);
             if (not isa<ReferenceType>(opt->elem)) Todo("Non-reference optionals");
@@ -2625,7 +2725,6 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
 
         case Expr::Kind::ProcType: Todo();
         case Expr::Kind::ScopedPointerType: Todo();
-        case Expr::Kind::SliceType: Todo();
         case Expr::Kind::ClosureType: Todo();
     }
 }

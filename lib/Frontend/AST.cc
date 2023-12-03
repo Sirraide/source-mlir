@@ -125,6 +125,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::ReturnExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
+        case Kind::ForInExpr:
         case Kind::LoopControlExpr:
         case Kind::GotoExpr:
         case Kind::LabelExpr:
@@ -202,6 +203,7 @@ auto src::Expr::_type() -> TypeHandle {
         case Kind::AssertExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
+        case Kind::ForInExpr:
         case Kind::ExportExpr:
         case Kind::ModuleRefExpr:
         case Kind::LabelExpr:
@@ -359,6 +361,7 @@ auto src::Expr::TypeHandle::align([[maybe_unused]] src::Context* ctx) -> Align {
         case Kind::EmptyExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
+        case Kind::ForInExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::InvokeBuiltinExpr:
@@ -423,6 +426,7 @@ bool src::Expr::TypeHandle::_default_constructible() {
         case Kind::AssertExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
+        case Kind::ForInExpr:
         case Kind::ExportExpr:
         case Kind::LabelExpr:
         case Kind::EmptyExpr:
@@ -563,6 +567,7 @@ auto src::Expr::TypeHandle::size([[maybe_unused]] src::Context* ctx) -> Size {
         case Kind::EmptyExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
+        case Kind::ForInExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::InvokeBuiltinExpr:
@@ -704,6 +709,7 @@ auto src::Expr::TypeHandle::str(bool use_colour) const -> std::string {
         case Kind::AssertExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
+        case Kind::ForInExpr:
         case Kind::ModuleRefExpr:
         case Kind::ExportExpr:
         case Kind::LabelExpr:
@@ -854,6 +860,7 @@ bool src::Type::Equal(Expr* a, Expr* b) {
         case Kind::EmptyExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
+        case Kind::ForInExpr:
         case Kind::BlockExpr:
         case Kind::InvokeExpr:
         case Kind::InvokeBuiltinExpr:
@@ -1066,6 +1073,8 @@ struct ASTPrinter {
                         case Zeroinit: out += " zeroinit"; break;
                         case TrivialCopy: out += " trivial"; break;
                         case InitialiserCall: out += " init"; break;
+                        case Uninitialised: out += " uninit"; break;
+                        case SliceFromParts: out += " slice"; break;
                     }
                 }
 
@@ -1279,6 +1288,14 @@ struct ASTPrinter {
                     C(Yellow),
                     l->label
                 );
+                return;
+            }
+
+            case K::ForInExpr: {
+                auto f = cast<ForInExpr>(e);
+                PrintBasicHeader("ForInExpr", e);
+                if (f->reverse) out += fmt::format(" {}reverse", C(Yellow));
+                out += "\n";
                 return;
             }
 
@@ -1508,6 +1525,11 @@ struct ASTPrinter {
             case K::WhileExpr: {
                 auto w = cast<WhileExpr>(e);
                 PrintChildren({w->cond, w->body}, leading_text);
+            } break;
+
+            case K::ForInExpr: {
+                auto w = cast<ForInExpr>(e);
+                PrintChildren({w->iter, w->range, w->body}, leading_text);
             } break;
 
             case K::ReturnExpr: {

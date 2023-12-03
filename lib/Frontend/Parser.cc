@@ -126,6 +126,8 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Dot:
         case Tk::Export:
         case Tk::False:
+        case Tk::For:
+        case Tk::ForReverse:
         case Tk::Goto:
         case Tk::Identifier:
         case Tk::If:
@@ -211,7 +213,7 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
         std::move(name),
         *ty,
         {},
-        false,
+        LocalKind::Variable,
         loc
     );
 }
@@ -332,6 +334,11 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             lhs = ParseWhile();
             break;
 
+        case Tk::For:
+        case Tk::ForReverse:
+            lhs = ParseFor();
+            break;
+
         /// <expr-export> ::= EXPORT <expr>
         case Tk::Export: {
             tempset full_expr_or_export = true;
@@ -438,6 +445,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                         Tk::Continue,
                         Tk::Break,
                         Tk::For,
+                        Tk::ForReverse,
                         Tk::Goto,
                         Tk::If,
                         Tk::Match,
@@ -659,6 +667,37 @@ void src::Parser::ParseFile() {
     std::ignore = ParseExprs(Tk::Eof, mod->top_level_func->body->exprs);
 }
 
+/// <expr-for-in> ::= FOR <type> IDENTIFIER IN <expr> <do>
+auto src::Parser::ParseFor() -> Result<Expr*> {
+    auto start = curr_loc;
+    bool reverse = At(Tk::ForReverse);
+    Assert(Consume(Tk::For, Tk::ForReverse));
+
+    /// Iteration variable.
+    ScopeRAII sc{this};
+    if (not At(Tk::Identifier)) return Error("Expected identifier");
+    auto decl = new (mod) LocalDecl(
+        curr_func,
+        tok.text,
+        Type::Unknown,
+        {},
+        LocalKind::Synthesised,
+        tok.location
+    );
+
+    /// Parse range.
+    Next();
+    if (not Consume(Tk::In)) Error("Expected 'in'");
+    auto range = ParseExpr();
+    if (IsError(range)) return range.diag;
+
+    /// Parse body.
+    Consume(Tk::Do);
+    auto body = ParseImplicitBlock();
+    if (IsError(body)) return body.diag;
+    return new (mod) ForInExpr(decl, *range, *body, reverse, start);
+}
+
 /// <expr-decl-ref> ::= IDENTIFIER
 /// <expr-labelled> ::= IDENTIFIER ":" <expr>
 auto src::Parser::ParseIdentExpr() -> Result<Expr*> {
@@ -759,7 +798,7 @@ auto src::Parser::ParseParamDeclList(
                 std::move(sig.name),
                 sig.type,
                 {},
-                true,
+                LocalKind::Parameter,
                 sig.loc
             ));
             param_types.push_back(sig.type);
@@ -787,7 +826,7 @@ auto src::Parser::ParseParamDeclList(
                 std::move(name),
                 *param_type,
                 {},
-                true,
+                LocalKind::Parameter,
                 tok.location
             ));
             param_types.push_back(*param_type);

@@ -161,6 +161,7 @@ private:
     auto ParseExpr(int curr_prec = 0) -> Result<Expr*>;
     auto ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>;
     void ParseFile();
+    auto ParseFor() -> Result<Expr*>;
     auto ParseIdentExpr() -> Result<Expr*>;
     auto ParseIf() -> Result<Expr*>;
     auto ParseImplicitBlock() -> Result<BlockExpr*>;

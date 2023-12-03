@@ -34,7 +34,7 @@ class Sema {
     BlockExpr* curr_scope{};
 
     /// Loops that we’re currently analysing.
-    SmallVector<WhileExpr*, 10> loop_stack;
+    SmallVector<Loop*, 10> loop_stack;
 
     /// The defer expression whose contents we are currently analysing.
     DeferExpr* curr_defer{};

@@ -530,8 +530,13 @@ void src::Lexer::LexIdentifier() {
 
     /// Helper to parse keywords and integer types.
     const auto LexSpecialToken = [&] {
-        if (auto k = keywords.find(tok.text); k != keywords.end()) tok.type = k->second;
-        else if (tok.text.starts_with("i")) {
+        if (auto k = keywords.find(tok.text); k != keywords.end()) {
+            tok.type = k->second;
+            if (tok.type == Tk::For and lastc == '~') {
+                NextChar();
+                tok.type = Tk::ForReverse;
+            }
+        } else if (tok.text.starts_with("i")) {
             /// Note: this returns true on error, for some reason.
             if (not StringRef(tok.text).substr(1).getAsInteger(10, tok.integer))
                 tok.type = Tk::IntegerType;
@@ -919,6 +924,7 @@ auto src::Spelling(Tk t) -> std::string_view {
         case Tk::While: return "while";
         case Tk::Do: return "do";
         case Tk::For: return "for";
+        case Tk::ForReverse: return "for~";
         case Tk::In: return "in";
         case Tk::With: return "with";
         case Tk::Try: return "try";
@@ -1052,6 +1058,7 @@ bool src::operator==(const Token& a, const Token& b) {
         case Tk::While:
         case Tk::Do:
         case Tk::For:
+        case Tk::ForReverse:
         case Tk::In:
         case Tk::With:
         case Tk::Try:

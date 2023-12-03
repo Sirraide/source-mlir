@@ -45,6 +45,7 @@
 <expr-defer>     ::= DEFER <implicit-block>
 <expr-cast>      ::= <expr> ( "as" | "as!" ) <type>
 <expr-while>     ::= WHILE <expr> <do>
+<expr-for-in>    ::= FOR IDENTIFIER IN <expr> <do>
 <expr-labelled>  ::= IDENTIFIER ":" <expr>
 <expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
 <expr-jump>      ::= GOTO IDENTIFIER

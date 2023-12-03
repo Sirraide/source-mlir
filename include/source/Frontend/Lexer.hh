@@ -29,6 +29,7 @@ enum struct Tk {
     While,
     Do,
     For,
+    ForReverse,
     In,
     With,
     Try,

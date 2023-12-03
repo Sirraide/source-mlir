@@ -242,6 +242,9 @@ void src::CodeGen::Construct(
         /// Handled elsewhere.
         case Constructor::Kind::MoveParameter: Unreachable();
 
+        /// Perform no initialisation at all.
+        case Constructor::Kind::Uninitialised: break;
+
         /// Zero-initialisation is accomplished by creating a ConstructOp
         /// with no arguments other than the object itself.
         case Constructor::Kind::Zeroinit: {
@@ -259,6 +262,11 @@ void src::CodeGen::Construct(
                 args[0]
             );
         } break;
+
+        /// Create a slice from a reference+size.
+        case Constructor::Kind::SliceFromParts: {
+            Todo();
+        }
 
         case Constructor::Kind::InitialiserCall: {
             Create<hlir::ConstructOp>(
@@ -689,6 +697,7 @@ auto src::CodeGen::Ty(Expr* type, bool for_closure) -> mlir::Type {
         case Expr::Kind::CastExpr:
         case Expr::Kind::IfExpr:
         case Expr::Kind::WhileExpr:
+        case Expr::Kind::ForInExpr:
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::BinaryExpr:
         case Expr::Kind::LocalDecl:
@@ -1438,6 +1447,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Attach(region, w->join_block);
             builder.setInsertionPointToEnd(w->join_block);
         } break;
+
+        case Expr::Kind::ForInExpr: {
+            Todo();
+        }
 
         case Expr::Kind::UnaryPrefixExpr: {
             auto u = cast<UnaryPrefixExpr>(expr);

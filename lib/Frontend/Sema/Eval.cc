@@ -24,6 +24,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::AssertExpr:
         case Expr::Kind::DeferExpr:
         case Expr::Kind::WhileExpr:
+        case Expr::Kind::ForInExpr:
         case Expr::Kind::ExportExpr:
         case Expr::Kind::LabelExpr:
         case Expr::Kind::EmptyExpr:
