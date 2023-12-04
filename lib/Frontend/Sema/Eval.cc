@@ -18,7 +18,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
         case Expr::Kind::ClosureType:
-            out = e;
+            out = Type(e);
             return true;
 
         case Expr::Kind::AssertExpr:
@@ -97,17 +97,17 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
             auto c = cast<CastExpr>(e);
             if (not Evaluate(c->operand, out, must_succeed)) return false;
             if (c->type.is_int(true) and c->operand->type.is_int(true)) {
-                if (Type::Equal(c->type, c->operand->type)) return true;
+                if (c->type == c->operand->type) return true;
 
                 /// Always *zero-extend* bools to avoid turning true into -1.
                 const auto bits = unsigned(c->type.size(mod->context).bits());
-                if (Type::Equal(c->operand->type, Type::Bool)) {
+                if (c->operand->type == Type::Bool) {
                     out.as_int() = out.as_int().zext(bits);
                     return true;
                 }
 
                 /// Casts to bool must yield 1 if the value is nonzero.
-                if (Type::Equal(c->type, Type::Bool)) {
+                if (c->type == Type::Bool) {
                     out.as_int() = APInt(1, out.as_int().getBoolValue());
                     return true;
                 }

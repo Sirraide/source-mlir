@@ -165,13 +165,13 @@ private:
     auto ParseIdentExpr() -> Result<Expr*>;
     auto ParseIf() -> Result<Expr*>;
     auto ParseImplicitBlock() -> Result<BlockExpr*>;
-    auto ParseParamDeclList(SVI<LocalDecl*>& param_decls, SVI<Expr*>& param_types) -> Location;
+    auto ParseParamDeclList(SVI<LocalDecl*>& param_decls, SVI<Type>& param_types) -> Location;
     void ParsePragma();
     auto ParseProc() -> Result<ProcDecl*>;
     auto ParseProcBody() -> Result<BlockExpr*>;
     auto ParseSignature() -> Signature;
     auto ParseStruct() -> Result<StructType*>;
-    auto ParseType() -> Result<Expr*>;
+    auto ParseType() -> Result<Type>;
     auto ParseWhile() -> Result<Expr*>;
 
     /// Synchronise in case of errors.

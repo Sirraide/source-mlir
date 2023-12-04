@@ -48,19 +48,19 @@ enum : int {
 template <bool perform_conversion>
 int src::Sema::ConvertImpl(
     std::conditional_t<perform_conversion, Expr*&, Expr*> e,
-    Expr::TypeHandle from_ty,
-    Expr::TypeHandle type
+    Type from_ty,
+    Type type
 ) {
     /// Sanity checks.
     if (e->sema.errored or type->sema.errored) return false;
     Assert(from_ty->sema.ok and type->sema.ok, "Cannot convert to unanalysed type");
-    Assert(isa<Type>(type));
-    auto to = type->as_type;
-    auto from = from_ty->as_type;
+    Assert(isa<TypeBase>(type));
+    auto to = type;
+    auto from = from_ty;
     int score = 0;
 
     /// If the types are equal, then they’re convertible to one another.
-    if (Type::Equal(from, to)) return score;
+    if (from == to) return score;
 
     /// Active optionals are convertible to the type they contain. There
     /// are no other valid conversions involving optionals at the moment.
@@ -82,7 +82,7 @@ int src::Sema::ConvertImpl(
         to_ref or isa<ReferenceType, ScopedPointerType>(from)
     ) {
         /// Base types are equal.
-        if (Type::Equal(from.strip_refs_and_pointers, to.strip_refs)) {
+        if (from.strip_refs_and_pointers == to.strip_refs) {
             auto from_depth = from.ref_depth;
             auto to_depth = to.ref_depth;
 
@@ -122,7 +122,7 @@ int src::Sema::ConvertImpl(
             auto from_ref = dyn_cast<ReferenceType>(from);
             to_ref and
             from_ref and
-            tcast<ArrayType>(from_ref->elem).test λ(a, Type::Equal(a->elem, to_ref->elem))
+            tcast<ArrayType>(from_ref->elem).test λ(a, a->elem == to_ref->elem)
         ) {
             if constexpr (perform_conversion) {
                 InsertImplicitDereference(e, 1);
@@ -136,7 +136,7 @@ int src::Sema::ConvertImpl(
         /// Array lvalues can be converted to references to their first element.
         else if (
             auto array = dyn_cast<ArrayType>(from);
-            e->is_lvalue and array and Type::Equal(array->elem, to_ref->elem)
+            e->is_lvalue and array and array->elem == to_ref->elem
         ) {
             if constexpr (perform_conversion) {
                 e = new (mod) CastExpr(CastKind::ArrayToElemRef, e, type, e->location);
@@ -151,11 +151,11 @@ int src::Sema::ConvertImpl(
     }
 
     /// Check for equality one more time.
-    if (Type::Equal(from, to)) return score;
+    if (from == to) return score;
 
     /// Procedures are convertible to closures, but *not* the other way around.
     if (isa<ProcType>(from) and isa<ClosureType>(to)) {
-        if (not Type::Equal(from, cast<ClosureType>(to)->proc_type)) return InvalidScore;
+        if (from != cast<ClosureType>(to)->proc_type) return InvalidScore;
         if constexpr (perform_conversion) {
             InsertLValueToRValueConversion(e);
             InsertImplicitCast(e, type);
@@ -170,7 +170,7 @@ int src::Sema::ConvertImpl(
         auto to_proc = dyn_cast<ProcType>(isa<ClosureType>(to) ? cast<ClosureType>(to)->proc_type : to);
         if (not to_proc) return InvalidScore;
         for (auto o : os->overloads) {
-            if (Type::Equal(o->type, to_proc)) {
+            if (o->type == to_proc) {
                 if constexpr (perform_conversion) {
                     /// Replace the overload set with a DeclRefExpr to the referenced procedure...
                     /// FIXME: Shouldn’t this be run unconditionally?
@@ -239,7 +239,7 @@ int src::Sema::ConvertImpl(
     }
 
     /// Any type is convertible to the optional type of that type.
-    if (auto opt = dyn_cast<OptionalType>(to); Type::Equal(from, opt->elem)) {
+    if (auto opt = dyn_cast<OptionalType>(to); from == opt->elem) {
         if constexpr (perform_conversion) {
             InsertLValueToRValueConversion(e);
             e = new (mod) CastExpr(CastKind::OptionalWrap, e, opt, e->location);
@@ -253,7 +253,7 @@ int src::Sema::ConvertImpl(
     return InvalidScore;
 }
 
-bool src::Sema::Convert(Expr*& e, Expr::TypeHandle type, bool lvalue) {
+bool src::Sema::Convert(Expr*& e, Type type, bool lvalue) {
     bool ok = ConvertImpl<true>(e, e->type, type) != InvalidScore;
     if (ok and not lvalue) InsertLValueToRValueConversion(e);
     return ok;
@@ -290,11 +290,11 @@ bool src::Sema::EnsureCondition(Expr*& e) {
         e->location,
         "Type '{}' of condition must be convertible to '{}'",
         e->type.str(true),
-        Type::Bool->as_type.str(true)
+        Type::Bool.str(true)
     );
 }
 
-void src::Sema::InsertImplicitCast(Expr*& e, Expr* to) {
+void src::Sema::InsertImplicitCast(Expr*& e, Type to) {
     Expr* cast = new (mod) CastExpr(CastKind::Implicit, e, to, e->location);
     Analyse(cast);
     e = cast;
@@ -319,11 +319,11 @@ void src::Sema::InsertLValueToRValueConversion(Expr*& e) {
 }
 
 template <bool in_array>
-bool src::Sema::MakeDeclType(Expr*& e) {
+bool src::Sema::MakeDeclType(Type& e) {
     if (not AnalyseAsType(e)) return false;
-    if (Type::Equal(e, Type::Void)) {
-        if constexpr (in_array) return Error(e, "Cannot declare an array of type 'void'");
-        else return Error(e, "Cannot declare a variable of type 'void'");
+    if (e == Type::Void) {
+        if constexpr (in_array) return Error(e.ptr, "Cannot declare an array of type 'void'");
+        else return Error(e.ptr, "Cannot declare a variable of type 'void'");
     }
 
     /// Procedure types decay to closures.
@@ -331,7 +331,7 @@ bool src::Sema::MakeDeclType(Expr*& e) {
     return true;
 }
 
-int src::Sema::TryConvert(src::Expr* e, Expr::TypeHandle to) {
+int src::Sema::TryConvert(src::Expr* e, Type to) {
     return ConvertImpl<false>(e, e->type, to);
 }
 
@@ -401,7 +401,7 @@ auto src::Sema::PerformOverloadResolution(
         /// 2c.
         for (usz j = 0; j < params.size(); j++) {
             if (isa<OverloadSetExpr>(args[j])) continue;
-            auto s = TryConvert(args[j], params[j]->as_type);
+            auto s = TryConvert(args[j], params[j]);
             if (s == InvalidScore) {
                 ci.s = Candidate::Status::ArgumentTypeMismatch;
                 ci.mismatch_index = j;
@@ -419,7 +419,7 @@ auto src::Sema::PerformOverloadResolution(
 
             /// Compute scores for each overload.
             SmallVector<int> scores(os->overloads.size());
-            for (auto [i, o] : vws::enumerate(os->overloads)) scores[usz(i)] = TryConvert(o, params[j]->as_type);
+            for (auto [i, o] : vws::enumerate(os->overloads)) scores[usz(i)] = TryConvert(o, params[j]);
             auto it = utils::UniqueMin(scores, [](int i) { return i != InvalidScore; });
             if (it == scores.end()) {
                 ci.s = Candidate::Status::NoViableArgOverload;
@@ -451,13 +451,13 @@ auto src::Sema::PerformOverloadResolution(
     auto& params = cast<ProcType>(proc->type)->param_types;
     for (usz i = 0; i < args.size(); i++) {
         if (i < params.size()) {
-            auto ok = Convert(args[i], params[i]->as_type);
+            auto ok = Convert(args[i], params[i]);
             Assert(ok, "Convert() must succeed if TryConvert() did");
         }
 
         /// Convert variadic args to rvalues.
         else {
-            if (Type::Equal(Type::OverloadSet, args[i])) {
+            if (args[i]->type == Type::OverloadSet) {
                 Error(args[i], "Cannot pass an overload set as a variadic argument");
                 return nullptr;
             }
@@ -493,7 +493,7 @@ void src::Sema::ReportOverloadResolutionFailure(
             C(Bold),
             C(White),
             i + 1,
-            o.type->as_type.str(true),
+            o.proc->type.str(true),
             C(White),
             C(Reset)
         );
@@ -1031,14 +1031,12 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::StringLiteralExpr: {
             auto str = cast<StrLitExpr>(e);
             auto loc = str->location;
-            Expr* u8 = IntType::Create(mod, Size::Bits(8));
-            Analyse(u8);
 
             /// Unlike in C++, string literals are *not* lvalues; rather a
             /// new string slice is constructed every time a string literal
             /// is used.
-            str->stored_type = new (mod) SliceType(u8, loc);
-            Analyse(str->stored_type);
+            str->stored_type = new (mod) SliceType(Type::I8, loc);
+            AnalyseAsType(str->stored_type);
         } break;
 
         /// Handled out of line because it’s too complicated.
@@ -1061,7 +1059,7 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not EvaluateAsIntegerInPlace(arr->dim_expr)) return e->sema.set_errored();
 
             /// Element type must be legal in a declaration.
-            if (not AnalyseAsType(arr->elem.ptr) or not MakeDeclType<true>(arr->elem.ptr))
+            if (not AnalyseAsType(arr->elem) or not MakeDeclType<true>(arr->elem))
                 return e->sema.set_errored();
         } break;
 
@@ -1080,9 +1078,9 @@ bool src::Sema::Analyse(Expr*& e) {
 
             for (auto& param : type->param_types) {
                 if (not AnalyseAsType(param) or not MakeDeclType(param)) e->sema.set_errored();
-                else if (Type::Equal(param, Type::Unknown)) {
+                else if (param == Type::Unknown) {
                     e->sema.set_errored();
-                    Error(param, "Type inference is not permitted here");
+                    Error(param.ptr, "Type inference is not permitted here");
                 }
             }
 
@@ -1133,12 +1131,12 @@ bool src::Sema::Analyse(Expr*& e) {
 
                 /// Set offset of each field and determine the size and alignment
                 /// of the struct.
-                auto align = s->all_fields[i].type->as_type.align(mod->context);
+                auto align = s->all_fields[i].type.align(mod->context);
                 AlignField(align, i);
                 s->all_fields[i].offset = s->stored_size;
                 s->all_fields[i].index = index++;
                 s->stored_alignment = std::max(s->stored_alignment, align);
-                s->stored_size += s->all_fields[i].type->as_type.size(mod->context);
+                s->stored_size += s->all_fields[i].type.size(mod->context);
             }
 
             /// Size must be a multiple of the alignment.
@@ -1161,7 +1159,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 Expr* p = i;
                 if (Analyse(p)) {
                     Assert(p == i, "Analysis must not reassign procedure");
-                    Assert(Type::Equal(i->ret_type, Type::Void), "Initialiser must return void");
+                    Assert(i->ret_type == Type::Void, "Initialiser must return void");
                 }
             }
         } break;
@@ -1260,14 +1258,14 @@ bool src::Sema::Analyse(Expr*& e) {
             /// is unspecified, infer the return type from this return
             /// expression.
             auto ret = curr_proc->ret_type;
-            if (Type::Equal(ret, Type::Unknown)) {
+            if (ret == Type::Unknown) {
                 cast<ProcType>(curr_proc->stored_type)->ret_type =
                     not r->value ? Type::Void : r->value->type;
             }
 
             /// Check for noreturn.
-            else if (Type::Equal(ret, Type::NoReturn)) {
-                if (r->value and not Type::Equal(r->value, Type::NoReturn)) return Error(
+            else if (ret == Type::NoReturn) {
+                if (r->value and r->value->type != Type::NoReturn) return Error(
                     e,
                     "'noreturn' function may not return"
                 );
@@ -1280,13 +1278,13 @@ bool src::Sema::Analyse(Expr*& e) {
                     e,
                     "Cannot return a value of type '{}' from a function with return type '{}'",
                     r->value->type,
-                    Type::Void->as_type
+                    Type::Void
                 );
             }
 
             /// Return expression has no argument.
             else {
-                if (not Type::Equal(ret, Type::Void)) {
+                if (ret != Type::Void) {
                     return Error(
                         e,
                         "Function declared with return type '{}' must return a value",
@@ -1307,7 +1305,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 Error(
                     a->cond->location,
                     "Condition of 'assert' must be of type '{}', but was '{}'",
-                    Type::Bool->as_type,
+                    Type::Bool,
                     a->cond->type
                 );
             }
@@ -1318,7 +1316,7 @@ bool src::Sema::Analyse(Expr*& e) {
             if (a->msg and Analyse(a->msg) and not Convert(a->msg, i8slice)) Error(
                 a->msg->location,
                 "Message of 'assert' must be of type '{}', but was '{}'",
-                i8slice->as_type,
+                i8slice,
                 a->msg->type
             );
 
@@ -1390,7 +1388,7 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not b->exprs.empty()) UnwindLocal(&b->unwind, b, b->exprs.back(), b->exprs.front());
 
             /// If the type could not be determined, set it to void.
-            if (Type::Equal(b->stored_type, Type::Unknown)) b->stored_type = Type::Void;
+            if (b->stored_type == Type::Unknown) b->stored_type = Type::Void;
         } break;
 
         /// An invoke expression may be a procedure call, or a declaration.
@@ -1446,7 +1444,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// If the callee is of function type, and not a type itself,
             /// then this is a function call.
-            if (isa<ProcType, ClosureType>(invoke->callee->type) and not isa<Type>(invoke->callee)) {
+            if (isa<ProcType, ClosureType>(invoke->callee->type) and not isa<TypeBase>(invoke->callee)) {
                 auto ptype = invoke->callee->type.callable;
 
                 /// Callee must be an rvalue.
@@ -1460,7 +1458,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// Make sure the types match.
                 for (usz i = 0; i < invoke->args.size(); i++) {
                     if (i < ptype->param_types.size()) {
-                        if (not Convert(invoke->args[i], ptype->param_types[i]->as_type)) {
+                        if (not Convert(invoke->args[i], ptype->param_types[i])) {
                             e->sema.set_errored();
                             Error(
                                 invoke->args[i],
@@ -1495,8 +1493,9 @@ bool src::Sema::Analyse(Expr*& e) {
             }
 
             /// Otherwise, if the callee is a type, then this is a declaration.
-            else if (isa<Type>(invoke->callee)) {
-                if (not MakeDeclType(invoke->callee)) e->sema.set_errored();
+            else if (isa<TypeBase>(invoke->callee)) {
+                Type ty{invoke->callee};
+                if (not MakeDeclType(ty)) e->sema.set_errored();
 
                 /// The arguments must be DeclRefExprs.
                 for (auto& arg : invoke->args) {
@@ -1511,7 +1510,7 @@ bool src::Sema::Analyse(Expr*& e) {
                     return new (mod) LocalDecl(
                         curr_proc,
                         cast<DeclRefExpr>(name)->name,
-                        invoke->callee,
+                        ty,
                         std::move(init),
                         LocalKind::Variable,
                         name->location
@@ -1567,7 +1566,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// result is an *rvalue* of reference type.
                 case CastKind::LValueToReference:
                     m->stored_type = new (mod) ReferenceType(m->operand->type, m->location);
-                    Analyse(m->stored_type);
+                    AnalyseAsType(m->stored_type);
                     break;
 
                 /// Only generated by sema. Convert an optional to a bool.
@@ -1585,13 +1584,13 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// is never an lvalue, and the type is already set.
                 case CastKind::OptionalWrap:
                     m->stored_type = new (mod) OptionalType(m->operand->type, m->location);
-                    Analyse(m->stored_type);
+                    AnalyseAsType(m->stored_type);
                     break;
 
                 /// Only generated by sema. Convert an array lvalue to the element type.
                 case CastKind::ArrayToElemRef:
                     m->stored_type = new (mod) ReferenceType(cast<ArrayType>(m->operand->type)->elem, m->location);
-                    Analyse(m->stored_type);
+                    AnalyseAsType(m->stored_type);
                     break;
 
                 /// Only generated by sema. No-op here. Currently, there
@@ -1626,7 +1625,7 @@ bool src::Sema::Analyse(Expr*& e) {
                     if (m->member == "data") {
                         UnwrapInPlace(object);
                         m->stored_type = new (mod) ReferenceType(ty->elem, m->location);
-                        Assert(Analyse(m->stored_type));
+                        Assert(AnalyseAsType(m->stored_type));
                         return {};
                     }
 
@@ -1640,7 +1639,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         mod->context,
                         m->location,
                         "Type '{}' has no '{}' member",
-                        ty->as_type.str(true),
+                        unwrapped.str(true),
                         m->member
                     );
                 }
@@ -1664,7 +1663,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         mod->context,
                         m->location,
                         "Type '{}' has no '{}' member",
-                        arr->as_type.str(true),
+                        unwrapped.str(true),
                         m->member
                     );
                 }
@@ -1677,7 +1676,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         mod->context,
                         m->location,
                         "Type '{}' has no '{}' member",
-                        s->as_type.str(true),
+                        unwrapped.str(true),
                         m->member
                     );
 
@@ -1744,9 +1743,9 @@ bool src::Sema::Analyse(Expr*& e) {
                 sa->resolved = exp->second[0];
 
                 /// If this is a type, replace it w/ a scoped type.
-                if (isa<Type>(sa->resolved)) {
+                if (auto ty = dyn_cast<TypeBase>(sa->resolved)) {
                     e->sema.unset(); /// Other instances of this will have to be replaced w/ this again.
-                    e = new (mod) ScopedType(sa->element, sa->object, sa->resolved, sa->location);
+                    e = new (mod) ScopedType(sa->element, sa->object, ty, sa->location);
                 }
 
                 /// Otherwise, this stays as a ScopeAccessExpr.
@@ -1802,7 +1801,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// If the type is unknown, then we must infer it from
             /// the initialiser.
-            else if (Type::Equal(var->stored_type, Type::Unknown)) {
+            else if (var->stored_type == Type::Unknown) {
                 if (var->init_args.empty()) return Error(var, "Type inference requires an initialiser");
                 if (var->init_args.size() != 1) Todo();
                 if (not Analyse(var->init_args[0])) return e->sema.set_errored();
@@ -1874,7 +1873,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 }
 
                 if (not Analyse(i->then)) return e->sema.set_errored();
-                if (Type::Equal(i->then->type, Type::NoReturn)) local->decl->has_value = true;
+                if (i->then->type == Type::NoReturn) local->decl->has_value = true;
             } // clang-format on
 
             /// Otherwise, there is nothing to infer.
@@ -2107,7 +2106,7 @@ bool src::Sema::Analyse(Expr*& e) {
                                 "Operands of '{}' must be of type '{}', but was '{}'. "
                                 "Help: did you mean to use 'l{}' instead for a bitwise operation?",
                                 Spelling(b->op),
-                                Type::Bool->as_type,
+                                Type::Bool,
                                 e->type,
                                 Spelling(b->op)
                             );
@@ -2116,7 +2115,7 @@ bool src::Sema::Analyse(Expr*& e) {
                                 e,
                                 "Operands of '{}' must be of type '{}', but was '{}'",
                                 Spelling(b->op),
-                                Type::Bool->as_type,
+                                Type::Bool,
                                 e->type
                             );
                         }
@@ -2161,7 +2160,7 @@ bool src::Sema::Analyse(Expr*& e) {
                     /// don’t have the same size. Integer conversions from a
                     /// smaller to a larger type can never fail, which is why
                     /// we assert rather than error here.
-                    if (not Type::Equal(b->lhs->type, b->rhs->type)) {
+                    if (b->lhs->type != b->rhs->type) {
                         auto lsz = b->lhs->type.size(mod->context);
                         auto rsz = b->rhs->type.size(mod->context);
                         if (lsz >= rsz) Assert(Convert(b->rhs, b->lhs->type));
@@ -2314,8 +2313,8 @@ bool src::Sema::Analyse(Expr*& e) {
                     /// 6.
                     if (not Convert(b->rhs, b->lhs->type)) {
                         if (
-                            not Type::Equal(b->rhs->type, rtype_saved) or
-                            not Type::Equal(b->lhs->type, ltype_saved)
+                            b->rhs->type != rtype_saved or
+                            b->lhs->type != ltype_saved
                         ) {
                             Diag::Note(
                                 mod->context,
@@ -2346,9 +2345,9 @@ bool src::Sema::Analyse(Expr*& e) {
     return not e->sema.errored;
 }
 
-bool src::Sema::AnalyseAsType(Expr*& e) {
-    Analyse(e);
-    if (e->sema.ok and not isa<Type>(e)) Error(e->location, "Not a type");
+bool src::Sema::AnalyseAsType(Type& e) {
+    Analyse(e.ptr);
+    if (e->sema.ok and not isa<TypeBase>(e.ptr)) Error(e->location, "Not a type");
     return e->sema.ok;
 }
 
@@ -2432,9 +2431,9 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
     if (not Analyse(d->decl)) return d->sema.set_errored();
 
     /// If this is a type, replace it w/ a sugared type.
-    if (isa<Type>(d->decl)) {
+    if (auto ty = dyn_cast<TypeBase>(d->decl)) {
         e->sema.unset(); /// Other instances of this will have to be replaced w/ this again.
-        e = new (mod) SugaredType(d->name, d->decl, d->location);
+        e = new (mod) SugaredType(d->name, ty, d->location);
     }
 
     /// If it is a variable declaration, replace it w/ a variable reference.
@@ -2453,7 +2452,7 @@ void src::Sema::AnalyseExplicitCast(Expr*& e, [[maybe_unused]] bool is_hard) {
     auto c = cast<CastExpr>(e);
 
     /// Check the type. We can’t cast if there is a problem w/ it.
-    if (not Analyse(c->stored_type) or not Analyse(c->operand)) {
+    if (not AnalyseAsType(c->stored_type) or not Analyse(c->operand)) {
         e->sema.set_errored();
         return;
     }
@@ -2490,11 +2489,12 @@ bool src::Sema::AnalyseInvokeBuiltin(Expr*& e) {
             );
 
             /// Operand must be a type.
-            if (not AnalyseAsType(invoke->args[0])) return e->sema.set_errored();
+            Type ty{invoke->args[0]};
+            if (not AnalyseAsType(ty)) return e->sema.set_errored();
 
             /// Type is a scoped pointer to the allocated type.
             invoke->stored_type = new (mod) ScopedPointerType(
-                invoke->args[0],
+                ty,
                 invoke->location
             );
 
@@ -2549,7 +2549,7 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
         proc->name = fmt::format("__srcc_lambda_{}", lambda_counter++);
 
     /// Sanity check.
-    if (Type::Equal(proc->ret_type, Type::Unknown) and not proc->body->implicit) Diag::ICE(
+    if (proc->ret_type == Type::Unknown and not proc->body->implicit) Diag::ICE(
         mod->context,
         proc->location,
         "Non-inferred procedure has unknown return type"
@@ -2582,7 +2582,7 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
         Expr*& e = proc->body->exprs[0];
 
         /// Infer type.
-        if (Type::Equal(proc->ret_type, Type::Unknown)) {
+        if (proc->ret_type == Type::Unknown) {
             cast<ProcType>(proc->stored_type)->ret_type = body->type;
         }
 
@@ -2602,20 +2602,22 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
     }
 
     /// Make sure all paths return a value.
-    else if (not Type::Equal(proc->ret_type, Type::Void)) {
-        if (not Type::Equal(body->type, Type::NoReturn)) {
-            if (Type::Equal(proc->ret_type, Type::NoReturn)) Error(
-                proc->location,
-                "Procedure '{}' returns despite being marked as 'noreturn'",
-                proc->name
-            );
+    ///
+    /// A function marked as returning void requires no checking and is allowed
+    /// to not return at all. Accordingly, a function that actually never returns
+    /// is also always fine, since 'noreturn' is convertible to any type.
+    else if (proc->ret_type != Type::Void and body->type != Type::NoReturn) {
+        if (proc->ret_type == Type::NoReturn) Error(
+            proc->location,
+            "Procedure '{}' returns despite being marked as 'noreturn'",
+            proc->name
+        );
 
-            else Error(
-                proc->location,
-                "Procedure '{}' does not return a value on all paths",
-                proc->name
-            );
-        }
+        else Error(
+            proc->location,
+            "Procedure '{}' does not return a value on all paths",
+            proc->name
+        );
     }
 
     /// Handle unwinding.
@@ -2690,7 +2692,7 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
     /// Helper to print the argument types.
     auto FormatArgTypes = [&](auto args) {
         return fmt::join(
-            vws::transform(args, [&](auto* e) { return e->as_type.str(true); }),
+            vws::transform(args, [&](auto* e) { return e->type.str(true); }),
             ", "
         );
     };
@@ -2706,8 +2708,8 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
     };
 
     /// Helper to emit a trivial copy.
-    auto TrivialCopy = [&](Expr* type) {
-        if (not Convert(var->init_args[0], type->as_type)) return Error(
+    auto TrivialCopy = [&](Type type) {
+        if (not Convert(var->init_args[0], type)) return Error(
             var->init_args[0],
             "Cannot convert '{}' to '{}'",
             var->init_args[0]->type,
@@ -2769,7 +2771,7 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
 
         case Expr::Kind::ArrayType: {
             auto arr = cast<ArrayType>(ty);
-            Expr* base = arr;
+            Type base = arr;
             while (auto a = dyn_cast<ArrayType>(base)) base = a->elem;
             if (isa<IntType, BuiltinType, FFIType>(base) and var->init_args.empty()) {
                 var->ctor = Constructor::Zeroinit();
@@ -2790,11 +2792,11 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
             /// A slice can be constructed from a reference+size.
             auto s = cast<SliceType>(ty);
             if (var->init_args.size() == 2) {
-                Expr* ref = new (mod) ReferenceType(s->elem, var->location);
-                Analyse(ref);
+                Type ref = new (mod) ReferenceType(s->elem, var->location);
+                AnalyseAsType(ref);
 
                 /// First argument must be a reference.
-                if (not Convert(var->init_args[0], ref->as_type)) return Error(
+                if (not Convert(var->init_args[0], ref)) return Error(
                     var,
                     "Cannot convert '{}' to '{}'",
                     var->init_args[0]->type,
@@ -2806,7 +2808,7 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
                     var,
                     "Cannot convert '{}' to '{}'",
                     var->init_args[1]->type,
-                    Type::Int->as_type
+                    Type::Int
                 );
 
                 var->ctor = Constructor::SliceFromParts();
@@ -2830,7 +2832,7 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
             if (var->init_args.size() == 1) {
                 /// If the initialiser is already an optional,
                 /// just leave it as is.
-                if (Type::Equal(var->type, var->init_args[0]->type)) {
+                if (var->type == var->init_args[0]->type) {
                     var->ctor = Constructor::TrivialCopy();
                     return true;
                 }

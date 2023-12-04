@@ -247,7 +247,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::NoReturn:
         case Tk::Nil:
         case Tk::Var:
-            lhs = ParseType();
+            lhs = ParseType() >> [&](Type t) { return static_cast<Expr*>(t); };
             break;
 
         case Tk::Semicolon:
@@ -449,7 +449,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
                 /// Only allow invoking certain kinds of expressions.
                 /// TODO: Allow invoking invoke expressions so `deque int a;` works.
-                if (not isa<Type, DeclRefExpr, MemberAccessExpr, ScopeAccessExpr, ParenExpr>(*lhs)) break;
+                if (not isa<TypeBase, DeclRefExpr, MemberAccessExpr, ScopeAccessExpr, ParenExpr>(*lhs)) break;
 
                 /// We specifically disallow blocks in this position so that, e.g.
                 /// in `if a {`, `a {` does not get parsed as an invoke expression.
@@ -576,7 +576,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 Next();
                 auto ty = ParseType();
                 if (IsError(ty)) return ty.diag;
-                lhs = new (mod) CastExpr(kind, *lhs, *ty, {lhs->location, ty->location});
+                lhs = new (mod) CastExpr(kind, *lhs, *ty, {lhs->location, ty.value()->location});
                 continue;
             }
         }
@@ -793,7 +793,7 @@ auto src::Parser::ParseImplicitBlock() -> Result<BlockExpr*> {
 /// <param-decl>  ::= <type> [ IDENTIFIER ] | PROC [ IDENTIFIER ] <proc-signature>
 auto src::Parser::ParseParamDeclList(
     SVI<LocalDecl*>& param_decls,
-    SVI<Expr*>& param_types
+    SVI<Type>& param_types
 ) -> Location {
     auto loc = curr_loc;
     Assert(Consume(Tk::LParen));
@@ -808,7 +808,7 @@ auto src::Parser::ParseParamDeclList(
             auto sig = ParseSignature();
 
             /// Return type defaults to void.
-            if (Type::Equal(sig.type->ret_type, Type::Unknown)) sig.type->ret_type = Type::Void;
+            if (sig.type->ret_type == Type::Unknown) sig.type->ret_type = Type::Void;
 
             param_decls.push_back(new (mod) LocalDecl(
                 nullptr,
@@ -846,7 +846,7 @@ auto src::Parser::ParseParamDeclList(
                 LocalKind::Parameter,
                 tok.location
             ));
-            param_types.push_back(*param_type);
+            param_types.push_back(Type(*param_type));
         }
     } while (Consume(Tk::Comma));
 
@@ -918,11 +918,8 @@ auto src::Parser::ParseProc() -> Result<ProcDecl*> {
 
     /// If this is not an initialiser declaration and the return type is not
     /// inferred and not provided, then default to 'void' rather than 'unknown'.
-    if (
-        not init and
-        not infer_return_type and
-        Type::Equal(sig.type->ret_type, Type::Unknown)
-    ) sig.type->ret_type = Type::Void;
+    if (not init and not infer_return_type and sig.type->ret_type == Type::Unknown)
+        sig.type->ret_type = Type::Void;
 
     /// Add it to the current scope if it is named.
     if (not curr_func->name.empty()) curr_scope->declare(curr_func->name, curr_func);
@@ -952,7 +949,7 @@ auto src::Parser::ParseSignature() -> Signature {
 
     /// Parse the arguments if there are any. The argument
     /// list may be omitted altogether.
-    SmallVector<Expr*> param_types;
+    SmallVector<Type> param_types;
     if (At(Tk::LParen)) ParseParamDeclList(sig.param_decls, param_types);
 
     /// Helper to parse attributes.
@@ -981,7 +978,7 @@ auto src::Parser::ParseSignature() -> Signature {
     )); // clang-format on
 
     /// Finally, parse the return type.
-    Expr* ret_type = init ? Type::Void : Type::Unknown;
+    Type ret_type = init ? Type::Void : Type::Unknown;
     if (not init and Consume(Tk::RArrow)) {
         auto res = ParseType();
         if (not IsError(res)) ret_type = *res;
@@ -1071,7 +1068,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 /// <type-named>     ::= IDENTIFIER
 /// <type-qualified> ::= <type> { <type-qual> }
 /// <type-qual>      ::= "&" | "^" | "?" | "[" [ <expr> ] "]"
-auto src::Parser::ParseType() -> Result<Expr*> {
+auto src::Parser::ParseType() -> Result<Type> {
     /// Parse base type.
     Expr* base_type = nullptr;
     switch (tok.type) {
@@ -1125,36 +1122,37 @@ auto src::Parser::ParseType() -> Result<Expr*> {
     }
 
     /// Parse qualifiers.
+    Type type{base_type};
     for (;;) {
         switch (tok.type) {
-            default: return base_type;
+            default: return type;
 
             case Tk::Ampersand:
-                base_type = new (mod) ReferenceType(base_type, {base_type->location, curr_loc});
+                type = new (mod) ReferenceType(type, {type->location, curr_loc});
                 Next();
                 break;
 
             case Tk::Caret:
-                base_type = new (mod) ScopedPointerType(base_type, {base_type->location, curr_loc});
+                type = new (mod) ScopedPointerType(type, {type->location, curr_loc});
                 Next();
                 break;
 
             case Tk::Question:
-                base_type = new (mod) OptionalType(base_type, {base_type->location, curr_loc});
+                type = new (mod) OptionalType(type, {type->location, curr_loc});
                 Next();
                 break;
 
             case Tk::LBrack:
                 Next();
 
-                if (tok.type == Tk::RBrack) base_type = new (mod) SliceType(base_type, base_type->location);
+                if (tok.type == Tk::RBrack) type = new (mod) SliceType(type, type->location);
                 else {
                     auto dim = ParseExpr();
                     if (IsError(dim)) return dim.diag;
-                    base_type = new (mod) ArrayType(base_type, *dim, base_type->location);
+                    type = new (mod) ArrayType(type, *dim, type->location);
                 }
 
-                base_type->location = {base_type->location, curr_loc};
+                type->location = {type->location, curr_loc};
                 if (not Consume(Tk::RBrack)) Error("Expected ']'");
                 break;
         }

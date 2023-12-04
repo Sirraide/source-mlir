@@ -7,7 +7,9 @@
 
 namespace src {
 class Expr;
+class Sema;
 class Type;
+class TypeBase;
 class FunctionDecl;
 class LocalDecl;
 class StructType;
@@ -16,26 +18,8 @@ class BlockExpr;
 class Nil;
 
 namespace detail {
-extern Expr* const UnknownType;
+extern constinit const Type UnknownType;
 }
-
-class EvalResult {
-    std::variant<std::monostate, APInt, Expr*, std::nullptr_t> value{};
-
-public:
-    Expr* type = detail::UnknownType;
-
-    EvalResult() : value(std::monostate{}) {}
-    EvalResult(std::nullptr_t); /// Nil.
-    EvalResult(APInt value, Expr* type) : value(std::move(value)), type(type) {}
-    EvalResult(Expr* type) : value(type), type(type) {}
-
-    auto as_int() -> APInt& { return std::get<APInt>(value); }
-    auto as_type() -> Expr* { return std::get<Expr*>(value); }
-
-    bool is_int() const { return std::holds_alternative<APInt>(value); }
-    bool is_type() const { return std::holds_alternative<Expr*>(value); }
-};
 
 /// ===========================================================================
 ///  Enums
@@ -166,64 +150,6 @@ public:
         void unset() { state = St::NotAnalysed; }
     };
 
-    /// Helper type that makes accessing properties of types easier.
-    struct TypeHandle {
-        Expr* ptr;
-
-        explicit TypeHandle(Expr* ptr) : ptr(ptr) {}
-        TypeHandle(Type* ptr);
-        TypeHandle(std::nullptr_t) = delete;
-
-        /// Get the alignment of this type, in *bytes*.
-        auto align(Context* ctx) -> Align;
-
-        /// Get the procedure type from a closure or proc.
-        readonly_decl(ProcType*, callable);
-
-        /// Check whether this type is default constructible.
-        readonly_decl(bool, default_constructible);
-
-        /// Get the type stripped of any sugar.
-        readonly_decl(TypeHandle, desugared);
-
-        /// Get the mangled name of this type.
-        ///
-        /// Context may be null if this is a struct type.
-        readonly_decl(std::string, mangled_name);
-
-        /// Check if this is any integer type.
-        bool is_int(bool bool_is_int);
-
-        /// Check if this is 'nil'.
-        readonly_decl(bool, is_nil);
-
-        /// Check if this is the builtin 'noreturn' type.
-        readonly_decl(bool, is_noreturn);
-
-        /// Get the number of nested reference levels in this type.
-        readonly_decl(isz, ref_depth);
-
-        /// Get the size of this type.
-        auto size(Context* ctx) -> Size;
-
-        /// Get a string representation of this type.
-        auto str(bool use_colour) const -> std::string;
-
-        /// Strip all references from this type.
-        readonly_decl(TypeHandle, strip_refs);
-
-        /// Strip all references and pointers from this type.
-        readonly_decl(TypeHandle, strip_refs_and_pointers);
-
-        /// Check if this type logically yields a value, i.e. is not
-        /// void or noreturn.
-        readonly_decl(bool, yields_value);
-
-        /// Access the underlying type pointer.
-        operator Expr*() const { return ptr; };
-        Expr* operator->() { return ptr; }
-    };
-
     /// The kind of this expression.
     const Kind kind;
 
@@ -260,7 +186,7 @@ public:
     /// Get this expression as a type handle; this is different
     /// from `type` which returns a handle to the type of this
     /// expression.
-    readonly(TypeHandle, as_type, return TypeHandle(this));
+    // readonly_decl(Type, as_type);
 
     /// Strip lvalue-to-rvalue conversion. This only removes one
     /// level of lvalue-to-rvalue conversion, not lvalue-ref-to-lvalue
@@ -286,14 +212,129 @@ public:
 
     /// Get the type of this expression; returns void if
     /// this expression has no type.
-    readonly_decl(TypeHandle, type);
+    readonly_decl(Type, type);
 
     /// Get the type of this when unwrapped. This will strip an
     /// optional type iff the expression is known to be active.
-    readonly_decl(TypeHandle, unwrapped_type);
+    readonly_decl(Type, unwrapped_type);
 
     /// Print this expression to stdout.
     void print(bool print_children = true) const;
+};
+
+/// Wrapper around an expression that should be treated as a type.
+///
+/// This is a value type, so pass it by value.
+///
+/// Due to the fact that types are expressions, we can’t really separate
+/// the two. At the same time, allowing *any* expression to be transparently
+/// used as a type has been the source of many bugs, so we use this wrapper
+/// to try and make sure to only treat Expr*’s as types where it makes sense
+/// to.
+class Type {
+    Expr* ptr;
+
+    /// Sema needs access to the type pointer.
+    friend Sema;
+
+    struct NullConstructTag {};
+    explicit constexpr Type(NullConstructTag) : ptr(nullptr) {}
+
+public:
+    static constinit const Type Int;
+    static constinit const Type Unknown;
+    static constinit const Type Void;
+    static constinit const Type Bool;
+    static constinit const Type NoReturn;
+    static constinit const Type OverloadSet;
+    static constinit const Type EmptyArray;
+    static constinit const Type VoidRef;
+    static constinit const Type VoidRefRef;
+    static constinit const Type I8;
+    static constinit const Type I16;
+    static constinit const Type I32;
+    static constinit const Type I64;
+    static constinit const Type CChar;
+    static constinit const Type CInt;
+    static constinit const Type Nil;
+
+    constexpr explicit Type(Expr* ptr) : ptr(ptr) { Assert(ptr); }
+    constexpr Type(TypeBase* ptr);
+    Type(std::nullptr_t) = delete;
+
+    /// Get an empty type. This is only meant for deserialisation
+    /// and should not be used for anything else.
+    static Type UnsafeEmpty() { return Type(NullConstructTag{}); }
+
+    /// Get the alignment of this type, in *bytes*.
+    auto align(Context* ctx) const -> Align;
+
+    /// Get the procedure type from a closure or proc.
+    readonly_decl(ProcType*, callable);
+
+    /// Check whether this type is default constructible.
+    readonly_decl(bool, default_constructible);
+
+    /// Get the type stripped of any sugar.
+    readonly_decl(Type, desugared);
+
+    /// Get the mangled name of this type.
+    ///
+    /// Context may be null if this is a struct type.
+    readonly_decl(std::string, mangled_name);
+
+    /// Check if this is any integer type.
+    bool is_int(bool bool_is_int) const;
+
+    /// Check if this is 'nil'.
+    readonly_decl(bool, is_nil);
+
+    /// Check if this is the builtin 'noreturn' type.
+    readonly_decl(bool, is_noreturn);
+
+    /// Get the number of nested reference levels in this type.
+    readonly_decl(isz, ref_depth);
+
+    /// Get the size of this type.
+    auto size(Context* ctx) const -> Size;
+
+    /// Get a string representation of this type.
+    auto str(bool use_colour) const -> std::string;
+
+    /// Strip all references from this type.
+    readonly_decl(Type, strip_refs);
+
+    /// Strip all references and pointers from this type.
+    readonly_decl(Type, strip_refs_and_pointers);
+
+    /// Check if this type logically yields a value, i.e. is not
+    /// void or noreturn.
+    readonly_decl(bool, yields_value);
+
+    /// Check if two types are equal.
+    friend bool operator==(Type a, Type b);
+
+    /// Access the underlying type pointer.
+    explicit operator Expr*() const { return ptr; };
+    Expr* operator->() { return ptr; }
+};
+
+class EvalResult {
+    std::variant<std::monostate, APInt, Type, std::nullptr_t> value{};
+
+public:
+    Type type{detail::UnknownType};
+
+    EvalResult() : value(std::monostate{}) {}
+    EvalResult(std::nullptr_t); /// Nil.
+    EvalResult(APInt value, Type type) : value(std::move(value)), type(type) {}
+    EvalResult(Type type) : value(type), type(type) {} /// FIXME: should be the `type` type.
+
+    auto as_int() -> APInt& { return std::get<APInt>(value); }
+    auto as_type() -> Type { return std::get<Type>(value); }
+
+    bool is_int() const { return std::holds_alternative<APInt>(value); }
+    bool is_type() const { return std::holds_alternative<Type>(value); }
 };
 
 class AssertExpr : public Expr {
@@ -582,9 +623,9 @@ enum struct CastKind {
 class TypedExpr : public Expr {
 public:
     /// 'type' is already a member of Expr, so don’t use that here.
-    Expr* stored_type;
+    Type stored_type;
 
-    TypedExpr(Kind k, Expr* type, Location loc)
+    TypedExpr(Kind k, Type type, Location loc)
         : Expr(k, loc), stored_type(type) {}
 
     /// RTTI.
@@ -751,7 +792,7 @@ public:
     /// The expression being cast.
     Expr* operand;
 
-    CastExpr(CastKind kind, Expr* expr, Expr* type, Location loc)
+    CastExpr(CastKind kind, Expr* expr, Type type, Location loc)
         : TypedExpr(Kind::CastExpr, type, loc),
           cast_kind(kind),
           operand(expr) {}
@@ -982,7 +1023,7 @@ public:
     /// The name of this declaration.
     std::string name;
 
-    Decl(Kind k, std::string name, Expr* type, Location loc)
+    Decl(Kind k, std::string name, Type type, Location loc)
         : TypedExpr(k, type, loc), name(std::move(name)) {}
 
     /// RTTI.
@@ -1014,7 +1055,7 @@ public:
         Kind k,
         Module* mod,
         std::string name,
-        Expr* type,
+        Type type,
         Linkage linkage,
         Mangling mangling,
         Location loc
@@ -1103,13 +1144,13 @@ public:
     readonly_const(
         bool,
         is_legal_to_capture,
-        return  local_kind != LocalKind::Synthesised
+        return local_kind != LocalKind::Synthesised
     );
 
     LocalDecl(
         ProcDecl* parent,
         std::string name,
-        Expr* type,
+        Type type,
         SmallVector<Expr*> init,
         LocalKind kind,
         Location loc
@@ -1188,7 +1229,7 @@ public:
         Module* mod,
         ProcDecl* parent,
         std::string name,
-        Expr* type,
+        Type type,
         SmallVector<LocalDecl*> params,
         Linkage linkage,
         Mangling mangling,
@@ -1219,7 +1260,7 @@ public:
     readonly_decl(bool, takes_static_chain);
 
     /// Get the return type of this procedure.
-    [[gnu::pure]] readonly_decl(TypeHandle, ret_type);
+    [[gnu::pure]] readonly_decl(Type, ret_type);
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ProcDecl; }
@@ -1231,7 +1272,7 @@ public:
     /// The initialiser whose `this` this is.
     ProcDecl* init;
 
-    ImplicitThisExpr(ProcDecl* init, Expr* type, Location loc)
+    ImplicitThisExpr(ProcDecl* init, Type type, Location loc)
         : TypedExpr(Kind::ImplicitThisExpr, type, loc),
           init(init) {
         sema.set_done();
@@ -1265,57 +1306,24 @@ enum struct FFITypeKind {
     CInt,
 };
 
-class Type : public Expr {
+class TypeBase : public Expr {
 protected:
-    Type(Kind k, Location loc) : Expr(k, loc) {}
+    TypeBase(Kind k, Location loc) : Expr(k, loc) {}
 
 public:
     struct DenseMapInfo {
-        static auto getEmptyKey() -> Type* { return nullptr; }
-        static auto getTombstoneKey() -> Type* { return reinterpret_cast<Type*>(1); }
+        static auto getEmptyKey() -> TypeBase* { return nullptr; }
+        static auto getTombstoneKey() -> TypeBase* { return reinterpret_cast<TypeBase*>(1); }
         static bool isEqual(const Expr* a, const Expr* b) {
             /// Expr::Equal doesn’t handle nullptr or tombstones.
             uptr ap = uptr(a), bp = uptr(b);
             if (ap < 2 or bp < 2) return ap == bp;
-            return Type::Equal(const_cast<Expr*>(a), const_cast<Expr*>(b));
+            return Type(const_cast<Expr*>(a)) == Type(const_cast<Expr*>(b));
         }
 
         /// Include the element type in the hash if possible.
         static auto getHashValue(const Expr* t) -> usz;
     };
-
-    /// In the parser, prefer to create new instances of these
-    /// initially for better location tracking.
-    static BuiltinType* const Int;
-    static BuiltinType* const Unknown;
-    static BuiltinType* const Void;
-    static BuiltinType* const Bool;
-    static BuiltinType* const NoReturn;
-    static BuiltinType* const OverloadSet;
-    static BuiltinType* const EmptyArray;
-    static ReferenceType* const VoidRef;
-    static ReferenceType* const VoidRefRef;
-    static IntType* const I8;
-    static IntType* const I16;
-    static IntType* const I32;
-    static IntType* const I64;
-    static FFIType* const CChar;
-    static FFIType* const CInt;
-    static Nil* const Nil;
-
-    /// It is too goddamn easy to forget to dereference at least
-    /// one of the expressions when comparing them w/ operator==,
-    /// so we disallow that altogether.
-    static bool Equal(Expr* a, Expr* b);
-
-    /// Wrapper around Equal() for a tuple.
-    template <typename T>
-    static bool Equal(T&& t)
-    requires requires (T u) { std::get<0>(u); }
-    {
-        auto&& [a, b] = std::forward<T>(t);
-        return Equal(a, b);
-    }
 
     /// Note: an Expr may be a type even if this returns false.
     static bool classof(const Expr* e) {
@@ -1323,15 +1331,15 @@ public:
     }
 };
 
-inline Expr::TypeHandle::TypeHandle(Type* ptr) : ptr(ptr) {}
+constexpr Type::Type(TypeBase* ptr) : ptr(ptr) { Assert(ptr); }
 
-class IntType : public Type {
+class IntType : public TypeBase {
 public:
     /// The size of this integer type, in bits.
     Size size;
 
     IntType(Size size, Location loc)
-        : Type(Kind::IntType, loc), size(size) {
+        : TypeBase(Kind::IntType, loc), size(size) {
         /// TODO: Maybe allow `i0` so we can set this unconditionally?
         if (size.bits() > 0) sema.set_done();
     }
@@ -1345,15 +1353,15 @@ public:
 };
 
 /// This is both the nil type and the nil literal.
-class Nil : public Type {
+class Nil : public TypeBase {
 public:
-    Nil(Location loc) : Type(Kind::Nil, loc) { sema.set_done(); }
+    Nil(Location loc) : TypeBase(Kind::Nil, loc) { sema.set_done(); }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::Nil; }
 };
 
-class BuiltinType : public Type {
+class BuiltinType : public TypeBase {
     using K = BuiltinTypeKind;
 
 public:
@@ -1369,7 +1377,7 @@ private:
 
 public:
     BuiltinType(BuiltinTypeKind kind, Location loc)
-        : Type(Kind::BuiltinType, loc), builtin_kind(kind) {
+        : TypeBase(Kind::BuiltinType, loc), builtin_kind(kind) {
         sema.set_done();
     }
 
@@ -1383,7 +1391,7 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::BuiltinType; }
 };
 
-class FFIType : public Type {
+class FFIType : public TypeBase {
 public:
     /// The kind of this FFI type.
     FFITypeKind ffi_kind;
@@ -1396,12 +1404,12 @@ private:
 
 public:
     FFIType(FFITypeKind kind, Location loc)
-        : Type(Kind::FFIType, loc), ffi_kind(kind) {
+        : TypeBase(Kind::FFIType, loc), ffi_kind(kind) {
         sema.set_done();
     }
 
     /// Get the underlying type.
-    auto underlying(Context* ctx) const -> Type*;
+    auto underlying(Context* ctx) const -> TypeBase*;
 
     static auto CChar(Module* m, Location loc = {}) -> FFIType* { return Create(m, FFITypeKind::CChar, loc); }
     static auto CInt(Module* m, Location loc = {}) -> FFIType* { return Create(m, FFITypeKind::CInt, loc); }
@@ -1410,9 +1418,9 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::FFIType; }
 };
 
-class StructType : public Type {
+class StructType : public TypeBase {
     /// Needs to access mangled name.
-    friend Expr::TypeHandle;
+    friend Type;
 
     /// Cached so we don’t need to recompute it.
     std::string mangled_name;
@@ -1420,7 +1428,7 @@ class StructType : public Type {
 public:
     struct Field {
         std::string name;
-        Expr* type;
+        Type type;
         Size offset{};
         u32 index{};
         bool padding{};
@@ -1474,14 +1482,14 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::StructType; }
 };
 
-class SingleElementTypeBase : public Type {
+class SingleElementTypeBase : public TypeBase {
 public:
     /// The element type.
-    Expr::TypeHandle elem;
+    Type elem;
 
 protected:
-    SingleElementTypeBase(Kind k, Expr* elem, Location loc)
-        : Type(k, loc), elem(elem) {}
+    SingleElementTypeBase(Kind k, Type elem, Location loc)
+        : TypeBase(k, loc), elem(elem) {}
 
 public:
     /// RTTI.
@@ -1492,7 +1500,7 @@ public:
 
 class ReferenceType : public SingleElementTypeBase {
 public:
-    ReferenceType(Expr* elem, Location loc)
+    ReferenceType(Type elem, Location loc)
         : SingleElementTypeBase(Kind::ReferenceType, elem, loc) {}
 
     /// RTTI.
@@ -1501,7 +1509,7 @@ public:
 
 class OptionalType : public SingleElementTypeBase {
 public:
-    OptionalType(Expr* elem, Location loc)
+    OptionalType(Type elem, Location loc)
         : SingleElementTypeBase(Kind::OptionalType, elem, loc) {}
 
     /// RTTI.
@@ -1510,7 +1518,7 @@ public:
 
 class ScopedPointerType : public SingleElementTypeBase {
 public:
-    ScopedPointerType(Expr* elem, Location loc)
+    ScopedPointerType(Type elem, Location loc)
         : SingleElementTypeBase(Kind::ScopedPointerType, elem, loc) {}
 
     /// RTTI.
@@ -1521,7 +1529,7 @@ class ArrayType : public SingleElementTypeBase {
 public:
     Expr* dim_expr;
 
-    ArrayType(Expr* elem, Expr* dim_expr, Location loc)
+    ArrayType(Type elem, Expr* dim_expr, Location loc)
         : SingleElementTypeBase(Kind::ArrayType, elem, loc),
           dim_expr(dim_expr) {}
 
@@ -1554,7 +1562,7 @@ public:
 
 class SliceType : public SingleElementTypeBase {
 public:
-    SliceType(Expr* elem, Location loc)
+    SliceType(Type elem, Location loc)
         : SingleElementTypeBase(Kind::SliceType, elem, loc) {}
 
     /// RTTI.
@@ -1567,7 +1575,7 @@ public:
     /// The name of the type this was looked up as.
     std::string name;
 
-    SugaredType(std::string name, Expr* underlying, Location loc)
+    SugaredType(std::string name, Type underlying, Location loc)
         : SingleElementTypeBase(Kind::SugaredType, underlying, loc),
           name(std::move(name)) {
         sema.set_done();
@@ -1586,7 +1594,7 @@ public:
     /// The name of the type this was looked up as.
     std::string name;
 
-    ScopedType(std::string name, Expr* object, Expr* resolved, Location loc)
+    ScopedType(std::string name, Expr* object, Type resolved, Location loc)
         : SingleElementTypeBase(Kind::ScopedType, resolved, loc),
           object(object),
           name(std::move(name)) {
@@ -1597,13 +1605,13 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::SugaredType; }
 };
 
-class ProcType : public Type {
+class ProcType : public TypeBase {
 public:
     /// The parameter types.
-    SmallVector<Expr*> param_types;
+    SmallVector<Type> param_types;
 
     /// The return type.
-    Expr* ret_type;
+    Type ret_type;
 
     /// The procedure whose chain pointer this takes.
     ProcDecl* static_chain_parent{};
@@ -1617,8 +1625,8 @@ public:
     /// Whether this type is variadic.
     bool variadic{};
 
-    ProcType(SmallVector<Expr*> param_types, Expr* ret_type, bool variadic, Location loc)
-        : Type(Kind::ProcType, loc),
+    ProcType(SmallVector<Type> param_types, Type ret_type, bool variadic, Location loc)
+        : TypeBase(Kind::ProcType, loc),
           param_types(std::move(param_types)),
           ret_type(ret_type),
           variadic(variadic) {}
@@ -1683,18 +1691,53 @@ struct THCastImpl {
 namespace llvm {
 
 template <typename T>
-struct CastInfo<T, src::Expr::TypeHandle> : src::THCastImpl<T, src::Expr::TypeHandle> {};
+struct CastInfo<T, src::Type> : src::THCastImpl<T, src::Type> {};
 template <typename T>
-struct CastInfo<T, src::Expr::TypeHandle&> : src::THCastImpl<T, src::Expr::TypeHandle&> {};
+struct CastInfo<T, src::Type&> : src::THCastImpl<T, src::Type&> {};
 template <typename T>
-struct CastInfo<T, const src::Expr::TypeHandle> : src::THCastImpl<T, const src::Expr::TypeHandle> {};
+struct CastInfo<T, const src::Type> : src::THCastImpl<T, const src::Type> {};
 template <typename T>
-struct CastInfo<T, const src::Expr::TypeHandle&> : src::THCastImpl<T, const src::Expr::TypeHandle&> {};
+struct CastInfo<T, const src::Type&> : src::THCastImpl<T, const src::Type&> {};
 template <typename T>
-struct CastInfo<T, src::Expr::TypeHandle*> : src::THCastImpl<T, src::Expr::TypeHandle*> {};
+struct CastInfo<T, src::Type*> : src::THCastImpl<T, src::Type*> {};
 template <typename T>
-struct CastInfo<T, const src::Expr::TypeHandle*> : src::THCastImpl<T, const src::Expr::TypeHandle*> {};
+struct CastInfo<T, const src::Type*> : src::THCastImpl<T, const src::Type*> {};
 
 } // namespace llvm
+
+#define SOURCE_NON_TYPE_EXPRS            \
+    case Expr::Kind::ExportExpr:         \
+    case Expr::Kind::AssertExpr:         \
+    case Expr::Kind::ConstExpr:          \
+    case Expr::Kind::ReturnExpr:         \
+    case Expr::Kind::LoopControlExpr:    \
+    case Expr::Kind::GotoExpr:           \
+    case Expr::Kind::LabelExpr:          \
+    case Expr::Kind::EmptyExpr:          \
+    case Expr::Kind::DeferExpr:          \
+    case Expr::Kind::WhileExpr:          \
+    case Expr::Kind::ForInExpr:          \
+    case Expr::Kind::BlockExpr:          \
+    case Expr::Kind::InvokeExpr:         \
+    case Expr::Kind::InvokeBuiltinExpr:  \
+    case Expr::Kind::MemberAccessExpr:   \
+    case Expr::Kind::ScopeAccessExpr:    \
+    case Expr::Kind::DeclRefExpr:        \
+    case Expr::Kind::ModuleRefExpr:      \
+    case Expr::Kind::LocalRefExpr:       \
+    case Expr::Kind::BoolLiteralExpr:    \
+    case Expr::Kind::IntegerLiteralExpr: \
+    case Expr::Kind::ArrayLiteralExpr:   \
+    case Expr::Kind::StringLiteralExpr:  \
+    case Expr::Kind::ProcDecl:           \
+    case Expr::Kind::CastExpr:           \
+    case Expr::Kind::IfExpr:             \
+    case Expr::Kind::UnaryPrefixExpr:    \
+    case Expr::Kind::BinaryExpr:         \
+    case Expr::Kind::LocalDecl:          \
+    case Expr::Kind::OverloadSetExpr:    \
+    case Expr::Kind::ImplicitThisExpr:   \
+    case Expr::Kind::ParenExpr:          \
+    case Expr::Kind::SubscriptExpr
 
 #endif // SOURCE_FRONTEND_AST_HH

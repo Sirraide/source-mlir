@@ -21,7 +21,12 @@ struct make_formattable<T*> {
 };
 
 template <>
-struct make_formattable<Expr::TypeHandle> {
+struct make_formattable<Type> {
+    using type = std::string;
+};
+
+template <>
+struct make_formattable<const Type> {
     using type = std::string;
 };
 
@@ -96,7 +101,7 @@ private:
     bool Analyse(Expr*& e);
 
     /// Analyse the given expression and issue an error if it is not a type.
-    bool AnalyseAsType(Expr*& e);
+    bool AnalyseAsType(Type& e);
 
     template <bool allow_undefined>
     bool AnalyseDeclRefExpr(Expr*& e);
@@ -115,14 +120,14 @@ private:
     /// as needed. This  *will* perform lvalue-to-rvalue conversion if
     /// the type conversion requires it and also in any case unless \p
     /// lvalue is true.
-    bool Convert(Expr*& e, Expr::TypeHandle to, bool lvalue = false);
+    bool Convert(Expr*& e, Type to, bool lvalue = false);
 
     /// Implements Convert() and TryConvert().
     template <bool perform_conversion>
     int ConvertImpl(
         std::conditional_t<perform_conversion, Expr*&, Expr*> e,
-        Expr::TypeHandle from, /// Required for recursive calls in non-conversion mode.
-        Expr::TypeHandle to
+        Type from, /// Required for recursive calls in non-conversion mode.
+        Type to
     );
 
     /// Ensure that an expression is valid as the condition of an if expression,
@@ -154,7 +159,7 @@ private:
     /// Evaluate an integral constant expression and replace it with the result.
     bool EvaluateAsIntegerInPlace(Expr*& e, bool must_succeed = true);
 
-    void InsertImplicitCast(Expr*& e, Expr* to);
+    void InsertImplicitCast(Expr*& e, Type to);
 
     /// Dereference a reference, yielding an lvalue.
     ///
@@ -169,14 +174,14 @@ private:
     void InsertLValueToRValueConversion(Expr*& e);
 
     template <bool in_array = false>
-    bool MakeDeclType(Expr*& e);
+    bool MakeDeclType(Type& e);
 
     template <typename T>
     auto MakeFormattable(T&& t) -> make_formattable_t<T> {
         using Type = std::remove_cvref_t<T>;
         if constexpr (std::is_pointer_v<Type> and std::derived_from<std::remove_pointer_t<Type>, Expr>) {
             return std::forward<T>(t)->type.str(true);
-        } else if constexpr (std::is_same_v<Type, Expr::TypeHandle>) {
+        } else if constexpr (std::is_same_v<std::remove_cvref_t<Type>, src::Type>) {
             return std::forward<T>(t).str(true);
         } else {
             return std::forward<T>(t);
@@ -208,7 +213,7 @@ private:
     /// Like Convert(), but does not perform the conversion, does not
     /// issue any diagnostics, and returns a score suitable for overload
     /// resolution.
-    int TryConvert(Expr* e, Expr::TypeHandle to);
+    int TryConvert(Expr* e, Type to);
 
     /// Strip references and optionals (if they’re active) from the expression
     /// to yield the underlying value.

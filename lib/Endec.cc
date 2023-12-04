@@ -13,10 +13,10 @@ namespace src {
 /// ===========================================================================
 ///  Mangler.
 /// ===========================================================================
-auto Expr::TypeHandle::_mangled_name() -> std::string {
+auto Type::_mangled_name() -> std::string {
     auto FormatSEType = [&](Expr* t, std::string_view prefix) {
         auto se = cast<SingleElementTypeBase>(t);
-        return fmt::format("{}{}", prefix, se->elem->as_type.mangled_name);
+        return fmt::format("{}{}", prefix, se->elem.mangled_name);
     };
 
     switch (ptr->kind) {
@@ -60,7 +60,7 @@ auto Expr::TypeHandle::_mangled_name() -> std::string {
 
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
-            return cast<SingleElementTypeBase>(ptr)->elem->as_type.mangled_name;
+            return cast<SingleElementTypeBase>(ptr)->elem.mangled_name;
 
         case Expr::Kind::ProcType: {
             auto p = cast<ProcType>(ptr);
@@ -69,7 +69,7 @@ auto Expr::TypeHandle::_mangled_name() -> std::string {
             /// overload on that anyway.
             std::string name{"P"};
             if (p->variadic) name += "q";
-            for (auto a : p->param_types) name += a->as_type.mangled_name;
+            for (auto a : p->param_types) name += a.mangled_name;
             name += "E";
             return name;
         }
@@ -158,7 +158,7 @@ auto ObjectDecl::_mangled_name() -> StringRef {
 
         /// Constructors receive an extra 'C' at the beginning of the name followed
         /// by the parent struct name and have no name themselves.
-        if (ty->is_init) s += fmt::format("C{}", ty->init_of->as_type.mangled_name);
+        if (ty->is_init) s += fmt::format("C{}", Type{ty->init_of}.mangled_name);
 
         /// All other functions just include the name.
         else s += fmt::format("{}{}", name.size(), name);
@@ -247,10 +247,6 @@ struct UncompressedHeader {
 /// ===========================================================================
 ///  Serialiser.
 /// ===========================================================================
-struct CompareTypes {
-    static bool operator()(Type* a, Type* b) { return Type::Equal(a, b); }
-};
-
 /// Type descriptor.
 ///
 /// Builtin types are allocated between 0 and 255, so we
@@ -291,7 +287,7 @@ struct Serialiser {
     std::vector<u8> out{};
 
     /// Map from types to indices.
-    llvm::DenseMap<Type*, TD, Type::DenseMapInfo> type_map{};
+    llvm::DenseMap<TypeBase*, TD, TypeBase::DenseMapInfo> type_map{};
 
     /// Larger section of the header.
     CompressedHeaderV0 hdr{
@@ -307,10 +303,10 @@ struct Serialiser {
         /// Serialise all exports’ types.
         for (auto& [_, vec] : mod->exports)
             for (auto e : vec)
-                SerialiseType(cast<Type>(e->type));
+                SerialiseType(cast<TypeBase>(e->type));
 
         /// Serialise top-level function.
-        SerialiseType(cast<Type>(mod->top_level_func->type));
+        SerialiseType(cast<TypeBase>(mod->top_level_func->type));
         SerialiseDecl(mod->top_level_func);
 
         /// Serialise the exports themselves.
@@ -335,7 +331,7 @@ struct Serialiser {
     }
 
     /// Serialise a type.
-    auto SerialiseType(Type* t) -> TD {
+    auto SerialiseType(TypeBase* t) -> TD {
         const auto FindTD =  [&] -> TD {
             if (auto td = type_map.find(t); td != type_map.end()) return td->second;
             return TD{};
@@ -345,7 +341,7 @@ struct Serialiser {
             default: Unreachable();
 
             case Expr::Kind::SugaredType:
-                return SerialiseType(cast<Type>(cast<SugaredType>(t)->elem));
+                return SerialiseType(cast<TypeBase>(cast<SugaredType>(t)->elem));
 
             case Expr::Kind::BuiltinType: {
                 switch (cast<BuiltinType>(t)->builtin_kind) {
@@ -393,7 +389,7 @@ struct Serialiser {
             case Expr::Kind::ArrayType:
             case Expr::Kind::OptionalType: {
                 if (auto td = FindTD(); td != TD{}) return td;
-                auto elem = SerialiseType(cast<Type>(cast<SingleElementTypeBase>(t)->elem));
+                auto elem = SerialiseType(cast<TypeBase>(cast<SingleElementTypeBase>(t)->elem));
                 switch (t->kind) {
                     default: Unreachable();
                     case Expr::Kind::ReferenceType: *this << SerialisedTypeTag::Reference; break;
@@ -414,9 +410,9 @@ struct Serialiser {
                 if (auto td = FindTD(); td != TD{}) return td;
                 auto p = cast<ProcType>(t);
 
-                auto ret = SerialiseType(cast<Type>(p->ret_type));
+                auto ret = SerialiseType(cast<TypeBase>(p->ret_type));
                 std::vector<TD> params;
-                for (auto a : p->param_types) params.push_back(SerialiseType(cast<Type>(a)));
+                for (auto a : p->param_types) params.push_back(SerialiseType(cast<TypeBase>(a)));
 
                 *this << SerialisedTypeTag::Procedure;
                 *this << ret << params.size() << p->variadic;
@@ -450,7 +446,7 @@ struct Serialiser {
 
                 /// Write field types.
                 for (const auto& [i, f] : vws::enumerate(s->all_fields)) {
-                    auto td = SerialiseType(cast<Type>(f.type));
+                    auto td = SerialiseType(cast<TypeBase>(f.type));
                     WriteAt(offs + usz(i) * sizeof(TD), td);
                 }
 
@@ -475,7 +471,7 @@ struct Serialiser {
             *this << SerialisedDeclTag::Procedure;
             *this << ConvertMangling(p->mangling);
             *this << p->name;
-            *this << type_map[cast<Type>(p->type)];
+            *this << type_map[cast<TypeBase>(p->type)];
             return;
         }
 
@@ -549,8 +545,8 @@ struct Deserialiser {
     std::unique_ptr<Module> mod{};
     UncompressedHeader uhdr;
 
-    SmallVector<std::pair<Expr**, TD>> type_fixup_list;
-    SmallVector<Type*> types;
+    SmallVector<std::pair<Type*, TD>> type_fixup_list;
+    SmallVector<Type> types;
 
     Deserialiser(Context* ctx, std::string module_name, Location loc, ArrayRef<u8> description)
         : ctx{ctx}, loc{loc}, description{description} {
@@ -642,12 +638,12 @@ struct Deserialiser {
     }
 
     template <std::derived_from<SingleElementTypeBase> T>
-    auto CreateSEType() -> Type* {
+    auto CreateSEType() -> TypeBase* {
         return new (&*mod) T(Map(rd<TD>()), {});
     }
 
     /// Map a type descriptor to an already deserialised type.
-    auto Map(TD t) -> Type* {
+    auto Map(TD t) -> Type {
         if (t.is_builtin()) {
             switch (t.builtin_tag()) {
                 default: Unreachable();
@@ -668,13 +664,13 @@ struct Deserialiser {
         return types[t.index()];
     }
 
-    auto DeserialiseType() -> Type* {
+    auto DeserialiseType() -> Type {
         auto ty = DeserialiseTypeImpl();
         ty->sema.set_done();
         return ty;
     }
 
-    auto DeserialiseTypeImpl() -> Type* {
+    auto DeserialiseTypeImpl() -> Type {
         auto tag = rd<SerialisedTypeTag>();
         switch (tag) {
             /// Unfortunately, we have to deserialise these and
@@ -721,14 +717,12 @@ struct Deserialiser {
             }
 
             case SerialisedTypeTag::Procedure: {
-                Type* ret = Map(rd<TD>());
+                Type ret = Map(rd<TD>());
                 u64 params = rd<u64>();
                 bool variadic = rd<bool>();
 
-                SmallVector<Expr*> param_types{};
-                param_types.resize(params);
-                for (auto& t : param_types) t = Map(rd<TD>());
-
+                SmallVector<Type> param_types{};
+                for (u64 i = 0; i < params; i++) param_types.push_back(Map(rd<TD>()));
                 return new (&*mod) ProcType(std::move(param_types), ret, variadic, {});
             }
 
@@ -740,13 +734,13 @@ struct Deserialiser {
 
                 /// Read field types.
                 SmallVector<StructType::Field> fields{};
-                SmallVector<Type*> field_types{};
-                fields.resize(field_count);
-                field_types.resize(field_count);
+                SmallVector<TD> field_types{};
                 for (usz i = 0; i < field_count; i++) {
                     /// TD may refer to type that was serialised later on.
-                    if (auto td = rd<TD>(); td.is_builtin() or td.index() < types.size()) field_types[i] = Map(td);
-                    else type_fixup_list.push_back({&fields[i].type, td});
+                    auto td = rd<TD>();
+                    field_types.push_back(td);
+                    if (td.is_builtin() or td.index() < types.size()) fields.push_back({"", Map(field_types.back())});
+                    else fields.push_back({"", Type::UnsafeEmpty()});
                     fields[i].index = u32(i);
                 }
 
@@ -755,7 +749,6 @@ struct Deserialiser {
                     f.padding = rd<bool>();
                     f.offset = rd<Size>();
                     if (not f.padding) f.name = rd<std::string>();
-                    f.type = field_types[f.index];
                 }
 
                 /// Create the struct.
@@ -767,6 +760,11 @@ struct Deserialiser {
                     new (&*mod) BlockExpr(&*mod, mod->global_scope),
                     {}
                 );
+
+                /// Mark fields for fixup if need be.
+                for (auto& f : s->all_fields)
+                    if (static_cast<Expr*>(f.type) == nullptr)
+                        type_fixup_list.emplace_back(&f.type, field_types[f.index]);
 
                 /// Set size and alignment.
                 s->stored_alignment = align;
@@ -785,7 +783,7 @@ struct Deserialiser {
             /// so just get the TD, and that’s it.
             case SerialisedDeclTag::StructType: {
                 auto ty = Map(rd<TD>());
-                mod->exports[cast<StructType>(ty)->name].push_back(ty);
+                mod->exports[cast<StructType>(ty)->name].push_back(static_cast<Expr*>(ty));
                 return;
             }
 
