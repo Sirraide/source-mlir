@@ -28,7 +28,7 @@ auto Type::_mangled_name() -> std::string {
                 case BuiltinTypeKind::NoReturn: return "r";
                 case BuiltinTypeKind::Unknown:
                 case BuiltinTypeKind::OverloadSet:
-                case BuiltinTypeKind::EmptyArray:
+                case BuiltinTypeKind::ArrayLiteral:
                     Unreachable("Builtin type must be resolved before mangling");
             }
 
@@ -351,7 +351,7 @@ struct Serialiser {
                     case BuiltinTypeKind::NoReturn: return TD(SerialisedTypeTag::NoReturn);
                     case BuiltinTypeKind::Unknown:
                     case BuiltinTypeKind::OverloadSet:
-                    case BuiltinTypeKind::EmptyArray:
+                    case BuiltinTypeKind::ArrayLiteral:
                         Unreachable();
                 }
 

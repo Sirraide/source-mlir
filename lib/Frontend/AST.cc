@@ -9,7 +9,7 @@ BuiltinType VoidTypeInstance{BuiltinTypeKind::Void, {}};
 BuiltinType BoolTypeInstance{BuiltinTypeKind::Bool, {}};
 BuiltinType NoReturnTypeInstance{BuiltinTypeKind::NoReturn, {}};
 BuiltinType OverloadSetTypeInstance{BuiltinTypeKind::OverloadSet, {}};
-BuiltinType EmptyArrayTypeInstance{BuiltinTypeKind::EmptyArray, {}};
+BuiltinType ArrayLiteralTypeInstance{BuiltinTypeKind::ArrayLiteral, {}};
 ReferenceType VoidRefTypeInstance{&VoidTypeInstance, {}};
 ReferenceType VoidRefRefTypeInstance{&VoidTypeInstance, {}};
 IntType IntType8Instance{Size::Bits(8), {}};
@@ -20,14 +20,13 @@ FFIType FFITypeCCharInstance{FFITypeKind::CChar, {}};
 FFIType FFITypeCIntInstance{FFITypeKind::CInt, {}};
 Nil NilInstance{{}};
 } // namespace
-constinit const Type detail::UnknownType = &UnknownTypeInstance;
 constinit const Type Type::Int = &IntTypeInstance;
 constinit const Type Type::Void = &VoidTypeInstance;
 constinit const Type Type::Unknown = &UnknownTypeInstance;
 constinit const Type Type::Bool = &BoolTypeInstance;
 constinit const Type Type::NoReturn = &NoReturnTypeInstance;
 constinit const Type Type::OverloadSet = &OverloadSetTypeInstance;
-constinit const Type Type::EmptyArray = &EmptyArrayTypeInstance;
+constinit const Type Type::ArrayLiteral = &ArrayLiteralTypeInstance;
 constinit const Type Type::VoidRef = &VoidRefTypeInstance;
 constinit const Type Type::VoidRefRef = &VoidRefRefTypeInstance;
 constinit const Type Type::I8 = &IntType8Instance;
@@ -88,6 +87,12 @@ auto src::Expr::_ignore_lv2rv() -> Expr* {
         return c->operand;
     return this;
 }
+
+auto src::Expr::_ignore_parens() -> Expr* {
+    if (auto p = dyn_cast<ParenExpr>(this)) return p->expr->ignore_parens;
+    return this;
+}
+
 
 auto src::Expr::_ignore_paren_cast_refs() -> Expr* {
     if (auto p = dyn_cast<ParenExpr>(this)) return p->expr->ignore_paren_cast_refs;
@@ -205,6 +210,9 @@ auto src::Expr::_type() -> Type {
         case Kind::OverloadSetExpr:
             return Type::OverloadSet;
 
+        case Kind::ArrayLiteralExpr:
+            return Type::ArrayLiteral;
+
         case Kind::AssertExpr:
         case Kind::DeferExpr:
         case Kind::WhileExpr:
@@ -226,7 +234,6 @@ auto src::Expr::_type() -> Type {
         case Kind::LocalRefExpr:
         case Kind::BoolLiteralExpr:
         case Kind::IntegerLiteralExpr:
-        case Kind::ArrayLiteralExpr:
         case Kind::StringLiteralExpr:
         case Kind::ProcDecl:
         case Kind::CastExpr:
@@ -305,7 +312,7 @@ auto src::Type::align([[maybe_unused]] src::Context* ctx) const -> Align {
                 case BuiltinTypeKind::Bool: return Align(1);
                 case BuiltinTypeKind::NoReturn: return Align(1);
                 case BuiltinTypeKind::OverloadSet: return Align(1);
-                case BuiltinTypeKind::EmptyArray: return Align(1);
+                case BuiltinTypeKind::ArrayLiteral: return Align(1);
             }
 
             Unreachable();
@@ -368,40 +375,19 @@ auto src::Type::_callable() -> ProcType* {
     Unreachable("Type '{}' is not callable", str(true));
 }
 
-bool src::Type::_default_constructible() {
-    Assert(ptr->sema.ok);
-    switch (ptr->kind) {
-        case Expr::Kind::BuiltinType:
-        case Expr::Kind::FFIType:
-        case Expr::Kind::IntType:
-        case Expr::Kind::OptionalType:
-        case Expr::Kind::ScopedPointerType:
-        case Expr::Kind::SliceType:
-        case Expr::Kind::Nil:
-            return true;
+auto src::Type::_default_constructor() -> ProcDecl* {
+    auto d = desugared;
+    if (auto s = dyn_cast<StructType>(d.ptr)) {
+        auto c = rgs::find_if(
+            s->initialisers,
+            [](auto init) { return init->params.empty(); }
+        );
 
-        case Expr::Kind::ClosureType:
-        case Expr::Kind::ProcType:
-        case Expr::Kind::ReferenceType:
-            return false;
-
-        case Expr::Kind::SugaredType:
-        case Expr::Kind::ScopedType:
-            return desugared.default_constructible;
-
-        case Expr::Kind::ArrayType:
-            return cast<ArrayType>(ptr)->elem.default_constructible;
-
-        case Expr::Kind::StructType:
-            /// If the type has no initialisers, or an initialiser that takes
-            /// no argument, it is default-constructible.
-            return rgs::all_of(cast<StructType>(ptr)->initialisers, [](auto init) {
-                return init->params.empty();
-            });
-
-        SOURCE_NON_TYPE_EXPRS:
-            Unreachable("Not a type");
+        if (c == s->initialisers.end()) return nullptr;
+        return *c;
     }
+
+    return nullptr;
 }
 
 auto src::Type::_desugared() -> Type {
@@ -451,7 +437,7 @@ auto src::Type::size([[maybe_unused]] src::Context* ctx) const -> Size {
                 case BuiltinTypeKind::Bool: return Size::Bits(1);
                 case BuiltinTypeKind::NoReturn: return {};
                 case BuiltinTypeKind::OverloadSet: return {};
-                case BuiltinTypeKind::EmptyArray: return {};
+                case BuiltinTypeKind::ArrayLiteral: return {};
             }
 
             Unreachable();
@@ -542,7 +528,7 @@ auto src::Type::str(bool use_colour) const -> std::string {
                 case BuiltinTypeKind::Bool: out += "bool"; goto done;
                 case BuiltinTypeKind::NoReturn: out += "noreturn"; goto done;
                 case BuiltinTypeKind::OverloadSet: out += "<overload set>"; goto done;
-                case BuiltinTypeKind::EmptyArray: out += "<empty array literal>"; goto done;
+                case BuiltinTypeKind::ArrayLiteral: out += "<empty array literal>"; goto done;
             }
 
             out += fmt::format("<invalid builtin type: {}>", int(bk));
@@ -635,6 +621,9 @@ auto src::Type::str(bool use_colour) const -> std::string {
         case Expr::Kind::OverloadSetExpr:
             return Type::OverloadSet.str(use_colour);
 
+        case Expr::Kind::ArrayLiteralExpr:
+            return Type::ArrayLiteral.str(use_colour);
+
         case Expr::Kind::ReturnExpr:
         case Expr::Kind::LoopControlExpr:
         case Expr::Kind::GotoExpr:
@@ -651,7 +640,6 @@ auto src::Type::str(bool use_colour) const -> std::string {
         case Expr::Kind::LocalRefExpr:
         case Expr::Kind::BoolLiteralExpr:
         case Expr::Kind::IntegerLiteralExpr:
-        case Expr::Kind::ArrayLiteralExpr:
         case Expr::Kind::StringLiteralExpr:
         case Expr::Kind::ProcDecl:
         case Expr::Kind::CastExpr:
@@ -670,6 +658,17 @@ done:
     return out;
 }
 
+auto src::Type::_strip_arrays() -> ArrayInfo {
+    Assert(ptr->sema.ok);
+    auto d = desugared;
+    if (auto ref = dyn_cast<ArrayType>(d.ptr)) {
+        auto [type, dim, depth] = ref->elem.strip_arrays;
+        return {type, dim * ref->dimension().getZExtValue(), depth + 1};
+    } else {
+        return {d, 1, 0};
+    }
+}
+
 auto src::Type::_strip_refs() -> Type {
     auto d = desugared;
     if (auto ref = dyn_cast<ReferenceType>(d.ptr)) return ref->elem.strip_refs;
@@ -681,6 +680,38 @@ auto src::Type::_strip_refs_and_pointers() -> Type {
     if (isa<ReferenceType, ScopedPointerType>(d.ptr))
         return cast<SingleElementTypeBase>(d.ptr)->elem.strip_refs_and_pointers;
     return d;
+}
+
+bool src::Type::_trivial() {
+    Assert(ptr->sema.ok);
+    switch (ptr->kind) {
+        case Expr::Kind::BuiltinType:
+        case Expr::Kind::FFIType:
+        case Expr::Kind::IntType:
+        case Expr::Kind::OptionalType:
+        case Expr::Kind::ScopedPointerType:
+        case Expr::Kind::SliceType:
+        case Expr::Kind::Nil:
+            return true;
+
+        case Expr::Kind::ClosureType:
+        case Expr::Kind::ProcType:
+        case Expr::Kind::ReferenceType:
+            return false;
+
+        case Expr::Kind::SugaredType:
+        case Expr::Kind::ScopedType:
+            return desugared.trivial;
+
+        case Expr::Kind::ArrayType:
+            return cast<ArrayType>(ptr)->elem.trivial;
+
+        case Expr::Kind::StructType:
+            return cast<StructType>(ptr)->initialisers.empty();
+
+        SOURCE_NON_TYPE_EXPRS:
+            Unreachable("Not a type");
+    }
 }
 
 bool src::Type::_yields_value() {
@@ -958,6 +989,7 @@ struct ASTPrinter {
                         case InitialiserCall: out += " init"; break;
                         case Uninitialised: out += " uninit"; break;
                         case SliceFromParts: out += " slice"; break;
+                        case ArrayInitialiserCall: out += " array-init"; break;
                     }
                 }
 
@@ -1188,6 +1220,7 @@ struct ASTPrinter {
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
             case K::OverloadSetExpr: PrintBasicNode("OverloadSetExpr", e, nullptr); return;
+            case K::ArrayLiteralExpr: PrintBasicNode("ArrayLiteralExpr", e, nullptr); return;
             case K::Nil: PrintBasicNode("Nil", e, nullptr); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
@@ -1195,7 +1228,6 @@ struct ASTPrinter {
             case K::ConstExpr: PrintBasicNode("ConstExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::ArrayLiteralExpr: PrintBasicNode("ArrayLiteralExpr", e, static_cast<Expr*>(e->type)); return;
 
             case K::DeferExpr: {
                 PrintBasicHeader("DeferExpr", e);

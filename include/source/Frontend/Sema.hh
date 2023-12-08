@@ -2,6 +2,7 @@
 #define SOURCE_FRONTEND_SEMA_HH
 
 #include <source/Frontend/AST.hh>
+#include <source/Support/Buffer.hh>
 
 namespace src {
 template <typename T>
@@ -44,13 +45,100 @@ class Sema {
     /// The defer expression whose contents we are currently analysing.
     DeferExpr* curr_defer{};
 
-    /// Unwinding is performed once everything else has been checked.
+    /// Expressions that require unwinding once everything else has been checked.
     struct Unwind {
         BlockExpr* in_scope;
         UnwindExpr* expr;
 
         /// Unused if this is a goto.
         BlockExpr* to_scope{};
+    };
+
+    /// Conversion sequence to convert from one type to another.
+    ///
+    /// Each conversion in the sequence entails performing one
+    /// of the following actions; at most one CastExpr may be
+    /// created for each conversion sequence.
+    ///
+    ///     - Creating a CastExpr.
+    ///     - Creating a ConstExpr with a certain value.
+    ///     - Calling a constructor.
+    struct ConversionSequence {
+        struct BuildCast {
+            CastKind kind;
+            Type to;
+        };
+
+        struct BuildConstExpr {
+            /// Empty so we don’t store 27 EvalResults for a large
+            /// conversion sequence; since we can only construct
+            /// one ConstExpr anyway, a ConversionSequence only
+            /// needs to store a single EvalResult.
+        };
+
+        struct CallConstructor {
+            ProcDecl* ctor;
+            Buffer<Expr*> args;
+        };
+
+        /// Convert an overload set to a DeclRefExpr to a procedure.
+        struct OverloadSetToProc {
+            ProcDecl* proc;
+        };
+
+        using Entry = std::variant<BuildCast, BuildConstExpr, CallConstructor, OverloadSetToProc>;
+        SmallVector<Entry> entries;
+        std::optional<EvalResult> constant;
+        int score{};
+
+        static void ApplyCast(Sema& s, Expr*& e, CastKind kind, Type to);
+        static void ApplyConstExpr(Sema& s, Expr*& e, EvalResult res);
+        static void ApplyConstructor(Sema& s, Expr*& e, ProcDecl* ctor, ArrayRef<Expr*> args);
+        static void ApplyOverloadSetToProc(Sema& s, Expr*& e, ProcDecl* proc);
+    };
+
+    /// Helper for checking conversions.
+    template <bool perform_conversion>
+    struct ConversionContext {
+        Sema& S;
+        ConversionSequence* seq;
+        Expr** e;
+        int score{};
+        bool has_expr{};
+
+        ConversionContext(Sema& s, ConversionSequence& seq, Expr** e = nullptr)
+        requires (not perform_conversion)
+            : S(s), seq(&seq), e(e) {
+            if (e) has_expr = true;
+        }
+
+        ConversionContext(Sema& s, Expr*& e)
+        requires perform_conversion
+            : S(s), seq(nullptr), e(&e) {
+            has_expr = true;
+        }
+
+        /// Get the current expression; this can only be valid if the conversion
+        /// sequence is empty or if the last entry is a ConstExpr; otherwise, the
+        /// expression has already been converted to something else; note that there
+        /// may also be no expression at all in some cases if we’re just checking
+        /// whether two types are convertible with one another.
+        readonly(Expr*, expr, return has_expr ? *e : nullptr);
+
+        /// Whether the current expression is an lvalue.
+        readonly(bool, is_lvalue, return expr and expr->is_lvalue);
+
+        /// Emit a cast.
+        Type cast(CastKind k, Type to);
+
+        /// Emit a conversion from an overload set to a procedure.
+        Type overload_set_to_proc(ProcDecl* proc);
+
+        /// Replace the expression with a constant.
+        Type replace_with_constant(EvalResult&& res);
+
+        /// Attempt to evaluate this as a constant expression.
+        bool try_evaluate(EvalResult& out);
     };
 
     /// Overload candidate.
@@ -62,14 +150,18 @@ class Sema {
             NoViableArgOverload,
         };
 
+        enum { InvalidScore = -1 };
+
         ProcDecl* proc;
+        SmallVector<ConversionSequence> arg_convs;
         Status s = Status::Viable;
-        int score{};
+        int score = InvalidScore;
 
         LLVM_READONLY readonly_const(ProcType*, type, return cast<ProcType>(proc->type));
         usz mismatch_index{};
     };
 
+    /// Expressions that still need to be checked for unwinding.
     SmallVector<Unwind> unwind_entries;
 
     /// Expressions that need to know what the current full expression is.
@@ -100,6 +192,8 @@ private:
 
     bool Analyse(Expr*& e);
 
+    bool AnalyseArrayInitialisation(Expr* var, Type array_type, ArrayLitExpr* arr);
+
     /// Analyse the given expression and issue an error if it is not a type.
     bool AnalyseAsType(Type& e);
 
@@ -116,6 +210,9 @@ private:
     /// variable is known and valid.
     bool AnalyseVariableInitialisation(LocalDecl* var);
 
+    /// Apply a conversion sequence to an expression.
+    void ApplyConversionSequence(Expr*& e, std::same_as<ConversionSequence> auto&& seq);
+
     /// Convert an expression to a type, inserting implicit conversions
     /// as needed. This  *will* perform lvalue-to-rvalue conversion if
     /// the type conversion requires it and also in any case unless \p
@@ -124,8 +221,8 @@ private:
 
     /// Implements Convert() and TryConvert().
     template <bool perform_conversion>
-    int ConvertImpl(
-        std::conditional_t<perform_conversion, Expr*&, Expr*> e,
+    bool ConvertImpl(
+        ConversionContext<perform_conversion>& ctx,
         Type from, /// Required for recursive calls in non-conversion mode.
         Type to
     );
@@ -158,8 +255,6 @@ private:
 
     /// Evaluate an integral constant expression and replace it with the result.
     bool EvaluateAsIntegerInPlace(Expr*& e, bool must_succeed = true);
-
-    void InsertImplicitCast(Expr*& e, Type to);
 
     /// Dereference a reference, yielding an lvalue.
     ///
@@ -210,10 +305,9 @@ private:
         ArrayRef<Expr*> args
     );
 
-    /// Like Convert(), but does not perform the conversion, does not
-    /// issue any diagnostics, and returns a score suitable for overload
-    /// resolution.
-    int TryConvert(Expr* e, Type to);
+    /// Like Convert(), but does not perform the conversion, and does not
+    /// issue any diagnostics on conversion failure.
+    bool TryConvert(ConversionSequence& out, Expr* e, Type to);
 
     /// Strip references and optionals (if they’re active) from the expression
     /// to yield the underlying value.

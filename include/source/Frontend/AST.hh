@@ -17,9 +17,7 @@ class ProcType;
 class BlockExpr;
 class Nil;
 
-namespace detail {
-extern constinit const Type UnknownType;
-}
+struct ArrayInfo;
 
 /// ===========================================================================
 ///  Enums
@@ -183,15 +181,13 @@ public:
         return utils::AllocateAndRegister<Expr>(sz, mod->exprs);
     }
 
-    /// Get this expression as a type handle; this is different
-    /// from `type` which returns a handle to the type of this
-    /// expression.
-    // readonly_decl(Type, as_type);
-
     /// Strip lvalue-to-rvalue conversion. This only removes one
     /// level of lvalue-to-rvalue conversion, not lvalue-ref-to-lvalue
     /// conversion.
     readonly_decl(Expr*, ignore_lv2rv);
+
+    /// Strip parentheses.
+    readonly_decl(Expr*, ignore_parens);
 
     /// Strip parentheses, implicit casts, and DeclRefExprs.
     readonly_decl(Expr*, ignore_paren_cast_refs);
@@ -247,7 +243,7 @@ public:
     static constinit const Type Bool;
     static constinit const Type NoReturn;
     static constinit const Type OverloadSet;
-    static constinit const Type EmptyArray;
+    static constinit const Type ArrayLiteral;
     static constinit const Type VoidRef;
     static constinit const Type VoidRefRef;
     static constinit const Type I8;
@@ -272,8 +268,12 @@ public:
     /// Get the procedure type from a closure or proc.
     readonly_decl(ProcType*, callable);
 
-    /// Check whether this type is default constructible.
-    readonly_decl(bool, default_constructible);
+    /// Get the default constructor for this type.
+    ///
+    /// This only returns a procedure if there is an actual non-trivial
+    /// constructor that takes no arguments. For types such as `int`, this
+    /// always returns null.
+    readonly_decl(ProcDecl*, default_constructor);
 
     /// Get the type stripped of any sugar.
     readonly_decl(Type, desugared);
@@ -301,11 +301,20 @@ public:
     /// Get a string representation of this type.
     auto str(bool use_colour) const -> std::string;
 
+    /// Strip all arrays from this type (including sugar) and determine
+    /// the overall size of the (multidimensional) array.
+    readonly_decl(ArrayInfo, strip_arrays);
+
     /// Strip all references from this type.
     readonly_decl(Type, strip_refs);
 
     /// Strip all references and pointers from this type.
     readonly_decl(Type, strip_refs_and_pointers);
+
+    /// Check whether this type is trivial, has no constructors at all; that
+    /// is, it is either a builtin type or a type for which default construction
+    /// is zero-initialisation.
+    readonly_decl(bool, trivial);
 
     /// Check if this type logically yields a value, i.e. is not
     /// void or noreturn.
@@ -319,11 +328,22 @@ public:
     Expr* operator->() { return ptr; }
 };
 
+struct ArrayInfo {
+    /// First nested non-array type (not desugared).
+    Type base_type;
+
+    /// Total size of the array as unrolled into a single dimension.
+    usz total_dimension;
+
+    /// Number of nested arrays, e.g. 3 for `int[2][3][4]`.
+    usz array_depth;
+};
+
 class EvalResult {
     std::variant<std::monostate, APInt, Type, std::nullptr_t> value{};
 
 public:
-    Type type{detail::UnknownType};
+    Type type{Type::Unknown};
 
     EvalResult() : value(std::monostate{}) {}
     EvalResult(std::nullptr_t); /// Nil.
@@ -682,7 +702,7 @@ public:
     bool implicit{};
 
     BlockExpr(Module* mod, BlockExpr* parent, Location loc = {}, bool implicit = false)
-        : TypedExpr(Kind::BlockExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::BlockExpr, Type::Unknown, loc),
           parent(parent),
           module(mod),
           implicit(implicit) {}
@@ -738,7 +758,7 @@ public:
     SmallVector<Expr*> init_args;
 
     InvokeExpr(Expr* callee, SmallVector<Expr*> args, bool naked, SmallVector<Expr*> init, Location loc)
-        : TypedExpr(Kind::InvokeExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::InvokeExpr, Type::Unknown, loc),
           args(std::move(args)),
           naked(naked),
           callee(callee),
@@ -757,7 +777,7 @@ public:
     Builtin builtin;
 
     InvokeBuiltinExpr(Builtin builtin, SmallVector<Expr*> args, Location loc)
-        : TypedExpr(Kind::InvokeBuiltinExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::InvokeBuiltinExpr, Type::Unknown, loc),
           args(std::move(args)),
           builtin(builtin) {}
 
@@ -827,7 +847,7 @@ public:
     Tk op;
 
     UnaryPrefixExpr(Tk op, Expr* operand, Location loc)
-        : TypedExpr(Kind::UnaryPrefixExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::UnaryPrefixExpr, Type::Unknown, loc),
           operand(operand),
           op(op) {}
 
@@ -847,7 +867,7 @@ public:
     Expr* else_;
 
     IfExpr(Expr* cond, Expr* then, Expr* else_, Location loc)
-        : TypedExpr(Kind::IfExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::IfExpr, Type::Unknown, loc),
           cond(cond),
           then(then),
           else_(else_) {}
@@ -868,7 +888,7 @@ public:
     Tk op;
 
     BinaryExpr(Tk op, Expr* lhs, Expr* rhs, Location loc)
-        : TypedExpr(Kind::BinaryExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::BinaryExpr, Type::Unknown, loc),
           lhs(lhs),
           rhs(rhs),
           op(op) {}
@@ -889,7 +909,7 @@ public:
     Expr* resolved{};
 
     ScopeAccessExpr(Expr* object, std::string element, Location loc)
-        : TypedExpr(Kind::ScopeAccessExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::ScopeAccessExpr, Type::Unknown, loc),
           element(std::move(element)),
           object(object) {}
 
@@ -911,7 +931,7 @@ public:
     Expr* decl;
 
     DeclRefExpr(std::string name, BlockExpr* sc, Location loc)
-        : TypedExpr(Kind::DeclRefExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::DeclRefExpr, Type::Unknown, loc),
           name(std::move(name)),
           scope(sc),
           decl(nullptr) {}
@@ -942,7 +962,7 @@ public:
     Expr* expr;
 
     ParenExpr(Expr* expr, Location loc)
-        : TypedExpr(Kind::ParenExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::ParenExpr, Type::Unknown, loc),
           expr(expr) {}
 
     /// RTTI.
@@ -955,21 +975,44 @@ public:
     Expr* index;
 
     SubscriptExpr(Expr* object, Expr* index, Location loc)
-        : TypedExpr(Kind::SubscriptExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::SubscriptExpr, Type::Unknown, loc),
           object(object),
           index(index) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::SubscriptExpr; }
 };
+/*
 
-class ArrayLitExpr : public TypedExpr {
+enum struct ArrayTraversal {
+    EnterLiteral,
+    VisitElement,
+    LeaveLiteral,
+};
+*/
+
+class ArrayLitExpr : public Expr {
 public:
     /// The elements of this array literal.
     SmallVector<Expr*> elements;
 
+    /// The result object into which this literal is evaluated. If null,
+    /// the backend will create a temporary for this to be generated into.
+    Expr* result_object{};
+
+/*    /// Perform a preorder traversal of this array literal.
+    template <typename Callback>
+    void visit_elements(Callback cb) {
+        std::invoke(cb, ArrayTraversal::EnterLiteral, this);
+        for (auto e : elements) {
+            if (auto a = dyn_cast<ArrayLitExpr>(e)) a->visit_elements(std::ref(cb));
+            else std::invoke(cb, ArrayTraversal::VisitElement, e);
+        }
+        std::invoke(cb, ArrayTraversal::LeaveLiteral, this);
+    }*/
+
     ArrayLitExpr(SmallVector<Expr*> elements, Location loc)
-        : TypedExpr(Kind::ArrayLiteralExpr, detail::UnknownType, loc),
+        : Expr(Kind::ArrayLiteralExpr, loc),
           elements(std::move(elements)) {}
 
     /// RTTI.
@@ -982,7 +1025,7 @@ public:
     APInt value;
 
     IntLitExpr(APInt value, Location loc)
-        : TypedExpr(Kind::IntegerLiteralExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::IntegerLiteralExpr, Type::Unknown, loc),
           value(std::move(value)) {}
 
     /// RTTI.
@@ -995,7 +1038,7 @@ public:
     bool value;
 
     BoolLitExpr(bool value, Location loc)
-        : TypedExpr(Kind::BoolLiteralExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::BoolLiteralExpr, Type::Unknown, loc),
           value(value) {}
 
     /// RTTI.
@@ -1008,7 +1051,7 @@ public:
     u32 index;
 
     StrLitExpr(u32 index, Location loc)
-        : TypedExpr(Kind::StringLiteralExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::StringLiteralExpr, Type::Unknown, loc),
           index(index) {}
 
     /// RTTI.
@@ -1079,17 +1122,52 @@ public:
         TrivialCopy,
         SliceFromParts,
         InitialiserCall,
+        ArrayInitialiserCall,
     } k;
 
 private:
-    /// The initialiser to call, if any.
-    ProcDecl* init;
+    struct ArrayConstructor {
+        ProcDecl* init;
+        usz els;
+    };
 
-    Constructor(Kind k, ProcDecl* init = nullptr) : k(k), init(init) {}
+    /// The initialiser or nested constructors to call, if any. The
+    /// ArrayConstructor is only used for *certain* arrays.
+    llvm::PointerUnion<ProcDecl*, ArrayConstructor*> data;
+
+    Constructor(Kind k, ProcDecl* init = nullptr) : k(k), data(init) {}
+    Constructor(Kind k, ArrayConstructor* init) : k(k), data(init) {}
 
 public:
+    Constructor(const Constructor&) = delete;
+    Constructor& operator=(const Constructor&) = delete;
+    Constructor(Constructor&& other)
+        : k(other.k),
+          data(std::exchange(other.data, static_cast<ProcDecl*>(nullptr))) {}
+
+    Constructor& operator=(Constructor&& other) {
+        k = other.k;
+        data = std::exchange(other.data, nullptr);
+        return *this;
+    }
+
+    ~Constructor() {
+        if (data.is<ArrayConstructor*>())
+            delete data.get<ArrayConstructor*>();
+    }
+
     readonly_const(Kind, kind, return k);
-    readonly_const(ProcDecl*, initialiser, return init);
+    readonly_const(
+        ProcDecl*,
+        initialiser,
+        return data.is<ProcDecl*>()
+                 ? data.get<ProcDecl*>()
+                 : data.get<ArrayConstructor*>()->init;
+    );
+
+    static auto ArrayInitialiserCall(ProcDecl* init, usz els) -> Constructor {
+        return {Kind::ArrayInitialiserCall, new ArrayConstructor{init, els}};
+    }
 
     static auto InitialiserCall(ProcDecl* init) -> Constructor { return {Kind::InitialiserCall, init}; }
     static auto MoveParameter() -> Constructor { return {Kind::MoveParameter}; }
@@ -1292,13 +1370,32 @@ class ReferenceType;
 class FFIType;
 
 enum struct BuiltinTypeKind {
+    /// Unset. We don’t want to set types to null to avoid crashes, so
+    /// this is used instead.
     Unknown,
+
+    /// The void type.
     Void,
+
+    /// The builtin pointer-sized integer type.
     Int,
+
+    /// The builtin boolean type.
     Bool,
+
+    /// Type that indicates that a function never returns. Also used
+    /// for the type of control-flot expressions like break, return
+    /// and goto.
     NoReturn,
+
+    /// Type of a set of function overloads. This is convertible to
+    /// each function type in the set.
     OverloadSet,
-    EmptyArray,
+
+    /// Array literals can be oddly-shaped, so assigning a type to
+    /// them doesn’t really make much sense; each array literal has
+    /// to be treated as a special case.
+    ArrayLiteral,
 };
 
 enum struct FFITypeKind {
@@ -1665,7 +1762,7 @@ public:
     StructType::Field* field{};
 
     MemberAccessExpr(Expr* object, std::string member, Location loc)
-        : TypedExpr(Kind::MemberAccessExpr, detail::UnknownType, loc),
+        : TypedExpr(Kind::MemberAccessExpr, Type::Unknown, loc),
           member(std::move(member)),
           object(object) {}
 

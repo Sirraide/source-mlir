@@ -40,38 +40,118 @@ auto tcast(From from) -> detail::TCast<To> {
 
 #define λ(param, body) ([&](auto&& param) { return body; })
 
-enum : int {
-    InvalidScore = -1,
-    InvalidIndex = -1,
-};
+void src::Sema::ConversionSequence::ApplyCast(Sema& S, Expr*& e, CastKind kind, Type to) {
+    /// Silently drop lvalue-to-rvalue conversion if the expression
+    /// is not an lvalue as we may not have known this when building
+    /// this cast.
+    if (kind == CastKind::LValueToRValue and not e->is_lvalue) return;
+    e = new (S.mod) CastExpr(kind, e, to, e->location);
+    S.Analyse(e);
+}
+
+void src::Sema::ConversionSequence::ApplyConstExpr(Sema& S, Expr*& e, EvalResult res) {
+    e = new (S.mod) ConstExpr(e, std::move(res), e->location);
+}
+
+void src::Sema::ConversionSequence::ApplyConstructor(
+    [[maybe_unused]] Sema& S,
+    [[maybe_unused]] Expr*& e,
+    [[maybe_unused]] ProcDecl* ctor,
+    [[maybe_unused]] ArrayRef<Expr*> args
+) {
+    Todo();
+}
+
+void src::Sema::ConversionSequence::ApplyOverloadSetToProc(Sema& S, Expr*& e, ProcDecl* proc) {
+    auto d = new (S.mod) DeclRefExpr(proc->name, nullptr, e->location);
+    d->stored_type = proc->type;
+    d->sema.set_done();
+    d->decl = proc;
+    e = d;
+}
+
+void src::Sema::ApplyConversionSequence(Expr*& e, std::same_as<ConversionSequence> auto&& seq) { // clang-format off
+    using CS = ConversionSequence;
+    for (auto& conv : seq.entries) {
+        visit(conv, detail::overloaded {
+            [&] (CS::BuildConstExpr) { CS::ApplyConstExpr(*this, e, std::forward_like<decltype(seq)>(*seq.constant)); },
+            [&] (CS::BuildCast& cast) { CS::ApplyCast(*this, e, cast.kind, cast.to); },
+            [&] (CS::CallConstructor& ctor) { CS::ApplyConstructor(*this, e, ctor.ctor, ctor.args); },
+            [&] (CS::OverloadSetToProc& proc) { CS::ApplyOverloadSetToProc(*this, e, proc.proc); }
+        });
+    }
+} // clang-format on
 
 template <bool perform_conversion>
-int src::Sema::ConvertImpl(
-    std::conditional_t<perform_conversion, Expr*&, Expr*> e,
+auto src::Sema::ConversionContext<perform_conversion>::cast(CastKind kind, Type to) -> Type {
+    if constexpr (perform_conversion) ConversionSequence::ApplyCast(S, *e, kind, to);
+    else seq->entries.push_back(ConversionSequence::BuildCast{kind, to});
+    if (kind != CastKind::LValueToRValue) score++;
+    has_expr = false;
+    return to;
+}
+
+template <bool perform_conversion>
+auto src::Sema::ConversionContext<perform_conversion>::overload_set_to_proc(ProcDecl* proc) -> Type {
+    if constexpr (perform_conversion) ConversionSequence::ApplyOverloadSetToProc(S, *e, proc);
+    else seq->entries.push_back(ConversionSequence::OverloadSetToProc{proc});
+    has_expr = false;
+    score++;
+    return proc->type;
+}
+
+template <bool perform_conversion>
+auto src::Sema::ConversionContext<perform_conversion>::replace_with_constant(EvalResult&& res) -> Type {
+    auto type = res.type;
+
+    if constexpr (perform_conversion) ConversionSequence::ApplyConstExpr(S, *e, std::move(res));
+    else {
+        Assert(not seq->constant.has_value(), "At most one ConstExpr per conversion sequence!");
+        seq->constant = std::move(res);
+        seq->entries.push_back(ConversionSequence::BuildConstExpr{});
+    }
+
+    has_expr = false;
+    score++;
+    return type;
+}
+
+template <bool perform_conversion>
+bool src::Sema::ConversionContext<perform_conversion>::try_evaluate(EvalResult& out) {
+    if (has_expr) return S.Evaluate(*e, out, false);
+    if (not perform_conversion) {
+        if (std::holds_alternative<ConversionSequence::BuildConstExpr>(seq->entries.back())) {
+            out = *seq->constant;
+            return true;
+        }
+    }
+
+    /// Not a constant expression.
+    return false;
+}
+
+template <bool perform_conversion>
+bool src::Sema::ConvertImpl(
+    ConversionContext<perform_conversion>& ctx,
     Type from_ty,
     Type type
 ) {
     /// Sanity checks.
-    if (e->sema.errored or type->sema.errored) return false;
+    if (ctx.expr and (ctx.expr->sema.errored or type->sema.errored)) return false;
     Assert(from_ty->sema.ok and type->sema.ok, "Cannot convert to unanalysed type");
     Assert(isa<TypeBase>(type));
     auto to = type;
     auto from = from_ty;
-    int score = 0;
 
     /// If the types are equal, then they’re convertible to one another.
-    if (from == to) return score;
+    if (from == to) return true;
 
     /// Active optionals are convertible to the type they contain. There
     /// are no other valid conversions involving optionals at the moment.
-    if (e->is_active_optional) {
-        auto ty = cast<OptionalType>(e->ignore_paren_refs->type);
-        if constexpr (perform_conversion) {
-            e = new (mod) CastExpr(CastKind::OptionalUnwrap, e, ty->elem, e->location);
-            Analyse(e);
-        }
-
-        return ConvertImpl<perform_conversion>(e, ty->elem, type);
+    if (ctx.expr and ctx.expr->is_active_optional) {
+        auto ty = cast<OptionalType>(ctx.expr->ignore_paren_refs->type);
+        from = ctx.cast(CastKind::OptionalUnwrap, ty->elem);
+        return ConvertImpl<perform_conversion>(ctx, from, type);
     }
 
     /// Place conversions involving references first, as we may
@@ -89,31 +169,15 @@ int src::Sema::ConvertImpl(
             /// If the depth we’re converting to is one greater than
             /// the depth of the expression, and the expression is an
             /// lvalue, then this is reference binding.
-            if (to_depth == from_depth + 1 and e->is_lvalue) {
-                score++;
-
-                if constexpr (perform_conversion) {
-                    e = new (mod) CastExpr(CastKind::LValueToReference, e, type, e->location);
-                    Analyse(e);
-                    from = e->type;
-                } else {
-                    from = new (mod) ReferenceType(from, {});
-                }
-            }
+            if (to_depth == from_depth + 1 and ctx.is_lvalue)
+                from = ctx.cast(CastKind::LValueToReference, new (mod) ReferenceType(from, {}));
 
             /// If the depth of the type we’re converting to is less than
             /// the depth of the type we’re converting from, then this is
             /// implicit dereferencing.
             else if (to_depth < from_depth) {
-                auto diff = from_depth - to_depth;
-                score++;
-
-                if constexpr (perform_conversion) {
-                    InsertImplicitDereference(e, diff);
-                    from = e->type;
-                } else {
-                    for (isz i = diff; i; i--) from = cast<ReferenceType>(from)->elem;
-                }
+                for (isz i = from_depth - to_depth; i; i--)
+                    from = ctx.cast(CastKind::ReferenceToLValue, cast<ReferenceType>(from)->elem);
             }
         }
 
@@ -124,76 +188,58 @@ int src::Sema::ConvertImpl(
             from_ref and
             tcast<ArrayType>(from_ref->elem).test λ(a, a->elem == to_ref->elem)
         ) {
-            if constexpr (perform_conversion) {
-                InsertImplicitDereference(e, 1);
-                e = new (mod) CastExpr(CastKind::ArrayToElemRef, e, type, e->location);
-                Analyse(e);
-            }
-
-            return ++score;
+            from = ctx.cast(CastKind::ReferenceToLValue, cast<ReferenceType>(from)->elem);
+            from = ctx.cast(CastKind::ArrayToElemRef, type);
+            return true;
         }
 
         /// Array lvalues can be converted to references to their first element.
         else if (
             auto array = dyn_cast<ArrayType>(from);
-            e->is_lvalue and array and array->elem == to_ref->elem
+            ctx.is_lvalue and array and array->elem == to_ref->elem
         ) {
-            if constexpr (perform_conversion) {
-                e = new (mod) CastExpr(CastKind::ArrayToElemRef, e, type, e->location);
-                Analyse(e);
-            }
+            from = ctx.cast(CastKind::ArrayToElemRef, type);
 
             /// This involves both adding a reference level and changing the
             /// type, so make this a worse conversion than either one on its
             /// own.
-            return score + 2;
+            ctx.score++;
+            return true;
         }
     }
 
     /// Check for equality one more time.
-    if (from == to) return score;
+    if (from == to) return true;
 
     /// Procedures are convertible to closures, but *not* the other way around.
     if (isa<ProcType>(from) and isa<ClosureType>(to)) {
-        if (from != cast<ClosureType>(to)->proc_type) return InvalidScore;
-        if constexpr (perform_conversion) {
-            InsertLValueToRValueConversion(e);
-            InsertImplicitCast(e, type);
-        }
-
-        return ++score;
+        if (from != cast<ClosureType>(to)->proc_type) return false;
+        ctx.cast(CastKind::LValueToRValue, from);
+        ctx.cast(CastKind::Implicit, type);
+        return true;
     }
 
     /// Overload sets are convertible to each of the procedure types in the
     /// set, as well as any closures thereof.
-    if (auto os = dyn_cast<OverloadSetExpr>(e)) {
+    if (auto os = dyn_cast_if_present<OverloadSetExpr>(ctx.expr)) {
         auto to_proc = dyn_cast<ProcType>(isa<ClosureType>(to) ? cast<ClosureType>(to)->proc_type : to);
-        if (not to_proc) return InvalidScore;
+        if (not to_proc) return false;
         for (auto o : os->overloads) {
             if (o->type == to_proc) {
-                if constexpr (perform_conversion) {
-                    /// Replace the overload set with a DeclRefExpr to the referenced procedure...
-                    /// FIXME: Shouldn’t this be run unconditionally?
-                    if (not isa<ProcType>(to)) {
-                        auto d = new (mod) DeclRefExpr(o->name, nullptr, e->location);
-                        d->stored_type = o->type;
-                        d->sema.set_done();
-                        d->decl = o;
-                        e = d;
-                    }
+                /// Replace the overload set with a DeclRefExpr to the referenced procedure...
+                from = ctx.overload_set_to_proc(o);
 
-                    /// ... and make it a closure, if need be.
-                    if (isa<ClosureType>(to)) {
-                        InsertLValueToRValueConversion(e);
-                        InsertImplicitCast(e, type);
-                    }
+                /// ... and make it a closure, if need be.
+                if (isa<ClosureType>(to)) {
+                    from = ctx.cast(CastKind::LValueToRValue, from);
+                    from = ctx.cast(CastKind::Implicit, type);
                 }
 
-                return ++score;
+                return true;
             }
         }
 
-        return InvalidScore;
+        return false;
     }
 
     /// Integer-to-integer conversions.
@@ -203,58 +249,48 @@ int src::Sema::ConvertImpl(
 
         /// Try evaluating the expression. We allow implicit conversions
         /// to a smaller type if the value is known to fit at compile time.
-        EvalResult value;
-        if (Evaluate(e, value, false) and value.as_int().getSignificantBits() <= to_size.bits()) {
-            if constexpr (perform_conversion) {
+        if (ctx.expr) {
+            EvalResult value;
+            if (ctx.try_evaluate(value) and value.as_int().getSignificantBits() <= to_size.bits()) {
                 value.type = to;
                 value.as_int() = value.as_int().trunc(unsigned(to_size.bits()));
-                e = new (mod) ConstExpr(e, std::move(value), e->location);
+                from = ctx.replace_with_constant(std::move(value));
+                return true;
             }
-
-            return ++score;
         }
 
         /// Smaller integer types can be converted to larger integer types.
         if (from_size <= to_size) {
-            if constexpr (perform_conversion) {
-                InsertLValueToRValueConversion(e);
-                InsertImplicitCast(e, type);
-            }
-
-            return ++score;
+            from = ctx.cast(CastKind::LValueToRValue, from);
+            from = ctx.cast(CastKind::Implicit, type);
+            return true;
         }
 
         /// No other valid integer conversions.
-        return InvalidScore;
+        return false;
     }
 
     /// Nil is convertible to any optional type.
     if (from.is_nil and isa<OptionalType>(to)) {
-        if constexpr (perform_conversion) {
-            InsertLValueToRValueConversion(e);
-            InsertImplicitCast(e, type);
-        }
-
-        return ++score;
+        from = ctx.cast(CastKind::LValueToRValue, from);
+        from = ctx.cast(CastKind::Implicit, type);
+        return true;
     }
 
     /// Any type is convertible to the optional type of that type.
     if (auto opt = dyn_cast<OptionalType>(to); from == opt->elem) {
-        if constexpr (perform_conversion) {
-            InsertLValueToRValueConversion(e);
-            e = new (mod) CastExpr(CastKind::OptionalWrap, e, opt, e->location);
-            Analyse(e);
-        }
-
-        return ++score;
+        from = ctx.cast(CastKind::LValueToRValue, from);
+        from = ctx.cast(CastKind::OptionalWrap, opt);
+        return true;
     }
 
     /// No other conversions are supported.
-    return InvalidScore;
+    return false;
 }
 
 bool src::Sema::Convert(Expr*& e, Type type, bool lvalue) {
-    bool ok = ConvertImpl<true>(e, e->type, type) != InvalidScore;
+    ConversionContext<true> ctx{*this, e};
+    bool ok = ConvertImpl(ctx, e->type, type);
     if (ok and not lvalue) InsertLValueToRValueConversion(e);
     return ok;
 }
@@ -264,7 +300,7 @@ auto src::Sema::CreateImplicitDereference(Expr* e, isz depth) -> Expr* {
         e = new (mod) CastExpr(
             CastKind::ReferenceToLValue,
             e,
-            Type::Unknown,
+            cast<ReferenceType>(e->type)->elem,
             e->location
         );
 
@@ -292,12 +328,6 @@ bool src::Sema::EnsureCondition(Expr*& e) {
         e->type.str(true),
         Type::Bool.str(true)
     );
-}
-
-void src::Sema::InsertImplicitCast(Expr*& e, Type to) {
-    Expr* cast = new (mod) CastExpr(CastKind::Implicit, e, to, e->location);
-    Analyse(cast);
-    e = cast;
 }
 
 void src::Sema::InsertImplicitDereference(Expr*& e, isz depth) {
@@ -331,8 +361,11 @@ bool src::Sema::MakeDeclType(Type& e) {
     return true;
 }
 
-int src::Sema::TryConvert(src::Expr* e, Type to) {
-    return ConvertImpl<false>(e, e->type, to);
+bool src::Sema::TryConvert(ConversionSequence& seq, Expr* e, Type to) {
+    ConversionContext<false> ctx(*this, seq, &e);
+    bool ok = ConvertImpl(ctx, e->type, to);
+    seq.score = ok ? ctx.score : Candidate::InvalidScore;
+    return ok;
 }
 
 auto src::Sema::Unwrap(Expr* e, bool keep_lvalues) -> Expr* {
@@ -377,6 +410,9 @@ auto src::Sema::PerformOverloadResolution(
         if (not Analyse(a))
             return nullptr;
 
+    /// Conversion sequence for each argument.
+
+
     /// 1.
     SmallVector<Candidate> candidates;
     candidates.reserve(overloads.size());
@@ -385,6 +421,7 @@ auto src::Sema::PerformOverloadResolution(
     /// 2.
     for (auto& ci : candidates) {
         auto& params = ci.type->param_types;
+        ci.arg_convs.resize(args.size());
 
         /// 2a.
         if (params.size() > args.size()) {
@@ -398,40 +435,16 @@ auto src::Sema::PerformOverloadResolution(
             continue;
         }
 
-        /// 2c.
+        /// 2c/2d.
         for (usz j = 0; j < params.size(); j++) {
-            if (isa<OverloadSetExpr>(args[j])) continue;
-            auto s = TryConvert(args[j], params[j]);
-            if (s == InvalidScore) {
+            if (not TryConvert(ci.arg_convs[j], args[j], params[j])) {
                 ci.s = Candidate::Status::ArgumentTypeMismatch;
                 ci.mismatch_index = j;
-                goto next_candidate;
+                break;
             } else {
-                ci.score += s;
+                ci.score += ci.arg_convs[j].score;
             }
         }
-
-        /// 2d.
-        for (usz j = 0; j < params.size(); j++) {
-            /// Only handle overload sets here.
-            auto os = dyn_cast<OverloadSetExpr>(args[j]);
-            if (not os) continue;
-
-            /// Compute scores for each overload.
-            SmallVector<int> scores(os->overloads.size());
-            for (auto [i, o] : vws::enumerate(os->overloads)) scores[usz(i)] = TryConvert(o, params[j]);
-            auto it = utils::UniqueMin(scores, [](int i) { return i != InvalidScore; });
-            if (it == scores.end()) {
-                ci.s = Candidate::Status::NoViableArgOverload;
-                ci.mismatch_index = j;
-                goto next_candidate;
-            } else {
-                ci.score += *it;
-            }
-        }
-
-        /// Check the next overload.
-    next_candidate:;
     }
 
     /// 3/4.
@@ -450,12 +463,9 @@ auto src::Sema::PerformOverloadResolution(
     auto proc = min->proc;
     auto& params = cast<ProcType>(proc->type)->param_types;
     for (usz i = 0; i < args.size(); i++) {
-        if (i < params.size()) {
-            auto ok = Convert(args[i], params[i]);
-            Assert(ok, "Convert() must succeed if TryConvert() did");
-        }
-
-        /// Convert variadic args to rvalues.
+        /// Apply conversion sequences to non-variadic args and
+        /// convert variadic args to rvalues.
+        if (i < params.size()) ApplyConversionSequence(args[i], std::move(min->arg_convs[i]));
         else {
             if (args[i]->type == Type::OverloadSet) {
                 Error(args[i], "Cannot pass an overload set as a variadic argument");
@@ -986,45 +996,13 @@ bool src::Sema::Analyse(Expr*& e) {
             p->is_lvalue = p->expr->is_lvalue;
         } break;
 
+        /// Array literals are weird because we can’t really do much with
+        /// them until we get to the context that they’re used in.
         case Expr::Kind::ArrayLiteralExpr: {
             auto a = cast<ArrayLitExpr>(e);
             for (auto& elem : a->elements)
                 if (not Analyse(elem))
                     return e->sema.set_errored();
-
-            /// Empty array is a special type since it has no inherent type.
-            if (a->elements.empty()) {
-                a->stored_type = Type::EmptyArray;
-                break;
-            }
-
-            /// Elements must all be of the same type.
-            for (usz i = 1; i < a->elements.size(); i++) {
-                if (not Convert(a->elements[i], a->elements[0]->type)) {
-                    Error(
-                        a->elements[i],
-                        "Type '{}' is not convertible to the array element type",
-                        a->elements[i]->type,
-                        a->elements[0]->type
-                    );
-
-                    Diag::Note(
-                        mod->context,
-                        a->elements[0]->location,
-                        "Array literal element type was deduced to be '{}' here",
-                        a->elements[0]->type.str(true)
-                    );
-
-                    return e->sema.set_errored();
-                }
-            }
-
-            /// Array type is the type of the first element.
-            a->stored_type = new (mod) ArrayType(
-                a->elements[0]->type,
-                new (mod) ConstExpr(nullptr, EvalResult(APInt(64, a->elements.size()), Type::Int), a->location),
-                a->location
-            );
         } break;
 
         /// String literals are u8 slices.
@@ -1494,6 +1472,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Otherwise, if the callee is a type, then this is a declaration.
             else if (isa<TypeBase>(invoke->callee)) {
+                /// TODO: naked: decl. parens: literal!
                 Type ty{invoke->callee};
                 if (not MakeDeclType(ty)) e->sema.set_errored();
 
@@ -1555,7 +1534,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// once, yielding an lvalue.
                 case CastKind::ReferenceToLValue:
                     if (m->operand->is_lvalue) m->cast_kind = CastKind::LValueRefToLValue;
-                    m->stored_type = cast<SingleElementTypeBase>(m->operand->type)->elem;
+                    Assert(m->type == cast<SingleElementTypeBase>(m->operand->type)->elem);
                     m->is_lvalue = true;
                     break;
 
@@ -1565,8 +1544,9 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// Only generated by sema. Convert an lvalue to a reference. The
                 /// result is an *rvalue* of reference type.
                 case CastKind::LValueToReference:
-                    m->stored_type = new (mod) ReferenceType(m->operand->type, m->location);
                     AnalyseAsType(m->stored_type);
+                    Assert(isa<ReferenceType>(m->type));
+                    Assert(cast<ReferenceType>(m->type)->elem == m->operand->type);
                     break;
 
                 /// Only generated by sema. Convert an optional to a bool.
@@ -2684,6 +2664,52 @@ void src::Sema::AnalyseModule() {
             cast<ProcType>(f->type)->static_chain_parent = f->parent;
 }
 
+/// See AnalyseVariableInitialisation() below for an explanation of how this works.
+bool src::Sema::AnalyseArrayInitialisation(Expr* var, Type array_or_base_type, ArrayLitExpr* arr) {
+    Todo();
+
+    /// If the base type is not an array, check that each element is convertible to it.
+    for (auto e : arr->elements) {
+    }
+}
+
+/// Handle variable initialisation.
+///
+/// This handles everything related to variable initialisation and construction
+/// of objects. Note that there is a big difference between certain builtin types
+/// and all other types. Some builtin types are trivial, that is, they have no
+/// constructor. All that needs to be done to create a value of such a type is
+/// simply to... emit the value. This is the case for numbers, empty slices, ranges
+/// and empty optionals.
+///
+/// Some builtin types, such as references, always require an initialiser; moreover,
+/// the aforementioned builtin types *can* take a single initialiser. However, all
+/// of these cases still only involve simply producing a single value. Even scoped
+/// pointers, which require a heap allocation, are fully self-contained in terms
+/// of their initialisation.
+///
+/// Where it gets more complicated is once arrays and structs are introduced. Handling
+/// arrays in a similar fashion to all other types, although possible for arrays of
+/// trivial types or with a single initialiser value that is broadcast across the
+/// entire array, becomes infeasible for arrays initialised by an array literal or
+/// for arrays of structure type: not only would it be quite the pain to associate
+/// each element of a (nested) array literal with the corresponding location in the
+/// in-memory array, but creating structures may require constructor calls, and those
+/// take a `this` pointer to an in-memory location, but array literals are rvalues and
+/// thus not in memory.
+///
+/// This means that, for arrays and structures initialised by array and structure
+/// literals, respectively, we borrow a page out of C++’s book: instead of emitting
+/// an array literal and then storing it into the variable, we instead evaluate the
+/// literal with the variable as its ‘result object’, constructing and storing values
+/// directly into the memory provided for the variable as we go. Thus, in those cases,
+/// the actual construction is handled by the code that emits the literal.
+///
+/// Side note: this also provides a way for us to emit literals that are not assigned
+/// to anything since the constructors invoked by those literals still need a memory
+/// location to construct into. For those literals, the backend simply hallucinates
+/// a memory location out of thin air for them to construct into; this is similar to
+/// the concept of temporary materialisation in C++.
 bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
     /// Validate initialisers.
     if (not rgs::all_of(var->init_args, [&](auto*& e) { return Analyse(e); }))
@@ -2770,15 +2796,70 @@ bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
         }
 
         case Expr::Kind::ArrayType: {
-            auto arr = cast<ArrayType>(ty);
-            Type base = arr;
-            while (auto a = dyn_cast<ArrayType>(base)) base = a->elem;
-            if (isa<IntType, BuiltinType, FFIType>(base) and var->init_args.empty()) {
-                var->ctor = Constructor::Zeroinit();
+            if (var->init_args.empty()) {
+                auto [base, size, depth] = ty.strip_arrays;
+
+                /// An array of trivial types is itself trivial.
+                if (base.trivial) {
+                    var->ctor = Constructor::Zeroinit();
+                    return true;
+                }
+
+                /// Otherwise, if this is a struct type with a constructor
+                /// that takes no elements, call that constructor for each
+                /// element.
+                if (auto ctor = base.default_constructor) {
+                    var->ctor = Constructor::ArrayInitialiserCall(ctor, size);
+                    return true;
+                }
+
+                /// Otherwise, this type cannot be constructed from nothing.
+                return Error(
+                    var,
+                    "Type '{}' is not default-constructible",
+                    var->type
+                );
+            }
+
+            if (var->init_args.size() != 1) Diag::ICE(
+                mod->context,
+                var->location,
+                "Array initialiser must have exactly one argument. Did you mean to use an array literal?",
+                var->init_args.size()
+            );
+
+            /// If the argument is an array literal, construct the array from it.
+            if (auto arr = dyn_cast<ArrayLitExpr>(var->init_args[0]->ignore_parens)) {
+                /// Walk the literal to determine whether it makes sense to construct
+                /// this array type from it.
+                AnalyseArrayInitialisation(var, ty, arr);
+
+                /*                /// Base type must be the same, as well as the number of nested arrays.
+                                if (base != init_base or depth != init_depth) return Error(
+                                    var,
+                                    "Cannot initialise array '{}' from array literal of type '{}'",
+                                    var->type,
+                                    init_arr->type
+                                );
+
+                                /// Array literal must be smaller or equal to the array type.
+                                if (init_size != size) return Error(
+                                    var,
+                                    "Cannot initialise array {} of total size {} from a larger array {} of size {}",
+                                    var->type,
+                                    size,
+                                    Type(init_arr),
+                                    init_size
+                                );*/
+
+                /// This is now the result object of the literal.
+                arr->result_object = var;
+                var->ctor = Constructor::Uninitialised();
                 return true;
             }
 
-            Todo("Non-trivial array initialisation");
+            /// TODO: Broadcast a single value.
+            return InvalidArgs();
         }
 
         case Expr::Kind::SliceType: {

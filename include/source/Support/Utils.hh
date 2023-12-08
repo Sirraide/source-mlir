@@ -61,6 +61,7 @@ using llvm::TypeSize;
 
 using llvm::cast;
 using llvm::dyn_cast;
+using llvm::dyn_cast_if_present;
 using llvm::isa;
 
 using mlir::LogicalResult;
@@ -430,12 +431,30 @@ public:
     /// two sizes w/ one another doesn’t make sense, so that operation is not provided.
     [[nodiscard]] friend constexpr Size operator*(Size lhs, usz rhs) { return Size{lhs.raw * rhs}; }
 
-    [[nodiscard]] friend constexpr Size operator+(Size lhs, Size rhs) { return Size{lhs.raw + rhs.raw};}
-    [[nodiscard]] friend constexpr Size operator-(Size lhs, Size rhs) { return Size{lhs.raw - rhs.raw};}
+    [[nodiscard]] friend constexpr Size operator+(Size lhs, Size rhs) { return Size{lhs.raw + rhs.raw}; }
+    [[nodiscard]] friend constexpr Size operator-(Size lhs, Size rhs) { return Size{lhs.raw - rhs.raw}; }
     [[nodiscard]] friend constexpr bool operator==(Size lhs, Size rhs) = default;
     [[nodiscard]] friend constexpr auto operator<=>(Size lhs, Size rhs) = default;
 };
 
+namespace detail {
+template <typename... Ts>
+struct overloaded : Ts... {
+    using Ts::operator()...;
+};
+
+template <typename... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+} // namespace detail
+
+/// Visit with a better order of arguments.
+template <typename Variant, typename... Visitors>
+void visit(Variant&& v, Visitors&&... visitors) {
+    std::visit(
+        detail::overloaded{std::forward<Visitors>(visitors)...},
+        std::forward<Variant>(v)
+    );
+}
 } // namespace src
 
 template <>
@@ -463,5 +482,12 @@ struct fmt::formatter<llvm::APInt> : fmt::formatter<std::string_view> {
         return fmt::formatter<std::string_view>::format(std::string_view{buf.data(), buf.size()}, ctx);
     }
 };
+
+#if !defined(__cpp_lib_forward_like)
+namespace std {
+/// Clang treats this as a builtin, so we don’t actually need to implement it.
+template <typename U, typename T> constexpr T&& forward_like(T&& val);
+}
+#endif
 
 #endif // SOURCE_MLIR_UTILS_HH

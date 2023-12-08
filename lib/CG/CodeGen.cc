@@ -290,6 +290,10 @@ void src::CodeGen::Construct(
                 args
             );
         } break;
+
+        case Constructor::Kind::ArrayInitialiserCall: {
+            Todo();
+        }
     }
 }
 
@@ -577,7 +581,7 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
                 case K::NoReturn: return mlir::NoneType::get(mctx);
                 case K::Unknown:
                 case K::OverloadSet:
-                case K::EmptyArray:
+                case K::ArrayLiteral:
                     Unreachable();
             }
             Unreachable();
