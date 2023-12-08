@@ -3,6 +3,7 @@
 
 #include <source/Core.hh>
 #include <source/Frontend/Lexer.hh>
+#include <source/Support/Buffer.hh>
 #include <source/Support/Result.hh>
 
 namespace src {
@@ -16,6 +17,7 @@ class StructType;
 class ProcType;
 class BlockExpr;
 class Nil;
+class ConstructExpr;
 
 struct ArrayInfo;
 
@@ -39,6 +41,12 @@ enum struct Mangling {
 enum struct Builtin {
     Destroy,
     New,
+};
+
+enum struct LocalKind {
+    Variable,    /// Regular stack variable.
+    Parameter,   /// Procedure parameter.
+    Synthesised, /// Named lvalue that points to an object somewhere else.
 };
 
 /// ===========================================================================
@@ -78,6 +86,7 @@ public:
         LabelExpr,
         EmptyExpr,
         ModuleRefExpr,
+        ConstructExpr,
         OverloadSetExpr,
 
         /// UnwindExpr [begin]
@@ -600,6 +609,213 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::OverloadSetExpr; }
 };
 
+enum struct ConstructKind {
+    Uninitialised,
+    Zeroinit,
+    MoveParameter,
+    TrivialCopy,
+    SliceFromParts,
+    InitialiserCall,
+    ArrayInitialiserCall,
+    ArrayBroadcast,
+    ArrayZeroinit,
+    ArrayListInit,
+};
+
+/// This expression stores all information required to construct a value.
+class ConstructExpr final
+    : public Expr
+    , llvm::TrailingObjects<ConstructExpr, isz, Expr*, ProcDecl*, usz> {
+    friend TrailingObjects;
+    using K = ConstructKind;
+    enum : usz { DefaultParamNoArrayElements = ~usz(0) };
+
+    template <typename T>
+    using OT = OverloadToken<T>;
+
+public:
+    /// Constructor kind (e.g. zeroinit etc.).
+    const ConstructKind ctor_kind;
+
+private:
+    ConstructExpr(ConstructKind k)
+        : Expr(Kind::ConstructExpr, Location{}), ctor_kind(k) {}
+
+    static auto Create(
+        Module* mod,
+        ConstructKind k,
+        ArrayRef<Expr*> args,
+        ProcDecl* proc = nullptr,
+        usz array_elems = DefaultParamNoArrayElements
+    ) -> ConstructExpr* {
+        auto raw = utils::AllocateAndRegister<Expr>(
+            totalSizeToAlloc<isz, Expr*, ProcDecl*, usz>(
+                HasArgumentsSize(k),
+                args.size(),
+                proc != nullptr,
+                array_elems != DefaultParamNoArrayElements
+            ),
+            mod->exprs
+        );
+
+        /// Construct the expression.
+        auto e = ::new (raw) ConstructExpr(k);
+
+        /// These have to be initialised first as they are used in the
+        /// initialisation of the other ones below.
+        if (HasArgumentsSize(k)) e->getTrailingObjects<isz>()[0] = isz(args.size());
+        if (array_elems != DefaultParamNoArrayElements) e->getTrailingObjects<usz>()[0] = array_elems;
+
+        /// Do *not* move these up!
+        std::uninitialized_copy(args.begin(), args.end(), e->getTrailingObjects<Expr*>());
+        if (proc) {
+            auto ptr = e->getTrailingObjects<ProcDecl*>();
+            ptr[0] = proc;
+        }
+        return e;
+    }
+
+    /// The `isz` argument denotes how many arguments we have and is
+    /// only present if this is not an uninit or zeroinit ctor.
+    usz numTrailingObjects(OT<isz>) const {
+        return HasArgumentsSize(ctor_kind);
+    }
+
+    /// The `usz` argument denotes how many array elements we need to
+    /// default-construct.
+    usz numTrailingObjects(OT<usz>) const {
+        return HasArrayElemCount(ctor_kind);
+    }
+
+    usz numTrailingObjects(OT<ProcDecl*>) const {
+        return ctor_kind == K::InitialiserCall or ctor_kind == K::ArrayInitialiserCall;
+    }
+
+    usz numTrailingObjects(OT<Expr*>) const {
+        switch (ctor_kind) {
+            case K::Uninitialised:
+            case K::Zeroinit:
+            case K::MoveParameter:
+            case K::ArrayZeroinit:
+                return 0;
+
+            case K::TrivialCopy:
+            case K::ArrayBroadcast:
+                return 1;
+
+            case K::SliceFromParts:
+                return 2;
+
+            case K::InitialiserCall:
+            case K::ArrayListInit:
+            case K::ArrayInitialiserCall:
+                return usz(getTrailingObjects<isz>()[0]);
+        }
+
+        Unreachable();
+    }
+
+    static bool HasArgumentsSize(ConstructKind k) {
+        switch (k) {
+            case K::Uninitialised:
+            case K::Zeroinit:
+            case K::MoveParameter:
+            case K::TrivialCopy:
+            case K::SliceFromParts:
+            case K::ArrayBroadcast:
+            case K::ArrayZeroinit:
+                return false;
+
+            case K::InitialiserCall:
+            case K::ArrayListInit:
+            case K::ArrayInitialiserCall:
+                return true;
+        }
+
+        Unreachable();
+    }
+
+    static bool HasArrayElemCount(ConstructKind k) {
+        switch (k) {
+            case K::Uninitialised:
+            case K::Zeroinit:
+            case K::MoveParameter:
+            case K::TrivialCopy:
+            case K::SliceFromParts:
+            case K::InitialiserCall:
+            case K::ArrayListInit:
+                return false;
+
+            case K::ArrayZeroinit:
+            case K::ArrayBroadcast:
+            case K::ArrayInitialiserCall:
+                return true;
+        }
+
+        Unreachable();
+    }
+
+public:
+    /// Get the arguments to this construct expression.
+    auto args() -> ArrayRef<Expr*> {
+        return {
+            getTrailingObjects<Expr*>(),
+            numTrailingObjects(OT<Expr*>{}),
+        };
+    }
+
+    /// Get the arguments and the initialiser. This is meant for printing.
+    auto args_and_init() -> ArrayRef<Expr*> {
+        return {
+            getTrailingObjects<Expr*>(),
+            numTrailingObjects(OT<Expr*>{}) + numTrailingObjects(OT<ProcDecl*>{}),
+        };
+    }
+
+    /// Get the initialiser to call.
+    auto init() -> ProcDecl* {
+        if (numTrailingObjects(OT<ProcDecl*>{}) == 0) return nullptr;
+        return getTrailingObjects<ProcDecl*>()[0];
+    }
+
+    /// Get the number of array elements to default-construct.
+    auto num_array_elems() -> usz {
+        if (HasArrayElemCount(ctor_kind)) return 0;
+        return getTrailingObjects<usz>()[0];
+    }
+
+    static auto CreateUninitialised(Module* m) { return new (m) ConstructExpr(K::Uninitialised); }
+    static auto CreateZeroinit(Module* m) { return new (m) ConstructExpr(K::Zeroinit); }
+    static auto CreateMoveParam(Module* m) { return new (m) ConstructExpr(K::MoveParameter); }
+    static auto CreateTrivialCopy(Module* m, Expr* expr) { return Create(m, K::TrivialCopy, expr); }
+    static auto CreateSliceFromParts(Module* m, Expr* ptr, Expr* size) { return Create(m, K::SliceFromParts, {ptr, size}); }
+    static auto CreateArrayListInit(Module* m, ArrayRef<Expr*> args) { return Create(m, K::ArrayListInit, args); }
+
+    static auto CreateInitialiserCall(Module* m, ProcDecl* init, ArrayRef<Expr*> args) {
+        return Create(m, K::InitialiserCall, args, init);
+    }
+
+    static auto CreateArrayZeroinit(Module* m, usz total_array_size) {
+        return Create(m, K::ArrayZeroinit, nullptr, nullptr, total_array_size);
+    }
+
+    static auto CreateArrayBroadcast(Module* m, Expr* value, usz total_array_size) {
+        return Create(m, K::ArrayBroadcast, value, nullptr, total_array_size);
+    }
+
+    static auto CreateArrayInitialiserCall(
+        Module* m,
+        ArrayRef<Expr*> exprs,
+        ProcDecl* init,
+        usz total_array_size
+    ) {
+        return Create(m, K::ArrayInitialiserCall, exprs, init, total_array_size);
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ConstructExpr; }
+};
+
 /// ===========================================================================
 ///  Typed Expressions
 /// ===========================================================================
@@ -1000,17 +1216,6 @@ public:
     /// the backend will create a temporary for this to be generated into.
     Expr* result_object{};
 
-/*    /// Perform a preorder traversal of this array literal.
-    template <typename Callback>
-    void visit_elements(Callback cb) {
-        std::invoke(cb, ArrayTraversal::EnterLiteral, this);
-        for (auto e : elements) {
-            if (auto a = dyn_cast<ArrayLitExpr>(e)) a->visit_elements(std::ref(cb));
-            else std::invoke(cb, ArrayTraversal::VisitElement, e);
-        }
-        std::invoke(cb, ArrayTraversal::LeaveLiteral, this);
-    }*/
-
     ArrayLitExpr(SmallVector<Expr*> elements, Location loc)
         : Expr(Kind::ArrayLiteralExpr, loc),
           elements(std::move(elements)) {}
@@ -1111,79 +1316,6 @@ public:
     static bool classof(const Expr* e) { return e->kind >= Kind::ProcDecl; }
 };
 
-/// Type of construction of a variable.
-class Constructor {
-public:
-    enum struct Kind {
-        Invalid,
-        Uninitialised,
-        MoveParameter,
-        Zeroinit,
-        TrivialCopy,
-        SliceFromParts,
-        InitialiserCall,
-        ArrayInitialiserCall,
-    } k;
-
-private:
-    struct ArrayConstructor {
-        ProcDecl* init;
-        usz els;
-    };
-
-    /// The initialiser or nested constructors to call, if any. The
-    /// ArrayConstructor is only used for *certain* arrays.
-    llvm::PointerUnion<ProcDecl*, ArrayConstructor*> data;
-
-    Constructor(Kind k, ProcDecl* init = nullptr) : k(k), data(init) {}
-    Constructor(Kind k, ArrayConstructor* init) : k(k), data(init) {}
-
-public:
-    Constructor(const Constructor&) = delete;
-    Constructor& operator=(const Constructor&) = delete;
-    Constructor(Constructor&& other)
-        : k(other.k),
-          data(std::exchange(other.data, static_cast<ProcDecl*>(nullptr))) {}
-
-    Constructor& operator=(Constructor&& other) {
-        k = other.k;
-        data = std::exchange(other.data, nullptr);
-        return *this;
-    }
-
-    ~Constructor() {
-        if (data.is<ArrayConstructor*>())
-            delete data.get<ArrayConstructor*>();
-    }
-
-    readonly_const(Kind, kind, return k);
-    readonly_const(
-        ProcDecl*,
-        initialiser,
-        return data.is<ProcDecl*>()
-                 ? data.get<ProcDecl*>()
-                 : data.get<ArrayConstructor*>()->init;
-    );
-
-    static auto ArrayInitialiserCall(ProcDecl* init, usz els) -> Constructor {
-        return {Kind::ArrayInitialiserCall, new ArrayConstructor{init, els}};
-    }
-
-    static auto InitialiserCall(ProcDecl* init) -> Constructor { return {Kind::InitialiserCall, init}; }
-    static auto MoveParameter() -> Constructor { return {Kind::MoveParameter}; }
-    static auto SliceFromParts() -> Constructor { return {Kind::SliceFromParts}; }
-    static auto TrivialCopy() -> Constructor { return {Kind::TrivialCopy}; }
-    static auto Uninitialised() -> Constructor { return {Kind::Uninitialised}; }
-    static auto Unset() -> Constructor { return {Kind::Invalid}; }
-    static auto Zeroinit() -> Constructor { return {Kind::Zeroinit}; }
-};
-
-enum struct LocalKind {
-    Variable,    /// Regular stack variable.
-    Parameter,   /// Procedure parameter.
-    Synthesised, /// Named lvalue that points to an object somewhere else.
-};
-
 /// Local variable declaration.
 class LocalDecl : public Decl {
     bool is_captured = false;
@@ -1197,7 +1329,7 @@ public:
     SmallVector<Expr*> init_args;
 
     /// Constructor(s) that should be invoked, if any.
-    Constructor ctor = Constructor::Unset();
+    ConstructExpr* ctor{};
 
     /// Index in capture list of parent procedure, if any.
     isz capture_index{};
@@ -1835,6 +1967,7 @@ struct CastInfo<T, const src::Type*> : src::THCastImpl<T, const src::Type*> {};
     case Expr::Kind::OverloadSetExpr:    \
     case Expr::Kind::ImplicitThisExpr:   \
     case Expr::Kind::ParenExpr:          \
-    case Expr::Kind::SubscriptExpr
+    case Expr::Kind::SubscriptExpr:      \
+    case Expr::Kind::ConstructExpr
 
 #endif // SOURCE_FRONTEND_AST_HH

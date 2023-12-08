@@ -160,6 +160,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::ParenExpr:
         case Kind::SubscriptExpr:
         case Kind::Nil:
+        case Kind::ConstructExpr:
             return "<?>";
 
         case Kind::ModuleRefExpr:
@@ -221,6 +222,7 @@ auto src::Expr::_type() -> Type {
         case Kind::ModuleRefExpr:
         case Kind::LabelExpr:
         case Kind::EmptyExpr:
+        case Kind::ConstructExpr:
             return Type::Void;
 
         /// Typed exprs.
@@ -616,6 +618,7 @@ auto src::Type::str(bool use_colour) const -> std::string {
         case Expr::Kind::ExportExpr:
         case Expr::Kind::LabelExpr:
         case Expr::Kind::EmptyExpr:
+        case Expr::Kind::ConstructExpr:
             return Type::Void.str(use_colour);
 
         case Expr::Kind::OverloadSetExpr:
@@ -836,7 +839,7 @@ bool src::StructType::LayoutCompatible(StructType* a, StructType* b) {
     );
 }
 
-auto src::BlockExpr::NCAInFunction(src::BlockExpr* a, src::BlockExpr* b) -> BlockExpr* {
+auto src::BlockExpr::NCAInFunction(BlockExpr* a, BlockExpr* b) -> BlockExpr* {
     llvm::SmallPtrSet<BlockExpr*, 8> scopes{};
 
     for (; a; a = a->parent) {
@@ -863,6 +866,7 @@ struct ASTPrinter {
     Module* mod;
     DenseSet<const ProcDecl*> printed_functions{};
     bool print_children_of_children = true;
+    bool print_procedure_bodies = true;
     std::string out;
     bool use_colour = true;
     utils::Colours C{use_colour};
@@ -978,20 +982,6 @@ struct ASTPrinter {
                     C(Blue),
                     v->captured ? " captured" : ""
                 );
-
-                if (v->sema.ok) {
-                    switch (v->ctor.kind) {
-                        using enum Constructor::Kind;
-                        case Invalid: out += " <invalid-ctor-kind>"; break;
-                        case MoveParameter: out += " move"; break;
-                        case Zeroinit: out += " zeroinit"; break;
-                        case TrivialCopy: out += " trivial"; break;
-                        case InitialiserCall: out += " init"; break;
-                        case Uninitialised: out += " uninit"; break;
-                        case SliceFromParts: out += " slice"; break;
-                        case ArrayInitialiserCall: out += " array-init"; break;
-                    }
-                }
 
                 out += "\n";
                 return;
@@ -1214,6 +1204,27 @@ struct ASTPrinter {
                 out += "\n";
                 return;
             }
+            
+            case K::ConstructExpr: {
+                auto c = cast<ConstructExpr>(e);
+                PrintBasicHeader("ConstructExpr", e);
+                out += C(Blue);
+                switch (c->ctor_kind) {
+                    using enum ConstructKind;
+                    case Uninitialised: out += " uninit"; break;
+                    case Zeroinit: out += " zero"; break;
+                    case MoveParameter: out += " move"; break;
+                    case TrivialCopy: out += " trivial"; break;
+                    case SliceFromParts: out += " slice"; break;
+                    case InitialiserCall: out += " init"; break;
+                    case ArrayInitialiserCall: out += " array-init"; break;
+                    case ArrayBroadcast: out += " broadcast"; break;
+                    case ArrayListInit: out += " list-init"; break;
+                    case ArrayZeroinit: out += " array-zero"; break;
+                }
+                out += '\n';
+                return;
+            }
 
             case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
@@ -1360,6 +1371,7 @@ struct ASTPrinter {
             case K::ProcDecl: {
                 auto f = cast<ProcDecl>(e);
                 printed_functions.insert(f);
+                if (not print_procedure_bodies) break;
                 SmallVector<Expr*, 25> children{f->params.begin(), f->params.end()};
                 if (auto body = llvm::dyn_cast_if_present<BlockExpr>(f->body))
                     children.insert(children.end(), body->exprs.begin(), body->exprs.end());
@@ -1410,8 +1422,9 @@ struct ASTPrinter {
             } break;
 
             case K::LocalDecl: {
+                tempset print_procedure_bodies = false;
                 auto v = cast<LocalDecl>(e);
-                PrintChildren(v->init_args, leading_text);
+                if (v->ctor) PrintChildren(v->ctor, leading_text);
             } break;
 
             case K::InvokeBuiltinExpr: {
@@ -1478,6 +1491,11 @@ struct ASTPrinter {
             case K::ConstExpr: {
                 auto c = cast<ConstExpr>(e);
                 if (c->expr) PrintChildren(c->expr, leading_text);
+            } break;
+
+            case K::ConstructExpr: {
+                auto c = const_cast<ConstructExpr*>(cast<ConstructExpr>(e));
+                PrintChildren(c->args_and_init(), leading_text);
             } break;
 
             case K::ArrayLiteralExpr:

@@ -412,7 +412,6 @@ auto src::Sema::PerformOverloadResolution(
 
     /// Conversion sequence for each argument.
 
-
     /// 1.
     SmallVector<Candidate> candidates;
     candidates.reserve(overloads.size());
@@ -945,6 +944,318 @@ void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* source) {
 }
 
 /// ===========================================================================
+///  Construction and Initialisation
+/// ===========================================================================
+/// Handle object construction.
+///
+/// This handles everything related to variable initialisation and construction
+/// of objects. Note that there is a big difference between certain builtin types
+/// and all other types. Some builtin types are trivial, that is, they have no
+/// constructor. All that needs to be done to create a value of such a type is
+/// simply to... emit the value. This is the case for numbers, empty slices, ranges
+/// and empty optionals.
+///
+/// Some builtin types, such as references, always require an initialiser; moreover,
+/// the aforementioned builtin types *can* take a single initialiser. However, all
+/// of these cases still only involve simply producing a single value. Even scoped
+/// pointers, which require a heap allocation, are fully self-contained in terms
+/// of their initialisation.
+///
+/// Where it gets more complicated is once arrays and structs are introduced. Handling
+/// arrays in a similar fashion to all other types, although possible for arrays of
+/// trivial types or with a single initialiser value that is broadcast across the
+/// entire array, becomes infeasible for arrays initialised by an array literal or
+/// for arrays of structure type: not only would it be quite the pain to associate
+/// each element of a (nested) array literal with the corresponding location in the
+/// in-memory array, but creating structures may require constructor calls, and those
+/// take a `this` pointer to an in-memory location, but array literals are rvalues and
+/// thus not in memory.
+///
+/// This means that, for arrays and structures initialised by array and structure
+/// literals, respectively, we borrow a page out of C++’s book: instead of emitting
+/// an array literal and then storing it into the variable, we instead evaluate the
+/// literal with the variable as its ‘result object’, constructing and storing values
+/// directly into the memory provided for the variable as we go. Thus, in those cases,
+/// the actual construction is handled by the code that emits the literal.
+///
+/// Side note: this also provides a way for us to emit literals that are not assigned
+/// to anything since the constructors invoked by those literals still need a memory
+/// location to construct into. For those literals, the backend simply hallucinates
+/// a memory location out of thin air for them to construct into; this is similar to
+/// the concept of temporary materialisation in C++.
+auto src::Sema::Construct(
+    Location loc,
+    Type type,
+    MutableArrayRef<Expr*> init_args,
+    bool* active_optional
+) -> ConstructExpr* {
+    /// Validate initialisers.
+    if (not rgs::all_of(init_args, [&](auto*& e) { return Analyse(e); }))
+        return nullptr;
+
+    /// Helper to print the argument types.
+    auto FormatArgTypes = [&](auto args) {
+        utils::Colours C{true};
+        return fmt::join(
+            vws::transform(args, [&](auto* e) { return e->type.str(true); }),
+            fmt::format("{}, ", C(utils::Colour::Red))
+        );
+    };
+
+    /// Helper to emit an error that construction is not possible.
+    auto InvalidArgs = [&] -> ConstructExpr* {
+        Error(
+            loc,
+            "Cannot construct '{}' from arguments {}",
+            type,
+            FormatArgTypes(init_args)
+        );
+
+        return nullptr;
+    };
+
+    /// Helper to emit a trivial copy.
+    auto TrivialCopy = [&](Type ty) -> ConstructExpr* {
+        if (not Convert(init_args[0], ty)) {
+            Error(
+                init_args[0],
+                "Cannot convert '{}' to '{}'",
+                init_args[0]->type,
+                ty
+            );
+            return nullptr;
+        }
+
+        return ConstructExpr::CreateTrivialCopy(mod, init_args[0]);
+    };
+
+    /// Initialisation is dependent on the type.
+    switch (auto ty = type.desugared; ty->kind) {
+        default: Unreachable("Invalid type for variable declaration");
+        case Expr::Kind::SugaredType:
+        case Expr::Kind::ScopedType:
+            Unreachable("Should have been desugared");
+
+        /// These take zero or one argument.
+        case Expr::Kind::BuiltinType:
+        case Expr::Kind::FFIType:
+        case Expr::Kind::IntType: {
+            if (init_args.empty()) return ConstructExpr::CreateZeroinit(mod);
+            if (init_args.size() == 1) return TrivialCopy(type);
+            return InvalidArgs();
+        }
+
+        /// References must always be initialised.
+        case Expr::Kind::ReferenceType: {
+            if (init_args.empty()) {
+                Error(loc, "Reference must be initialised");
+                return nullptr;
+            }
+
+            if (init_args.size() == 1) return TrivialCopy(type);
+            return InvalidArgs();
+        }
+
+        /// This is the complicated one.
+        case Expr::Kind::StructType: {
+            auto s = cast<StructType>(ty);
+
+            /// If there are no arguments, and no constructor, zero-initialise the struct.
+            if (init_args.empty() and s->initialisers.empty()) return ConstructExpr::CreateZeroinit(mod);
+
+            /// Otherwise, perform overload resolution.
+            auto ctor = PerformOverloadResolution(loc, s->initialisers, init_args, true);
+            if (not ctor) return nullptr;
+            return ConstructExpr::CreateInitialiserCall(mod, ctor, init_args);
+        }
+
+        case Expr::Kind::ArrayType: {
+            auto [base, total_size, _] = ty.strip_arrays;
+            auto no_args = init_args.empty();
+            auto arr = no_args ? nullptr : dyn_cast<ArrayLitExpr>(init_args[0]->ignore_parens);
+            if (no_args or (arr and arr->elements.empty())) {
+                /// An array of trivial types is itself trivial.
+                if (base.trivial) return ConstructExpr::CreateZeroinit(mod);
+
+                /// Otherwise, if this is a struct type with a constructor
+                /// that takes no elements, call that constructor for each
+                /// element.
+                if (auto ctor = base.default_constructor)
+                    return ConstructExpr::CreateArrayInitialiserCall(mod, {}, ctor, total_size);
+
+                /// Otherwise, this type cannot be constructed from nothing.
+                Error(loc, "Type '{}' is not default-constructible", type);
+                return nullptr;
+            }
+
+            if (init_args.size() != 1) Diag::ICE(
+                mod->context,
+                loc,
+                "Array initialiser must have exactly one argument. Did you mean to use an array literal?",
+                init_args.size()
+            );
+
+            /// If the argument is an array literal, construct the array from it.
+            if (arr) {
+                auto size = cast<ArrayType>(ty)->dimension().getZExtValue();
+                auto elem = cast<ArrayType>(ty)->elem.desugared;
+
+                /// Array literal must not be larger than the array type.
+                if (size < arr->elements.size()) {
+                    Error(
+                        loc,
+                        "Cannot initialise array '{}' from larger literal containing '{}' elements",
+                        type,
+                        size
+                    );
+                    return nullptr;
+                }
+
+                /// Construct each element.
+                SmallVector<Expr*, 16> ctors;
+                for (auto e : arr->elements)
+                    if (auto ctor = Construct(e->location, elem, e))
+                        ctors.push_back(ctor);
+
+                /// If the array literal is too small, that’s fine, so long
+                /// as the element type is default-constructible.
+                if (auto rem = size - arr->elements.size()) {
+                    if (base.trivial) {
+                        ctors.push_back(ConstructExpr::CreateArrayZeroinit(mod, rem));
+                    } else if (auto ctor = base.default_constructor) {
+                        ctors.push_back(ConstructExpr::CreateArrayInitialiserCall(mod, {}, ctor, rem));
+                    } else {
+                        Error(
+                            loc,
+                            "Cannot create array '{}' from literal containing '{}' "
+                            "elements as '{}' is not default-constructible",
+                            type,
+                            arr->elements.size(),
+                            base
+                        );
+                        return nullptr;
+                    }
+                }
+
+                /// Create a constructor that calls all of these constructors.
+                return ConstructExpr::CreateArrayListInit(mod, ctors);
+            }
+
+            /// Otherwise, attempt to broadcast a single value. If the
+            /// value is simply convertible to the target type, then
+            /// just copy it.
+            if (base.trivial) {
+                ConversionSequence seq;
+                if (not TryConvert(seq, init_args[0], base)) {
+                    Error(
+                        loc,
+                        "Cannot initialise an object of type '{}' with a value of type '{}'",
+                        type,
+                        init_args[0]->type
+                    );
+                    return nullptr;
+                }
+
+                ApplyConversionSequence(init_args[0], std::move(seq));
+                return ConstructExpr::CreateArrayBroadcast(mod, init_args[0], total_size);
+            }
+
+            /// If not, see if there is a constructor with that type.
+            if (auto s = dyn_cast<StructType>(base)) {
+                auto ctor = PerformOverloadResolution(loc, s->initialisers, init_args, true);
+                if (not ctor) return nullptr;
+                return ConstructExpr::CreateArrayInitialiserCall(mod, init_args, ctor, total_size);
+            }
+
+            /// Otherwise, we can’t do anything here.
+            return InvalidArgs();
+        }
+
+        case Expr::Kind::SliceType: {
+            if (init_args.empty()) return ConstructExpr::CreateZeroinit(mod);
+            if (init_args.size() == 1) return TrivialCopy(type);
+
+            /// A slice can be constructed from a reference+size.
+            auto s = cast<SliceType>(ty);
+            if (init_args.size() == 2) {
+                Type ref = new (mod) ReferenceType(s->elem, loc);
+                AnalyseAsType(ref);
+
+                /// First argument must be a reference.
+                if (not Convert(init_args[0], ref)) {
+                    Error(
+                        loc,
+                        "Cannot convert '{}' to '{}'",
+                        init_args[0]->type,
+                        ref
+                    );
+                    return nullptr;
+                }
+
+                /// Second argument must be an integer.
+                if (not Convert(init_args[1], Type::Int)) {
+                    Error(
+                        loc,
+                        "Cannot convert '{}' to '{}'",
+                        init_args[1]->type,
+                        Type::Int
+                    );
+                    return nullptr;
+                }
+
+                return ConstructExpr::CreateSliceFromParts(mod, init_args[0], init_args[1]);
+            }
+
+            return InvalidArgs();
+        }
+
+        case Expr::Kind::OptionalType: {
+            auto opt = cast<OptionalType>(ty);
+            if (not isa<ReferenceType>(opt->elem)) Todo("Non-reference optionals");
+
+            /// Nil.
+            if (init_args.empty()) return ConstructExpr::CreateZeroinit(mod);
+
+            /// Single argument.
+            if (init_args.size() == 1) {
+                /// If the initialiser is already an optional,
+                /// just leave it as is.
+                if (type == init_args[0]->type)
+                    return ConstructExpr::CreateTrivialCopy(mod, init_args[0]);
+
+                /// Otherwise, attempt to convert it to the wrapped type.
+                if (active_optional) *active_optional = true;
+                return TrivialCopy(opt->elem);
+            }
+
+            return InvalidArgs();
+        }
+
+        case Expr::Kind::ProcType: Todo();
+        case Expr::Kind::ScopedPointerType: Todo();
+        case Expr::Kind::ClosureType: Todo();
+    }
+}
+
+/*/// See AnalyseVariableInitialisation() below for an explanation of how this works.
+bool src::Sema::ConstructFromArrayLiteral(
+    Location loc,
+    ArrayType* type,
+    ArrayLitExpr* arr
+) {
+    /// If the base type is not an array, check that each element is convertible to it.
+    if (not isa<ArrayType>(type->elem)) {
+        auto base = type->elem.desugared;
+        SmallVector<Constructor> ctors;
+        for (auto e : arr->elements) {
+            auto ctor = Construct(e->location, current_type, e);
+            if (not ctor) return false;
+            ctors.push_back(std::move(*ctor));
+        }
+    }
+}*/
+
+/// ===========================================================================
 ///  Analysis
 /// ===========================================================================
 bool src::Sema::Analyse(Expr*& e) {
@@ -968,6 +1279,7 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::ConstExpr:
         case Expr::Kind::OverloadSetExpr:
         case Expr::Kind::ImplicitThisExpr:
+        case Expr::Kind::ConstructExpr:
             Unreachable();
 
         /// Bools are of type bool.
@@ -981,7 +1293,8 @@ bool src::Sema::Analyse(Expr*& e) {
             if (i->value.getBitWidth() > 64) Diag::ICE(
                 mod->context,
                 e->location,
-                "Sorry, integer literals of size > i64 are currently not supported"
+                "Sorry, integer literals with a bit width of {} are currently not supported",
+                i->value.getBitWidth()
             );
 
             i->stored_type = BuiltinType::Int(mod, e->location);
@@ -1770,34 +2083,33 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Parameters are currently move-only and need no special handling.
             if (var->local_kind == LocalKind::Parameter) {
                 if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
-                var->ctor = Constructor::MoveParameter();
+                var->ctor = ConstructExpr::CreateMoveParam(mod);
             }
 
             /// Synthesised variables are just lvalues that point somewhere else.
             else if (var->local_kind == LocalKind::Synthesised) {
                 if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
-                var->ctor = Constructor::Uninitialised();
+                var->ctor = ConstructExpr::CreateUninitialised(mod);
             }
 
-            /// If the type is unknown, then we must infer it from
-            /// the initialiser.
-            else if (var->stored_type == Type::Unknown) {
-                if (var->init_args.empty()) return Error(var, "Type inference requires an initialiser");
-                if (var->init_args.size() != 1) Todo();
-                if (not Analyse(var->init_args[0])) return e->sema.set_errored();
-                InsertLValueToRValueConversion(var->init_args[0]);
-                var->stored_type = var->init_args[0]->type;
-                if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
-                AnalyseVariableInitialisation(var);
-            }
-
-            /// Otherwise, the type of the declaration must be valid, and if there
-            /// is an initialiser, it must be convertible to the type of the variable.
+            /// This is a regular variable.
             else {
+                /// Infer the type from the initialiser.
+                if (var->stored_type == Type::Unknown) {
+                    if (var->init_args.empty()) return Error(var, "Type inference requires an initialiser");
+                    if (var->init_args.size() != 1) Todo();
+                    if (not Analyse(var->init_args[0])) return e->sema.set_errored();
+                    InsertLValueToRValueConversion(var->init_args[0]);
+                    var->stored_type = var->init_args[0]->type;
+                }
+
+                /// Type must be valid for a variable.
                 if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
 
-                /// Handle initialisation.
-                AnalyseVariableInitialisation(var);
+                /// Type must be constructible from the initialiser args.
+                var->ctor = Construct(var->location, var->type, var->init_args, &var->has_value);
+                if (not var->ctor) e->sema.set_errored();
+                var->init_args.clear();
             }
 
             /// Add the variable to the current scope.
@@ -2033,6 +2345,12 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::SubscriptExpr: {
             auto s = cast<SubscriptExpr>(e);
             if (not Analyse(s->object)) return e->sema.set_errored();
+
+            /// If the LHS is a type, then this is actually an array type.
+            if (auto ty = dyn_cast<TypeBase>(s->object)) {
+                e = new (mod) ArrayType(ty, s->index, s->location);
+                return Analyse(e);
+            }
 
             /// Handle arrays and slices.
             UnwrapInPlace(s->object, true);
@@ -2662,274 +2980,6 @@ void src::Sema::AnalyseModule() {
     for (auto f : mod->functions)
         if (TakesChainPointer(f))
             cast<ProcType>(f->type)->static_chain_parent = f->parent;
-}
-
-/// See AnalyseVariableInitialisation() below for an explanation of how this works.
-bool src::Sema::AnalyseArrayInitialisation(Expr* var, Type array_or_base_type, ArrayLitExpr* arr) {
-    Todo();
-
-    /// If the base type is not an array, check that each element is convertible to it.
-    for (auto e : arr->elements) {
-    }
-}
-
-/// Handle variable initialisation.
-///
-/// This handles everything related to variable initialisation and construction
-/// of objects. Note that there is a big difference between certain builtin types
-/// and all other types. Some builtin types are trivial, that is, they have no
-/// constructor. All that needs to be done to create a value of such a type is
-/// simply to... emit the value. This is the case for numbers, empty slices, ranges
-/// and empty optionals.
-///
-/// Some builtin types, such as references, always require an initialiser; moreover,
-/// the aforementioned builtin types *can* take a single initialiser. However, all
-/// of these cases still only involve simply producing a single value. Even scoped
-/// pointers, which require a heap allocation, are fully self-contained in terms
-/// of their initialisation.
-///
-/// Where it gets more complicated is once arrays and structs are introduced. Handling
-/// arrays in a similar fashion to all other types, although possible for arrays of
-/// trivial types or with a single initialiser value that is broadcast across the
-/// entire array, becomes infeasible for arrays initialised by an array literal or
-/// for arrays of structure type: not only would it be quite the pain to associate
-/// each element of a (nested) array literal with the corresponding location in the
-/// in-memory array, but creating structures may require constructor calls, and those
-/// take a `this` pointer to an in-memory location, but array literals are rvalues and
-/// thus not in memory.
-///
-/// This means that, for arrays and structures initialised by array and structure
-/// literals, respectively, we borrow a page out of C++’s book: instead of emitting
-/// an array literal and then storing it into the variable, we instead evaluate the
-/// literal with the variable as its ‘result object’, constructing and storing values
-/// directly into the memory provided for the variable as we go. Thus, in those cases,
-/// the actual construction is handled by the code that emits the literal.
-///
-/// Side note: this also provides a way for us to emit literals that are not assigned
-/// to anything since the constructors invoked by those literals still need a memory
-/// location to construct into. For those literals, the backend simply hallucinates
-/// a memory location out of thin air for them to construct into; this is similar to
-/// the concept of temporary materialisation in C++.
-bool src::Sema::AnalyseVariableInitialisation(LocalDecl* var) {
-    /// Validate initialisers.
-    if (not rgs::all_of(var->init_args, [&](auto*& e) { return Analyse(e); }))
-        return false;
-
-    /// Helper to print the argument types.
-    auto FormatArgTypes = [&](auto args) {
-        return fmt::join(
-            vws::transform(args, [&](auto* e) { return e->type.str(true); }),
-            ", "
-        );
-    };
-
-    /// Helper to emit an error that construction is not possible.
-    auto InvalidArgs = [&] {
-        return Error(
-            var,
-            "Cannot construct '{}' from arguments [{}]",
-            var->type,
-            FormatArgTypes(var->init_args)
-        );
-    };
-
-    /// Helper to emit a trivial copy.
-    auto TrivialCopy = [&](Type type) {
-        if (not Convert(var->init_args[0], type)) return Error(
-            var->init_args[0],
-            "Cannot convert '{}' to '{}'",
-            var->init_args[0]->type,
-            type
-        );
-
-        var->ctor = Constructor::TrivialCopy();
-        return true;
-    };
-
-    /// Initialisation is dependent on the type.
-    switch (auto ty = var->type.desugared; ty->kind) {
-        default: Unreachable("Invalid type for variable declaration");
-        case Expr::Kind::SugaredType:
-        case Expr::Kind::ScopedType:
-            Unreachable("Should have been desugared");
-
-        /// These take zero or one argument.
-        case Expr::Kind::BuiltinType:
-        case Expr::Kind::FFIType:
-        case Expr::Kind::IntType: {
-            if (var->init_args.empty()) {
-                var->ctor = Constructor::Zeroinit();
-                return true;
-            }
-
-            if (var->init_args.size() == 1) return TrivialCopy(var->type);
-            return InvalidArgs();
-        }
-
-        /// References must always be initialised.
-        case Expr::Kind::ReferenceType: {
-            if (var->init_args.empty()) return Error(
-                var,
-                "Variable of reference type '{}' must be initialised",
-                var->name
-            );
-
-            if (var->init_args.size() == 1) return TrivialCopy(var->type);
-            return InvalidArgs();
-        }
-
-        /// This is the complicated one.
-        case Expr::Kind::StructType: {
-            auto s = cast<StructType>(ty);
-
-            /// If there are no arguments, and no constructor, zero-initialise the struct.
-            if (var->init_args.empty() and s->initialisers.empty()) {
-                var->ctor = Constructor::Zeroinit();
-                return true;
-            }
-
-            /// Otherwise, perform overload resolution.
-            auto ctor = PerformOverloadResolution(var->location, s->initialisers, var->init_args, true);
-            if (not ctor) return var->sema.set_errored();
-            var->ctor = Constructor::InitialiserCall(ctor);
-            return true;
-        }
-
-        case Expr::Kind::ArrayType: {
-            if (var->init_args.empty()) {
-                auto [base, size, depth] = ty.strip_arrays;
-
-                /// An array of trivial types is itself trivial.
-                if (base.trivial) {
-                    var->ctor = Constructor::Zeroinit();
-                    return true;
-                }
-
-                /// Otherwise, if this is a struct type with a constructor
-                /// that takes no elements, call that constructor for each
-                /// element.
-                if (auto ctor = base.default_constructor) {
-                    var->ctor = Constructor::ArrayInitialiserCall(ctor, size);
-                    return true;
-                }
-
-                /// Otherwise, this type cannot be constructed from nothing.
-                return Error(
-                    var,
-                    "Type '{}' is not default-constructible",
-                    var->type
-                );
-            }
-
-            if (var->init_args.size() != 1) Diag::ICE(
-                mod->context,
-                var->location,
-                "Array initialiser must have exactly one argument. Did you mean to use an array literal?",
-                var->init_args.size()
-            );
-
-            /// If the argument is an array literal, construct the array from it.
-            if (auto arr = dyn_cast<ArrayLitExpr>(var->init_args[0]->ignore_parens)) {
-                /// Walk the literal to determine whether it makes sense to construct
-                /// this array type from it.
-                AnalyseArrayInitialisation(var, ty, arr);
-
-                /*                /// Base type must be the same, as well as the number of nested arrays.
-                                if (base != init_base or depth != init_depth) return Error(
-                                    var,
-                                    "Cannot initialise array '{}' from array literal of type '{}'",
-                                    var->type,
-                                    init_arr->type
-                                );
-
-                                /// Array literal must be smaller or equal to the array type.
-                                if (init_size != size) return Error(
-                                    var,
-                                    "Cannot initialise array {} of total size {} from a larger array {} of size {}",
-                                    var->type,
-                                    size,
-                                    Type(init_arr),
-                                    init_size
-                                );*/
-
-                /// This is now the result object of the literal.
-                arr->result_object = var;
-                var->ctor = Constructor::Uninitialised();
-                return true;
-            }
-
-            /// TODO: Broadcast a single value.
-            return InvalidArgs();
-        }
-
-        case Expr::Kind::SliceType: {
-            if (var->init_args.empty()) {
-                var->ctor = Constructor::Zeroinit();
-                return true;
-            }
-
-            if (var->init_args.size() == 1) return TrivialCopy(var->type);
-
-            /// A slice can be constructed from a reference+size.
-            auto s = cast<SliceType>(ty);
-            if (var->init_args.size() == 2) {
-                Type ref = new (mod) ReferenceType(s->elem, var->location);
-                AnalyseAsType(ref);
-
-                /// First argument must be a reference.
-                if (not Convert(var->init_args[0], ref)) return Error(
-                    var,
-                    "Cannot convert '{}' to '{}'",
-                    var->init_args[0]->type,
-                    ref
-                );
-
-                /// Second argument must be an integer.
-                if (not Convert(var->init_args[1], Type::Int)) return Error(
-                    var,
-                    "Cannot convert '{}' to '{}'",
-                    var->init_args[1]->type,
-                    Type::Int
-                );
-
-                var->ctor = Constructor::SliceFromParts();
-                return true;
-            }
-
-            return InvalidArgs();
-        }
-
-        case Expr::Kind::OptionalType: {
-            auto opt = cast<OptionalType>(ty);
-            if (not isa<ReferenceType>(opt->elem)) Todo("Non-reference optionals");
-
-            /// Nil.
-            if (var->init_args.empty()) {
-                var->ctor = Constructor::Zeroinit();
-                return true;
-            }
-
-            /// Single argument.
-            if (var->init_args.size() == 1) {
-                /// If the initialiser is already an optional,
-                /// just leave it as is.
-                if (var->type == var->init_args[0]->type) {
-                    var->ctor = Constructor::TrivialCopy();
-                    return true;
-                }
-
-                /// Otherwise, attempt to convert it to the wrapped type.
-                var->has_value = true;
-                return TrivialCopy(opt->elem);
-            }
-
-            return InvalidArgs();
-        }
-
-        case Expr::Kind::ProcType: Todo();
-        case Expr::Kind::ScopedPointerType: Todo();
-        case Expr::Kind::ClosureType: Todo();
-    }
 }
 
 bool src::Sema::AnalyseProcedureType(ProcDecl* proc) {

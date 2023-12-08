@@ -449,7 +449,14 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
                 /// Only allow invoking certain kinds of expressions.
                 /// TODO: Allow invoking invoke expressions so `deque int a;` works.
-                if (not isa<TypeBase, DeclRefExpr, MemberAccessExpr, ScopeAccessExpr, ParenExpr>(*lhs)) break;
+                if (not isa< // clang-format off
+                    TypeBase,
+                    DeclRefExpr,
+                    MemberAccessExpr,
+                    ScopeAccessExpr,
+                    ParenExpr,
+                    SubscriptExpr
+                >(*lhs)) break; // clang-format on
 
                 /// We specifically disallow blocks in this position so that, e.g.
                 /// in `if a {`, `a {` does not get parsed as an invoke expression.

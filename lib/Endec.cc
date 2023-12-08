@@ -94,39 +94,7 @@ auto Type::_mangled_name() -> std::string {
             return s->mangled_name;
         }
 
-        case Expr::Kind::AssertExpr:
-        case Expr::Kind::ReturnExpr:
-        case Expr::Kind::DeferExpr:
-        case Expr::Kind::WhileExpr:
-        case Expr::Kind::ForInExpr:
-        case Expr::Kind::ExportExpr:
-        case Expr::Kind::LoopControlExpr:
-        case Expr::Kind::GotoExpr:
-        case Expr::Kind::LabelExpr:
-        case Expr::Kind::EmptyExpr:
-        case Expr::Kind::BlockExpr:
-        case Expr::Kind::InvokeExpr:
-        case Expr::Kind::InvokeBuiltinExpr:
-        case Expr::Kind::ConstExpr:
-        case Expr::Kind::CastExpr:
-        case Expr::Kind::MemberAccessExpr:
-        case Expr::Kind::ScopeAccessExpr:
-        case Expr::Kind::UnaryPrefixExpr:
-        case Expr::Kind::IfExpr:
-        case Expr::Kind::BinaryExpr:
-        case Expr::Kind::DeclRefExpr:
-        case Expr::Kind::ModuleRefExpr:
-        case Expr::Kind::LocalRefExpr:
-        case Expr::Kind::BoolLiteralExpr:
-        case Expr::Kind::IntegerLiteralExpr:
-        case Expr::Kind::StringLiteralExpr:
-        case Expr::Kind::LocalDecl:
-        case Expr::Kind::ProcDecl:
-        case Expr::Kind::OverloadSetExpr:
-        case Expr::Kind::ImplicitThisExpr:
-        case Expr::Kind::ParenExpr:
-        case Expr::Kind::SubscriptExpr:
-        case Expr::Kind::ArrayLiteralExpr:
+        SOURCE_NON_TYPE_EXPRS:
             Unreachable("Not a type");
     }
 }

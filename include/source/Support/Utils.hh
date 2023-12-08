@@ -291,9 +291,13 @@ constexpr T AlignTo(T value, T align) {
 
 /// Used to implement Class::operator new(size_t, T).
 template <typename Class>
-auto AllocateAndRegister(usz sz, auto& owner) -> void* {
-    auto ptr = __builtin_operator_new(sz);
-    owner.push_back(static_cast<Class*>(ptr));
+auto AllocateAndRegister(
+    usz sz,
+    auto& owner
+) -> Class* {
+    static_assert(alignof(Class) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__);
+    auto ptr = static_cast<Class*>(__builtin_operator_new(sz));
+    owner.push_back(ptr);
     return ptr;
 }
 
@@ -309,6 +313,7 @@ void Compress(
 /// Used to delete an object allocated by AllocateAndRegister.
 template <typename Class>
 void Deallocate(Class* ptr) {
+    static_assert(alignof(Class) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__);
     if (not ptr) return;
     __builtin_operator_delete(ptr);
 }

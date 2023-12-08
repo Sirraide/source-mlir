@@ -192,8 +192,6 @@ private:
 
     bool Analyse(Expr*& e);
 
-    bool AnalyseArrayInitialisation(Expr* var, Type array_type, ArrayLitExpr* arr);
-
     /// Analyse the given expression and issue an error if it is not a type.
     bool AnalyseAsType(Type& e);
 
@@ -206,12 +204,30 @@ private:
     bool AnalyseProcedureType(ProcDecl* proc);
     void AnalyseModule();
 
-    /// Handle variable initialisation. This assumes that the type of the
-    /// variable is known and valid.
-    bool AnalyseVariableInitialisation(LocalDecl* var);
-
     /// Apply a conversion sequence to an expression.
     void ApplyConversionSequence(Expr*& e, std::same_as<ConversionSequence> auto&& seq);
+
+    /// Get a constructor for a type and a set of arguments.
+    ///
+    /// \param loc Location to use for errors.
+    /// \param ty The type to construct.
+    /// \param args Arguments with which to construct a \p ty.
+    /// \param active_optional Flag that is set to true if this creates an active optional.
+    /// \return The constructor for `into`.
+    auto Construct(
+        Location loc,
+        Type ty,
+        MutableArrayRef<Expr*> args,
+        bool* active_optional = nullptr
+    ) -> ConstructExpr*;
+
+    /// Handle initialisation and construction from an array literal.
+    ///
+    /// \param loc Location to use for errors.
+    /// \param type The type to construct.
+    /// \param arr The array literal to construct from.
+    /// \return Whether there was an error.
+    bool ConstructFromArrayLiteral(Location loc, ArrayType* type, ArrayLitExpr* arr);
 
     /// Convert an expression to a type, inserting implicit conversions
     /// as needed. This  *will* perform lvalue-to-rvalue conversion if
@@ -234,19 +250,31 @@ private:
     /// Create an implicit dereference, but do not overwrite the original expression.
     [[nodiscard]] auto CreateImplicitDereference(Expr* e, isz depth) -> Expr*;
 
-    /// Returns false for convenience.
+    /// Create a diagnostic at a location.
+    template <typename... Args>
+    Diag EmitError(Expr* e, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
+        if (e->sema.errored) return Diag();
+        e->sema.set_errored();
+        return Diag::Error(mod->context, e->location, fmt, MakeFormattable(std::forward<Args>(args))...);
+    }
+
+    /// Create a diagnostic and mark an expression as errored.
+    template <typename... Args>
+    Diag EmitError(Location loc, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
+        return Diag::Error(mod->context, loc, fmt, MakeFormattable(std::forward<Args>(args))...);
+    }
+
+    /// Same as EmitError(), but returns false for convenience.
     template <typename... Args>
     bool Error(Location loc, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
-        Diag::Error(mod->context, loc, fmt, MakeFormattable(std::forward<Args>(args))...);
+        EmitError(loc, fmt, MakeFormattable(std::forward<Args>(args))...);
         return false;
     }
 
-    /// Returns false for convenience.
+    /// Same as EmitError(), but returns false for convenience.
     template <typename... Args>
     bool Error(Expr* e, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
-        if (e->sema.errored) return false;
-        Diag::Error(mod->context, e->location, fmt, MakeFormattable(std::forward<Args>(args))...);
-        e->sema.set_errored();
+        EmitError(e, fmt, std::forward<Args>(args)...);
         return false;
     }
 

@@ -582,6 +582,7 @@ void src::Lexer::LexNumber() {
         tok.type = Tk::Integer;
 
         /// Note: This returns true on error!
+        tok.integer = APInt{};
         Assert(not buf.str().getAsInteger(base, tok.integer));
     };
 
