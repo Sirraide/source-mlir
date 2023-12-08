@@ -221,14 +221,6 @@ private:
         bool* active_optional = nullptr
     ) -> ConstructExpr*;
 
-    /// Handle initialisation and construction from an array literal.
-    ///
-    /// \param loc Location to use for errors.
-    /// \param type The type to construct.
-    /// \param arr The array literal to construct from.
-    /// \return Whether there was an error.
-    bool ConstructFromArrayLiteral(Location loc, ArrayType* type, ArrayLitExpr* arr);
-
     /// Convert an expression to a type, inserting implicit conversions
     /// as needed. This  *will* perform lvalue-to-rvalue conversion if
     /// the type conversion requires it and also in any case unless \p

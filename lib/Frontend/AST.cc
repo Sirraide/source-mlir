@@ -1222,6 +1222,7 @@ struct ASTPrinter {
                     case ArrayListInit: out += " list-init"; break;
                     case ArrayZeroinit: out += " array-zero"; break;
                 }
+                if (auto els = c->elems(); els != 1) out += fmt::format("{}:{}{}", C(Red), C(Yellow), els);
                 out += '\n';
                 return;
             }

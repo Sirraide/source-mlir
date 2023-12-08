@@ -1237,24 +1237,6 @@ auto src::Sema::Construct(
     }
 }
 
-/*/// See AnalyseVariableInitialisation() below for an explanation of how this works.
-bool src::Sema::ConstructFromArrayLiteral(
-    Location loc,
-    ArrayType* type,
-    ArrayLitExpr* arr
-) {
-    /// If the base type is not an array, check that each element is convertible to it.
-    if (not isa<ArrayType>(type->elem)) {
-        auto base = type->elem.desugared;
-        SmallVector<Constructor> ctors;
-        for (auto e : arr->elements) {
-            auto ctor = Construct(e->location, current_type, e);
-            if (not ctor) return false;
-            ctors.push_back(std::move(*ctor));
-        }
-    }
-}*/
-
 /// ===========================================================================
 ///  Analysis
 /// ===========================================================================
@@ -1398,9 +1380,9 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Helper to align a field to its alignment.
             const auto AlignField = [&](Align alignment, usz& it) {
                 /// Check if we need to insert padding.
-                auto pad = s->stored_size.align_to(alignment).bytes() - s->stored_size.bytes();
-                if (pad == 0) return;
-                CreatePaddingField(Size::Bytes(pad), s->all_fields.begin() + it);
+                auto pad = s->stored_size.align_padding(alignment);
+                if (pad.bits() == 0) return;
+                CreatePaddingField(pad, s->all_fields.begin() + it);
 
                 /// Move iterator forward past the padding to the actual element.
                 it++;
@@ -1431,8 +1413,8 @@ bool src::Sema::Analyse(Expr*& e) {
             }
 
             /// Size must be a multiple of the alignment.
-            auto pad = s->stored_size.align_to(s->stored_alignment).bytes() - s->stored_size.bytes();
-            if (pad != 0) CreatePaddingField(Size::Bytes(pad), s->all_fields.end());
+            auto pad = s->stored_size.align_padding(s->stored_alignment);
+            if (pad.bits() != 0) CreatePaddingField(pad, s->all_fields.end());
 
             /// Analyse initialiser types first in case they call each other since
             /// we will have to perform overload resolution in that case.
@@ -2105,6 +2087,13 @@ bool src::Sema::Analyse(Expr*& e) {
 
                 /// Type must be valid for a variable.
                 if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
+
+                /// If the initialiser is an array literal, set this as
+                /// the result object of that literal.
+                if (not var->init_args.empty()) {
+                    auto arr = dyn_cast<ArrayLitExpr>(var->init_args[0]);
+                    if (arr) arr->result_object = var;
+                }
 
                 /// Type must be constructible from the initialiser args.
                 var->ctor = Construct(var->location, var->type, var->init_args, &var->has_value);

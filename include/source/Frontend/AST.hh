@@ -610,15 +610,38 @@ public:
 };
 
 enum struct ConstructKind {
+    /// Do nothing. No arguments.
     Uninitialised,
+
+    /// Fill the entire thing with zeroes. This is just
+    /// a memset with the size of the type. No arguments.
     Zeroinit,
+
+    /// Currently only used for parameters and handled
+    /// specially. No arguments.
     MoveParameter,
+
+    /// Trivial memcpy/store. One argument.
     TrivialCopy,
+
+    /// Construct a slice from a pointer and a size. Two arguments.
     SliceFromParts,
+
+    /// Call an initialiser. Procedure + some arguments.
     InitialiserCall,
+
+    /// Call an initialiser on each element of an array. Procedure
+    /// + some arguments + array size.
     ArrayInitialiserCall,
+
+    /// Broad cast a value to each element of an array. One argument +
+    /// array size.
     ArrayBroadcast,
+
+    /// Zero-initialise (part of) an array. Array size.
     ArrayZeroinit,
+
+    /// Initialise an array from a series of nested constructors.
     ArrayListInit,
 };
 
@@ -628,7 +651,9 @@ class ConstructExpr final
     , llvm::TrailingObjects<ConstructExpr, isz, Expr*, ProcDecl*, usz> {
     friend TrailingObjects;
     using K = ConstructKind;
-    enum : usz { DefaultParamNoArrayElements = ~usz(0) };
+    using NumExprs = isz;
+    using NumArrayElems = usz;
+    enum : NumArrayElems { DefaultParamNoArrayElements = ~usz(0) };
 
     template <typename T>
     using OT = OverloadToken<T>;
@@ -649,7 +674,7 @@ private:
         usz array_elems = DefaultParamNoArrayElements
     ) -> ConstructExpr* {
         auto raw = utils::AllocateAndRegister<Expr>(
-            totalSizeToAlloc<isz, Expr*, ProcDecl*, usz>(
+            totalSizeToAlloc<NumExprs, Expr*, ProcDecl*, NumArrayElems>(
                 HasArgumentsSize(k),
                 args.size(),
                 proc != nullptr,
@@ -663,8 +688,10 @@ private:
 
         /// These have to be initialised first as they are used in the
         /// initialisation of the other ones below.
-        if (HasArgumentsSize(k)) e->getTrailingObjects<isz>()[0] = isz(args.size());
-        if (array_elems != DefaultParamNoArrayElements) e->getTrailingObjects<usz>()[0] = array_elems;
+        if (HasArgumentsSize(k))
+            e->getTrailingObjects<NumExprs>()[0] = NumExprs(args.size());
+        if (array_elems != DefaultParamNoArrayElements)
+            e->getTrailingObjects<NumArrayElems>()[0] = array_elems;
 
         /// Do *not* move these up!
         std::uninitialized_copy(args.begin(), args.end(), e->getTrailingObjects<Expr*>());
@@ -677,13 +704,13 @@ private:
 
     /// The `isz` argument denotes how many arguments we have and is
     /// only present if this is not an uninit or zeroinit ctor.
-    usz numTrailingObjects(OT<isz>) const {
+    usz numTrailingObjects(OT<NumExprs>) const {
         return HasArgumentsSize(ctor_kind);
     }
 
     /// The `usz` argument denotes how many array elements we need to
     /// default-construct.
-    usz numTrailingObjects(OT<usz>) const {
+    usz numTrailingObjects(OT<NumArrayElems >) const {
         return HasArrayElemCount(ctor_kind);
     }
 
@@ -709,7 +736,7 @@ private:
             case K::InitialiserCall:
             case K::ArrayListInit:
             case K::ArrayInitialiserCall:
-                return usz(getTrailingObjects<isz>()[0]);
+                return usz(getTrailingObjects<NumExprs>()[0]);
         }
 
         Unreachable();
@@ -772,16 +799,16 @@ public:
         };
     }
 
+    /// Get the number of array elements. Returns 1 if this is not an array ctor.
+    auto elems() -> usz {
+        if (not HasArrayElemCount(ctor_kind)) return 1;
+        return getTrailingObjects<NumArrayElems>()[0];
+    }
+
     /// Get the initialiser to call.
     auto init() -> ProcDecl* {
         if (numTrailingObjects(OT<ProcDecl*>{}) == 0) return nullptr;
         return getTrailingObjects<ProcDecl*>()[0];
-    }
-
-    /// Get the number of array elements to default-construct.
-    auto num_array_elems() -> usz {
-        if (HasArrayElemCount(ctor_kind)) return 0;
-        return getTrailingObjects<usz>()[0];
     }
 
     static auto CreateUninitialised(Module* m) { return new (m) ConstructExpr(K::Uninitialised); }
@@ -796,7 +823,7 @@ public:
     }
 
     static auto CreateArrayZeroinit(Module* m, usz total_array_size) {
-        return Create(m, K::ArrayZeroinit, nullptr, nullptr, total_array_size);
+        return Create(m, K::ArrayZeroinit, {}, nullptr, total_array_size);
     }
 
     static auto CreateArrayBroadcast(Module* m, Expr* value, usz total_array_size) {
@@ -1198,14 +1225,6 @@ public:
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::SubscriptExpr; }
 };
-/*
-
-enum struct ArrayTraversal {
-    EnterLiteral,
-    VisitElement,
-    LeaveLiteral,
-};
-*/
 
 class ArrayLitExpr : public Expr {
 public:

@@ -657,10 +657,12 @@ def DeleteOp : HLIR_Op<"delete"> {
 def ConstructOp : HLIR_Op<"construct"> {
     let summary = "Construct an object";
     let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 1;
     let arguments = (ins
         HLIR_ReferenceType:$object,
         LocalInit:$init_kind,
         FlatSymbolRefAttr:$ctor,
+        DefaultValuedAttr<I64Attr, "1">:$array_size,
         Variadic<HLIR_Type>:$args
     );
 
@@ -669,7 +671,8 @@ def ConstructOp : HLIR_Op<"construct"> {
         OpBuilder<(ins
             "::mlir::Value":$object,
             "::llvm::StringRef":$ctor,
-            CArg<"::mlir::ValueRange", "{}">:$args
+            CArg<"::mlir::ValueRange", "{}">:$args,
+            CArg<"std::int64_t", "1">:$array_size
         ), [{
             build(
                 $_builder,
@@ -678,6 +681,7 @@ def ConstructOp : HLIR_Op<"construct"> {
                 object,
                 hlir::LocalInitAttr::get($_state.getContext(), ::mlir::hlir::LocalInit::Init),
                 FlatSymbolRefAttr::get($_state.getContext(), ctor),
+                $_builder.getI64IntegerAttr(array_size),
                 args
             );
         }]>,
@@ -685,7 +689,8 @@ def ConstructOp : HLIR_Op<"construct"> {
         /// Zero-init or trivial copy-init.
         OpBuilder<(ins
             "::mlir::Value":$object,
-            CArg<"::mlir::ValueRange", "{}">:$args
+            CArg<"::mlir::ValueRange", "{}">:$args,
+            CArg<"std::int64_t", "1">:$array_size
         ), [{
             auto init = args.empty()
                 ? ::mlir::hlir::LocalInit::Zeroinit
@@ -698,6 +703,7 @@ def ConstructOp : HLIR_Op<"construct"> {
                 object,
                 hlir::LocalInitAttr::get($_state.getContext(), init),
                 FlatSymbolRefAttr::get($_state.getContext(), ""),
+                $_builder.getI64IntegerAttr(array_size),
                 args
             );
         }]>

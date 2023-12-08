@@ -59,9 +59,8 @@ struct CodeGen {
     void Construct(
         mlir::Location loc,
         mlir::Value addr,
-        Type type,
-        ConstructExpr* ctor,
-        ArrayRef<mlir::Value> args = {}
+        Align align,
+        ConstructExpr* ctor
     );
     /*
         /// Get the (mangled) name of the constructor of a type.
@@ -113,6 +112,9 @@ struct CodeGen {
 
     /// Perform preprocessing on locals to support nested procedures.
     void InitStaticChain(ProcDecl* proc, hlir::FuncOp f);
+
+    /// Offset a pointer by a constant.
+    auto Offset(mlir::Value ptr, i64 value) -> mlir::Value;
 
     auto Ty(Type type, bool for_closure = false) -> mlir::Type;
 
@@ -234,68 +236,86 @@ bool src::CodeGen::Closed(mlir::Block* block) {
 void src::CodeGen::Construct(
     mlir::Location loc,
     mlir::Value addr,
-    Type type,
-    ConstructExpr* ctor,
-    ArrayRef<mlir::Value> args
+    Align align,
+    ConstructExpr* ctor
 ) {
-    Todo();
-    /*switch (ctor.kind) {
-        case Constructor::Kind::Invalid: Unreachable();
-
+    auto args = ctor->args();
+    switch (ctor->ctor_kind) {
         /// Handled elsewhere.
-        case Constructor::Kind::MoveParameter: Unreachable();
+        case ConstructKind::MoveParameter: Unreachable();
 
         /// Perform no initialisation at all.
-        case Constructor::Kind::Uninitialised: break;
+        case ConstructKind::Uninitialised: break;
 
         /// Zero-initialisation is accomplished by creating a ConstructOp
         /// with no arguments other than the object itself.
-        case Constructor::Kind::Zeroinit: {
+        case ConstructKind::Zeroinit:
+        case ConstructKind::ArrayZeroinit: {
             Create<hlir::ConstructOp>(
                 loc,
-                addr
+                addr,
+                mlir::ValueRange{},
+                ctor->elems()
             );
         } break;
 
         /// A trivial copy is always one argument.
-        case Constructor::Kind::TrivialCopy: {
+        case ConstructKind::TrivialCopy:
+        case ConstructKind::ArrayBroadcast: {
+            Assert(args.size() == 1);
+            Generate(args.front());
             Create<hlir::ConstructOp>(
                 loc,
                 addr,
-                args[0]
+                args.front()->mlir,
+                ctor->elems()
             );
         } break;
 
         /// Create a slice from a reference+size.
-        case Constructor::Kind::SliceFromParts: {
+        case ConstructKind::SliceFromParts: {
+            Assert(args.size() == 2);
+            Generate(args[0]);
+            Generate(args[1]);
             auto slice = Create<hlir::LiteralOp>(
                 loc,
-                cast<hlir::SliceType>(Ty(type)),
-                args[0],
-                args[1]
+                hlir::SliceType::get(Ty(cast<ReferenceType>(args[0]->type)->elem)),
+                args[0]->mlir,
+                args[1]->mlir
             );
 
             Create<hlir::StoreOp>(
                 loc,
                 addr,
                 slice,
-                type.align(ctx).value()
+                align.value()
             );
         } break;
 
-        case Constructor::Kind::InitialiserCall: {
+        case ConstructKind::InitialiserCall:
+        case ConstructKind::ArrayInitialiserCall: {
+            for (auto a : args) Generate(a);
+            SmallVector<mlir::Value> arguments;
+            for (auto a : args) arguments.push_back(a->mlir);
             Create<hlir::ConstructOp>(
                 loc,
                 addr,
-                ctor.initialiser->mangled_name,
-                args
+                ctor->init()->mangled_name,
+                arguments,
+                ctor->elems()
             );
         } break;
 
-        case Constructor::Kind::ArrayInitialiserCall: {
-            Todo();
-        }
-    }*/
+        case ConstructKind::ArrayListInit: {
+            addr = Create<hlir::ArrayDecayOp>(loc, addr);
+            for (auto [i, c] : vws::enumerate(ctor->args())) Construct(
+                loc,
+                Offset(addr, i),
+                align,
+                cast<ConstructExpr>(c)
+            );
+        } break;
+    }
 }
 
 /*auto src::CodeGen::Constructor(Expr* type) -> std::optional<StringRef> {
@@ -542,6 +562,15 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
             8                                                   /// FIXME: Get alignment of pointer type from context.
         );
     }
+}
+
+auto src::CodeGen::Offset(mlir::Value ptr, i64 value) -> mlir::Value {
+    if (value == 0) return ptr;
+    return Create<hlir::OffsetOp>(
+        ptr.getLoc(),
+        ptr,
+        Create<mlir::index::ConstantOp>(ptr.getLoc(), value)
+    );
 }
 
 auto src::CodeGen::GetStaticChainPointer(ProcDecl* proc) -> mlir::Value {
@@ -1370,16 +1399,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// If the variable hasn’t already been allocated, do so now.
             if (not e->mlir) e->mlir = AllocateLocalVar(e);
 
-            /// Emit constructor args.
-            for (auto a : e->init_args) Generate(a);
-
-            /// Map exprs to values.
-            SmallVector<mlir::Value, 8> args;
-            for (auto a : e->init_args) args.push_back(a->mlir);
-
             /// Handle construction.
-            Todo();
-            //Construct(e->location.mlir(ctx), e->mlir, e->type, e->ctor, args);
+            Construct(e->location.mlir(ctx), e->mlir, e->type.align(ctx), e->ctor);
         } break;
 
         /// If expressions.

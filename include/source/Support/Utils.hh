@@ -413,6 +413,7 @@ constexpr auto operator+(T val) -> std::underlying_type_t<T> {
 class Size {
     usz raw;
 
+    static_assert(CHAR_BIT == 8);
     constexpr explicit Size(usz raw) : raw{raw} {}
 
 public:
@@ -423,6 +424,9 @@ public:
 
     /// Use of `align.value()` is necessary here because we use bits, not bytes.
     [[nodiscard]] Size align_to(Align align) const { return Size{utils::AlignTo(bytes(), align.value())}; }
+
+    /// Get the padding required to align to a given size.
+    [[nodiscard]] Size align_padding(Align align) const { return Size{utils::AlignPadding(bytes(), align.value())}; }
 
     [[nodiscard]] constexpr Size align_to(Size align) const { return Size{utils::AlignTo(raw, align.raw)}; }
     [[nodiscard]] constexpr auto bits() const -> usz { return raw; }

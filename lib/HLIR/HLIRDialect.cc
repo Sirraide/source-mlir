@@ -9,7 +9,20 @@
 using u64 = std::uint64_t;
 using i64 = std::int64_t;
 
+
+
 static void PrintType(mlir::Type t, mlir::AsmPrinter& p) {
+    static const auto PrintStructType = [](mlir::LLVM::LLVMStructType t, mlir::AsmPrinter& p) {
+        p << "{ ";
+        bool first = true;
+        for (auto e : t.getBody()) {
+            if (first) first = false;
+            else p << ", ";
+            PrintType(e, p);
+        }
+        p << " }";
+    };
+
     using namespace hlir;
     llvm::TypeSwitch<mlir::Type>(t)
         .Case<ArrayType>([&](auto t) { t.print(p); })
@@ -18,6 +31,7 @@ static void PrintType(mlir::Type t, mlir::AsmPrinter& p) {
         .Case<OptRefType>([&](auto t) { t.print(p); })
         .Case<SliceType>([&](auto t) { t.print(p); })
         .Case<TokenType>([&](auto) { p << "<token>"; })
+        .Case<mlir::LLVM::LLVMStructType>([&](auto t) { PrintStructType(t, p); })
         .Default([&](auto t) { p.printType(t); });
 }
 
@@ -139,9 +153,16 @@ void hlir::ConstructOp::print(OpAsmPrinter& p) {
             p << " " << a.front();
         }
     }
+
+    if (getArraySize() != 1) p << ", elems " << getArraySize();
 }
 
 auto hlir::ConstructOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+auto hlir::ConstructOp::verify() -> LogicalResult {
+    if (getArraySize() <= 0) return emitOpError("Array size must be at least 1");
+    return success();
+}
 
 auto hlir::DeferOp::getScopeOp() -> ScopeOp {
     Assert(&getBody());
