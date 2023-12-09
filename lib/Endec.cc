@@ -53,10 +53,14 @@ auto Type::_mangled_name() -> std::string {
 
         case Expr::Kind::ReferenceType: return FormatSEType(ptr, "R");
         case Expr::Kind::ScopedPointerType: return FormatSEType(ptr, "U");
-        case Expr::Kind::SliceType: return FormatSEType(ptr, "S");
-        case Expr::Kind::ArrayType: return FormatSEType(ptr, "A");
+        case Expr::Kind::SliceType: return FormatSEType(ptr, "L");
         case Expr::Kind::OptionalType: return FormatSEType(ptr, "O");
         case Expr::Kind::ClosureType: return FormatSEType(ptr, "C");
+
+        case Expr::Kind::ArrayType: {
+            auto a = cast<ArrayType>(ptr);
+            return fmt::format("A{}{}", a->dimension(), a->elem.mangled_name);
+        }
 
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
@@ -79,10 +83,10 @@ auto Type::_mangled_name() -> std::string {
             auto s = cast<StructType>(ptr);
             if (s->mangled_name.empty()) {
                 if (not s->module or not s->module->is_logical_module) {
-                    s->mangled_name = fmt::format("{}{}", s->name.size(), s->name);
+                    s->mangled_name = fmt::format("S{}{}", s->name.size(), s->name);
                 } else {
                     s->mangled_name = fmt::format(
-                        "M{}{}{}{}",
+                        "M{}{}S{}{}",
                         s->module->name.size(),
                         s->module->name,
                         s->name.size(),

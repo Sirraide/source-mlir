@@ -22,14 +22,14 @@ struct foo {
 /// * hlir.func external @__src_main
 /// * scope
 /// + (?<a>$t) = local
-/// + construct $a init @_SC3fooPE
+/// + construct $a init @_SCS3fooPE
 /// + (?<b>$t) = local
 /// + (?<twenty>$t) = arith.constant 20
-/// + construct $b init @_SC3fooPI64_E(i64 $twenty)
+/// + construct $b init @_SCS3fooPI64_E(i64 $twenty)
 /// + (?<c>$t) = local
 /// + (?<three>$t) = arith.constant 3
 /// + (?<nine>$t) = arith.constant 9
-/// + construct $c init @_SC3fooPI64_I64_E(i64 $three, i64 $nine)
+/// + construct $c init @_SCS3fooPI64_I64_E(i64 $three, i64 $nine)
 foo a;
 foo b = 20;
 foo c = 3, 9;
@@ -39,14 +39,14 @@ foo c = 3, 9;
 /// var f = foo(3, 9);
 
 /// b
-/// * hlir.func private @_SC3fooPE
+/// * hlir.func private @_SCS3fooPE
 /// + scope
 /// + (?<x>$t) = structgep $t, 0 -> i64&
 /// + (?<ten>$t) = arith.constant 10
 /// + store into $x, i64 $ten
 
 /// b
-/// * hlir.func private @_SC3fooPI64_E
+/// * hlir.func private @_SCS3fooPI64_E
 /// + (?<param1>$t) = local i64
 /// + store into $param1
 /// + scope
@@ -55,7 +55,7 @@ foo c = 3, 9;
 /// + store into $x, i64 $val1
 
 /// b
-/// * hlir.func private @_SC3fooPI64_I64_E
+/// * hlir.func private @_SCS3fooPI64_I64_E
 /// + (?<param1>$t) = local i64
 /// + store into $param1
 /// + (?<param2>$t) = local i64

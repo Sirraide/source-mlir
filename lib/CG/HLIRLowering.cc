@@ -355,6 +355,7 @@ struct ZeroInitOpLowering : public ConversionPattern {
     ) const -> LogicalResult override {
         auto tc = getTypeConverter<LLVMTypeConverter>();
         auto zero_init = cast<hlir::ZeroinitialiserOp>(op);
+        auto type_size = DataLayout::closest(op).getTypeSize(zero_init.getOperand().getType().getElem());
 
         /// Generate a call to llvm.memset.
         auto zero = rewriter.create<LLVM::ConstantOp>(
@@ -368,7 +369,7 @@ struct ZeroInitOpLowering : public ConversionPattern {
             tc->getIndexType(),
             IntegerAttr::get(
                 rewriter.getI64Type(),
-                i64(DataLayout::closest(op).getTypeSize(zero_init.getOperand().getType().getElem()))
+                i64(type_size * zero_init.getArraySize())
             )
         );
 

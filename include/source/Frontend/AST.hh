@@ -710,7 +710,7 @@ private:
 
     /// The `usz` argument denotes how many array elements we need to
     /// default-construct.
-    usz numTrailingObjects(OT<NumArrayElems >) const {
+    usz numTrailingObjects(OT<NumArrayElems>) const {
         return HasArrayElemCount(ctor_kind);
     }
 
@@ -783,6 +783,25 @@ private:
     }
 
 public:
+    /// Whether this is an array constructor.
+    auto array_ctor() -> bool {
+        switch (ctor_kind) {
+            case K::Uninitialised:
+            case K::Zeroinit:
+            case K::MoveParameter:
+            case K::TrivialCopy:
+            case K::SliceFromParts:
+            case K::InitialiserCall:
+                return false;
+
+            case K::ArrayListInit:
+            case K::ArrayZeroinit:
+            case K::ArrayBroadcast:
+            case K::ArrayInitialiserCall:
+                return true;
+        }
+    }
+
     /// Get the arguments to this construct expression.
     auto args() -> ArrayRef<Expr*> {
         return {
@@ -835,9 +854,7 @@ public:
         ArrayRef<Expr*> exprs,
         ProcDecl* init,
         usz total_array_size
-    ) {
-        return Create(m, K::ArrayInitialiserCall, exprs, init, total_array_size);
-    }
+    ) { return Create(m, K::ArrayInitialiserCall, exprs, init, total_array_size); }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ConstructExpr; }

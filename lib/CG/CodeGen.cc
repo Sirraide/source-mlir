@@ -240,6 +240,17 @@ void src::CodeGen::Construct(
     ConstructExpr* ctor
 ) {
     auto args = ctor->args();
+
+    /// Constructors that only construct an entire array take a
+    /// pointer to the array, not a pointer to an element, so we
+    /// need to decay the pointer in that case.
+    auto LowerElemPtr = [&] {
+        while (
+            ctor->array_ctor() and
+            isa<hlir::ArrayType>(cast<hlir::ReferenceType>(addr.getType()).getElem())
+        ) addr = Create<hlir::ArrayDecayOp>(loc, addr);
+    };
+
     switch (ctor->ctor_kind) {
         /// Handled elsewhere.
         case ConstructKind::MoveParameter: Unreachable();
@@ -251,6 +262,7 @@ void src::CodeGen::Construct(
         /// with no arguments other than the object itself.
         case ConstructKind::Zeroinit:
         case ConstructKind::ArrayZeroinit: {
+            LowerElemPtr();
             Create<hlir::ConstructOp>(
                 loc,
                 addr,
@@ -264,6 +276,7 @@ void src::CodeGen::Construct(
         case ConstructKind::ArrayBroadcast: {
             Assert(args.size() == 1);
             Generate(args.front());
+            LowerElemPtr();
             Create<hlir::ConstructOp>(
                 loc,
                 addr,
@@ -297,6 +310,7 @@ void src::CodeGen::Construct(
             for (auto a : args) Generate(a);
             SmallVector<mlir::Value> arguments;
             for (auto a : args) arguments.push_back(a->mlir);
+            LowerElemPtr();
             Create<hlir::ConstructOp>(
                 loc,
                 addr,

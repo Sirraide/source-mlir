@@ -278,7 +278,7 @@ bool src::Sema::ConvertImpl(
     }
 
     /// Any type is convertible to the optional type of that type.
-    if (auto opt = dyn_cast<OptionalType>(to); from == opt->elem) {
+    if (auto opt = dyn_cast<OptionalType>(to); opt and from == opt->elem) {
         from = ctx.cast(CastKind::LValueToRValue, from);
         from = ctx.cast(CastKind::OptionalWrap, opt);
         return true;
@@ -410,8 +410,6 @@ auto src::Sema::PerformOverloadResolution(
         if (not Analyse(a))
             return nullptr;
 
-    /// Conversion sequence for each argument.
-
     /// 1.
     SmallVector<Candidate> candidates;
     candidates.reserve(overloads.size());
@@ -462,17 +460,14 @@ auto src::Sema::PerformOverloadResolution(
     auto proc = min->proc;
     auto& params = cast<ProcType>(proc->type)->param_types;
     for (usz i = 0; i < args.size(); i++) {
-        /// Apply conversion sequences to non-variadic args and
-        /// convert variadic args to rvalues.
         if (i < params.size()) ApplyConversionSequence(args[i], std::move(min->arg_convs[i]));
         else {
             if (args[i]->type == Type::OverloadSet) {
                 Error(args[i], "Cannot pass an overload set as a variadic argument");
                 return nullptr;
             }
-
-            InsertLValueToRValueConversion(args[i]);
         }
+        InsertLValueToRValueConversion(args[i]);
     }
 
     return proc;
@@ -1073,6 +1068,8 @@ auto src::Sema::Construct(
             auto [base, total_size, _] = ty.strip_arrays;
             auto no_args = init_args.empty();
             auto arr = no_args ? nullptr : dyn_cast<ArrayLitExpr>(init_args[0]->ignore_parens);
+
+            /// No args or a single empty array literal.
             if (no_args or (arr and arr->elements.empty())) {
                 /// An array of trivial types is itself trivial.
                 if (base.trivial) return ConstructExpr::CreateZeroinit(mod);
@@ -1097,8 +1094,9 @@ auto src::Sema::Construct(
 
             /// If the argument is an array literal, construct the array from it.
             if (arr) {
-                auto size = cast<ArrayType>(ty)->dimension().getZExtValue();
-                auto elem = cast<ArrayType>(ty)->elem.desugared;
+                auto array_type = cast<ArrayType>(ty);
+                auto size = array_type->dimension().getZExtValue();
+                auto elem = array_type->elem.desugared;
 
                 /// Array literal must not be larger than the array type.
                 if (size < arr->elements.size()) {
@@ -1120,6 +1118,7 @@ auto src::Sema::Construct(
                 /// If the array literal is too small, that’s fine, so long
                 /// as the element type is default-constructible.
                 if (auto rem = size - arr->elements.size()) {
+                    rem *= elem.strip_arrays.total_dimension;
                     if (base.trivial) {
                         ctors.push_back(ConstructExpr::CreateArrayZeroinit(mod, rem));
                     } else if (auto ctor = base.default_constructor) {

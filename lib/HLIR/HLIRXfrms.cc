@@ -133,6 +133,62 @@ void InlineRegion(
     }
 }
 
+/// Create a loop.
+///
+/// Split the block before an operation and insert a loop at
+/// its location; the operation will be left in the join block
+/// of the loop.
+///
+/// This currently creates a loop from 0 to n (exclusive), but
+/// can be amended if need be.
+///
+/// \param rewriter The rewriter to use.
+/// \param op The operation before which the loop is created.
+/// \param until Index until the loop should run (exclusive).
+/// \param before_loop Callback run to insert code before the loop.
+/// \param in_loop Callback run to emit the loop body. The current
+///        value of the iteration variable is passed as an argument.
+void CreateLoop(
+    RewriterBase& rewriter,
+    Operation* op,
+    src::usz until,
+    auto before_loop,
+    auto in_loop
+) {
+    /// Split the block into two blocks so we create a loop here.
+    auto loc = op->getLoc();
+    auto this_block = op->getBlock();
+    auto join_block = rewriter.splitBlock(this_block, op->getIterator());
+    auto cond_block = rewriter.createBlock(join_block, IndexType::get(op->getContext()), loc);
+    auto body_block = rewriter.createBlock(join_block);
+
+    /// Add an index iterator with an initial value of zero.
+    rewriter.setInsertionPointToEnd(this_block);
+    auto zero = rewriter.create<index::ConstantOp>(loc, 0);
+    auto end = rewriter.create<index::ConstantOp>(loc, until);
+    std::invoke(before_loop);
+    rewriter.create<cf::BranchOp>(loc, cond_block, mlir::ValueRange{zero});
+
+    /// Check the index.
+    rewriter.setInsertionPointToStart(cond_block);
+    auto cond = rewriter.create<index::CmpOp>(
+        loc,
+        index::IndexCmpPredicate::EQ,
+        cond_block->getArgument(0),
+        end
+    );
+
+    /// Emit the loop body.
+    rewriter.create<cf::CondBranchOp>(loc, cond, join_block, body_block);
+    rewriter.setInsertionPointToStart(body_block);
+    std::invoke(in_loop, cond_block->getArgument(0));
+
+    /// Increment the iteration variable.
+    auto one = rewriter.create<index::ConstantOp>(loc, 1);
+    auto next = rewriter.create<index::AddOp>(loc, cond_block->getArgument(0), one);
+    rewriter.create<cf::BranchOp>(loc, cond_block, mlir::ValueRange{next});
+}
+
 /// Perform inlining of calls annotated with `inline`.
 struct MandatoryInliningXfrm : public OpRewritePattern<CallOp> {
     MandatoryInliningXfrm(MLIRContext* ctx)
@@ -409,53 +465,74 @@ struct ConstructOpLowering : public ConversionPattern {
             return;
         }
 
-        /// Split the block into two blocks so we create a loop here.
+        mlir::Value base = args[0];
         auto loc = c->getLoc();
-        auto this_block = c->getBlock();
-        auto join_block = rewriter.splitBlock(this_block, c->getIterator());
-        auto cond_block = rewriter.createBlock(join_block, IndexType::get(c.getContext()), loc);
-        auto body_block = rewriter.createBlock(join_block);
+        auto align = DataLayout::closest(c).getTypeABIAlignment(c.getArgs()[0].getType());
+        auto EmitBase = [&] { /*base = rewriter.create<hlir::ArrayDecayOp>(loc, args[0]);*/ };
+        auto EmitBody = [&](mlir::Value index) {
+            auto addr = rewriter.create<OffsetOp>(
+                loc,
+                base,
+                index
+            );
 
-        /// Add an index iterator with an initial value of zero.
-        rewriter.setInsertionPointToEnd(this_block);
-        auto zero = rewriter.create<index::ConstantOp>(loc, 0);
-        auto end = rewriter.create<index::ConstantOp>(loc, c.getArraySize());
-        auto base = rewriter.create<hlir::ArrayDecayOp>(loc, args[0]);
-        rewriter.create<cf::BranchOp>(loc, cond_block, mlir::ValueRange{zero});
+            rewriter.create<StoreOp>(
+                c->getLoc(),
+                addr,
+                args[1],
+                align
+            );
+        };
 
-        /// Check the index.
-        rewriter.setInsertionPointToStart(cond_block);
-        auto cond = rewriter.create<index::CmpOp>(
-            loc,
-            index::IndexCmpPredicate::EQ,
-            cond_block->getArgument(0),
-            end
-        );
-
-        rewriter.create<cf::CondBranchOp>(loc, cond, join_block, body_block);
-
-        /// Compute the address of the element that we want to initialise.
-        rewriter.setInsertionPointToStart(body_block);
-        auto addr = rewriter.create<OffsetOp>(
-            loc,
-            base,
-            cond_block->getArgument(0)
-        );
-
-        /// Perform the store.
-        rewriter.create<StoreOp>(
-            c->getLoc(),
-            addr,
-            args[1],
-            DataLayout::closest(c).getTypeABIAlignment(c.getArgs()[0].getType())
-        );
-
-        /// Increment the iteration variable.
-        auto one = rewriter.create<index::ConstantOp>(loc, 1);
-        auto next = rewriter.create<index::AddOp>(loc, cond_block->getArgument(0), one);
-        rewriter.create<cf::BranchOp>(loc, cond_block, mlir::ValueRange{next});
+        CreateLoop(rewriter, c, c.getArraySize(), EmitBase, EmitBody);
         rewriter.eraseOp(c);
+    }
 
+    void LowerInitCall(
+        ConstructOp c,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& rewriter
+    ) const {
+        if (c.getArraySize() == 1) {
+            rewriter.replaceOpWithNewOp<CallOp>(
+                c,
+                mlir::TypeRange{},
+                c.getCtor(),
+                false,
+                LLVM::CConv::C,
+                args
+            );
+            return;
+        }
+
+        /// We need to replace only the first constructor argument.
+        SmallVector<mlir::Value> ctor_args;
+        ctor_args.insert(ctor_args.end(), args.begin(), args.end());
+
+
+        mlir::Value base = args[0];
+        auto loc = c->getLoc();
+        auto EmitBase = [&] { /*args[0].dump(); base = rewriter.create<hlir::ArrayDecayOp>(loc, args[0]); */};
+        auto EmitBody = [&](mlir::Value index) {
+            auto addr = rewriter.create<OffsetOp>(
+                loc,
+                base,
+                index
+            );
+
+            ctor_args[0] = addr;
+            rewriter.create<CallOp>(
+                loc,
+                mlir::TypeRange{},
+                c.getCtor(),
+                false,
+                LLVM::CConv::C,
+                ctor_args
+            );
+        };
+
+        CreateLoop(rewriter, c, c.getArraySize(), EmitBase, EmitBody);
+        rewriter.eraseOp(c);
     }
 
     auto matchAndRewrite(
@@ -477,17 +554,9 @@ struct ConstructOpLowering : public ConversionPattern {
                 return success();
 
             /// Constructor call.
-            case LocalInit::Init: {
-                rewriter.replaceOpWithNewOp<CallOp>(
-                    c,
-                    mlir::TypeRange{},
-                    c.getCtor(),
-                    false,
-                    LLVM::CConv::C,
-                    args
-                );
+            case LocalInit::Init:
+                LowerInitCall(c, args, rewriter);
                 return success();
-            }
         }
         Unreachable();
     }
