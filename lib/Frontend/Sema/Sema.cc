@@ -2956,7 +2956,7 @@ void src::Sema::AnalyseModule() {
 
     /// If a function is nested and any of its parents have
     /// captured locals, then it must take a chain pointer.
-    std::function<bool(ProcDecl*)> TakesChainPointer = [&](ProcDecl* f) -> bool {
+    auto TakesChainPointer = [&](ProcDecl* f) -> bool {
         if (not f->nested) return false;
         for (auto p = f->parent; p; p = p->parent)
             if (not p->captured_locals.empty())

@@ -329,7 +329,7 @@ auto src::Type::align([[maybe_unused]] src::Context* ctx) const -> Align {
 
         case Expr::Kind::IntType:
             /// FIXME: Use context.
-            return Align(std::min<usz>(1, std::bit_ceil(usz(cast<IntType>(ptr)->size.bytes()))));
+            return Align(std::max<usz>(1, std::bit_ceil(usz(cast<IntType>(ptr)->size.bytes()))));
 
         case Expr::Kind::Nil:
             return Align(1);

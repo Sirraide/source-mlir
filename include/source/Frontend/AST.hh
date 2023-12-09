@@ -24,7 +24,7 @@ struct ArrayInfo;
 /// ===========================================================================
 ///  Enums
 /// ===========================================================================
-enum struct Linkage {
+enum struct Linkage : u8 {
     Local,       ///< Local variable.
     Internal,    ///< Not exported and defined.
     Imported,    ///< Imported from another module or library.
@@ -33,17 +33,17 @@ enum struct Linkage {
     LinkOnceODR, ///< Merge definitions across different TUs. Used mainly for compiler-generated code.
 };
 
-enum struct Mangling {
+enum struct Mangling : u8 {
     None,   ///< Do not mangle.
     Source, ///< Use Source mangling.
 };
 
-enum struct Builtin {
+enum struct Builtin : u8 {
     Destroy,
     New,
 };
 
-enum struct LocalKind {
+enum struct LocalKind : u8 {
     Variable,    /// Regular stack variable.
     Parameter,   /// Procedure parameter.
     Synthesised, /// Named lvalue that points to an object somewhere else.
@@ -54,7 +54,7 @@ enum struct LocalKind {
 /// ===========================================================================
 class Expr {
 public:
-    enum struct Kind {
+    enum struct Kind : u8 {
         /// Type [begin]
         BuiltinType,
         FFIType,
@@ -124,7 +124,7 @@ public:
     };
 
     class SemaState {
-        enum struct St {
+        enum struct St : u8 {
             NotAnalysed,
             InProgress,
             Errored,
@@ -160,11 +160,17 @@ public:
     /// The kind of this expression.
     const Kind kind;
 
-    /// The location of this expression.
-    Location location;
-
     /// State of semantic analysis
     SemaState sema{};
+
+    /// Whether this expression has already been emitted.
+    bool emitted : 1 = false;
+
+    /// Check if this is an lvalue.
+    bool is_lvalue : 1 = false;
+
+    /// The location of this expression.
+    Location location;
 
     /// The MLIR value of this expression.
     SOURCE_MLIR_VALUE_MEMBER(mlir);
@@ -173,12 +179,6 @@ public:
     /// Only applicable to full expressions at the block level. This
     /// may also contain the expression itself if it is protected.
     SmallVector<Expr*, 1> protected_children{};
-
-    /// Whether this expression has already been emitted.
-    bool emitted : 1 = false;
-
-    /// Check if this is an lvalue.
-    bool is_lvalue : 1 = false;
 
 public:
     Expr(Kind k, Location loc) : kind(k), location(loc) {}

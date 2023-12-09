@@ -423,10 +423,10 @@ public:
     [[nodiscard]] static constexpr Size Bytes(usz bytes) { return Size{bytes * 8}; }
 
     /// Use of `align.value()` is necessary here because we use bits, not bytes.
-    [[nodiscard]] Size align_to(Align align) const { return Size{utils::AlignTo(bytes(), align.value())}; }
+    [[nodiscard]] Size align_to(Align align) const { return Size::Bytes(utils::AlignTo(bytes(), align.value())); }
 
     /// Get the padding required to align to a given size.
-    [[nodiscard]] Size align_padding(Align align) const { return Size{utils::AlignPadding(bytes(), align.value())}; }
+    [[nodiscard]] Size align_padding(Align align) const { return Size::Bytes(utils::AlignPadding(bytes(), align.value())); }
 
     [[nodiscard]] constexpr Size align_to(Size align) const { return Size{utils::AlignTo(raw, align.raw)}; }
     [[nodiscard]] constexpr auto bits() const -> usz { return raw; }
@@ -467,36 +467,38 @@ void visit(Variant&& v, Visitors&&... visitors) {
 } // namespace src
 
 template <>
-struct fmt::formatter<llvm::StringRef> : fmt::formatter<std::string_view> {
+struct fmt::formatter<llvm::StringRef> : formatter<std::string_view> {
     template <typename FormatContext>
     auto format(llvm::StringRef s, FormatContext& ctx) {
-        return fmt::formatter<std::string_view>::format(std::string_view{s.data(), s.size()}, ctx);
+        return formatter<std::string_view>::format(std::string_view{s.data(), s.size()}, ctx);
     }
 };
 
 template <>
-struct fmt::formatter<src::Size> : fmt::formatter<src::u64> {
+struct fmt::formatter<src::Size> : formatter<src::u64> {
     template <typename FormatContext>
     auto format(const src::Size& sz, FormatContext& ctx) {
-        return fmt::formatter<src::u64>::format(sz.bits(), ctx);
+        return formatter<src::u64>::format(sz.bits(), ctx);
     }
 };
 
 template <>
-struct fmt::formatter<llvm::APInt> : fmt::formatter<std::string_view> {
+struct fmt::formatter<llvm::APInt> : formatter<std::string_view> {
     template <typename FormatContext>
     auto format(const llvm::APInt& i, FormatContext& ctx) {
-        llvm::SmallVector<char, 32> buf;
+        llvm::SmallVector<char> buf;
         i.toStringSigned(buf, 10);
-        return fmt::formatter<std::string_view>::format(std::string_view{buf.data(), buf.size()}, ctx);
+        return formatter<std::string_view>::format(std::string_view{buf.data(), buf.size()}, ctx);
     }
 };
 
 #if !defined(__cpp_lib_forward_like)
 namespace std {
 /// Clang treats this as a builtin, so we don’t actually need to implement it.
-template <typename U, typename T> constexpr T&& forward_like(T&& val);
+template <typename, typename T> constexpr T&& forward_like(T&& val);
 }
 #endif
+
+#define FWD(x) std::forward<decltype(x)>(x)
 
 #endif // SOURCE_MLIR_UTILS_HH

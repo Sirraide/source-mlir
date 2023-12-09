@@ -12,7 +12,7 @@ proc exit (i32) extern nomangle -> noreturn;
 ///O * tail call void @exit(i32 42)
 
 /// * hlir.func private @_S2p1PE
-/// + (?<CHAIN1>$t) = local !llvm.struct<"struct.anon.0"
+/// + (?<CHAIN1>$t) = local { i64 }
 /// * scope
 proc p1 -> int {
     /// + (?<A>$t) = structgep $CHAIN1, 0 -> i64&
@@ -28,7 +28,7 @@ proc p1 -> int {
     p2(4);
 
     /// * hlir.func private @_SL2p1PE2p2PiE
-    /// + (?<CHAIN2>$t) = local !llvm.struct<"struct.anon.1"
+    /// + (?<CHAIN2>$t) = local { { i64 }&, i64 }
     /// + store into $CHAIN2
     /// * scope
     proc p2(int b) {
@@ -42,7 +42,7 @@ proc p1 -> int {
         p3();
 
         /// * hlir.func private @_SLL2p1PE2p2PiE2p3PE
-        /// + (?<CHAIN3>$t) = local !llvm.struct<"struct.anon.2"
+        /// + (?<CHAIN3>$t) = local { { { i64 }&, i64 }& }
         /// + store into $CHAIN3
         /// * scope
         proc p3() {
@@ -62,7 +62,7 @@ proc p1 -> int {
             p5(2, 3);
 
             /// * hlir.func private @_SLLL2p1PE2p2PiE2p3PE2p4PE
-            /// + (?<CHAIN4>$t) = local !llvm.struct<"struct.anon.3"
+            /// + (?<CHAIN4>$t) = local { { { { i64 }&, i64 }& }& }
             /// + store into $CHAIN4
             /// * scope
             proc p4 {
@@ -84,7 +84,7 @@ proc p1 -> int {
         }
 
         /// * hlir.func private @_SLL2p1PE2p2PiE2p5PiiE
-        /// + (?<CHAIN5>$t) = local !llvm.struct<"struct.anon.4"
+        /// + (?<CHAIN5>$t) = local { { { i64 }&, i64 }& }
         /// + store into $CHAIN5
         /// * scope
         proc p5(int, int) {
