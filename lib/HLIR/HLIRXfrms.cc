@@ -1,10 +1,14 @@
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
+#include <mlir/Dialect/Index/IR/IndexDialect.h>
+#include <mlir/Dialect/Index/IR/IndexOps.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/IR/Dominance.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/OperationSupport.h>
+#include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/DialectConversion.h>
+#include <mlir/Transforms/Passes.h>
 #include <source/CG/CodeGen.hh>
 #include <source/Frontend/AST.hh>
 #include <source/HLIR/HLIRDialect.hh>
@@ -360,69 +364,132 @@ private:
     }
 };
 
-struct DtorCtorXfrm {
-    FuncOp f;
-    OpBuilder b{f.getContext()};
-    IRRewriter rewriter{b};
-
-    void run() {
-        /// Collect all dtors and ctors.
-        f.getBody().walk([&](Operation* op) {
-            if (auto d = dyn_cast<DestroyOp>(op)) InlineDtor(d);
-            else if (auto c = dyn_cast<ConstructOp>(op)) InlineCtor(c);
-        });
+struct DestroyOpLowering : public ConversionPattern {
+    explicit DestroyOpLowering(MLIRContext* ctx)
+        : ConversionPattern(hlir::DestroyOp::getOperationName(), 1, ctx) {
     }
 
-private:
-    void InlineDtor(DestroyOp d) {
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value>,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
         /// This is always just a function call.
-        rewriter.setInsertionPoint(d);
-        rewriter.create<CallOp>(
-            rewriter.getUnknownLoc(),
+        auto d = cast<hlir::DestroyOp>(op);
+        rewriter.replaceOpWithNewOp<CallOp>(
+            op,
             mlir::TypeRange{},
             d.getDtor(),
             false,
             LLVM::CConv::C,
             d.getObject()
         );
-        rewriter.eraseOp(d);
+        return success();
+    }
+};
+
+struct ConstructOpLowering : public ConversionPattern {
+    explicit ConstructOpLowering(MLIRContext* ctx)
+        : ConversionPattern(hlir::ConstructOp::getOperationName(), 1, ctx) {
     }
 
-    void InlineCtor(ConstructOp c) {
-        rewriter.setInsertionPoint(c);
+    void LowerTrivialCopyInit(
+        ConstructOp c,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& rewriter
+    ) const {
+        if (c.getArraySize() == 1) {
+            rewriter.replaceOpWithNewOp<StoreOp>(
+                c,
+                args[0],
+                args[1],
+                DataLayout::closest(c).getTypeABIAlignment(c.getArgs()[0].getType())
+            );
+
+            return;
+        }
+
+        /// Split the block into two blocks so we create a loop here.
+        auto loc = c->getLoc();
+        auto this_block = c->getBlock();
+        auto join_block = rewriter.splitBlock(this_block, c->getIterator());
+        auto cond_block = rewriter.createBlock(join_block, IndexType::get(c.getContext()), loc);
+        auto body_block = rewriter.createBlock(join_block);
+
+        /// Add an index iterator with an initial value of zero.
+        rewriter.setInsertionPointToEnd(this_block);
+        auto zero = rewriter.create<index::ConstantOp>(loc, 0);
+        auto end = rewriter.create<index::ConstantOp>(loc, c.getArraySize());
+        auto base = rewriter.create<hlir::ArrayDecayOp>(loc, args[0]);
+        rewriter.create<cf::BranchOp>(loc, cond_block, mlir::ValueRange{zero});
+
+        /// Check the index.
+        rewriter.setInsertionPointToStart(cond_block);
+        auto cond = rewriter.create<index::CmpOp>(
+            loc,
+            index::IndexCmpPredicate::EQ,
+            cond_block->getArgument(0),
+            end
+        );
+
+        rewriter.create<cf::CondBranchOp>(loc, cond, join_block, body_block);
+
+        /// Compute the address of the element that we want to initialise.
+        rewriter.setInsertionPointToStart(body_block);
+        auto addr = rewriter.create<OffsetOp>(
+            loc,
+            base,
+            cond_block->getArgument(0)
+        );
+
+        /// Perform the store.
+        rewriter.create<StoreOp>(
+            c->getLoc(),
+            addr,
+            args[1],
+            DataLayout::closest(c).getTypeABIAlignment(c.getArgs()[0].getType())
+        );
+
+        /// Increment the iteration variable.
+        auto one = rewriter.create<index::ConstantOp>(loc, 1);
+        auto next = rewriter.create<index::AddOp>(loc, cond_block->getArgument(0), one);
+        rewriter.create<cf::BranchOp>(loc, cond_block, mlir::ValueRange{next});
+        rewriter.eraseOp(c);
+
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> args,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        /// This is always just a function call.
+        auto c = cast<hlir::ConstructOp>(op);
         switch (c.getInitKind()) {
             /// Separate op.
             case LocalInit::Zeroinit:
-                rewriter.create<ZeroinitialiserOp>(c->getLoc(), c.getObject());
-                break;
+                rewriter.replaceOpWithNewOp<ZeroinitialiserOp>(op, args[0], c.getArraySize());
+                return success();
 
             /// Store.
             case LocalInit::TrivialCopyInit:
-                rewriter.create<StoreOp>(
-                    c->getLoc(),
-                    c.getObject(),
-                    c.getArgs()[0],
-                    DataLayout::closest(c).getTypeABIAlignment(c.getArgs()[0].getType())
-                );
-                break;
+                LowerTrivialCopyInit(c, args, rewriter);
+                return success();
 
             /// Constructor call.
             case LocalInit::Init: {
-                SmallVector<mlir::Value> args{c.getObject()};
-                for (auto a : c.getArgs()) args.push_back(a);
-                rewriter.create<CallOp>(
-                    rewriter.getUnknownLoc(),
+                rewriter.replaceOpWithNewOp<CallOp>(
+                    c,
                     mlir::TypeRange{},
                     c.getCtor(),
                     false,
                     LLVM::CConv::C,
                     args
                 );
-                break;
+                return success();
             }
         }
-
-        rewriter.eraseOp(c);
+        Unreachable();
     }
 };
 
@@ -445,23 +512,43 @@ void InlineScopes(src::Module* mod) {
         }
     }
 }
-
-void InlineDtorsAndCtors(src::Module* mod) {
-    for (auto& f : mod->mlir.getBodyRegion().getBlocks().front()) {
-        if (auto func = dyn_cast<FuncOp>(f)) {
-            DtorCtorXfrm s{cast<FuncOp>(func)};
-            s.run();
-        }
-    }
-}
-
 } // namespace
+
+/// This only runs after initial control-flow lowering.
+void AddLegalDialects(ConversionTarget& target);
+struct HLIRXfrmPass
+    : public PassWrapper<HLIRXfrmPass, OperationPass<ModuleOp>> {
+    void getDependentDialects(DialectRegistry& registry) const override {
+        registry.insert<LLVM::LLVMDialect, cf::ControlFlowDialect, index::IndexDialect>();
+    }
+
+    void runOnOperation() final {
+        auto ctx = &getContext();
+        ConversionTarget target{*ctx};
+        RewritePatternSet patterns{ctx};
+        AddLegalDialects(target);
+        target.addIllegalOp<ConstructOp, DestroyOp>();
+        patterns.add<ConstructOpLowering, DestroyOpLowering>(ctx);
+
+        auto module = getOperation();
+        if (failed(applyFullConversion(module, target, std::move(patterns)))) signalPassFailure();
+    }
+};
+
 } // namespace mlir::hlir
 
 void src::LowerHLIR(Module* mod) {
+    /// These do not operate as a pass because individual operations interact
+    /// in complex ways that a pass can’t model to well, at least not in my
+    /// experience.
     mlir::hlir::InlineDefers(mod);
     mlir::hlir::InlineScopes(mod);
-    mlir::hlir::InlineDtorsAndCtors(mod);
+
+    /// Lowering that processes operations individually.
+    mlir::PassManager pm{&mod->context->mlir};
+    pm.addPass(std::make_unique<mlir::hlir::HLIRXfrmPass>());
+    if (mlir::failed(pm.run(mod->mlir)))
+        Diag::ICE(mod->context, mod->module_decl_location, "Module lowering failed");
 }
 
 void hlir::CallOp::getCanonicalizationPatterns(

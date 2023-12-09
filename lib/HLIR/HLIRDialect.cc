@@ -479,6 +479,7 @@ auto hlir::YieldOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo()
 
 void hlir::ZeroinitialiserOp::print(OpAsmPrinter& p) {
     p << " " << getOperand();
+    if (getArraySize() != 1) p << ", elems " << getArraySize();
 }
 
 auto hlir::ZeroinitialiserOp::parse(OpAsmParser&, OperationState&) -> ParseResult {

@@ -8,6 +8,7 @@
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Dialect.h>
+#include <mlir/Transforms/DialectConversion.h>
 #include <mlir/IR/DialectImplementation.h>
 #include <mlir/IR/Location.h>
 #include <mlir/IR/MLIRContext.h>
@@ -70,4 +71,21 @@ void InitContext(MLIRContext& mctx) {
     mctx.printOpOnDiagnostic(true);
     mctx.printStackTraceOnDiagnostic(true);
 }
+
+void AddLegalDialects(ConversionTarget& target) {
+    target.addLegalOp<ModuleOp>();
+    target.addLegalDialect< // clang-format off
+        mlir::hlir::HLIRDialect,
+        mlir::func::FuncDialect,
+        mlir::scf::SCFDialect,
+        mlir::arith::ArithDialect,
+        mlir::affine::AffineDialect,
+        mlir::LLVM::LLVMDialect,
+        mlir::index::IndexDialect,
+        mlir::math::MathDialect,
+        mlir::cf::ControlFlowDialect,
+        mlir::DLTIDialect
+    >(); // clang-format on
+}
+
 } // namespace mlir::hlir
