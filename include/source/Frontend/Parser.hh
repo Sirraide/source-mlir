@@ -158,6 +158,7 @@ private:
     }
 
     /// Parser functions.
+    auto ParseAlias() -> Result<AliasExpr*>;
     auto ParseAssertion() -> Result<Expr*>;
     auto ParseBlock() -> Result<BlockExpr*>;
     auto ParseDecl() -> Result<Decl*>;

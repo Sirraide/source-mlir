@@ -397,6 +397,8 @@ auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builde
 }
 
 auto src::CodeGen::CreateInt(mlir::Location loc, const APInt& value, Type type) -> mlir::Value {
+    type = type.desugared;
+
     /// Explicit-width integer types.
     if (auto int_ty = dyn_cast<IntType>(type)) {
         if (int_ty->size.bits() > 64) Todo("Create > 64 bit integer constant");
@@ -417,7 +419,7 @@ auto src::CodeGen::CreateInt(mlir::Location loc, const APInt& value, Type type) 
     }
 
     /// Invalid.
-    else { Unreachable(); }
+    else { Unreachable("Cannot create an integer constant of type {}", type.str(true)); }
 }
 
 auto src::CodeGen::Destroy(mlir::Location loc, mlir::Value addr, Type type) -> mlir::Value {
@@ -791,6 +793,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::StructType:
         case Expr::Kind::ModuleRefExpr:
         case Expr::Kind::EmptyExpr:
+        case Expr::Kind::AliasExpr:
             break;
 
         case Expr::Kind::ConstructExpr:
@@ -1348,7 +1351,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// or really no way of doing so (for instance, how are we
             /// supposed to emit a module reference at block scope?).
             for (auto s : e->exprs) {
-                if (isa<ProcDecl, OverloadSetExpr, ModuleRefExpr, TypeBase>(s)) continue;
+                if (isa<ProcDecl, OverloadSetExpr, ModuleRefExpr, AliasExpr, TypeBase>(s)) continue;
                 Generate(s);
             }
 

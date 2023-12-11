@@ -120,6 +120,10 @@ using f64 = double;
     type _##name();               \
     __declspec(property(get = _##name)) type name
 
+#define readonly_const_decl(type, name) \
+    type _##name() const;               \
+    __declspec(property(get = _##name)) type name
+
 #define property_decl(type, name) \
     type _##name();               \
     void _set_##name(type);       \

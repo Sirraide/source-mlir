@@ -1267,6 +1267,24 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::ConstructExpr:
             Unreachable();
 
+        /// An alias provides a different name for a compile-time entity.
+        case Expr::Kind::AliasExpr: {
+            auto a = cast<AliasExpr>(e);
+            if (not Analyse(a->expr)) return e->sema.set_errored();
+            if (not isa< // clang-format off
+                LocalDecl,
+                ProcDecl,
+                OverloadSetExpr,
+                TypeBase
+            >(a->expr->ignore_paren_refs)) return Error(
+                e,
+                "Alias must reference a declaration, procedure, or type"
+            ); // clang-format on
+
+            /// Add this alias to the current scope.
+            curr_scope->declare(a->alias, a);
+        } break;
+
         /// Bools are of type bool.
         case Expr::Kind::BoolLiteralExpr:
             cast<BoolLitExpr>(e)->stored_type = BuiltinType::Bool(mod, e->location);
@@ -1735,13 +1753,13 @@ bool src::Sema::Analyse(Expr*& e) {
                 for (usz i = 0; i < invoke->args.size(); i++) {
                     if (i < ptype->param_types.size()) {
                         if (not Convert(invoke->args[i], ptype->param_types[i])) {
-                            e->sema.set_errored();
                             Error(
                                 invoke->args[i],
                                 "Argument type '{}' is not convertible to parameter type '{}'",
                                 invoke->args[i]->type,
                                 ptype->param_types[i]
                             );
+                            e->sema.set_errored();
                         }
                     }
 
@@ -1752,11 +1770,10 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// Make sure there are as many arguments as parameters.
                 if (
                     invoke->args.size() < ptype->param_types.size() or
-                    (invoke->args.size() > ptype->param_types.size() and not ptype->variadic)
+                    (invoke->args.size() != ptype->param_types.size() and not ptype->variadic)
                 ) {
-                    e->sema.set_errored();
                     Error(
-                        invoke,
+                        e,
                         "Expected {} arguments, but got {}",
                         ptype->param_types.size(),
                         invoke->args.size()
@@ -1777,8 +1794,8 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// The arguments must be DeclRefExprs.
                 for (auto& arg : invoke->args) {
                     if (not isa<DeclRefExpr>(arg)) {
-                        e->sema.set_errored();
                         Error(arg, "Expected identifier in declaration");
+                        e->sema.set_errored();
                     }
                 }
 
@@ -2719,6 +2736,12 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
 
     /// The type of this is the type of the referenced expression.
     if (not Analyse(d->decl)) return d->sema.set_errored();
+
+    /// If this is an alias, resolve it to what the alias points to.
+    if (auto a = dyn_cast<AliasExpr>(d->decl)) {
+        e->sema.unset(); /// Other instances of this will have to be replaced w/ this again.
+        d->decl = a->expr->ignore_paren_refs;
+    }
 
     /// If this is a type, replace it w/ a sugared type.
     if (auto ty = dyn_cast<TypeBase>(d->decl)) {

@@ -156,6 +156,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::Nil:
         case Kind::ConstructExpr:
         case Kind::OpaqueType:
+        case Kind::AliasExpr:
             return "<?>";
 
         case Kind::ModuleRefExpr:
@@ -218,6 +219,7 @@ auto src::Expr::_type() -> Type {
         case Kind::LabelExpr:
         case Kind::EmptyExpr:
         case Kind::ConstructExpr:
+        case Kind::AliasExpr:
             return Type::Void;
 
         /// Typed exprs.
@@ -383,13 +385,14 @@ auto src::Type::_default_constructor() -> ProcDecl* {
     return nullptr;
 }
 
-auto src::Type::_desugared() -> Type {
+auto src::Type::_desugared() const -> Type {
     if (auto s = dyn_cast<SugaredType>(ptr)) return s->elem.desugared;
     if (auto s = dyn_cast<ScopedType>(ptr)) return s->elem.desugared;
     return *this;
 }
 
-bool src::Type::is_int(bool bool_is_int) const {
+bool src::Type::is_int(bool bool_is_int) {
+    if (isa<SugaredType, ScopedType>(ptr)) return desugared.is_int(bool_is_int);
     switch (ptr->kind) {
         default: return false;
         case Expr::Kind::IntType: return true;
@@ -501,8 +504,12 @@ auto src::Type::str(bool use_colour) const -> std::string {
         case Expr::Kind::OptionalType: WriteSElem("?"); break;
         case Expr::Kind::SliceType: WriteSElem("[]"); break;
         case Expr::Kind::IntType: out += fmt::format("i{}", cast<IntType>(ptr)->size); break;
-        case Expr::Kind::SugaredType: out += cast<SugaredType>(ptr)->name; break;
         case Expr::Kind::Nil: out += "nil"; break;
+
+        case Expr::Kind::SugaredType: {
+            out += C(Yellow);
+            out += cast<SugaredType>(ptr)->name;
+        } break;
 
         case Expr::Kind::ScopedType: {
             auto sc = cast<ScopedType>(ptr);
@@ -593,50 +600,8 @@ auto src::Type::str(bool use_colour) const -> std::string {
             out += fmt::format("{}{}", C(Cyan), cast<OpaqueType>(ptr)->name);
             break;
 
-        case Expr::Kind::AssertExpr:
-        case Expr::Kind::DeferExpr:
-        case Expr::Kind::WhileExpr:
-        case Expr::Kind::ForInExpr:
-        case Expr::Kind::ModuleRefExpr:
-        case Expr::Kind::ExportExpr:
-        case Expr::Kind::LabelExpr:
-        case Expr::Kind::EmptyExpr:
-        case Expr::Kind::ConstructExpr:
-            return Type::Void.str(use_colour);
-
-        case Expr::Kind::OverloadSetExpr:
-            return Type::OverloadSet.str(use_colour);
-
-        case Expr::Kind::ArrayLiteralExpr:
-            return Type::ArrayLiteral.str(use_colour);
-
-        case Expr::Kind::ReturnExpr:
-        case Expr::Kind::LoopControlExpr:
-        case Expr::Kind::GotoExpr:
-            return Type::NoReturn.str(use_colour);
-
-        /// Typed exprs.
-        case Expr::Kind::BlockExpr:
-        case Expr::Kind::InvokeExpr:
-        case Expr::Kind::InvokeBuiltinExpr:
-        case Expr::Kind::ConstExpr:
-        case Expr::Kind::MemberAccessExpr:
-        case Expr::Kind::ScopeAccessExpr:
-        case Expr::Kind::DeclRefExpr:
-        case Expr::Kind::LocalRefExpr:
-        case Expr::Kind::BoolLiteralExpr:
-        case Expr::Kind::IntegerLiteralExpr:
-        case Expr::Kind::StringLiteralExpr:
-        case Expr::Kind::ProcDecl:
-        case Expr::Kind::CastExpr:
-        case Expr::Kind::IfExpr:
-        case Expr::Kind::UnaryPrefixExpr:
-        case Expr::Kind::BinaryExpr:
-        case Expr::Kind::LocalDecl:
-        case Expr::Kind::ImplicitThisExpr:
-        case Expr::Kind::ParenExpr:
-        case Expr::Kind::SubscriptExpr:
-            return cast<TypedExpr>(ptr)->stored_type->type.str(use_colour);
+        SOURCE_NON_TYPE_EXPRS:
+            return ptr->type.str(use_colour);
     }
 
 done:
@@ -1227,6 +1192,12 @@ struct ASTPrinter {
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
 
+            case K::AliasExpr: {
+                PrintBasicHeader("AliasExpr", e);
+                out += fmt::format(" {}{}\n", C(White), cast<AliasExpr>(e)->alias);
+                return;
+            }
+
             case K::DeferExpr: {
                 PrintBasicHeader("DeferExpr", e);
                 out += "\n";
@@ -1453,6 +1424,11 @@ struct ASTPrinter {
             case K::ForInExpr: {
                 auto w = cast<ForInExpr>(e);
                 PrintChildren({w->iter, w->range, w->body}, leading_text);
+            } break;
+
+            case K::AliasExpr: {
+                auto a = cast<AliasExpr>(e);
+                PrintChildren(a->expr, leading_text);
             } break;
 
             case K::ReturnExpr: {

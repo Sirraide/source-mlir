@@ -31,6 +31,7 @@
          | <expr-paren>
          | <expr-subscript>
          | <expr-for-in>
+         | <expr-alias>
          | <type-struct>
          | <decl>
 
@@ -56,6 +57,7 @@
 <expr-qual-name> ::= <expr> "::" IDENTIFIER
 <expr-paren>     ::= "(" <expr> ")"
 <expr-subscript> ::= <expr> "[" <expr> "]"
+<expr-alias>     ::= ALIAS IDENTIFIER "=" <expr>
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
@@ -75,8 +77,7 @@
 /// ===========================================================================
 ///  Declarations
 /// ==========================================================================
-<decl>           ::= <linkage-decl> | <alias-decl>
-<alias-decl>     ::= ALIAS IDENTIFIER "=" <expr>
+<decl>           ::= <linkage-decl>
 <linkage-decl>   ::= <proc-named> | <proc-extern> | <var-decl>
 <var-decl>       ::= <type> IDENTIFIER [ "=" <expr> ]
 <type-struct>    ::= STRUCT <name> <struct-rest>

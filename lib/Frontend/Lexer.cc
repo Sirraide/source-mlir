@@ -24,6 +24,7 @@ constexpr bool IsHex(char c) { return (c >= '0' and c <= '9') or (c >= 'a' and c
 const StringMap<Tk> keywords = {
     {"export", Tk::Export},
     {"pragma", Tk::Pragma},
+    {"alias", Tk::Alias},
     {"assert", Tk::Assert},
     {"asm", Tk::Asm},
     {"if", Tk::If},
@@ -915,6 +916,7 @@ auto src::Spelling(Tk t) -> std::string_view {
         case Tk::IntegerType: return "<integer type>";
         case Tk::Export: return "export";
         case Tk::Pragma: return "pragma";
+        case Tk::Alias: return "alias";
         case Tk::Assert: return "assert";
         case Tk::Asm: return "asm";
         case Tk::If: return "if";
@@ -1049,6 +1051,7 @@ bool src::operator==(const Token& a, const Token& b) {
         case Tk::Eof:
         case Tk::Export:
         case Tk::Pragma:
+        case Tk::Alias:
         case Tk::Assert:
         case Tk::Asm:
         case Tk::If:

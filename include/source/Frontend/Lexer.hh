@@ -19,6 +19,7 @@ enum struct Tk {
     /// Keywords.
     Export,
     Pragma,
+    Alias,
     Assert,
     Asm,
     If,

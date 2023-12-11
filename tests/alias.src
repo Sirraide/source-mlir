@@ -1,22 +1,43 @@
+/// R %srcc --lowered %s
 
-/// TODO: Allow specifying module name for c++ imports, e.g. `import <cstdio> as libc`;
-///       ensure that all c++ imports have the same alias or that only one has an alias.
+/// d t %[a-zA-Z0-9_]+
+
+
 /// TODO: `export alias exit = libc::exit;`
 
-alias foo = int;
+alias foo = i64;
 alias baz = foo;
+alias quux = bar;
 
+/// * (?<a>$t) = local i64
+/// + (?<twenty>$t) = arith.constant 20
+/// + store into $a, i64 $twenty
+/// * (?<b>$t) = local i64
+/// + (?<one>$t) = arith.constant 1
+/// + store into $b, i64 $one
+baz a = 20;
+foo b = 1;
+
+alias c = a;
+alias d = b;
+
+/// + (?<c>$t) = load i64 from $a
+/// + (?<lhs>$t) = call @_S3barPI64_E($c)
+/// + (?<d>$t) = load i64 from $b
+/// + (?<rhs>$t) = call @_S3barPI64_E($d)
+/// + (?<e>$t) = arith.addi $lhs, $rhs
+/// + call @_S4sinkPI64_E($e)
+sink bar(c) + quux(d);
+
+/// * hlir.func private @_S3barPI64_E
+/// + (?<n>$t) = local i64
+/// + store into $n, i64
+/// + (?<m1>$t) = load i64 from $n
+/// + (?<m2>$t) = load i64 from $n
+/// + (?<m3>$t) = arith.addi $m1, $m2
+/// + return i64 $m3
 proc sink (baz) extern;
 proc bar (foo n) -> baz {
     alias m = n;
     return m + m;
 }
-
-baz a = 20;
-foo b = 1;
-
-alias quux = bar;
-alias c = a;
-alias d = b;
-sink bar(c), quux(d);
-

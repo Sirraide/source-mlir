@@ -89,6 +89,7 @@ public:
         LabelExpr,
         EmptyExpr,
         ModuleRefExpr,
+        AliasExpr,
         ConstructExpr,
         OverloadSetExpr,
 
@@ -286,7 +287,7 @@ public:
     readonly_decl(ProcDecl*, default_constructor);
 
     /// Get the type stripped of any sugar.
-    readonly_decl(Type, desugared);
+    readonly_const_decl(Type, desugared);
 
     /// Get the mangled name of this type.
     ///
@@ -294,7 +295,7 @@ public:
     readonly_decl(std::string, mangled_name);
 
     /// Check if this is any integer type.
-    bool is_int(bool bool_is_int) const;
+    bool is_int(bool bool_is_int);
 
     /// Check if this is 'nil'.
     readonly_decl(bool, is_nil);
@@ -859,6 +860,23 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ConstructExpr; }
+};
+
+class AliasExpr : public Expr {
+public:
+    /// The name of the alias.
+    std::string alias;
+
+    /// The aliased expression.
+    Expr* expr;
+
+    AliasExpr(std::string alias, Expr* expr, Location loc)
+        : Expr(Kind::AliasExpr, loc),
+          alias(std::move(alias)),
+          expr(expr) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::AliasExpr; }
 };
 
 /// ===========================================================================
@@ -2002,6 +2020,7 @@ struct CastInfo<T, const src::Type*> : src::THCastImpl<T, const src::Type*> {};
     case Expr::Kind::ImplicitThisExpr:   \
     case Expr::Kind::ParenExpr:          \
     case Expr::Kind::SubscriptExpr:      \
-    case Expr::Kind::ConstructExpr
+    case Expr::Kind::ConstructExpr:      \
+    case Expr::Kind::AliasExpr
 
 #endif // SOURCE_FRONTEND_AST_HH

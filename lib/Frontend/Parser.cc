@@ -118,6 +118,7 @@ constexpr bool IsPostfix(Tk t) {
 
 constexpr bool MayStartAnExpression(Tk k) {
     switch (k) {
+        case Tk::Alias:
         case Tk::Assert:
         case Tk::Bool:
         case Tk::Break:
@@ -171,6 +172,23 @@ auto src::Parser::Parse(Context& ctx, File& f) -> Module* {
     Parser p{&ctx, f};
     p.ParseFile();
     return ctx.has_error() ? nullptr : p.mod;
+}
+
+/// <expr-alias> ::= ALIAS IDENTIFIER "=" <expr>
+auto src::Parser::ParseAlias() -> Result<AliasExpr*> {
+    auto start = curr_loc;
+    Assert(Consume(Tk::Alias));
+
+    /// Parse name.
+    if (not At(Tk::Identifier)) return Error("Expected identifier");
+    auto name = tok.text;
+    Next();
+
+    /// Parse value.
+    if (not Consume(Tk::Assign)) Error("Expected '='");
+    auto value = ParseExpr();
+    if (IsError(value)) return value.diag;
+    return new (mod) AliasExpr(std::move(name), *value, {start, value->location});
 }
 
 /// <expr-assert> ::= ASSERT <expr> [ ","  <expr> ]
@@ -311,6 +329,10 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::StringLiteral:
             lhs = new (mod) StrLitExpr(mod->strtab.intern(tok.text), tok.location);
             Next();
+            break;
+
+        case Tk::Alias:
+            lhs = ParseAlias();
             break;
 
         case Tk::Assert:
