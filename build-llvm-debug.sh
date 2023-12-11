@@ -14,6 +14,7 @@ CC=clang CXX=clang++ cmake -G "Ninja" \
   -S llvm \
   -B out-debug \
   -DCMAKE_INSTALL_PREFIX="$(realpath .)/llvm-install-debug" \
+  -DGCC_INSTALL_PREFIX=/usr \
   -DCMAKE_BUILD_TYPE=Debug \
   -DLLVM_ENABLE_PROJECTS='clang;clang-tools-extra;compiler-rt;mlir' \
   -DLLVM_TARGETS_TO_BUILD=X86 \

@@ -9,10 +9,13 @@
 using u64 = std::uint64_t;
 using i64 = std::int64_t;
 
-
-
 static void PrintType(mlir::Type t, mlir::AsmPrinter& p) {
     static const auto PrintStructType = [](mlir::LLVM::LLVMStructType t, mlir::AsmPrinter& p) {
+        if (t.isIdentified()) {
+            p << "@" << t.getName();
+            return;
+        }
+
         p << "{ ";
         bool first = true;
         for (auto e : t.getBody()) {
@@ -362,7 +365,6 @@ void hlir::PointerEqOp::print(OpAsmPrinter& p) {
 }
 
 auto hlir::PointerEqOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
-
 
 void hlir::PointerNeOp::print(OpAsmPrinter& p) {
     p << " " << getLhs() << ", " << getRhs();

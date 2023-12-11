@@ -634,7 +634,9 @@ auto src::Parser::ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>
 }
 
 /// <file> ::= <module-part> <exprs>
-/// <module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT IDENTIFIER }
+/// <module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT <import-name> ";" }
+/// <import-name> ::= IDENTIFIER [ "." "*" ] | <header-name>
+/// <header-name> ::= "<" TOKENS ">"
 void src::Parser::ParseFile() {
     /// Parse preamble; this also creates the module.
     if (At(Tk::Identifier) and tok.text == "module") {
@@ -644,7 +646,7 @@ void src::Parser::ParseFile() {
         Next();
         if (not Consume(Tk::Semicolon)) Error("Expected ';'");
 
-        ctx->modules.push_back(std::make_unique<Module>(ctx, std::move(module_name), loc));
+        ctx->modules.push_back(std::make_unique<Module>(ctx, std::move(module_name), false, loc));
     } else {
         ctx->modules.push_back(std::make_unique<Module>(ctx, ""));
     }
@@ -654,26 +656,59 @@ void src::Parser::ParseFile() {
     /// Parse imports.
     while (At(Tk::Identifier) and tok.text == "import") {
         auto start = Next();
-        if (not At(Tk::Identifier)) Error("Expected identifier");
+        std::string name;
+        bool is_header = false;
+
+        /// C++ header.
+        if (At(Tk::Lt)) {
+            /// Need to lex manually here.
+            raw_mode = true;
+            is_header = true;
+            while (lastc != '>' and lastc != 0) {
+                name.push_back(lastc);
+                NextChar();
+            }
+
+            if (lastc == 0) {
+                Error("Expected '>'");
+                Next();
+                return;
+            }
+
+            /// Bring the lexer back into sync.
+            raw_mode = false;
+            NextChar();
+        }
+
+        /// Regular module name.
+        else if (At(Tk::Identifier)) name = tok.text;
+
+        /// Nonsense.
+        else {
+            Error("Expected identifier");
+            Synchronise();
+            continue;
+        }
 
         /// Skip duplicate imports.
-        if (rgs::contains(mod->imports, tok.text, &ImportedModuleRef::linkage_name)) {
-            Diag::Warning(ctx, start, "Duplicate import '{}' ignored", tok.text);
+        if (rgs::contains(mod->imports, name, &ImportedModuleRef::linkage_name)) {
+            Diag::Warning(ctx, start, "Duplicate import '{}' ignored", name);
             Synchronise();
             continue;
         }
 
         auto& i = mod->imports.emplace_back(
-            tok.text,
-            tok.text,
+            name,
+            name,
             Location{start, tok.location},
-            false,
-            false
+            is_header,
+            is_header
         );
 
         /// Check whether this is an open import.
         Next();
         if (At(Tk::Dot) and Is(LookAhead(1), Tk::Star)) {
+            if (is_header) Error("Header imports are always open. Do not use .* here");
             i.is_open = true;
             Next();
             Next();
@@ -1062,6 +1097,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
         std::move(fields),
         std::move(initialisers),
         sc.scope,
+        Mangling::Source,
         {start, curr_loc}
     );
 

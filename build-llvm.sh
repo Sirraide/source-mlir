@@ -20,6 +20,7 @@ CC=clang CXX=clang++ cmake -G "Ninja" \
   -S llvm \
   -B out \
   -DCMAKE_INSTALL_PREFIX="$(realpath .)/llvm-install" \
+  -DGCC_INSTALL_PREFIX=/usr \
   -DCMAKE_BUILD_TYPE=Release \
   -DLLVM_ENABLE_PROJECTS='clang;clang-tools-extra;compiler-rt;mlir' \
   -DLLVM_TARGETS_TO_BUILD=X86 \

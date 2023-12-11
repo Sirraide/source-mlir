@@ -19,6 +19,7 @@ using options = clopts< // clang-format off
     flag<"--ast", "Print the AST of the module after parsing">,
     flag<"--lowered", "Print lowered HLIR">,
     flag<"--debug-llvm", "Debug LLVM lowering process">,
+    flag<"--debug-cxx", "Debug C++ imports">,
     flag<"--describe-module", "Load file as a module and print its exports">,
     flag<"--exports", "Show exported declarations">,
     flag<"--hlir", "Print the HLIR of the module">,
@@ -47,7 +48,6 @@ int main(int argc, char** argv) {
 
     /// Create context.
     src::Context ctx;
-    auto& f = ctx.get_or_load_file(*opts.get<"file">());
 
     /// Add import paths.
     for (auto& path : *opts.get<"-I">()) {
@@ -58,25 +58,42 @@ int main(int argc, char** argv) {
 
     /// Describe module, if requested.
     if (opts.get<"--describe-module">()) {
-        auto mod = src::Module::Deserialise(
-            &ctx,
-            auto{f.path()}.filename().replace_extension(""),
-            {},
-            llvm::ArrayRef(
-                reinterpret_cast<const src::u8*>(f.data()),
-                f.size()
-            )
-        );
+        src::Module* mod{};
+        auto& name = *opts.get<"file">();
+
+        /// C++ header.
+        if (name.starts_with('<') and name.ends_with('>')) {
+            name = name.substr(1, name.size() - 2);
+            mod = src::Module::ImportCXXHeaders(
+                &ctx,
+                {name},
+                opts.get<"--debug-cxx">(),
+                {}
+            );
+        }
+
+        else {
+            auto& f = ctx.get_or_load_file(name);
+            mod = src::Module::Deserialise(
+                &ctx,
+                auto{f.path()}.filename().replace_extension(""),
+                {},
+                llvm::ArrayRef(
+                    reinterpret_cast<const src::u8*>(f.data()),
+                    f.size()
+                )
+            );
+        }
 
         /// Check for errors.
-        for (auto& exps : mod->exports)
-            for (auto e : exps.second)
-                e->print(false);
-        std::exit(1);
+        if (ctx.has_error()) std::exit(1);
+        mod->print_exports(use_colour);
+        std::exit(0);
     }
 
     /// Parse the file. Exit on error since, in that case, the
     /// parser returns nullptr.
+    auto& f = ctx.get_or_load_file(*opts.get<"file">());
     auto mod = src::Parser::Parse(ctx, f);
     if (ctx.has_error()) std::exit(1);
 
@@ -97,7 +114,7 @@ int main(int argc, char** argv) {
     });
 
     /// Perform semantic analysis.
-    src::Sema::Analyse(mod);
+    src::Sema::Analyse(mod, opts.get<"--debug-cxx">());
     if (ctx.has_error()) std::exit(opts.get<"--sema">() ? 0 : 1);
     if (opts.get<"--ast">() or opts.get<"--sema">()) {
         if (opts.get<"--ast">()) mod->print_ast(use_colour);

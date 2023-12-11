@@ -1,8 +1,7 @@
 module __src_runtime;
 
-/// Libc functions that we need.
-proc printf(i8&) extern nomangle variadic -> int;
-proc exit(i32) extern nomangle -> noreturn;
+import <stdio.h>;
+import <stdlib.h>;
 
 /// Called when an `assert` fails.
 export proc __src_assert_fail(

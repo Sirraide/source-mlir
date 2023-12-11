@@ -57,11 +57,14 @@ public:
     enum struct Kind : u8 {
         /// Type [begin]
         BuiltinType,
-        FFIType,
-        StructType,
         IntType,
         Nil,
         ProcType,
+
+        /// NamedType [begin]
+        StructType,
+        OpaqueType,
+        /// NamedType [end]
 
         /// SingleElementType [begin]
         ReferenceType,
@@ -259,8 +262,6 @@ public:
     static constinit const Type I16;
     static constinit const Type I32;
     static constinit const Type I64;
-    static constinit const Type CChar;
-    static constinit const Type CInt;
     static constinit const Type Nil;
 
     constexpr explicit Type(Expr* ptr) : ptr(ptr) { Assert(ptr); }
@@ -1535,7 +1536,6 @@ public:
 class BuiltinType;
 class IntType;
 class ReferenceType;
-class FFIType;
 
 enum struct BuiltinTypeKind {
     /// Unset. We don’t want to set types to null to avoid crashes, so
@@ -1564,11 +1564,6 @@ enum struct BuiltinTypeKind {
     /// them doesn’t really make much sense; each array literal has
     /// to be treated as a special case.
     ArrayLiteral,
-};
-
-enum struct FFITypeKind {
-    CChar,
-    CInt,
 };
 
 class TypeBase : public Expr {
@@ -1656,40 +1651,37 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::BuiltinType; }
 };
 
-class FFIType : public TypeBase {
-public:
-    /// The kind of this FFI type.
-    FFITypeKind ffi_kind;
-
-private:
-    /// Create a new FFI type.
-    static auto Create(Module* m, FFITypeKind kind, Location loc) -> FFIType* {
-        return new (m) FFIType(kind, loc);
-    }
-
-public:
-    FFIType(FFITypeKind kind, Location loc)
-        : TypeBase(Kind::FFIType, loc), ffi_kind(kind) {
-        sema.set_done();
-    }
-
-    /// Get the underlying type.
-    auto underlying(Context* ctx) const -> TypeBase*;
-
-    static auto CChar(Module* m, Location loc = {}) -> FFIType* { return Create(m, FFITypeKind::CChar, loc); }
-    static auto CInt(Module* m, Location loc = {}) -> FFIType* { return Create(m, FFITypeKind::CInt, loc); }
-
-    /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::FFIType; }
-};
-
-class StructType : public TypeBase {
+class NamedType : public TypeBase {
     /// Needs to access mangled name.
     friend Type;
 
     /// Cached so we don’t need to recompute it.
     std::string mangled_name;
 
+protected:
+    NamedType(Kind k, Module* mod, std::string name, Mangling mangling, Location loc)
+        : TypeBase(k, loc),
+          module(mod),
+          name(name),
+          mangling(mangling) {}
+
+public:
+    /// The parent module.
+    Module* module;
+
+    /// The name of this type.
+    std::string name;
+
+    /// The mangling scheme of this type.
+    Mangling mangling;
+
+    /// RTTI.
+    static bool classof(const Expr* e) {
+        return e->kind >= Kind::StructType and e->kind <= Kind::OpaqueType;
+    }
+};
+
+class StructType : public NamedType {
 public:
     struct Field {
         std::string name;
@@ -1699,17 +1691,11 @@ public:
         bool padding{};
     };
 
-    /// The parent module.
-    Module* module;
-
     /// The fields of this struct.
     SmallVector<Field> all_fields;
 
     /// Initialisers of this struct.
     SmallVector<ProcDecl*> initialisers;
-
-    /// The name of this struct.
-    std::string name;
 
     /// Scope associated with this struct.
     BlockExpr* scope;
@@ -1727,6 +1713,7 @@ public:
         SmallVector<Field> fields,
         SmallVector<ProcDecl*> initialisers,
         BlockExpr* scope,
+        Mangling mangling,
         Location loc
     );
 
@@ -1745,6 +1732,17 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::StructType; }
+};
+
+class OpaqueType : public NamedType {
+public:
+    OpaqueType(Module* mod, std::string name, Mangling mangling, Location loc)
+        : NamedType(Kind::OpaqueType, mod, std::move(name), mangling, loc) {
+        sema.set_done();
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::OpaqueType; }
 };
 
 class SingleElementTypeBase : public TypeBase {

@@ -23,6 +23,8 @@ struct CodeGen {
     usz anon_structs = 0;
     bool no_verify;
 
+    mlir::Type Int, Bool;
+
     /// External procedures that we have already declared.
     llvm::DenseSet<StringRef> procs;
 
@@ -38,7 +40,10 @@ struct CodeGen {
           ctx(mod->context),
           mctx(&ctx->mlir),
           builder(mctx),
-          no_verify(no_verify) {}
+          no_verify(no_verify) {
+        Int = GetIntType(Type::Int.size(ctx));
+        Bool = GetIntType(Size::Bits(1));
+    }
 
     CodeGen(const CodeGen&) = delete;
     CodeGen(CodeGen&&) = delete;
@@ -106,6 +111,9 @@ struct CodeGen {
     void Generate(Expr* expr);
     void GenerateModule();
     void GenerateProcedure(ProcDecl* proc);
+
+    /// Get an integer type.
+    auto GetIntType(Size width) -> mlir::IntegerType;
 
     /// Retrieve the static chain pointer for a procedure.
     auto GetStaticChainPointer(ProcDecl* proc) -> mlir::Value;
@@ -544,8 +552,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     }
 
     /// Create a struct type and finalise it.
-    std::string name = fmt::format("struct.anon.{}", anon_structs++);
-    auto s = new (mod) StructType(mod, std::move(name), std::move(fields), {}, nullptr, {});
+    auto s = new (mod) StructType(mod, "", std::move(fields), {}, nullptr, Mangling::Source, {});
 
     /// The alignment and size are just set to what LLVM’s algorithm told us
     /// they should be. In particular, we need *not* ensure that the size is
@@ -587,6 +594,10 @@ auto src::CodeGen::Offset(mlir::Value ptr, i64 value) -> mlir::Value {
     );
 }
 
+auto src::CodeGen::GetIntType(Size width) -> mlir::IntegerType {
+    return mlir::IntegerType::get(mctx, unsigned(width.bits()));
+}
+
 auto src::CodeGen::GetStaticChainPointer(ProcDecl* proc) -> mlir::Value {
     /// Current procedure.
     if (curr_proc == proc) {
@@ -620,24 +631,15 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
             switch (cast<BuiltinType>(type)->builtin_kind) {
                 using K = BuiltinTypeKind;
                 case K::Void: return mlir::NoneType::get(mctx);
-                case K::Int: return mlir::IntegerType::get(mctx, 64); /// FIXME: Get width from context.
-                case K::Bool: return mlir::IntegerType::get(mctx, 1);
                 case K::NoReturn: return mlir::NoneType::get(mctx);
+                case K::Bool: return Bool;
+                case K::Int: return Int;
                 case K::Unknown:
                 case K::OverloadSet:
                 case K::ArrayLiteral:
                     Unreachable();
             }
             Unreachable();
-        }
-
-        case Expr::Kind::FFIType: {
-            switch (cast<FFIType>(type)->ffi_kind) {
-                using K = FFITypeKind;
-                case K::CChar:
-                case K::CInt:
-                    Assert(false, "TODO: FFI Types");
-            }
         }
 
         case Expr::Kind::IntType: {
@@ -653,7 +655,10 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
         case Expr::Kind::ReferenceType:
         case Expr::Kind::ScopedPointerType: {
             auto ty = cast<SingleElementTypeBase>(type);
-            return hlir::ReferenceType::get(Ty(ty->elem));
+
+            /// References to `none` are not really well-formed...
+            auto elem = ty->elem == Type::Void ? Type::I8 : ty->elem;
+            return hlir::ReferenceType::get(Ty(elem));
         }
 
         case Expr::Kind::ArrayType: {
@@ -669,6 +674,9 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
 
         case Expr::Kind::ClosureType:
             return hlir::ClosureType::get(Ty(cast<ClosureType>(type)->proc_type, true));
+
+        case Expr::Kind::OpaqueType:
+            return mlir::LLVM::LLVMStructType::getOpaque(type.mangled_name, mctx);
 
         case Expr::Kind::ProcType: {
             auto ty = cast<ProcType>(type);
@@ -707,18 +715,18 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
             auto s = cast<StructType>(type);
             if (s->mlir) return s->mlir;
 
+            /// Handle recursion.
+            if (not s->name.empty())
+                s->mlir = mlir::LLVM::LLVMStructType::getIdentified(mctx, s->name);
+
             /// Collect element types.
             auto range = s->field_types() | vws::transform([&](auto& t) { return Ty(t); });
             SmallVector<mlir::Type> elements{range.begin(), range.end()};
 
             /// Named struct.
             if (not s->name.empty()) {
-                s->mlir = mlir::LLVM::LLVMStructType::getNewIdentified(
-                    mctx,
-                    s->name,
-                    elements,
-                    false
-                );
+                auto ok = cast<mlir::LLVM::LLVMStructType>(s->mlir).setBody(elements, false);
+                if (mlir::failed(ok)) Diag::ICE(ctx, s->location, "Could not convert struct type to HLIR");
             }
 
             /// Literal struct.
@@ -763,7 +771,6 @@ void src::CodeGen::Generate(src::Expr* expr) {
     expr->emitted = true;
     switch (expr->kind) {
         case Expr::Kind::BuiltinType:
-        case Expr::Kind::FFIType:
         case Expr::Kind::IntType:
         case Expr::Kind::ReferenceType:
         case Expr::Kind::ScopedPointerType:
@@ -774,6 +781,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::ArrayType:
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
+        case Expr::Kind::OpaqueType:
             Unreachable();
 
         case Expr::Kind::OverloadSetExpr:
@@ -1866,8 +1874,14 @@ void src::CodeGen::GenerateModule() {
     }
 
     /// Codegen imports.
+    bool generated_header_imports = false; /// FIXME: separate imports and header imports.
     builder.setInsertionPointToEnd(mod->mlir.getBody());
     for (auto& m : mod->imports) {
+        if (m.is_cxx_header) {
+            if (generated_header_imports) continue;
+            generated_header_imports = true;
+        }
+
         for (auto& exp : m.mod->exports) {
             for (auto e : exp.second) {
                 if (auto p = dyn_cast<ProcDecl>(e)) GenerateProcedure(p);
@@ -1977,6 +1991,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
 
             /// Initialise imported modules.
             for (auto& i : mod->imports) {
+                if (i.is_cxx_header) continue;
                 Create<hlir::CallOp>(
                     builder.getUnknownLoc(),
                     mlir::TypeRange{},

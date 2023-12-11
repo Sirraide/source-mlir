@@ -19,6 +19,25 @@ auto Type::_mangled_name() -> std::string {
         return fmt::format("{}{}", prefix, se->elem.mangled_name);
     };
 
+    auto MangleNamedType = [&](NamedType* s, std::string_view prefix) {
+        if (s->mangled_name.empty()) {
+            if (not s->module or not s->module->is_logical_module) {
+                s->mangled_name = fmt::format("{}{}{}", prefix, s->name.size(), s->name);
+            } else {
+                s->mangled_name = fmt::format(
+                    "M{}{}{}{}{}",
+                    s->module->name.size(),
+                    s->module->name,
+                    prefix,
+                    s->name.size(),
+                    s->name
+                );
+            }
+        }
+
+        return s->mangled_name;
+    };
+
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
             switch (cast<BuiltinType>(ptr)->builtin_kind) {
@@ -36,16 +55,6 @@ auto Type::_mangled_name() -> std::string {
 
         case Expr::Kind::Nil:
             return "n";
-
-        /// Need to keep these since we allow overloading on them.
-        case Expr::Kind::FFIType: {
-            switch (cast<FFIType>(ptr)->ffi_kind) {
-                case FFITypeKind::CChar: return "Fc";
-                case FFITypeKind::CInt: return "Fi";
-            }
-
-            Unreachable();
-        }
 
         /// The underscore is so we know how many digits are part of the bit width.
         case Expr::Kind::IntType:
@@ -78,25 +87,11 @@ auto Type::_mangled_name() -> std::string {
             return name;
         }
 
-        /// Context may be null in this case only.
-        case Expr::Kind::StructType: {
-            auto s = cast<StructType>(ptr);
-            if (s->mangled_name.empty()) {
-                if (not s->module or not s->module->is_logical_module) {
-                    s->mangled_name = fmt::format("S{}{}", s->name.size(), s->name);
-                } else {
-                    s->mangled_name = fmt::format(
-                        "M{}{}S{}{}",
-                        s->module->name.size(),
-                        s->module->name,
-                        s->name.size(),
-                        s->name
-                    );
-                }
-            }
+        case Expr::Kind::OpaqueType:
+            return MangleNamedType(cast<NamedType>(ptr), "Q");
 
-            return s->mangled_name;
-        }
+        case Expr::Kind::StructType:
+            return MangleNamedType(cast<NamedType>(ptr), "S");
 
         SOURCE_NON_TYPE_EXPRS:
             Unreachable("Not a type");
@@ -176,6 +171,7 @@ enum struct SerialisedTypeTag : u8 {
     Array,
     Optional,
     Procedure,
+    Opaque,
 
     /// The ones below here also double as type descriptors
     /// for builtin types, as those are never emitted into
@@ -190,9 +186,6 @@ enum struct SerialisedTypeTag : u8 {
     I16,
     I32,
     I64,
-
-    CChar = 128,
-    CInt,
 };
 
 template <typename T>
@@ -304,7 +297,7 @@ struct Serialiser {
 
     /// Serialise a type.
     auto SerialiseType(TypeBase* t) -> TD {
-        const auto FindTD =  [&] -> TD {
+        const auto FindTD = [&] -> TD {
             if (auto td = type_map.find(t); td != type_map.end()) return td->second;
             return TD{};
         };
@@ -325,15 +318,6 @@ struct Serialiser {
                     case BuiltinTypeKind::OverloadSet:
                     case BuiltinTypeKind::ArrayLiteral:
                         Unreachable();
-                }
-
-                Unreachable();
-            }
-
-            case Expr::Kind::FFIType: {
-                switch (cast<FFIType>(t)->ffi_kind) {
-                    case FFITypeKind::CChar: return TD(SerialisedTypeTag::CChar);
-                    case FFITypeKind::CInt: return TD(SerialisedTypeTag::CInt);
                 }
 
                 Unreachable();
@@ -377,6 +361,15 @@ struct Serialiser {
                 return type_map[t] = TD{hdr.type_count++};
             }
 
+            case Expr::Kind::OpaqueType: {
+                if (auto td = FindTD(); td != TD{}) return td;
+                auto s = cast<OpaqueType>(t);
+                *this << SerialisedTypeTag::Opaque;
+                *this << ConvertMangling(s->mangling);
+                *this << s->name;
+                return type_map[t] = TD{hdr.type_count++};
+            }
+
             /// TODO: Do we at all care about the static chain here?
             case Expr::Kind::ProcType: {
                 if (auto td = FindTD(); td != TD{}) return td;
@@ -400,6 +393,7 @@ struct Serialiser {
                 /// types; write name, size, alignment, and number of fields.
                 type_map[t] = hdr.type_count++;
                 *this << SerialisedTypeTag::Struct;
+                *this << ConvertMangling(s->mangling);
                 *this << s->name << s->stored_size << s->stored_alignment << s->all_fields.size();
 
                 /// Allocate space for field types. We may have to serialise
@@ -522,7 +516,7 @@ struct Deserialiser {
 
     Deserialiser(Context* ctx, std::string module_name, Location loc, ArrayRef<u8> description)
         : ctx{ctx}, loc{loc}, description{description} {
-        mod = std::make_unique<Module>(ctx, std::move(module_name), loc);
+        mod = std::make_unique<Module>(ctx, std::move(module_name), false, loc);
     }
 
     /// Abort due to ill-formed module description.
@@ -627,8 +621,6 @@ struct Deserialiser {
                 case SerialisedTypeTag::I16: return Type::I16;
                 case SerialisedTypeTag::I32: return Type::I32;
                 case SerialisedTypeTag::I64: return Type::I64;
-                case SerialisedTypeTag::CChar: return Type::CChar;
-                case SerialisedTypeTag::CInt: return Type::CInt;
             }
         }
 
@@ -657,8 +649,6 @@ struct Deserialiser {
             case SerialisedTypeTag::I16: return Type::I16;
             case SerialisedTypeTag::I32: return Type::I32;
             case SerialisedTypeTag::I64: return Type::I64;
-            case SerialisedTypeTag::CChar: return Type::CChar;
-            case SerialisedTypeTag::CInt: return Type::CInt;
 
             case SerialisedTypeTag::SizedInteger: {
                 auto bits = rd<u64>();
@@ -688,6 +678,12 @@ struct Deserialiser {
                 );
             }
 
+            case SerialisedTypeTag::Opaque: {
+                auto m = ConvertMangling(rd<SerialisedMangling>());
+                auto name = rd<std::string>();
+                return new (&*mod) OpaqueType(&*mod, std::move(name), m, {});
+            }
+
             case SerialisedTypeTag::Procedure: {
                 Type ret = Map(rd<TD>());
                 u64 params = rd<u64>();
@@ -699,6 +695,7 @@ struct Deserialiser {
             }
 
             case SerialisedTypeTag::Struct: {
+                auto mangling = ConvertMangling(rd<SerialisedMangling>());
                 auto name = rd<std::string>();
                 auto size = rd<Size>();
                 auto align = rd<Align>();
@@ -730,6 +727,7 @@ struct Deserialiser {
                     std::move(fields),
                     {},
                     new (&*mod) BlockExpr(&*mod, mod->global_scope),
+                    mangling,
                     {}
                 );
 

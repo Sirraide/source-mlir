@@ -356,6 +356,11 @@ bool src::Sema::MakeDeclType(Type& e) {
         else return Error(e.ptr, "Cannot declare a variable of type 'void'");
     }
 
+    if (auto o = dyn_cast<OpaqueType>(e)) {
+        if constexpr (in_array) return Error(e.ptr, "Cannot declare an array of incomplete type '{}'", o->name);
+        else return Error(e.ptr, "Cannot declare a variable of incomplete type '{}'", o->name);
+    }
+
     /// Procedure types decay to closures.
     if (auto p = dyn_cast<ProcType>(e)) e = new (mod) ClosureType(p);
     return true;
@@ -1033,7 +1038,6 @@ auto src::Sema::Construct(
 
         /// These take zero or one argument.
         case Expr::Kind::BuiltinType:
-        case Expr::Kind::FFIType:
         case Expr::Kind::IntType: {
             if (init_args.empty()) return ConstructExpr::CreateZeroinit(mod);
             if (init_args.size() == 1) return TrivialCopy(type);
@@ -1248,11 +1252,11 @@ bool src::Sema::Analyse(Expr*& e) {
     switch (e->kind) {
         /// Marked as type checked in the constructor.
         case Expr::Kind::BuiltinType:
-        case Expr::Kind::FFIType:
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
         case Expr::Kind::ModuleRefExpr:
         case Expr::Kind::EmptyExpr:
+        case Expr::Kind::OpaqueType:
         case Expr::Kind::Nil:
             Unreachable();
 
@@ -2916,6 +2920,10 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
 void src::Sema::AnalyseModule() {
     /// Resolve all imports.
     for (auto& i : mod->imports) {
+        /// C++ header.
+        if (i.is_cxx_header) continue;
+
+        /// Regular module.
         for (auto& p : mod->context->import_paths) {
             auto mod_path = p / i.linkage_name;
             mod_path.replace_extension(__SRCC_OBJ_FILE_EXT);
@@ -2941,6 +2949,21 @@ void src::Sema::AnalyseModule() {
             "Could not find module '{}'",
             i.linkage_name
         );
+    }
+
+    /// Handle C++ headers all at once to deduplicate declarations.
+    auto cxx_headers = mod->imports | vws::filter(&ImportedModuleRef::is_cxx_header);
+    SmallVector<StringRef> headers;
+    for (auto& h : cxx_headers) headers.push_back(h.linkage_name);
+    if (not headers.empty()) {
+        auto m = Module::ImportCXXHeaders(
+            mod->context,
+            headers,
+            debug_cxx,
+            cxx_headers.front().import_location
+        );
+
+        for (auto& h : cxx_headers) h.mod = m;
     }
 
     /// Stop if we couldn’t resolve all imports.

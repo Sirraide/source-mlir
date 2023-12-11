@@ -421,4 +421,4 @@ function(source_stdlib_module name)
     add_dependencies(source-std "source-module-${name}")
 endfunction()
 
-source_stdlib_module(libc)
+#source_stdlib_module(libc)

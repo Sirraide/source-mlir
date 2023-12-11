@@ -6,7 +6,6 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
     Assert(e->sema.ok, "Refusing evaluate broken or unanalysed expression");
     switch (e->kind) {
         case Expr::Kind::BuiltinType:
-        case Expr::Kind::FFIType:
         case Expr::Kind::StructType:
         case Expr::Kind::IntType:
         case Expr::Kind::ProcType:
@@ -18,6 +17,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
         case Expr::Kind::ClosureType:
+        case Expr::Kind::OpaqueType:
             out = Type(e);
             return true;
 

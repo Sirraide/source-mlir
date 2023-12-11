@@ -1,6 +1,7 @@
 #ifndef SOURCE_INCLUDE_CONTEXT_HH
 #define SOURCE_INCLUDE_CONTEXT_HH
 
+#include <clang/Frontend/CompilerInstance.h>
 #include <llvm/IR/Module.h>
 #include <mlir/IR/MLIRContext.h>
 #include <source/Support/StringTable.hh>
@@ -107,13 +108,12 @@ class Context {
     /// Error flag. This is set-only.
     mutable bool error_flag = false;
 
-    /// The target we’re compiling for.
-    const llvm::Target* tgt;
-
 public:
     /// Contexts.
     mlir::MLIRContext mlir;
     llvm::LLVMContext llvm;
+    clang::CompilerInstance clang;
+    llvm::IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> vfs;
 
     /// Import paths.
     std::vector<fs::path> import_paths;
@@ -126,9 +126,6 @@ public:
 
     /// Create a context for the host target.
     explicit Context();
-
-    /// Create a new context with a target.
-    explicit Context(const llvm::Target* tgt);
 
     /// Do not allow copying or moving the context.
     Context(const Context&) = delete;
@@ -173,9 +170,6 @@ public:
         error_flag = true;
         return old;
     }
-
-    /// Get the target.
-    [[nodiscard]] auto target() const -> const llvm::Target* { return tgt; }
 
 private:
     /// Initialise the context.
@@ -303,10 +297,10 @@ struct ImportedModuleRef {
     Location import_location;
 
     /// Whether this is an open module.
-    bool is_open : 1;
+    bool is_open;
 
     /// Whether this is actually a C++ header.
-    bool is_cxx_header : 1;
+    bool is_cxx_header;
 
     /// Resolved module path.
     fs::path resolved_path{};
@@ -353,6 +347,9 @@ public:
     /// Whether this is a logical module.
     readonly(bool, is_logical_module, return not name.empty());
 
+    /// Whether this is a C++ header.
+    bool is_cxx_header;
+
     /// Get the global scope of this module.
     readonly_decl(BlockExpr*, global_scope);
 
@@ -369,7 +366,12 @@ public:
     std::unique_ptr<llvm::Module> llvm;
 
     /// An empty name means this isn’t a logical module.
-    explicit Module(Context* ctx, std::string name, Location module_decl_location = {});
+    explicit Module(
+        Context* ctx,
+        std::string name,
+        bool is_cxx_header = false,
+        Location module_decl_location = {}
+    );
     ~Module();
 
     /// Add a function to this module.
@@ -400,6 +402,9 @@ public:
     /// in AST.cc
     void print_ast(bool use_colour) const;
 
+    /// Print the AST of any exported symbols.
+    void print_exports(bool use_colour) const;
+
     /// Print the HLIR of the module. Implemented in CodeGen.cc.
     void print_hlir(bool use_generic_assembly_format) const;
 
@@ -413,6 +418,7 @@ public:
     /// loaded later. Implemented in Endec.cc.
     auto serialise() -> SmallVector<u8>;
 
+
     /// Deserialise a module from a module description. Implemented in Endec.cc.
     static auto Deserialise(
         Context* ctx,
@@ -421,6 +427,13 @@ public:
         ArrayRef<u8> description
     ) -> Module*;
 
+    /// Import a C++ header.
+    static auto ImportCXXHeaders(
+        Context* ctx,
+        ArrayRef<StringRef> header_names,
+        bool debug_cxx,
+        Location loc
+    ) -> Module*;
 private:
     /// Generate LLVM IR for this module.
     void GenerateLLVMIR(int opt_level);

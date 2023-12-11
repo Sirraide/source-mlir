@@ -1,6 +1,8 @@
 <file> ::= <module-part> <exprs>
 
-<module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT IDENTIFIER [ "." "*" ] }
+<module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT <import-name> ";" }
+<import-name> ::= IDENTIFIER [ "." "*" ] | <header-name>
+<header-name> ::= "<" TOKENS ">"
 
 /// ===========================================================================
 ///  Expressions

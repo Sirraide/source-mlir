@@ -180,20 +180,24 @@ class Sema {
     /// Number of anonymous procedures.
     usz lambda_counter = 0;
 
+    /// Whether to print unsupported C++ imports.
+    bool debug_cxx = false;
+
 public:
+    Sema(Module* mod) : mod(mod) {}
+
     /// Use Context::has_error to check for errors.
-    static void Analyse(Module* mod) {
+    static void Analyse(Module* mod, bool debug_cxx = false) {
         Sema s{mod};
+        s.debug_cxx = debug_cxx;
         s.AnalyseModule();
     }
 
-private:
-    Sema(Module* mod) : mod(mod) {}
-
-    bool Analyse(Expr*& e);
-
     /// Analyse the given expression and issue an error if it is not a type.
     bool AnalyseAsType(Type& e);
+
+private:
+    bool Analyse(Expr*& e);
 
     template <bool allow_undefined>
     bool AnalyseDeclRefExpr(Expr*& e);

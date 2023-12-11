@@ -24,20 +24,8 @@
 /// ===========================================================================
 src::Context::~Context() = default;
 
-src::Context::Context(const llvm::Target* tgt)
-    : tgt(tgt) {
-    Initialise();
-}
-
 src::Context::Context() {
     Initialise();
-
-    std::string error;
-    auto target_triple = llvm::sys::getDefaultTargetTriple();
-    llvm::Triple triple{target_triple};
-    auto target = llvm::TargetRegistry::lookupTarget(target_triple, error);
-    if (not target) Diag::Fatal("Failed to lookup target '{}': {}", target_triple, error);
-    tgt = target;
 }
 
 auto src::Context::get_or_load_file(fs::path path) -> File& {
@@ -62,6 +50,18 @@ void src::Context::Initialise() {
     llvm::InitializeAllAsmParsers();
     llvm::InitializeAllAsmPrinters();
     mlir::hlir::InitContext(mlir);
+
+    using OFS = llvm::vfs::OverlayFileSystem;
+    llvm::IntrusiveRefCntPtr<OFS> overlay = std::make_unique<OFS>(llvm::vfs::getRealFileSystem());
+    vfs = std::make_unique<llvm::vfs::InMemoryFileSystem>();
+    overlay->pushOverlay(vfs);
+
+    clang.createDiagnostics();
+    clang.getTargetOpts().Triple = llvm::sys::getDefaultTargetTriple();
+    clang.createTarget();
+    clang.createSourceManager(*clang.createFileManager(overlay));
+    clang.createPreprocessor(clang::TU_Prefix);
+    clang.createASTContext();
 }
 
 auto src::Context::MakeFile(fs::path name, std::vector<char>&& contents) -> File& {
@@ -271,10 +271,11 @@ auto src::Location::text(const Context* ctx) const -> std::string_view {
 /// ===========================================================================
 ///  Module
 /// ===========================================================================
-src::Module::Module(Context* ctx, std::string name, Location module_decl_location)
+src::Module::Module(Context* ctx, std::string name, bool is_cxx_header, Location module_decl_location)
     : context(ctx),
       name(std::move(name)),
-      module_decl_location(module_decl_location) {
+      module_decl_location(module_decl_location),
+      is_cxx_header(is_cxx_header) {
     top_level_func = new (this) ProcDecl{
         this,
         nullptr,
