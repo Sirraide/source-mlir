@@ -113,7 +113,8 @@ public:
     mlir::MLIRContext mlir;
     llvm::LLVMContext llvm;
     clang::CompilerInstance clang;
-    llvm::IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> vfs;
+    llvm::IntrusiveRefCntPtr<llvm::vfs::OverlayFileSystem> file_system;
+    llvm::IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> in_memory_fs;
 
     /// Import paths.
     std::vector<fs::path> import_paths;

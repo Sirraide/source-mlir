@@ -231,36 +231,14 @@ auto src::Module::ImportCXXHeaders(
     bool debug_cxx,
     Location loc
 ) -> Module* {
-    clang::driver::Driver dr{
-        __SRCC_CLANG_EXE,
-        llvm::sys::getDefaultTargetTriple(),
-        ctx->clang.getDiagnostics(),
-        "Source Compiler",
-        ctx->vfs
-    };
-
     std::string code;
     for (auto& name : header_names) code += fmt::format("#include <{}>\n", name);
     auto buffer = llvm::MemoryBuffer::getMemBuffer(code);
-    ctx->vfs->addFile("__srcc_cxx_headers.cc", 0, std::move(buffer));
+    ctx->in_memory_fs->addFile("__srcc_cxx_headers.cc", 0, std::move(buffer));
 
-/*
-
-    /// Resolve system include dirs.
-    std::unique_ptr<clang::driver::Compilation> C{dr.BuildCompilation(args)};
-    auto clang_args =  C->getJobs().begin()->getArguments();
-    llvm::opt::ArgStringList include_dirs;
-    C->getDefaultToolChain().AddClangSystemIncludeArgs(C->getArgs(), include_dirs);
-    C->getDefaultToolChain().AddClangCXXStdlibIncludeArgs(C->getArgs(), include_dirs);
-    clang_args.insert(clang_args.end(), include_dirs.begin(), include_dirs.end());
-    for (auto& arg : clang_args) {
-        fmt::print("{} ", arg);
-    }
-*/
     /// Create compiler invocation.
     static constexpr const char* args[] = {
         __SRCC_CLANG_EXE,
-        //"-###",
         "__srcc_cxx_headers.cc",
         "-std=c++2b",
         "-Wall",
@@ -272,11 +250,8 @@ auto src::Module::ImportCXXHeaders(
         "-fsyntax-only"
     };
 
-    //"-cc1",
-    //"-stdlib=libstdc++",
-
     clang::CreateInvocationOptions opts;
-    opts.VFS = ctx->vfs;
+    opts.VFS = ctx->file_system;
     opts.Diags = &ctx->clang.getDiagnostics();
     std::shared_ptr<clang::CompilerInvocation> I = clang::createInvocation(args, opts);
     auto AST = clang::ASTUnit::LoadFromCompilerInvocation(
@@ -285,38 +260,6 @@ auto src::Module::ImportCXXHeaders(
         ctx->clang.getDiagnosticsPtr(),
         &ctx->clang.getFileManager()
     );
-
-/*
-    auto ok = clang::CompilerInvocation::CreateFromArgs(
-        *I,
-        {clang_args.begin() + 1, clang_args.end()}, /// Skip '-cc1'.
-        ctx->clang.getDiagnostics(),
-        "srcc"
-    );
-*/
-/*
-    /// Set lang options and add include dirs.
-    if (not ok) Diag::ICE("Failed to create CompilerInvocation");
-    std::vector<std::string> includes;
-    clang::LangOptions::setLangDefaults(
-        I->getLangOpts(),
-        clang::Language::CXX,
-        ctx->clang.getTarget().getTriple(),
-        includes,
-        clang::LangStandard::lang_cxx26
-    );
-
-    for (auto& path : includes) {
-        I->getHeaderSearchOpts().AddPath(
-            path,
-            clang::frontend::CXXSystem,
-            false,
-            true
-        );
-    }
-
-    I->getHeaderSearchOpts().ResourceDir = dr.ResourceDir;*/
-
 
     if (not AST) {
         ctx->set_error();
