@@ -1,9 +1,10 @@
 #include <clang/AST/RecordLayout.h>
+#include <clang/Basic/Builtins.h>
 #include <clang/Basic/LangStandard.h>
 #include <clang/Basic/TargetInfo.h>
 #include <clang/Config/config.h>
-#include <clang/Driver/Driver.h>
 #include <clang/Driver/Compilation.h>
+#include <clang/Driver/Driver.h>
 #include <clang/Frontend/FrontendActions.h>
 #include <clang/Frontend/Utils.h>
 #include <clang/Tooling/Tooling.h>
@@ -48,11 +49,23 @@ struct ImportContext {
 
     ImportContext(Module* out, bool debug)
         : ctx(out->context), out(out), debug(debug) {}
-
+    
     void HandleTranslationUnit(clang::ASTContext& C) {
         AST = &C;
         D = &AST->getDiagnostics();
         for (auto d : C.getTranslationUnitDecl()->decls()) TranslateDecl(d);
+    }
+    
+    bool IsNonLibBuiltin(clang::FunctionDecl* f) {
+#define LIBBUILTIN(Name, ...)
+#define BUILTIN(Name, ...) case clang::Builtin::BI##Name:
+        switch (f->getBuiltinID()) {
+            default: return false;
+#include <clang/Basic/Builtins.def>
+            return true;
+#undef LIBBUILTIN
+#undef BUILTIN
+        }
     }
 
     void TranslateDecl(clang::Decl* d) {
@@ -71,6 +84,7 @@ struct ImportContext {
     void TranslateFunctionDecl(clang::FunctionDecl* f) {
         if (not f->isExternC()) return;
         if (f->isDeleted()) return;
+        if (IsNonLibBuiltin(f)) return;
         if (f->getLanguageLinkage() != clang::LanguageLinkage::CLanguageLinkage) return;
 
         auto ret = f->isNoReturn() ? Type::NoReturn : TranslateType(f->getReturnType());
@@ -253,9 +267,8 @@ auto src::Module::ImportCXXHeaders(
     clang::CreateInvocationOptions opts;
     opts.VFS = ctx->file_system;
     opts.Diags = &ctx->clang.getDiagnostics();
-    std::shared_ptr<clang::CompilerInvocation> I = clang::createInvocation(args, opts);
     auto AST = clang::ASTUnit::LoadFromCompilerInvocation(
-        I,
+        clang::createInvocation(args, opts),
         std::make_shared<clang::PCHContainerOperations>(),
         ctx->clang.getDiagnosticsPtr(),
         &ctx->clang.getFileManager()
