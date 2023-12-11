@@ -1,7 +1,7 @@
 module __src_runtime;
 
-import <stdio.h>;
-import <stdlib.h>;
+import <cstdio> as stdio;
+import <cstdlib> as stdlib;
 
 /// Called when an `assert` fails.
 export proc __src_assert_fail(
@@ -11,16 +11,16 @@ export proc __src_assert_fail(
     int line,
     int col
 ) nomangle -> noreturn {
-    printf "%.*s:%zu:%zu: Assertion failed '%.*s'".data,
+    stdio::printf "%.*s:%zu:%zu: Assertion failed '%.*s'".data,
         file.size as i32, file.data,
         line, col,
         cond.size as i32, cond.data;
 
     if message.size > 0 then
-        printf ": %.*s".data, message.size as i32, message.data;
+        stdio::printf ": %.*s".data, message.size as i32, message.data;
 
-    printf "\n".data;
-    exit 17;
+    stdio::printf "\n".data;
+    stdlib::exit 17;
 }
 
 /// Entry point emitted by the compiler.

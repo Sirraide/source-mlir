@@ -1,6 +1,5 @@
 #include <clopts.hh>
 #include <csignal>
-#include <llvm/Support/PrettyStackTrace.h>
 #include <source/CG/CodeGen.hh>
 #include <source/Core.hh>
 #include <source/Frontend/Parser.hh>
@@ -67,6 +66,7 @@ int main(int argc, char** argv) {
             mod = src::Module::ImportCXXHeaders(
                 &ctx,
                 {name},
+                name,
                 opts.get<"--debug-cxx">(),
                 {}
             );

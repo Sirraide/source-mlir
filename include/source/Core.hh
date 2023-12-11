@@ -113,8 +113,6 @@ public:
     mlir::MLIRContext mlir;
     llvm::LLVMContext llvm;
     clang::CompilerInstance clang;
-    llvm::IntrusiveRefCntPtr<llvm::vfs::OverlayFileSystem> file_system;
-    llvm::IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> in_memory_fs;
 
     /// Import paths.
     std::vector<fs::path> import_paths;
@@ -432,6 +430,7 @@ public:
     static auto ImportCXXHeaders(
         Context* ctx,
         ArrayRef<StringRef> header_names,
+        std::string module_name,
         bool debug_cxx,
         Location loc
     ) -> Module*;

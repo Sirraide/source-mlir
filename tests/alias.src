@@ -1,0 +1,22 @@
+
+/// TODO: Allow specifying module name for c++ imports, e.g. `import <cstdio> as libc`;
+///       ensure that all c++ imports have the same alias or that only one has an alias.
+/// TODO: `export alias exit = libc::exit;`
+
+alias foo = int;
+alias baz = foo;
+
+proc sink (baz) extern;
+proc bar (foo n) -> baz {
+    alias m = n;
+    return m + m;
+}
+
+baz a = 20;
+foo b = 1;
+
+alias quux = bar;
+alias c = a;
+alias d = b;
+sink bar(c), quux(d);
+

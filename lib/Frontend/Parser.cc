@@ -697,24 +697,38 @@ void src::Parser::ParseFile() {
             continue;
         }
 
-        auto& i = mod->imports.emplace_back(
-            name,
-            name,
-            Location{start, tok.location},
-            is_header,
-            is_header
-        );
-
         /// Check whether this is an open import.
+        bool is_open = false;
         Next();
         if (At(Tk::Dot) and Is(LookAhead(1), Tk::Star)) {
-            if (is_header) Error("Header imports are always open. Do not use .* here");
-            i.is_open = true;
+            is_open = true;
             Next();
             Next();
         }
 
+        /// Check if there is a logical name.
+        auto logical_name = name;
+        if (Consume(Tk::As)) {
+            if (not At(Tk::Identifier)) Error("Expected identifier");
+            logical_name = tok.text;
+            Next();
+        }
+
+        /// Headers must either be open or renamed.
+        Location loc = {start, tok.location};
+        if (is_header and not is_open and logical_name == name) Error(
+            loc,
+            "Header imports must either specify '.*' or be renamed using 'as'"
+        );
+
         if (not Consume(Tk::Semicolon)) Error("Expected ';'");
+        mod->imports.emplace_back(
+            std::move(name),
+            std::move(logical_name),
+            loc,
+            is_open,
+            is_header
+        );
     }
 
     curr_func = mod->top_level_func;

@@ -2951,19 +2951,15 @@ void src::Sema::AnalyseModule() {
         );
     }
 
-    /// Handle C++ headers all at once to deduplicate declarations.
-    auto cxx_headers = mod->imports | vws::filter(&ImportedModuleRef::is_cxx_header);
-    SmallVector<StringRef> headers;
-    for (auto& h : cxx_headers) headers.push_back(h.linkage_name);
-    if (not headers.empty()) {
-        auto m = Module::ImportCXXHeaders(
+    /// Handle C++ headers.
+    for (auto& h : mod->imports | vws::filter(&ImportedModuleRef::is_cxx_header)) {
+        h.mod = Module::ImportCXXHeaders(
             mod->context,
-            headers,
+            StringRef(h.linkage_name),
+            h.logical_name,
             debug_cxx,
-            cxx_headers.front().import_location
+            h.import_location
         );
-
-        for (auto& h : cxx_headers) h.mod = m;
     }
 
     /// Stop if we couldn’t resolve all imports.

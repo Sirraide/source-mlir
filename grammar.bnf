@@ -1,6 +1,6 @@
 <file> ::= <module-part> <exprs>
 
-<module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT <import-name> ";" }
+<module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT <import-name> [ AS IDENTIFIER ] ";" }
 <import-name> ::= IDENTIFIER [ "." "*" ] | <header-name>
 <header-name> ::= "<" TOKENS ">"
 
@@ -75,7 +75,8 @@
 /// ===========================================================================
 ///  Declarations
 /// ==========================================================================
-<decl>           ::= <linkage-decl>
+<decl>           ::= <linkage-decl> | <alias-decl>
+<alias-decl>     ::= ALIAS IDENTIFIER "=" <expr>
 <linkage-decl>   ::= <proc-named> | <proc-extern> | <var-decl>
 <var-decl>       ::= <type> IDENTIFIER [ "=" <expr> ]
 <type-struct>    ::= STRUCT <name> <struct-rest>

@@ -242,18 +242,30 @@ struct ImportContext {
 auto src::Module::ImportCXXHeaders(
     Context* ctx,
     ArrayRef<StringRef> header_names,
+    std::string module_name,
     bool debug_cxx,
     Location loc
 ) -> Module* {
+    Assert(not header_names.empty());
+    llvm::IntrusiveRefCntPtr<llvm::vfs::OverlayFileSystem> file_system;
+    llvm::IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> in_memory_fs;
+    llvm::IntrusiveRefCntPtr<clang::FileManager> mgr;
+    file_system = std::make_unique<llvm::vfs::OverlayFileSystem>(llvm::vfs::getRealFileSystem());
+    in_memory_fs = std::make_unique<llvm::vfs::InMemoryFileSystem>();
+    file_system->pushOverlay(in_memory_fs);
+    mgr = new clang::FileManager {ctx->clang.getFileSystemOpts(), file_system};
+
     std::string code;
+    auto filename = fmt::format("<{}>", header_names.front());
     for (auto& name : header_names) code += fmt::format("#include <{}>\n", name);
     auto buffer = llvm::MemoryBuffer::getMemBuffer(code);
-    ctx->in_memory_fs->addFile("__srcc_cxx_headers.cc", 0, std::move(buffer));
+    in_memory_fs->addFile(filename, 0, std::move(buffer));
 
-    /// Create compiler invocation.
-    static constexpr const char* args[] = {
+    const char* args[] = {
         __SRCC_CLANG_EXE,
-        "__srcc_cxx_headers.cc",
+        "-x",
+        "c++",
+        filename.data(),
         "-std=c++2b",
         "-Wall",
         "-Wextra",
@@ -265,13 +277,13 @@ auto src::Module::ImportCXXHeaders(
     };
 
     clang::CreateInvocationOptions opts;
-    opts.VFS = ctx->file_system;
+    opts.VFS = file_system;
     opts.Diags = &ctx->clang.getDiagnostics();
     auto AST = clang::ASTUnit::LoadFromCompilerInvocation(
         clang::createInvocation(args, opts),
         std::make_shared<clang::PCHContainerOperations>(),
         ctx->clang.getDiagnosticsPtr(),
-        &ctx->clang.getFileManager()
+        mgr.get()
     );
 
     if (not AST) {
@@ -279,11 +291,9 @@ auto src::Module::ImportCXXHeaders(
         return nullptr;
     }
 
-    auto mod = new Module(ctx, "<cxx-headers>", true, loc);
+    auto mod = new Module(ctx, std::move(module_name), true, loc);
     ImportContext IC{mod, debug_cxx};
     IC.HandleTranslationUnit(AST->getASTContext());
-
-    /// Analyse all exports.
     Sema::Analyse(mod);
     return ctx->has_error() ? nullptr : mod;
 }

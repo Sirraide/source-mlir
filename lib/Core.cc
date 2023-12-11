@@ -51,16 +51,13 @@ void src::Context::Initialise() {
     llvm::InitializeAllAsmPrinters();
     mlir::hlir::InitContext(mlir);
 
-    file_system = std::make_unique<llvm::vfs::OverlayFileSystem>(llvm::vfs::getRealFileSystem());
-    in_memory_fs = std::make_unique<llvm::vfs::InMemoryFileSystem>();
-    file_system->pushOverlay(in_memory_fs);
-
     clang.createDiagnostics();
     clang.getTargetOpts().Triple = llvm::sys::getDefaultTargetTriple();
     clang.createTarget();
-    clang.createSourceManager(*clang.createFileManager(file_system));
+    clang.createSourceManager(*clang.createFileManager());
     clang.createPreprocessor(clang::TU_Prefix);
     clang.createASTContext();
+    clang.getDiagnostics().setShowColors(true);
 }
 
 auto src::Context::MakeFile(fs::path name, std::vector<char>&& contents) -> File& {
