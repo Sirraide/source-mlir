@@ -12,12 +12,12 @@ export proc __src_assert_fail(
     int col
 ) nomangle -> noreturn {
     stdio::printf "%.*s:%zu:%zu: Assertion failed '%.*s'".data,
-        file.size as i32, file.data,
+        file.size as __srcc_ffi_int, file.data,
         line, col,
-        cond.size as i32, cond.data;
+        cond.size as __srcc_ffi_int, cond.data;
 
     if message.size > 0 then
-        stdio::printf ": %.*s".data, message.size as i32, message.data;
+        stdio::printf ": %.*s".data, message.size as __srcc_ffi_int, message.data;
 
     stdio::printf "\n".data;
     stdlib::exit 17;
@@ -28,10 +28,10 @@ proc __src_main extern nomangle;
 
 /// Actual main function.
 export proc main(
-    i32 arc,
-    i8&& argv,
-    i8&& envp
-) nomangle -> i32 {
+    __srcc_ffi_int argc,
+    __srcc_ffi_char&& argv,
+    __srcc_ffi_char&& envp
+) nomangle -> __srcc_ffi_int {
     __src_main();
     return 0;
 }

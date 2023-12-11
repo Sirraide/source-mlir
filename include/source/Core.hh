@@ -4,6 +4,7 @@
 #include <clang/Frontend/CompilerInstance.h>
 #include <llvm/IR/Module.h>
 #include <mlir/IR/MLIRContext.h>
+#include <source/Support/Buffer.hh>
 #include <source/Support/StringTable.hh>
 #include <source/Support/Utils.hh>
 
@@ -41,6 +42,7 @@ class ProcDecl;
 class Expr;
 class BlockExpr;
 class StructType;
+class IntType;
 
 /// A file in the context.
 class File {
@@ -363,6 +365,14 @@ public:
     /// Associated LLVM module. This is null for
     /// imported modules.
     std::unique_ptr<llvm::Module> llvm;
+
+    /// FFI types.
+    IntType* ffi_char;
+    IntType* ffi_short;
+    IntType* ffi_int;
+    IntType* ffi_long;
+    IntType* ffi_long_long;
+    IntType* ffi_size_t;
 
     /// An empty name means this isn’t a logical module.
     explicit Module(

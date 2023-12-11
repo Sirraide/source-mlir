@@ -284,6 +284,29 @@ src::Module::Module(Context* ctx, std::string name, bool is_cxx_header, Location
     };
 
     top_level_func->body = new (this) BlockExpr{this, {}};
+
+    auto& ast = ctx->clang.getASTContext();
+    auto CreateFFIIntType = [&](clang::CanQualType cxx_type) -> IntType* {
+        auto integer = new (this) IntType(Size::Bits(ast.getTypeSize(cxx_type)), {});
+        integer->sema.set_done();
+        auto source_align = Type(integer).align(ctx);
+        auto cxx_align = ast.getTypeAlign(cxx_type) / 8;
+        Assert(
+            source_align == cxx_align,
+            "Unsupported: Weird alignment for FFI type '{}': source:{} vs cxx:{}",
+            Type(integer).str(true),
+            source_align.value(),
+            cxx_align
+        );
+        return integer;
+    };
+
+    ffi_char = CreateFFIIntType(ast.CharTy);
+    ffi_short = CreateFFIIntType(ast.ShortTy);
+    ffi_int = CreateFFIIntType(ast.IntTy);
+    ffi_long = CreateFFIIntType(ast.LongTy);
+    ffi_long_long = CreateFFIIntType(ast.LongLongTy);
+    ffi_size_t = CreateFFIIntType(ast.getSizeType());
 }
 
 src::Module::~Module() {
@@ -446,7 +469,7 @@ void PrintBacktrace() {
             i,
             utils::NumberWidth(trace.frames.size()),
             C(Blue),
-            fmt::ptr((void*)frame.address),
+            fmt::ptr((void*) frame.address),
             C(Reset),
             C(Yellow),
             sym,
@@ -518,7 +541,7 @@ void src::Diag::HandleFatalErrors() {
 
     /// Exit on a fatal error.
     if (kind == Kind::FError) {
-        if (include_stack_trace)  PrintBacktrace();
+        if (include_stack_trace) PrintBacktrace();
         std::exit(FatalExitCode);
     }
 }

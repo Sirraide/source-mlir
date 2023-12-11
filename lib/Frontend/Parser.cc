@@ -1176,6 +1176,37 @@ auto src::Parser::ParseType() -> Result<Type> {
             base_type = new (mod) Nil(curr_loc);
             Next();
             break;
+
+        /// Builtins. Not officially part of the language.
+        case Tk::CChar:
+            base_type = mod->ffi_char;
+            Next();
+            break;
+
+        case Tk::CShort:
+            base_type = mod->ffi_short;
+            Next();
+            break;
+
+        case Tk::CInt:
+            base_type = mod->ffi_int;
+            Next();
+            break;
+
+        case Tk::CLong:
+            base_type = mod->ffi_long;
+            Next();
+            break;
+
+        case Tk::CLongLong:
+            base_type = mod->ffi_long_long;
+            Next();
+            break;
+
+        case Tk::CSizeT:
+            base_type = mod->ffi_size_t;
+            Next();
+            break;
     }
 
     /// Parse qualifiers.

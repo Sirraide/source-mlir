@@ -73,6 +73,14 @@ int main(int argc, char** argv) {
         }
 
         else {
+            /// Runtime.
+            if (name == __SRCC_RUNTIME_NAME and not opts.get<"--nostdrt">()) {
+                std::filesystem::path p = __SRCC_BUILTIN_MODULE_PATH;
+                p /= __SRCC_RUNTIME_NAME;
+                p += __SRCC_OBJ_FILE_EXT;
+                name = p.string();
+            }
+
             auto& f = ctx.get_or_load_file(name);
             mod = src::Module::Deserialise(
                 &ctx,
