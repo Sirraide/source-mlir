@@ -309,12 +309,15 @@ auto AllocateAndRegister(
 }
 
 /// Append a range to another.
-template <typename Dest, typename Src>
-void append(Dest& dest, Src&& src) {
-    FWD(dest).insert(
-        FWD(dest).end(),
-        FWD(src).begin(),
-        FWD(src).end()
+template <typename Dest, typename... Src>
+void append(Dest& dest, Src&&... src) {
+    (
+        FWD(dest).insert(
+            FWD(dest).end(),
+            FWD(src).begin(),
+            FWD(src).end()
+        ),
+        ...
     );
 }
 

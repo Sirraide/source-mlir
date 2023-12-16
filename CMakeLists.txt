@@ -310,8 +310,8 @@ add_mlir_dialect_library(MLIRSourceHLIR
 include_directories(SYSTEM "${CMAKE_CURRENT_BINARY_DIR}/include")
 
 ## Our tablegen executable.
-add_llvm_executable(srcc-tblgen "${PROJECT_SOURCE_DIR}/src/Tablegen.cc")
-target_link_libraries(srcc-tblgen PRIVATE options)
+#[[add_llvm_executable(srcc-tblgen "${PROJECT_SOURCE_DIR}/src/Tablegen.cc")
+target_link_libraries(srcc-tblgen PRIVATE options)]]
 
 #[[## Get the libraries via LLVM config.
 execute_process(
@@ -341,12 +341,14 @@ if (EXISTS "${PROJECT_SOURCE_DIR}/include")
 endif()
 
 ## Add the executable.
-add_llvm_executable(srcc src/Main.cc ${sources})
+add_llvm_library(source ${sources})
+target_link_libraries(source PRIVATE options cpptrace-lib)
+target_precompile_headers(source PRIVATE include/source/Support/Utils.hh)
+
+add_llvm_executable(srcc src/Main.cc)
 set_target_properties(srcc PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}")
-target_link_libraries(srcc PRIVATE options cpptrace-lib)
-target_precompile_headers(srcc PRIVATE
-    include/source/Support/Utils.hh
-)
+target_link_libraries(srcc PRIVATE options cpptrace-lib source)
+target_precompile_headers(srcc PRIVATE include/source/Support/Utils.hh)
 
 set(SOURCE_RUNTIME_NAME "__src_runtime")
 set(SOURCE_RUNTIME_PATH "${PROJECT_SOURCE_DIR}/modules/${SOURCE_RUNTIME_NAME}")

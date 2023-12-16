@@ -128,7 +128,7 @@ void hlir::CallOp::print(OpAsmPrinter& p) {
 auto hlir::CallOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
 void hlir::ChainExtractLocalOp::print(OpAsmPrinter& p) {
-    p << " chain " << getStructRef() << ", " << getIdx().getValue().getZExtValue();
+    p << " chain " << getStructRef() << "[" << getIdx().getValue().getZExtValue() << "]";
 }
 
 auto hlir::ChainExtractLocalOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
@@ -353,7 +353,7 @@ auto hlir::NotOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); 
 void hlir::OffsetOp::print(OpAsmPrinter& p) {
     p << " ";
     PrintType(getPointer().getType(), p);
-    p << " " << getPointer() << ", " << getOffset();
+    p << " " << getPointer() << "[" << getOffset() << "]";
 }
 
 auto hlir::OffsetOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
@@ -441,8 +441,8 @@ auto hlir::StoreOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
 }
 
 void hlir::StructGEPOp::print(OpAsmPrinter& p) {
-    p << " " << getStructRef() << ", " << getIdx().getValue().getZExtValue();
-    p << " -> ";
+    p << " " << getStructRef() << "[" << getIdx().getValue().getZExtValue();
+    p << "] -> ";
     PrintType(getType(), p);
 }
 

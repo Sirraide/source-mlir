@@ -253,7 +253,7 @@ auto src::Location::seek(const Context* ctx) const -> LocInfo {
     for (const char* d = data; d < data + pos; d++) {
         if (*d == '\n') {
             info.line++;
-            info.col = 0;
+            info.col = 1;
         } else {
             info.col++;
         }
@@ -279,7 +279,7 @@ auto src::Location::seek_line_column(const Context* ctx) const -> LocInfoShort {
     for (const char* d = data; d < data + pos; d++) {
         if (*d == '\n') {
             info.line++;
-            info.col = 0;
+            info.col = 1;
         } else {
             info.col++;
         }
@@ -597,22 +597,31 @@ void src::Diag::print() {
 
     /// If this diagnostic is suppressed, do nothing.
     if (kind == Kind::None) return;
+    defer {
+        /// If the diagnostic is an error, set the error flag.
+        if (kind == Kind::Error and ctx)
+            ctx->set_error(); /// Separate line so we can put a breakpoint here.
 
-    /// Don’t print the same diagnostic twice.
-    defer { kind = Kind::None; };
+        /// Don’t print the same diagnostic twice.
+        kind = Kind::None;
 
-    /// If the diagnostic is an error, set the error flag.
-    if (kind == Kind::Error and ctx)
-        ctx->set_error(); /// Separate line so we can put a breakpoint here.
-
-    /// First, reset the colour.
-    fmt::print(stderr, "\033[m");
+        /// Reset the colour when we’re done.
+        fmt::print(stderr, "\033[m");
+    };
 
     /// If there is no context, then there is also no location info.
     if (not ctx) {
         PrintDiagWithoutLocation();
         return;
     }
+
+    /// Make sure we don’t interleave diagnostics.
+    const std::unique_lock _{ctx->diags_mutex};
+
+    /// Make sure that diagnostics don’t clump together, but also don’t insert
+    /// an ugly empty line before the first diagnostic.
+    if (ctx->has_error() and kind != Kind::Note)
+        fmt::print(stderr, "\n");
 
     /// If the location is invalid, either because the specified file does not
     /// exists, its position is out of bounds or 0, or its length is 0, then we
@@ -628,14 +637,15 @@ void src::Diag::print() {
 
     /// If the location is valid, get the line, line number, and column number.
     const auto [line, col, line_start, line_end] = where.seek(ctx);
+    auto col_offs = col - 1;
 
     /// Split the line into everything before the range, the range itself,
     /// and everything after.
-    std::string before(line_start, col);
-    std::string range(line_start + col, std::min<u64>(where.len, u64(line_end - (line_start + col))));
-    auto after = line_start + col + where.len > line_end
+    std::string before(line_start, col_offs);
+    std::string range(line_start + col_offs, std::min<u64>(where.len, u64(line_end - (line_start + col_offs))));
+    auto after = line_start + col_offs + where.len > line_end
                    ? std::string{}
-                   : std::string(line_start + col + where.len, line_end);
+                   : std::string(line_start + col_offs + where.len, line_end);
 
     /// Replace tabs with spaces. We need to do this *after* splitting
     /// because this invalidates the offsets.

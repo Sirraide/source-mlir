@@ -22,68 +22,69 @@ constexpr bool IsHex(char c) { return (c >= '0' and c <= '9') or (c >= 'a' and c
 
 /// All keywords.
 const StringMap<Tk> keywords = {
-    {"export", Tk::Export},
-    {"pragma", Tk::Pragma},
     {"alias", Tk::Alias},
-    {"assert", Tk::Assert},
+    {"and", Tk::And},
+    {"as!", Tk::AsBang},
+    {"as", Tk::As},
     {"asm", Tk::Asm},
-    {"if", Tk::If},
-    {"then", Tk::Then},
-    {"elif", Tk::Elif},
-    {"else", Tk::Else},
-    {"match", Tk::Match},
-    {"while", Tk::While},
-    {"do", Tk::Do},
-    {"for", Tk::For},
-    {"in", Tk::In},
-    {"with", Tk::With},
-    {"try", Tk::Try},
-    {"return", Tk::Return},
-    {"goto", Tk::Goto},
-    {"defer", Tk::Defer},
+    {"assert", Tk::Assert},
+    {"bool", Tk::Bool},
     {"break", Tk::Break},
     {"continue", Tk::Continue},
-    {"fallthrough", Tk::Fallthrough},
-    {"unreachable", Tk::Unreachable},
-    {"variant", Tk::Variant},
-    {"static", Tk::Static},
-    {"is", Tk::Is},
-    {"as", Tk::As},
-    {"as!", Tk::AsBang},
-    {"not", Tk::Not},
-    {"and", Tk::And},
-    {"or", Tk::Or},
-    {"land", Tk::Land},
-    {"lor", Tk::Lor},
-    {"xor", Tk::Xor},
-    {"true", Tk::True},
-    {"false", Tk::False},
-    {"nil", Tk::Nil},
-    {"proc", Tk::Proc},
-    {"var", Tk::Var},
-    {"val", Tk::Val},
-    {"enum", Tk::Enum},
-    {"struct", Tk::Struct},
+    {"delete", Tk::Delete},
+    {"defer", Tk::Defer},
+    {"do", Tk::Do},
     {"dynamic", Tk::Dynamic},
-    {"init", Tk::Init},
-    {"type", Tk::Type},
-    {"typeof", Tk::Typeof},
-    {"noreturn", Tk::NoReturn},
-    {"bool", Tk::Bool},
-    {"void", Tk::Void},
-    {"int", Tk::Int},
+    {"elif", Tk::Elif},
+    {"else", Tk::Else},
+    {"enum", Tk::Enum},
+    {"export", Tk::Export},
     {"f32", Tk::F32},
     {"f64", Tk::F64},
+    {"fallthrough", Tk::Fallthrough},
+    {"false", Tk::False},
+    {"for", Tk::For},
+    {"goto", Tk::Goto},
+    {"if", Tk::If},
+    {"in", Tk::In},
+    {"init", Tk::Init},
+    {"int", Tk::Int},
+    {"is", Tk::Is},
+    {"land", Tk::Land},
+    {"lor", Tk::Lor},
+    {"match", Tk::Match},
+    {"nil", Tk::Nil},
+    {"noreturn", Tk::NoReturn},
+    {"not", Tk::Not},
+    {"or", Tk::Or},
+    {"pragma", Tk::Pragma},
+    {"proc", Tk::Proc},
+    {"return", Tk::Return},
+    {"static", Tk::Static},
+    {"struct", Tk::Struct},
+    {"then", Tk::Then},
+    {"true", Tk::True},
+    {"try", Tk::Try},
+    {"type", Tk::Type},
+    {"typeof", Tk::Typeof},
+    {"unreachable", Tk::Unreachable},
+    {"val", Tk::Val},
+    {"var", Tk::Var},
+    {"variant", Tk::Variant},
+    {"void", Tk::Void},
+    {"while", Tk::While},
+    {"with", Tk::With},
+    {"xor", Tk::Xor},
     {"__srcc_ffi_char", Tk::CChar},
-    {"__srcc_ffi_short", Tk::CShort},
-    {"__srcc_ffi_int", Tk::CInt},
-    {"__srcc_ffi_long", Tk::CLong},
-    {"__srcc_ffi_longlong", Tk::CLongLong},
-    {"__srcc_ffi_longdouble", Tk::CLongDouble},
-    {"__srcc_ffi_wchar", Tk::CWCharT},
     {"__srcc_ffi_char16", Tk::CChar16T},
     {"__srcc_ffi_char32", Tk::CChar32T},
+    {"__srcc_ffi_int", Tk::CInt},
+    {"__srcc_ffi_long", Tk::CLong},
+    {"__srcc_ffi_longdouble", Tk::CLongDouble},
+    {"__srcc_ffi_longlong", Tk::CLongLong},
+    {"__srcc_ffi_short", Tk::CShort},
     {"__srcc_ffi_size_t", Tk::CSizeT},
+    {"__srcc_ffi_wchar", Tk::CWCharT},
 };
 } // namespace
 } // namespace src
@@ -571,7 +572,10 @@ void src::Lexer::LexNumber() {
 
         /// Parse the literal.
         SmallString<64> buf;
-        while (pred(lastc)) { buf += lastc; NextChar(); }
+        while (pred(lastc)) {
+            buf += lastc;
+            NextChar();
+        }
 
         /// The next character must not be a start character.
         if (IsStart(lastc)) {
@@ -914,70 +918,73 @@ auto src::Spelling(Tk t) -> std::string_view {
         case Tk::StringLiteral: return "<string literal>";
         case Tk::Integer: return "<integer>";
         case Tk::IntegerType: return "<integer type>";
-        case Tk::Export: return "export";
-        case Tk::Pragma: return "pragma";
+
         case Tk::Alias: return "alias";
-        case Tk::Assert: return "assert";
-        case Tk::Asm: return "asm";
-        case Tk::If: return "if";
-        case Tk::Then: return "then";
-        case Tk::Elif: return "elif";
-        case Tk::Else: return "else";
-        case Tk::Match: return "match";
-        case Tk::While: return "while";
-        case Tk::Do: return "do";
-        case Tk::For: return "for";
-        case Tk::ForReverse: return "for~";
-        case Tk::In: return "in";
-        case Tk::With: return "with";
-        case Tk::Try: return "try";
-        case Tk::Return: return "return";
-        case Tk::Goto: return "goto";
-        case Tk::Defer: return "defer";
-        case Tk::Break: return "break";
-        case Tk::Continue: return "continue";
-        case Tk::Fallthrough: return "fallthrough";
-        case Tk::Unreachable: return "unreachable";
-        case Tk::Variant: return "variant";
-        case Tk::Static: return "static";
-        case Tk::Is: return "is";
+        case Tk::And: return "and";
         case Tk::As: return "as";
         case Tk::AsBang: return "as!";
-        case Tk::Not: return "not";
-        case Tk::And: return "and";
-        case Tk::Or: return "or";
-        case Tk::Land: return "land";
-        case Tk::Lor: return "lor";
-        case Tk::Xor: return "xor";
-        case Tk::True: return "true";
-        case Tk::False: return "false";
-        case Tk::Nil: return "nil";
-        case Tk::Proc: return "proc";
-        case Tk::Var: return "var";
-        case Tk::Val: return "val";
-        case Tk::Enum: return "enum";
-        case Tk::Dynamic: return "dynamic";
-        case Tk::Struct: return "struct";
-        case Tk::Init: return "init";
-        case Tk::Type: return "type";
-        case Tk::Typeof: return "typeof";
-        case Tk::NoReturn: return "noreturn";
+        case Tk::Asm: return "asm";
+        case Tk::Assert: return "assert";
         case Tk::Bool: return "bool";
-        case Tk::Void: return "void";
-        case Tk::Int: return "int";
+        case Tk::Break: return "break";
+        case Tk::Defer: return "defer";
+        case Tk::Delete: return "delete";
+        case Tk::Do: return "do";
+        case Tk::Dynamic: return "dynamic";
+        case Tk::Elif: return "elif";
+        case Tk::Else: return "else";
+        case Tk::Enum: return "enum";
+        case Tk::Export: return "export";
         case Tk::F32: return "f32";
         case Tk::F64: return "f64";
-        case Tk::CChar: return "__ffi_char";
-        case Tk::CChar8T: return "__ffi_char8";
-        case Tk::CChar16T: return "__ffi_char16";
-        case Tk::CChar32T: return "__ffi_char32";
-        case Tk::CWCharT: return "__ffi_wchar";
-        case Tk::CShort: return "__ffi_short";
-        case Tk::CInt: return "__ffi_int";
-        case Tk::CLong: return "__ffi_long";
-        case Tk::CLongLong: return "__ffi_longlong";
-        case Tk::CLongDouble: return "__ffi_longdouble";
-        case Tk::CSizeT: return "__ffi_size";
+        case Tk::Fallthrough: return "fallthrough";
+        case Tk::False: return "false";
+        case Tk::For: return "for";
+        case Tk::ForReverse: return "for~";
+        case Tk::Goto: return "goto";
+        case Tk::If: return "if";
+        case Tk::In: return "in";
+        case Tk::Init: return "init";
+        case Tk::Int: return "int";
+        case Tk::Is: return "is";
+        case Tk::Land: return "land";
+        case Tk::Lor: return "lor";
+        case Tk::Match: return "match";
+        case Tk::Nil: return "nil";
+        case Tk::NoReturn: return "noreturn";
+        case Tk::Not: return "not";
+        case Tk::Or: return "or";
+        case Tk::Pragma: return "pragma";
+        case Tk::Proc: return "proc";
+        case Tk::Return: return "return";
+        case Tk::Static: return "static";
+        case Tk::Struct: return "struct";
+        case Tk::Then: return "then";
+        case Tk::True: return "true";
+        case Tk::Try: return "try";
+        case Tk::Type: return "type";
+        case Tk::Typeof: return "typeof";
+        case Tk::Unreachable: return "unreachable";
+        case Tk::Val: return "val";
+        case Tk::Var: return "var";
+        case Tk::Variant: return "variant";
+        case Tk::Void: return "void";
+        case Tk::While: return "while";
+        case Tk::With: return "with";
+        case Tk::Xor: return "xor";
+        case Tk::CChar8T: return "__srcc_ffi_char8";
+        case Tk::CChar16T: return "__srcc_ffi_char16";
+        case Tk::CChar32T: return "__srcc_ffi_char32";
+        case Tk::CChar: return "__srcc_ffi_char";
+        case Tk::CInt: return "__srcc_ffi_int";
+        case Tk::CLong: return "__srcc_ffi_long";
+        case Tk::CLongDouble: return "__srcc_ffi_longdouble";
+        case Tk::CLongLong: return "__srcc_ffi_longlong";
+        case Tk::Continue: return "continue";
+        case Tk::CShort: return "__srcc_ffi_short";
+        case Tk::CSizeT: return "__srcc_ffi_size";
+        case Tk::CWCharT: return "__srcc_ffi_wchar";
+
         case Tk::Semicolon: return ";";
         case Tk::Colon: return ":";
         case Tk::ColonColon: return "::";
@@ -1049,59 +1056,62 @@ bool src::operator==(const Token& a, const Token& b) {
         /// All these are trivially equal.
         case Tk::Invalid:
         case Tk::Eof:
-        case Tk::Export:
-        case Tk::Pragma:
+
         case Tk::Alias:
-        case Tk::Assert:
-        case Tk::Asm:
-        case Tk::If:
-        case Tk::Then:
-        case Tk::Elif:
-        case Tk::Else:
-        case Tk::Match:
-        case Tk::While:
-        case Tk::Do:
-        case Tk::For:
-        case Tk::ForReverse:
-        case Tk::In:
-        case Tk::With:
-        case Tk::Try:
-        case Tk::Return:
-        case Tk::Goto:
-        case Tk::Defer:
-        case Tk::Break:
-        case Tk::Continue:
-        case Tk::Fallthrough:
-        case Tk::Unreachable:
-        case Tk::Variant:
-        case Tk::Static:
-        case Tk::Is:
+        case Tk::And:
         case Tk::As:
         case Tk::AsBang:
-        case Tk::Not:
-        case Tk::And:
-        case Tk::Or:
-        case Tk::Land:
-        case Tk::Lor:
-        case Tk::Xor:
-        case Tk::True:
-        case Tk::False:
-        case Tk::Nil:
-        case Tk::Proc:
-        case Tk::Var:
-        case Tk::Val:
-        case Tk::Enum:
-        case Tk::Dynamic:
-        case Tk::Struct:
-        case Tk::Init:
-        case Tk::Type:
-        case Tk::Typeof:
-        case Tk::NoReturn:
+        case Tk::Asm:
+        case Tk::Assert:
         case Tk::Bool:
-        case Tk::Void:
-        case Tk::Int:
+        case Tk::Break:
+        case Tk::Continue:
+        case Tk::Defer:
+        case Tk::Delete:
+        case Tk::Do:
+        case Tk::Dynamic:
+        case Tk::Elif:
+        case Tk::Else:
+        case Tk::Enum:
+        case Tk::Export:
         case Tk::F32:
         case Tk::F64:
+        case Tk::Fallthrough:
+        case Tk::False:
+        case Tk::For:
+        case Tk::ForReverse:
+        case Tk::Goto:
+        case Tk::If:
+        case Tk::In:
+        case Tk::Init:
+        case Tk::Int:
+        case Tk::Is:
+        case Tk::Land:
+        case Tk::Lor:
+        case Tk::Match:
+        case Tk::Nil:
+        case Tk::NoReturn:
+        case Tk::Not:
+        case Tk::Or:
+        case Tk::Pragma:
+        case Tk::Proc:
+        case Tk::Return:
+        case Tk::Static:
+        case Tk::Struct:
+        case Tk::Then:
+        case Tk::True:
+        case Tk::Try:
+        case Tk::Type:
+        case Tk::Typeof:
+        case Tk::Unreachable:
+        case Tk::Val:
+        case Tk::Var:
+        case Tk::Variant:
+        case Tk::Void:
+        case Tk::While:
+        case Tk::With:
+        case Tk::Xor:
+
         case Tk::CChar:
         case Tk::CChar8T:
         case Tk::CChar16T:
@@ -1113,6 +1123,7 @@ bool src::operator==(const Token& a, const Token& b) {
         case Tk::CLongLong:
         case Tk::CLongDouble:
         case Tk::CSizeT:
+
         case Tk::Semicolon:
         case Tk::Colon:
         case Tk::ColonColon:

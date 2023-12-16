@@ -6,6 +6,7 @@
 /// p lit .
 
 /// d t %[a-zA-Z0-9_]+
+/// p lit []
 
 proc exit (i32) extern nomangle -> noreturn;
 ///O * define void @__src_main()
@@ -15,7 +16,7 @@ proc exit (i32) extern nomangle -> noreturn;
 /// + (?<CHAIN1>$t) = local { i64 }
 /// * scope
 proc p1 -> int {
-    /// + (?<A>$t) = structgep $CHAIN1, 0 -> i64&
+    /// + (?<A>$t) = structgep $CHAIN1[0] -> i64&
     int a;
     int c;
 
@@ -24,80 +25,80 @@ proc p1 -> int {
     a = 4;
 
     /// * (?<CONST_2>$t) = arith.constant 4 : i64
-    /// + call @_SL2p1PE2p2PiE($CONST_2, $CHAIN1)
+    /// + call @_SJ2p1PE2p2PiE($CONST_2, $CHAIN1)
     p2(4);
 
-    /// * hlir.func private @_SL2p1PE2p2PiE
+    /// * hlir.func private @_SJ2p1PE2p2PiE
     /// + (?<CHAIN2>$t) = local { { i64 }&, i64 }
     /// + store into $CHAIN2
     /// * scope
     proc p2(int b) {
-        /// + (?<CHAIN1_1>$t) = extractlocal chain $CHAIN2, 0
-        /// + (?<A1>$t) = structgep $CHAIN1_1, 0 -> i64&
+        /// + (?<CHAIN1_1>$t) = extractlocal chain $CHAIN2[0]
+        /// + (?<A1>$t) = structgep $CHAIN1_1[0] -> i64&
         /// * (?<CONST_3>$t) = arith.constant 3 : i64
         /// + store into $A1, i64 $CONST_3
         a = 3;
 
-        /// + call @_SLL2p1PE2p2PiE2p3PE($CHAIN2)
+        /// + call @_SJJ2p1PE2p2PiE2p3PE($CHAIN2)
         p3();
 
-        /// * hlir.func private @_SLL2p1PE2p2PiE2p3PE
+        /// * hlir.func private @_SJJ2p1PE2p2PiE2p3PE
         /// + (?<CHAIN3>$t) = local { { { i64 }&, i64 }& }
         /// + store into $CHAIN3
         /// * scope
         proc p3() {
-            /// + (?<CHAIN2_1>$t) = extractlocal chain $CHAIN3, 0
-            /// + (?<B1>$t) = structgep $CHAIN2_1, 1 -> i64&
+            /// + (?<CHAIN2_1>$t) = extractlocal chain $CHAIN3[0]
+            /// + (?<B1>$t) = structgep $CHAIN2_1[1] -> i64&
             /// * (?<CONST_4>$t) = arith.constant 4 : i64
             /// + store into $B1, i64 $CONST_4
             b = 4;
 
-            /// + call @_SLLL2p1PE2p2PiE2p3PE2p4PE($CHAIN3)
+            /// + call @_SJJJ2p1PE2p2PiE2p3PE2p4PE($CHAIN3)
             p4();
 
             /// + (?<CONST_5>$t) = arith.constant 2 : i64
             /// + (?<CONST_6>$t) = arith.constant 3 : i64
-            /// + (?<CHAIN2_X>$t) = extractlocal chain $CHAIN3, 0
-            /// + call @_SLL2p1PE2p2PiE2p5PiiE($CONST_5, $CONST_6, $CHAIN2_X)
+            /// + (?<CHAIN2_X>$t) = extractlocal chain $CHAIN3[0]
+            /// + call @_SJJ2p1PE2p2PiE2p5PiiE($CONST_5, $CONST_6, $CHAIN2_X)
             p5(2, 3);
 
-            /// * hlir.func private @_SLLL2p1PE2p2PiE2p3PE2p4PE
+            /// * hlir.func private @_SJJJ2p1PE2p2PiE2p3PE2p4PE
             /// + (?<CHAIN4>$t) = local { { { { i64 }&, i64 }& }& }
             /// + store into $CHAIN4
             /// * scope
             proc p4 {
-                /// + (?<CHAIN3_1>$t) = extractlocal chain $CHAIN4, 0
-                /// + (?<CHAIN2_2>$t) = extractlocal chain $CHAIN3_1, 0
-                /// + (?<CHAIN1_2>$t) = extractlocal chain $CHAIN2_2, 0
-                /// + (?<A2>$t) = structgep $CHAIN1_2, 0 -> i64&
+                /// + (?<CHAIN3_1>$t) = extractlocal chain $CHAIN4[0]
+                /// + (?<CHAIN2_2>$t) = extractlocal chain $CHAIN3_1[0]
+                /// + (?<CHAIN1_2>$t) = extractlocal chain $CHAIN2_2[0]
+                /// + (?<A2>$t) = structgep $CHAIN1_2[0] -> i64&
                 /// + (?<CONST_7>$t) = arith.constant 8 : i64
                 /// + store into $A2, i64 $CONST_7
                 a = 8;
 
                 /// + (?<CONST_8>$t) = arith.constant 4 : i64
                 /// + (?<CONST_9>$t) = arith.constant 5 : i64
-                /// + (?<CHAIN3_2>$t) = extractlocal chain $CHAIN4, 0
-                /// + (?<CHAIN2_3>$t) = extractlocal chain $CHAIN3_2, 0
-                /// + call @_SLL2p1PE2p2PiE2p5PiiE($CONST_8, $CONST_9, $CHAIN2_3)
+                /// + (?<CHAIN3_2>$t) = extractlocal chain $CHAIN4[0]
+                /// + (?<CHAIN2_3>$t) = extractlocal chain $CHAIN3_2[0]
+                /// + call @_SJJ2p1PE2p2PiE2p5PiiE($CONST_8, $CONST_9, $CHAIN2_3)
                 p5(4, 5);
             }
         }
 
-        /// * hlir.func private @_SLL2p1PE2p2PiE2p5PiiE
+        /// * hlir.func private @_SJJ2p1PE2p2PiE2p5PiiE
         /// + (?<CHAIN5>$t) = local { { { i64 }&, i64 }& }
         /// + store into $CHAIN5
         /// * scope
         proc p5(int, int) {
 
-            /// + (?<CHAIN2_4>$t) = extractlocal chain $CHAIN5, 0
-            /// + (?<CHAIN1_3>$t) = extractlocal chain $CHAIN2_4, 0
-            /// + (?<A3>$t) = structgep $CHAIN1_3, 0 -> i64&
+            /// + (?<CHAIN2_4>$t) = extractlocal chain $CHAIN5[0]
+            /// + (?<CHAIN1_3>$t) = extractlocal chain $CHAIN2_4[0]
+            /// + (?<A3>$t) = structgep $CHAIN1_3[0] -> i64&
             /// + (?<CONST_10>$t) = arith.constant 42 : i64
             /// + store into $A3, i64 $CONST_10
             a = 42;
 
-            /// * (?<CHAIN2_5>$t) = extractlocal chain $CHAIN5, 0
-            /// + (?<B2>$t) = structgep $CHAIN2_5, 1 -> i64&
+            /// * (?<CHAIN2_5>$t) = extractlocal chain $CHAIN5[0]
+            /// + (?<B2>$t) = structgep $CHAIN2_5[1] -> i64&
             /// + (?<CONST_11>$t) = arith.constant 6 : i64
             /// + store into $B2, i64 $CONST_11
             b = 6;
@@ -116,7 +117,7 @@ proc p1 -> int {
 proc p6 {
     int a;
 
-    /// * hlir.func private @_SL2p6PE2p7PE
+    /// * hlir.func private @_SJ2p6PE2p7PE
     /// ! extractlocal
     /// ! structgep
     proc p7 {

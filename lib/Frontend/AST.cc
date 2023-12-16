@@ -289,12 +289,14 @@ src::StructType::StructType(
     std::string sname,
     SmallVector<Field> fields,
     SmallVector<ProcDecl*> inits,
+    ProcDecl* deleter,
     BlockExpr* scope,
     Mangling mangling,
     Location loc
 ) : NamedType(Kind::StructType, mod, std::move(sname), mangling, loc),
     all_fields(std::move(fields)),
     initialisers(std::move(inits)),
+    deleter(deleter),
     scope(scope) {
     if (not name.empty()) mod->named_structs.push_back(this);
 }
@@ -485,7 +487,7 @@ auto src::Type::size(Context* ctx) const -> Size {
     Unreachable();
 }
 
-auto src::Type::str(bool use_colour) const -> std::string {
+auto src::Type::str(bool use_colour, bool include_desugared) const -> std::string {
     using enum utils::Colour;
     utils::Colours C{use_colour};
     std::string out{C(Cyan)};
@@ -603,10 +605,20 @@ auto src::Type::str(bool use_colour) const -> std::string {
             return ptr->type.str(use_colour);
     }
 
-done:
+done: // clang-format off
+    auto d = desugared;
+    if (
+        include_desugared and
+        d.ptr != ptr and (
+            /// Do not print e.g. ‘bar aka struct bar’.
+            not isa<SugaredType>(ptr) or
+            not isa<StructType>(d.ptr) or
+            cast<SugaredType>(ptr)->name != cast<StructType>(d.ptr)->name
+        )
+    ) out += fmt::format(" {}aka {}", C(Reset), d.str(use_colour));
     out += C(Reset);
     return out;
-}
+} // clang-format on
 
 auto src::Type::_strip_arrays() -> ArrayInfo {
     Assert(ptr->sema.ok);
@@ -656,8 +668,10 @@ bool src::Type::_trivial() {
         case Expr::Kind::ArrayType:
             return cast<ArrayType>(ptr)->elem.trivial;
 
-        case Expr::Kind::StructType:
-            return cast<StructType>(ptr)->initialisers.empty();
+        case Expr::Kind::StructType: {
+            auto s = cast<StructType>(ptr);
+            return s->initialisers.empty() and not s->deleter;
+        }
 
         SOURCE_NON_TYPE_EXPRS:
             Unreachable("Not a type");
@@ -744,7 +758,9 @@ bool src::operator==(Type a, Type b) {
             if (not sa->name.empty() or not sb->name.empty()) return false;
 
             /// Two anonymous structs are equal iff they are layout-compatible
-            /// TODO: and neither has a user-defined constructor or destructor.
+            /// and neither has a user-defined constructor or destructor.
+            if (not sa->initialisers.empty() or not sb->initialisers.empty()) return false;
+            if (sa->deleter or sb->deleter) return false;
             return StructType::LayoutCompatible(sa, sb);
         }
 
@@ -1236,7 +1252,7 @@ struct ASTPrinter {
                 if (auto s = cast<StructType>(e); not s->name.empty()) {
                     PrintBasicHeader("StructDecl", e);
 
-                    out += fmt::format(" {}{}", C(Cyan),s->name);
+                    out += fmt::format(" {}{}", C(Cyan), s->name);
                     if (s->mangling != Mangling::None) {
                         out += fmt::format(
                             " {}[{}{}{}]",
@@ -1317,7 +1333,9 @@ struct ASTPrinter {
                         "{}{}{}Field {} {}{} {}at {}{}\n",
                         C(Red),
                         leading_text,
-                        &f == &s->all_fields.back() and s->initialisers.empty() ? "└─" : "├─",
+                        &f == &s->all_fields.back() and s->initialisers.empty() and not s->deleter
+                            ? "└─"
+                            : "├─",
                         f.type.str(use_colour),
                         C(Magenta),
                         f.name,
@@ -1327,8 +1345,10 @@ struct ASTPrinter {
                     );
                 }
 
-                auto inits = ArrayRef<Expr*>(reinterpret_cast<Expr* const*>(s->initialisers.data()), s->initialisers.size());
-                PrintChildren(inits, leading_text);
+                SmallVector<Expr*, 12> children{};
+                utils::append(children, s->initialisers);
+                if (s->deleter) children.push_back(s->deleter);
+                PrintChildren(children, leading_text);
             } break;
 
             case K::ProcDecl: {

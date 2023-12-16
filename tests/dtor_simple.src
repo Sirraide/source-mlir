@@ -1,45 +1,65 @@
 /// R %srcc %s --hlir
 
 /// d t %[a-zA-Z0-9_]+
+/// p lit []
 
+import <stdio.h>.*;
 
-int^^ x;
+struct foo {
+    __srcc_ffi_int x;
 
-/// b
-/// * hlir.func external @__src_main {
-/// + scope
-/// + (?<var>$t) = local i64&&, align 8
-/// + construct $var init @_SKUUi
-/// + (?<tok>$t) = destroy $var dtor @_SXUUi
-/// + yield i64&&& $var unwind $tok
+    init (__srcc_ffi_int v) {
+        .x = v;
+    }
 
-/// b
-/// *  hlir.func linkonce_odr @_SKUUi(i64&&&) {
-/// +    (?<var>$t) = new i64&
-/// +    store into %arg0, i64&& $t, align 8
-/// +    construct $t init @_SKUi
-/// +    return
-/// +  }
+    delete {
+        printf("Deleting foo(%d)\n".data, .x);
+    }
+};
 
 /// b
-/// *  hlir.func linkonce_odr @_SKUi(i64&&) {
-/// +    (?<var>$t) = new i64
-/// +    store into %arg0, i64& $t, align 8
-/// +    construct $t zeroinit
-/// +    return
-/// +  }
+/// * (?<v1>$t) = local @foo
+/// + (?<c42_i32>$t) = arith.constant 42
+/// + construct $v1 init @_SXS3fooPI32_E(i32 $c42_i32)
+foo x = 42;
 
-/// b
-/// *  hlir.func linkonce_odr @_SXUUi(i64&&&) {
-/// +    (?<var>$t) = load i64&& from %arg0
-/// +    $t = destroy $var dtor @_SXUi
-/// +    delete $var
-/// +    return
-/// +  }
+/// + (?<v2>$t) = local @foo
+/// + (?<v3>$t) = structgep $v1[0] -> i32&
+/// + (?<v4>$t) = load i32 from $v3
+/// + construct $v2 init @_SXS3fooPI32_E(i32 $v4)
+foo y = x.x;
 
+/// + (?<v5>$t) = destroy $v2 dtor @_SYS3fooPE
+/// + (?<v6>$t) = destroy $v1 dtor @_SYS3fooPE
+/// + yield @foo& $v2 unwind $v5, $v6
+
+/// Constructor of foo
 /// b
-/// *  hlir.func linkonce_odr @_SXUi(i64&&) {
-/// +    (?<var>$t) = load i64& from %arg0
-/// +    delete $var
-/// +    return
-/// +  }
+/// * hlir.func private @_SXS3fooPI32_E(@foo&, i32) smf {
+/// + (?<v0>$t) = local i32, align 4
+/// + store into $v0, i32 %arg1, align 4
+/// + (?<v1>$t) = scope i32& {
+/// +   (?<v2>$t) = structgep %arg0[0] -> i32&
+/// +   (?<v3>$t) = load i32 from $v0
+/// +   store into $v2, i32 $v3, align 4
+/// +   yield i32& $v2
+/// + }
+/// + return
+/// + }
+
+/// Destructor of foo
+/// b
+/// * hlir.func private @_SYS3fooPE(@foo&) smf {
+/// + (?<v0>$t) = scope i32 {
+/// +   (?<v1>$t) = global_ref @".str.data.0" : i8[18]&
+/// +   (?<v2>$t) = array_decay $v1 to i8&
+/// +   (?<vidx17>$t) = index.constant 17
+/// +   (?<v3>$t) = literal i8[] $v2, $vidx17
+/// +   (?<v4>$t) = slice_data i8[] $v3
+/// +   (?<v5>$t) = structgep %arg0[0] -> i32&
+/// +   (?<v6>$t) = load i32 from $v5
+/// +   (?<v7>$t) = call @printf($v4, $v6) -> i32
+/// +   yield i32 $v7
+/// + }
+/// + return
+/// + }

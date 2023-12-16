@@ -8,6 +8,35 @@
 ///
 /// - All strings are written as u64 names + u8[] data.
 /// - isz and usz are written as u64.
+///
+/// Prefixes/abbreviations that are already in use.
+///
+/// Some of these make sense (e.g. 'C' for ‘closure’), others were just
+/// chosen arbitrarily because the corresponding letter was already taken
+/// (e.g. ‘X’ for constructors).
+///
+/// - A
+/// - C
+/// - E
+/// - I
+/// - J
+/// - L
+/// - M
+/// - O
+/// - P
+/// - Q
+/// - R
+/// - S
+/// - U
+/// - X
+/// - Y
+///
+/// - b
+/// - i
+/// - n
+/// - q
+/// - r
+/// - v
 
 namespace src {
 /// ===========================================================================
@@ -121,11 +150,16 @@ auto ObjectDecl::_mangled_name() -> StringRef {
         /// the '_S' prefix from the parent function’s name.
         auto ty = cast<ProcType>(proc->type);
         if (proc->parent != proc->module->top_level_func)
-            s += fmt::format("L{}", proc->parent->mangled_name.drop_front(2));
+            s += fmt::format("J{}", proc->parent->mangled_name.drop_front(2));
 
-        /// Constructors receive an extra 'C' at the beginning of the name followed
-        /// by the parent struct name and have no name themselves.
-        if (ty->is_init) s += fmt::format("C{}", Type{ty->init_of}.mangled_name);
+        /// Special members receive an extra sigil followed by the parent
+        /// struct name and have no name themselves.
+        if (ty->is_smp) {
+            if (ty->smp_kind == SpecialMemberKind::Constructor)
+                s += fmt::format("X{}", Type{ty->smp_parent}.mangled_name);
+            else if (ty->smp_kind == SpecialMemberKind::Destructor)
+                s += fmt::format("Y{}", Type{ty->smp_parent}.mangled_name);
+        }
 
         /// All other functions just include the name.
         else s += fmt::format("{}{}", name.size(), name);
@@ -725,6 +759,7 @@ struct Deserialiser {
                     &*mod,
                     std::move(name),
                     std::move(fields),
+                    {},
                     {},
                     new (&*mod) BlockExpr(&*mod, mod->global_scope),
                     mangling,

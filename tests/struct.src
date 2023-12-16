@@ -2,8 +2,8 @@
 
 /// p nolit .
 /// d any .*?
-/// p lit .
 /// d t %[0-9a-zA-Z_]+
+/// p lit .[]
 
 pragma nomangle;
 
@@ -36,9 +36,9 @@ foo s, s;
 /// + store into $B
 /// + (?<ret>$t) = scope i8 {
 /// + (?<Aref>$t) = load $any from $A
-/// + (?<AAref>$t) = structgep $Aref, 0
+/// + (?<AAref>$t) = structgep $Aref[0]
 /// + (?<AA>$t) = load i8 from $AAref
-/// + (?<BCref>$t) = structgep $B, 3
+/// + (?<BCref>$t) = structgep $B[3]
 /// + (?<BC>$t) = load i8 from $BCref
 /// + (?<Sum>$t) = arith.addi $AA, $BC
 /// + yield i8 $Sum

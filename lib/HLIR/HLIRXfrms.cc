@@ -432,14 +432,16 @@ struct DestroyOpLowering : public ConversionPattern {
     ) const -> LogicalResult override {
         /// This is always just a function call.
         auto d = cast<hlir::DestroyOp>(op);
-        rewriter.replaceOpWithNewOp<CallOp>(
-            op,
+        rewriter.setInsertionPoint(op);
+        rewriter.create<CallOp>(
+            op->getLoc(),
             mlir::TypeRange{},
             d.getDtor(),
             false,
             LLVM::CConv::C,
             d.getObject()
         );
+        rewriter.eraseOp(op);
         return success();
     }
 };

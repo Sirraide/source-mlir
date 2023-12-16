@@ -319,7 +319,7 @@ public:
     auto size(Context* mod) const -> Size;
 
     /// Get a string representation of this type.
-    auto str(bool use_colour) const -> std::string;
+    auto str(bool use_colour, bool include_desugared = false) const -> std::string;
 
     /// Strip all arrays from this type (including sugar) and determine
     /// the overall size of the (multidimensional) array.
@@ -331,9 +331,9 @@ public:
     /// Strip all references and pointers from this type.
     readonly_decl(Type, strip_refs_and_pointers);
 
-    /// Check whether this type is trivial, has no constructors at all; that
-    /// is, it is either a builtin type or a type for which default construction
-    /// is zero-initialisation.
+    /// Check whether this type is trivial, has no constructors or destructors
+    /// at all; that is, it is either a builtin type or a type for which default
+    /// construction is zero-initialisation, and there is no destructor.
     readonly_decl(bool, trivial);
 
     /// Check if this type logically yields a value, i.e. is not
@@ -1722,6 +1722,9 @@ public:
     /// Initialisers of this struct.
     SmallVector<ProcDecl*> initialisers;
 
+    /// Deleter of this struct.
+    ProcDecl* deleter{};
+
     /// Scope associated with this struct.
     BlockExpr* scope;
 
@@ -1737,10 +1740,19 @@ public:
         std::string name,
         SmallVector<Field> fields,
         SmallVector<ProcDecl*> initialisers,
+        ProcDecl* deleter,
         BlockExpr* scope,
         Mangling mangling,
         Location loc
     );
+
+    /// Creates an anonymous struct. Intended for the backend only.
+    StructType(
+        Module* mod,
+        SmallVector<Field> fields,
+        Mangling mangling = Mangling::Source,
+        Location loc = {}
+    ) : StructType(mod, "", std::move(fields), {}, nullptr, nullptr, mangling, loc) {}
 
     /// Get the non-padding fields of this struct.
     auto fields() {
@@ -1893,6 +1905,11 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::SugaredType; }
 };
 
+enum struct SpecialMemberKind {
+    Constructor,
+    Destructor,
+};
+
 class ProcType : public TypeBase {
 public:
     /// The parameter types.
@@ -1904,11 +1921,14 @@ public:
     /// The procedure whose chain pointer this takes.
     ProcDecl* static_chain_parent{};
 
-    /// Get the type this is an initialiser of, if any.
-    StructType* init_of{};
+    /// Get the type this is an initialiser/deleter of, if any.
+    StructType* smp_parent{};
 
-    /// Whether this is an initialiser.
-    readonly_const(bool, is_init, return init_of != nullptr);
+    /// Get what kind of smf this is.
+    SpecialMemberKind smp_kind{};
+
+    /// Whether this is an initialiser/deleter of a struct.
+    readonly_const(bool, is_smp, return smp_parent != nullptr);
 
     /// Whether this type is variadic.
     bool variadic{};

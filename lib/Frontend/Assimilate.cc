@@ -60,7 +60,7 @@ class Assimilator {
                 Assimilate(p->ret_type);
                 for (auto& t : p->param_types) Assimilate(t);
                 Assimilate(p->static_chain_parent);
-                Assimilate(p->init_of);
+                Assimilate(p->smp_parent);
             } break;
 
             case Expr::Kind::OpaqueType: {
@@ -72,6 +72,7 @@ class Assimilator {
                 auto st = cast<StructType>(e);
                 for (auto& f : st->all_fields) Assimilate(f.type);
                 for (auto& init : st->initialisers) Assimilate(init);
+                Assimilate(st->deleter);
                 Assimilate(st->scope);
                 DoAssimilate(st->module);
             } break;

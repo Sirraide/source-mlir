@@ -701,7 +701,8 @@ void src::Parser::ParseFile() {
         }
 
         /// Regular module name.
-        else if (At(Tk::Identifier)) name = tok.text;
+        else if (At(Tk::Identifier))
+            name = tok.text;
 
         /// Nonsense.
         else {
@@ -957,7 +958,7 @@ void src::Parser::ParsePragma() {
 auto src::Parser::ParseProc() -> Result<ProcDecl*> {
     /// Procedure signatures are rather complicated, so
     /// we’ll parse them separately.
-    auto init = At(Tk::Init);
+    auto smf = At(Tk::Init, Tk::Delete);
     auto sig = ParseSignature();
 
     /// Create the procedure early so we can set it as
@@ -994,7 +995,7 @@ auto src::Parser::ParseProc() -> Result<ProcDecl*> {
 
     /// If this is not an initialiser declaration and the return type is not
     /// inferred and not provided, then default to 'void' rather than 'unknown'.
-    if (not init and not infer_return_type and sig.type->ret_type == Type::Unknown)
+    if (not smf and not infer_return_type and sig.type->ret_type == Type::Unknown)
         sig.type->ret_type = Type::Void;
 
     /// Add it to the current scope if it is named.
@@ -1013,11 +1014,14 @@ auto src::Parser::ParseSignature() -> Signature {
     Signature sig;
     sig.loc = curr_loc;
     const auto init = At(Tk::Init);
-    Assert(Consume(Tk::Proc, Tk::Init));
+    const auto del = At(Tk::Delete);
+    Assert(Consume(Tk::Proc, Tk::Init, Tk::Delete));
 
     /// Parse name, if there is one.
     if (init) {
         sig.name = "init";
+    } else if (del) {
+        sig.name = "delete";
     } else if (At(Tk::Identifier)) {
         sig.name = tok.text;
         Next();
@@ -1054,8 +1058,9 @@ auto src::Parser::ParseSignature() -> Signature {
     )); // clang-format on
 
     /// Finally, parse the return type.
-    Type ret_type = init ? Type::Void : Type::Unknown;
-    if (not init and Consume(Tk::RArrow)) {
+    Type ret_type = init or del ? Type::Void : Type::Unknown;
+    if (Consume(Tk::RArrow)) {
+        if (init or del) Error("{} may not specify a return type", init ? "Initialiser" : "Deleter");
         auto res = ParseType();
         if (not IsError(res)) ret_type = *res;
     }
@@ -1091,19 +1096,25 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
     ScopeRAII sc{this};
     SmallVector<StructType::Field> fields;
     SmallVector<ProcDecl*> initialisers;
+    ProcDecl* deleter{};
     sc.scope->set_struct_scope();
     while (not At(Tk::RBrace, Tk::Eof)) {
-        /// Initialiser.
-        if (At(Tk::Init)) {
-            auto init = ParseProc();
-            if (IsError(init)) {
+        /// Initialiser / Deleter.
+        if (At(Tk::Init, Tk::Delete)) {
+            auto init = At(Tk::Init);
+            auto smf = ParseProc();
+            if (IsError(smf)) {
                 Synchronise(Tk::Semicolon, Tk::RBrace);
                 continue;
             }
 
             /// Add it to the struct type.
-            init->parent = mod->top_level_func;
-            initialisers.push_back(*init);
+            smf->parent = mod->top_level_func;
+            if (init) initialisers.push_back(*smf);
+            else {
+                if (deleter) Error(smf->location, "Type already has a deleter");
+                deleter = *smf;
+            }
             continue;
         }
 
@@ -1130,6 +1141,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
         std::move(name),
         std::move(fields),
         std::move(initialisers),
+        deleter,
         sc.scope,
         Mangling::Source,
         {start, curr_loc}

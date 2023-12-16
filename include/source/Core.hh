@@ -157,6 +157,9 @@ public:
     IntType* ffi_long_long;
     IntType* ffi_size_t;
 
+    /// So we don’t interleave diagnostics.
+    mutable std::mutex diags_mutex;
+
     /// Create a context for the host target.
     explicit Context();
 

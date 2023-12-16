@@ -182,7 +182,8 @@ struct ImportContext {
                 std::string{decl->getName()},
                 {},
                 {},
-                new (out) BlockExpr(out, out->global_scope),
+                {},
+                nullptr,
                 Mangling::None,
                 {}
             );

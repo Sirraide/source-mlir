@@ -26,7 +26,7 @@ proc b (proc c -> int) = c();
 /// + store into $x, i64 $twenty
 /// + (?<cl1>$t) = makeclosure { @_S1aPE, null }
 /// + (?<b1ret>$t) = call @_S1bPCPEE($cl1)
-/// + (?<cl2>$t) = makeclosure { @_SL6callerPE1cPE, $vars }
+/// + (?<cl2>$t) = makeclosure { @_SJ6callerPE1cPE, $vars }
 /// + (?<b2ret>$t) = call @_S1bPCPEE($cl2)
 /// + (?<ret>$t) = arith.addi $b1ret, $b2ret
 /// + return i64 $ret

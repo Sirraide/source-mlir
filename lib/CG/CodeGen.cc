@@ -425,6 +425,7 @@ auto src::CodeGen::CreateInt(mlir::Location loc, const APInt& value, Type type) 
 }
 
 auto src::CodeGen::Destroy(mlir::Location loc, mlir::Value addr, Type type) -> mlir::Value {
+    type = type.desugared;
     auto d = Destructor(type);
     if (not d.has_value()) return {};
     return Create<hlir::DestroyOp>(
@@ -435,7 +436,11 @@ auto src::CodeGen::Destroy(mlir::Location loc, mlir::Value addr, Type type) -> m
 }
 
 auto src::CodeGen::Destructor(Type type) -> std::optional<StringRef> {
-    if (not isa<ScopedPointerType>(type)) return std::nullopt;
+    if (not isa<ScopedPointerType, StructType>(type)) return std::nullopt;
+
+    /// Some structs may have a destructor.
+    if (auto s = dyn_cast<StructType>(type))
+        return s->deleter ? std::optional { s->deleter->mangled_name } : std::nullopt;
 
     /// Auto-generate destructors for scoped pointers.
     if (auto sc = dyn_cast<ScopedPointerType>(type)) {
@@ -446,7 +451,7 @@ auto src::CodeGen::Destructor(Type type) -> std::optional<StringRef> {
         ///
         /// A destructor always takes a reference to the type being destroyed.
         auto fty = mlir::FunctionType::get(mctx, hlir::ReferenceType::get(Ty(sc)), {});
-        auto name = fmt::format("_SX{}", Type(sc).mangled_name);
+        auto name = fmt::format("_SY{}", Type(sc).mangled_name);
         auto proc = CreateProcedure(fty, name, Linkage::LinkOnceODR, true, [&](hlir::FuncOp f) {
             /// Load the pointer.
             auto ptr = Create<hlir::LoadOp>(builder.getUnknownLoc(), f.getImplicitThis());
@@ -556,7 +561,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     }
 
     /// Create a struct type and finalise it.
-    auto s = new (mod) StructType(mod, "", std::move(fields), {}, nullptr, Mangling::Source, {});
+    auto s = new (mod) StructType(mod, std::move(fields));
 
     /// The alignment and size are just set to what LLVM’s algorithm told us
     /// they should be. In particular, we need *not* ensure that the size is
@@ -687,10 +692,10 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
             SmallVector<mlir::Type> params;
 
             /// Sanity check.
-            Assert(not ty->is_init or not ty->static_chain_parent, "Initialisers can’t be nested procedures");
+            Assert(not ty->is_smp or not ty->static_chain_parent, "Initialisers can’t be nested procedures");
 
             /// Add implicit this parameter, if any.
-            if (ty->is_init) params.push_back(hlir::ReferenceType::get(Ty(ty->init_of)));
+            if (ty->is_smp) params.push_back(hlir::ReferenceType::get(Ty(ty->smp_parent)));
 
             /// Add regular parameters.
             for (auto p : ty->param_types) params.push_back(Ty(p));
@@ -1942,7 +1947,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         ConvertLinkage(proc->linkage),
         mlir::LLVM::CConv::C,
         ty.cast<mlir::FunctionType>(),
-        ptype->is_init,
+        ptype->is_smp,
         ptype->variadic
     );
 

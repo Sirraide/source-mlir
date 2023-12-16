@@ -325,8 +325,8 @@ bool src::Sema::EnsureCondition(Expr*& e) {
     return Error(
         e->location,
         "Type '{}' of condition must be convertible to '{}'",
-        e->type.str(mod->context->use_colours),
-        Type::Bool.str(mod->context->use_colours)
+        e->type.str(mod->context->use_colours, true),
+        Type::Bool.str(mod->context->use_colours, true)
     );
 }
 
@@ -488,9 +488,9 @@ void src::Sema::ReportOverloadResolutionFailure(
     Error(where, "Overload resolution failed");
 
     /// Print all argument types.
-    fmt::print(stderr, "\n  {}{}Arguments:\n", C(Bold), C(White));
+    fmt::print(stderr, "  {}{}Arguments:\n", C(Bold), C(White));
     for (auto [i, e] : llvm::enumerate(args))
-        fmt::print(stderr, "    {}{}{}. {}\n", C(Bold), C(White), i + 1, e->type.str(mod->context->use_colours));
+        fmt::print(stderr, "    {}{}{}. {}\n", C(Bold), C(White), i + 1, e->type.str(mod->context->use_colours, true));
 
     /// Print overloads and why each one was invalid.
     fmt::print(stderr, "\n  {}{}Overloads:\n", C(Bold), C(White));
@@ -502,7 +502,7 @@ void src::Sema::ReportOverloadResolutionFailure(
             C(Bold),
             C(White),
             i + 1,
-            o.proc->type.str(mod->context->use_colours),
+            o.proc->type.str(mod->context->use_colours, true),
             C(White),
             C(Reset)
         );
@@ -997,7 +997,7 @@ auto src::Sema::Construct(
     auto FormatArgTypes = [&](auto args) {
         utils::Colours C{true};
         return fmt::join(
-            vws::transform(args, [&](auto* e) { return e->type.str(mod->context->use_colours); }),
+            vws::transform(args, [&](auto* e) { return e->type.str(mod->context->use_colours, true); }),
             fmt::format("{}, ", C(utils::Colour::Red))
         );
     };
@@ -1436,16 +1436,37 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Analyse initialiser types first in case they call each other since
             /// we will have to perform overload resolution in that case.
             for (auto& i : s->initialisers) {
-                cast<ProcType>(i->type)->init_of = s;
+                auto ty = cast<ProcType>(i->type);
+                ty->smp_parent = s;
+                ty->smp_kind = SpecialMemberKind::Constructor;
                 if (not AnalyseProcedureType(i)) e->sema.set_errored();
             }
 
             /// At this point, the type is complete.
             if (not e->sema.errored) e->sema.set_done();
 
+            /// Member functions are isolated from everything above.
+            tempset with_stack = decltype(with_stack){};
+
+            /// Analyse deleter, if there is one.
+            if (s->deleter) {
+                auto ty = cast<ProcType>(s->deleter->type);
+                ty->smp_parent = s;
+                ty->smp_kind = SpecialMemberKind::Destructor;
+
+                /// Analyse the destructor first since initialisers may call it.
+                with_stack.push_back(new (mod) ImplicitThisExpr(s->deleter, s, {}));
+                Expr* p = s->deleter;
+                if (Analyse(p)) {
+                    Assert(p == s->deleter, "Analysis must not reassign procedure");
+                    Assert(s->deleter->ret_type == Type::Void, "Deleter must return void");
+                }
+            }
+
             /// Analyse initialisers.
             for (auto& i : s->initialisers) {
-                tempset with_stack = decltype(with_stack){new (mod) ImplicitThisExpr(i, s, {})};
+                with_stack.clear();
+                with_stack.push_back(new (mod) ImplicitThisExpr(i, s, {}));
                 Expr* p = i;
                 if (Analyse(p)) {
                     Assert(p == i, "Analysis must not reassign procedure");
@@ -1930,7 +1951,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         mod->context,
                         m->location,
                         "Type '{}' has no '{}' member",
-                        unwrapped.str(mod->context->use_colours),
+                        unwrapped.str(mod->context->use_colours, true),
                         m->member
                     );
                 }
@@ -1954,7 +1975,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         mod->context,
                         m->location,
                         "Type '{}' has no '{}' member",
-                        unwrapped.str(mod->context->use_colours),
+                        unwrapped.str(mod->context->use_colours, true),
                         m->member
                     );
                 }
@@ -1967,7 +1988,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         mod->context,
                         m->location,
                         "Type '{}' has no '{}' member",
-                        unwrapped.str(mod->context->use_colours),
+                        unwrapped.str(mod->context->use_colours, true),
                         m->member
                     );
 
@@ -1982,7 +2003,7 @@ bool src::Sema::Analyse(Expr*& e) {
                     mod->context,
                     m->location,
                     "Cannot perform member access on type '{}'",
-                    m->object->type.str(mod->context->use_colours)
+                    m->object->type.str(mod->context->use_colours, true)
                 );
             };
 
@@ -2620,8 +2641,8 @@ bool src::Sema::Analyse(Expr*& e) {
                                 mod->context,
                                 b->location,
                                 "In reference binding to '{}' from '{}'",
-                                ltype_saved.str(mod->context->use_colours),
-                                rtype_saved.str(mod->context->use_colours)
+                                ltype_saved.str(mod->context->use_colours, true),
+                                rtype_saved.str(mod->context->use_colours, true)
                             );
                         }
 

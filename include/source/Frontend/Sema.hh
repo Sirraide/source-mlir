@@ -301,9 +301,9 @@ private:
     auto MakeFormattable(T&& t) -> make_formattable_t<T> {
         using Type = std::remove_cvref_t<T>;
         if constexpr (std::is_pointer_v<Type> and std::derived_from<std::remove_pointer_t<Type>, Expr>) {
-            return std::forward<T>(t)->type.str(mod->context->use_colours);
+            return std::forward<T>(t)->type.str(mod->context->use_colours, true);
         } else if constexpr (std::is_same_v<std::remove_cvref_t<Type>, src::Type>) {
-            return std::forward<T>(t).str(mod->context->use_colours);
+            return std::forward<T>(t).str(mod->context->use_colours, true);
         } else {
             return std::forward<T>(t);
         }
