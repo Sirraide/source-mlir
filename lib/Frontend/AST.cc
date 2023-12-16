@@ -299,16 +299,15 @@ src::StructType::StructType(
     if (not name.empty()) mod->named_structs.push_back(this);
 }
 
-/// FIXME: Use llvm::Align for this.
-auto src::Type::align([[maybe_unused]] Module* ctx) const -> Align {
+auto src::Type::align(Context* ctx) const -> Align {
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
             switch (cast<BuiltinType>(ptr)->builtin_kind) {
                 case BuiltinTypeKind::Bool:
-                    return Align(ctx->clang.getTarget().getBoolAlign() / 8);
+                    return Align(1);
 
                 case BuiltinTypeKind::Int:
-                    return Align(ctx->clang.getTarget().getPointerAlign(clang::LangAS::Default) / 8);
+                    return ctx->align_of_int;
 
                 /// Alignment can’t be 0.
                 case BuiltinTypeKind::ArrayLiteral:
@@ -330,7 +329,7 @@ auto src::Type::align([[maybe_unused]] Module* ctx) const -> Align {
 
         case Expr::Kind::ReferenceType:
         case Expr::Kind::ScopedPointerType:
-            return Align(ctx->clang.getTarget().getPointerAlign(clang::LangAS::Default) / 8);
+            return ctx->align_of_pointer;
 
         case Expr::Kind::SliceType:
         case Expr::Kind::ClosureType:
@@ -422,13 +421,13 @@ auto src::Type::_ref_depth() -> isz {
     return depth;
 }
 
-auto src::Type::size(Module* ctx) const -> Size {
+auto src::Type::size(Context* ctx) const -> Size {
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
             switch (cast<BuiltinType>(ptr)->builtin_kind) {
                 case BuiltinTypeKind::Unknown: return {};
                 case BuiltinTypeKind::Void: return {};
-                case BuiltinTypeKind::Int: return Size::Bits(ctx->clang.getTarget().getMaxPointerWidth());
+                case BuiltinTypeKind::Int: return ctx->size_of_int;
                 case BuiltinTypeKind::Bool: return Size::Bits(1);
                 case BuiltinTypeKind::NoReturn: return {};
                 case BuiltinTypeKind::OverloadSet: return {};
@@ -445,7 +444,7 @@ auto src::Type::size(Module* ctx) const -> Size {
 
         case Expr::Kind::ReferenceType:
         case Expr::Kind::ScopedPointerType:
-            return Size::Bits(ctx->clang.getTarget().getPointerWidth(clang::LangAS::Default));
+            return ctx->size_of_pointer;
 
         case Expr::Kind::SliceType:
         case Expr::Kind::ClosureType: {

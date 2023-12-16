@@ -132,12 +132,22 @@ class Context {
 
     /// Some built-in types are stored here.
     std::array<std::unique_ptr<IntType>, 6> type_storage;
+
+    Align int_align;
+    Align pointer_align;
+    Size int_size;
+    Size pointer_size;
 public:
     /// Whether to use colours in diagnostics.
     readonly_const(bool, use_colours, return should_use_colours.load(std::memory_order_relaxed));
 
     /// Paths to search for modules.
     readonly_const(std::span<const fs::path>, import_paths, return module_import_paths);
+
+    readonly_const(Align, align_of_int, return int_align);
+    readonly_const(Align, align_of_pointer, return pointer_align);
+    readonly_const(Size, size_of_int, return int_size);
+    readonly_const(Size, size_of_pointer, return pointer_size);
 
     /// FFI types.
     IntType* ffi_char;
@@ -200,6 +210,8 @@ public:
     }
 
     /// Create a clang compiler instance.
+    ///
+    /// This may be called concurrently from multiple threads.
     void init_clang(clang::CompilerInstance& ci);
 
     /// Set the error flag.
@@ -356,8 +368,6 @@ class Module {
 
 public:
     Context* const context;
-
-    clang::CompilerInstance clang;
 
     /// Modules imported by this module.
     SmallVector<ImportedModuleRef> imports;

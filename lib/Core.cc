@@ -34,8 +34,7 @@ src::Context::Context() {
     auto CreateFFIIntType = [&](clang::CanQualType cxx_type) -> IntType* {
         auto integer = new IntType(Size::Bits(ast.getTypeSize(cxx_type)), {});
         integer->sema.set_done();
-        /// TODO(AST-REFACTOR): reenable this.
-        /*auto source_align = Type(integer).align(this);
+        auto source_align = Type(integer).align(this);
         auto cxx_align = ast.getTypeAlign(cxx_type) / 8;
         Assert(
             source_align == cxx_align,
@@ -43,9 +42,15 @@ src::Context::Context() {
             Type(integer).str(true),
             source_align.value(),
             cxx_align
-        );*/
+        );
         return integer;
     };
+
+    pointer_align = Align(clang.getTarget().getPointerAlign(clang::LangAS::Default) / 8);
+    int_align = pointer_align;
+
+    pointer_size = Size::Bits(clang.getTarget().getPointerWidth(clang::LangAS::Default));
+    int_size = Size::Bits(clang.getTarget().getMaxPointerWidth());
 
     ffi_char = CreateFFIIntType(ast.CharTy);
     ffi_short = CreateFFIIntType(ast.ShortTy);
@@ -77,7 +82,7 @@ void src::Context::init_clang(clang::CompilerInstance& clang) {
     clang.createSourceManager(*clang.createFileManager());
     clang.createPreprocessor(clang::TU_Prefix);
     clang.createASTContext();
-    clang.getDiagnostics().setShowColors(true);
+    clang.getDiagnostics().setShowColors(use_colours);
 }
 
 void src::Context::Initialise() {
@@ -297,8 +302,6 @@ src::Module::Module(Context* ctx, std::string name, bool is_cxx_header, Location
       name(std::move(name)),
       module_decl_location(module_decl_location),
       is_cxx_header(is_cxx_header) {
-    ctx->init_clang(clang);
-
     top_level_func = new (this) ProcDecl{
         this,
         nullptr,

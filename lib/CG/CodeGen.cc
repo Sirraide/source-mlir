@@ -40,7 +40,7 @@ struct CodeGen {
           mctx(mctx),
           builder(mctx),
           no_verify(no_verify) {
-        Int = GetIntType(Type::Int.size(mod));
+        Int = GetIntType(Type::Int.size(ctx));
         Bool = GetIntType(Size::Bits(1));
     }
 
@@ -175,7 +175,7 @@ auto src::CodeGen::AllocateLocalVar(LocalDecl* decl) -> mlir::Value {
     return Create<hlir::LocalOp>(
         Loc(decl->location),
         Ty(decl->type),
-        decl->type.align(mod).value(),
+        decl->type.align(ctx).value(),
         decl->deleted_or_moved
     );
 }
@@ -500,8 +500,8 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     for (auto v : proc->captured_locals) {
         captured.push_back({
             v,
-            u64(v->type.size(mod).bytes()),
-            v->type.align(mod),
+            u64(v->type.size(ctx).bytes()),
+            v->type.align(ctx),
             llvm::OptimizedStructLayoutField::FlexibleOffset,
         });
     }
@@ -546,7 +546,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
             );
         }
 
-        total_size = Size::Bytes(var.Offset) + v->type.size(mod);
+        total_size = Size::Bytes(var.Offset) + v->type.size(ctx);
         fields.emplace_back(
             "",
             v->type,
@@ -1101,8 +1101,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
                     /// Integer-to-integer casts.
                     else if (c->operand->type.is_int(true) and c->type.is_int(true)) {
-                        auto from_size = c->operand->type.size(mod);
-                        auto to_size = c->type.size(mod);
+                        auto from_size = c->operand->type.size(ctx);
+                        auto to_size = c->type.size(ctx);
 
                         /// Truncation.
                         if (from_size > to_size) {
@@ -1296,8 +1296,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
             ///     int col
             /// )
             auto lc = a->location.seek_line_column(ctx);
-            auto line = Create<mlir::arith::ConstantIntOp>(loc, lc.line, Type::Int.size(mod).bits());
-            auto col = Create<mlir::arith::ConstantIntOp>(loc, lc.col, Type::Int.size(mod).bits());
+            auto line = Create<mlir::arith::ConstantIntOp>(loc, lc.line, Type::Int.size(ctx).bits());
+            auto col = Create<mlir::arith::ConstantIntOp>(loc, lc.col, Type::Int.size(ctx).bits());
             Generate(a->cond_str);
             Generate(a->file_str);
 
@@ -1427,7 +1427,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             if (not e->mlir) e->mlir = AllocateLocalVar(e);
 
             /// Handle construction.
-            Construct(Loc(e->location), e->mlir, e->type.align(mod), e->ctor);
+            Construct(Loc(e->location), e->mlir, e->type.align(ctx), e->ctor);
         } break;
 
         /// If expressions.
@@ -1790,7 +1790,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                         Loc(b->location),
                         b->lhs->mlir,
                         b->rhs->mlir,
-                        b->type.align(mod).value()
+                        b->type.align(ctx).value()
                     );
 
                     /// Yields lhs as lvalue.
@@ -1821,7 +1821,7 @@ void src::CodeGen::GenerateAssignBinOp(src::BinaryExpr* b) {
     /// LHS is an lvalue, so load it first. Perform the binary
     /// operation and store the result back into the lvalue; the
     /// yield of the entire expression is the lvalue.
-    auto align = b->type.align(mod).value();
+    auto align = b->type.align(ctx).value();
     auto lhs = Create<hlir::LoadOp>(Loc(b->lhs->location), b->lhs->mlir);
     auto res = Create<Op>(Loc(b->location), lhs, b->rhs->mlir);
     Create<hlir::StoreOp>(Loc(b->location), b->lhs->mlir, res, align);
@@ -1978,7 +1978,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
                     mlir::LLVM::Linkage::Private,
                     name,
                     mlir::IntegerAttr::get(int32, 0),
-                    Type::I32.align(mod).value()
+                    Type::I32.align(ctx).value()
                 );
             }
 
@@ -2053,7 +2053,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
             Loc(p->location),
             p->mlir,
             func.getExplicitArgument(u32(i)),
-            p->type.align(mod).value()
+            p->type.align(ctx).value()
         );
     }
 

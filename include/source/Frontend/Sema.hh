@@ -177,6 +177,8 @@ class Sema {
     /// as well as the value of that state in the previous scope.
     DenseMap<LocalDecl*, bool> active_optionals;
 
+    readonly(Context*, ctx, return mod->context);
+
     /// Number of anonymous procedures.
     usz lambda_counter = 0;
 
@@ -299,9 +301,9 @@ private:
     auto MakeFormattable(T&& t) -> make_formattable_t<T> {
         using Type = std::remove_cvref_t<T>;
         if constexpr (std::is_pointer_v<Type> and std::derived_from<std::remove_pointer_t<Type>, Expr>) {
-            return std::forward<T>(t)->type.str(true);
+            return std::forward<T>(t)->type.str(mod->context->use_colours);
         } else if constexpr (std::is_same_v<std::remove_cvref_t<Type>, src::Type>) {
-            return std::forward<T>(t).str(true);
+            return std::forward<T>(t).str(mod->context->use_colours);
         } else {
             return std::forward<T>(t);
         }

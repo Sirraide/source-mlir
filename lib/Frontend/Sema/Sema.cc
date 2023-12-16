@@ -244,8 +244,8 @@ bool src::Sema::ConvertImpl(
 
     /// Integer-to-integer conversions.
     if (from.is_int(true) and to.is_int(true)) {
-        auto from_size = from.size(mod);
-        auto to_size = to.size(mod);
+        auto from_size = from.size(this->ctx);
+        auto to_size = to.size(this->ctx);
 
         /// Try evaluating the expression. We allow implicit conversions
         /// to a smaller type if the value is known to fit at compile time.
@@ -325,8 +325,8 @@ bool src::Sema::EnsureCondition(Expr*& e) {
     return Error(
         e->location,
         "Type '{}' of condition must be convertible to '{}'",
-        e->type.str(true),
-        Type::Bool.str(true)
+        e->type.str(mod->context->use_colours),
+        Type::Bool.str(mod->context->use_colours)
     );
 }
 
@@ -490,7 +490,7 @@ void src::Sema::ReportOverloadResolutionFailure(
     /// Print all argument types.
     fmt::print(stderr, "\n  {}{}Arguments:\n", C(Bold), C(White));
     for (auto [i, e] : llvm::enumerate(args))
-        fmt::print(stderr, "    {}{}{}. {}\n", C(Bold), C(White), i + 1, e->type.str(true));
+        fmt::print(stderr, "    {}{}{}. {}\n", C(Bold), C(White), i + 1, e->type.str(mod->context->use_colours));
 
     /// Print overloads and why each one was invalid.
     fmt::print(stderr, "\n  {}{}Overloads:\n", C(Bold), C(White));
@@ -502,7 +502,7 @@ void src::Sema::ReportOverloadResolutionFailure(
             C(Bold),
             C(White),
             i + 1,
-            o.proc->type.str(true),
+            o.proc->type.str(mod->context->use_colours),
             C(White),
             C(Reset)
         );
@@ -997,7 +997,7 @@ auto src::Sema::Construct(
     auto FormatArgTypes = [&](auto args) {
         utils::Colours C{true};
         return fmt::join(
-            vws::transform(args, [&](auto* e) { return e->type.str(true); }),
+            vws::transform(args, [&](auto* e) { return e->type.str(mod->context->use_colours); }),
             fmt::format("{}, ", C(utils::Colour::Red))
         );
     };
@@ -1421,12 +1421,12 @@ bool src::Sema::Analyse(Expr*& e) {
 
                 /// Set offset of each field and determine the size and alignment
                 /// of the struct.
-                auto align = s->all_fields[i].type.align(mod);
+                auto align = s->all_fields[i].type.align(ctx);
                 AlignField(align, i);
                 s->all_fields[i].offset = s->stored_size;
                 s->all_fields[i].index = index++;
                 s->stored_alignment = std::max(s->stored_alignment, align);
-                s->stored_size += s->all_fields[i].type.size(mod);
+                s->stored_size += s->all_fields[i].type.size(ctx);
             }
 
             /// Size must be a multiple of the alignment.
@@ -1930,7 +1930,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         mod->context,
                         m->location,
                         "Type '{}' has no '{}' member",
-                        unwrapped.str(true),
+                        unwrapped.str(mod->context->use_colours),
                         m->member
                     );
                 }
@@ -1954,7 +1954,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         mod->context,
                         m->location,
                         "Type '{}' has no '{}' member",
-                        unwrapped.str(true),
+                        unwrapped.str(mod->context->use_colours),
                         m->member
                     );
                 }
@@ -1967,7 +1967,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         mod->context,
                         m->location,
                         "Type '{}' has no '{}' member",
-                        unwrapped.str(true),
+                        unwrapped.str(mod->context->use_colours),
                         m->member
                     );
 
@@ -1982,7 +1982,7 @@ bool src::Sema::Analyse(Expr*& e) {
                     mod->context,
                     m->location,
                     "Cannot perform member access on type '{}'",
-                    m->object->type.str(true)
+                    m->object->type.str(mod->context->use_colours)
                 );
             };
 
@@ -2461,8 +2461,8 @@ bool src::Sema::Analyse(Expr*& e) {
                     /// smaller to a larger type can never fail, which is why
                     /// we assert rather than error here.
                     if (b->lhs->type != b->rhs->type) {
-                        auto lsz = b->lhs->type.size(mod);
-                        auto rsz = b->rhs->type.size(mod);
+                        auto lsz = b->lhs->type.size(ctx);
+                        auto rsz = b->rhs->type.size(ctx);
                         if (lsz >= rsz) Assert(Convert(b->rhs, b->lhs->type));
                         else Assert(Convert(b->lhs, b->rhs->type));
                     }
@@ -2620,8 +2620,8 @@ bool src::Sema::Analyse(Expr*& e) {
                                 mod->context,
                                 b->location,
                                 "In reference binding to '{}' from '{}'",
-                                ltype_saved.str(true),
-                                rtype_saved.str(true)
+                                ltype_saved.str(mod->context->use_colours),
+                                rtype_saved.str(mod->context->use_colours)
                             );
                         }
 

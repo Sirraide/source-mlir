@@ -283,7 +283,7 @@ public:
     static Type UnsafeEmpty() { return Type(NullConstructTag{}); }
 
     /// Get the alignment of this type, in *bytes*.
-    auto align(Module* mod) const -> Align;
+    auto align(Context* mod) const -> Align;
 
     /// Get the procedure type from a closure or proc.
     readonly_decl(ProcType*, callable);
@@ -316,7 +316,7 @@ public:
     readonly_decl(isz, ref_depth);
 
     /// Get the size of this type.
-    auto size(Module* mod) const -> Size;
+    auto size(Context* mod) const -> Size;
 
     /// Get a string representation of this type.
     auto str(bool use_colour) const -> std::string;

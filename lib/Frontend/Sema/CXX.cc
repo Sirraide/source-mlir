@@ -33,6 +33,7 @@ namespace src {
 namespace {
 struct ImportContext {
     Context* ctx;
+    clang::CompilerInstance& clang;
     Module* out;
     Sema S{out};
     bool debug;
@@ -41,14 +42,14 @@ struct ImportContext {
     llvm::DenseSet<const clang::Decl*> translated_decls;
     llvm::DenseMap<const clang::Type*, std::optional<Type>> translated_types;
 
-    Type Char = new (out) IntType(Size::Bits(out->clang.getTarget().getCharWidth()), {});
-    Type Short = new (out) IntType(Size::Bits(out->clang.getTarget().getShortWidth()), {});
-    Type Int = new (out) IntType(Size::Bits(out->clang.getTarget().getIntWidth()), {});
-    Type Long = new (out) IntType(Size::Bits(out->clang.getTarget().getLongWidth()), {});
-    Type LongLong = new (out) IntType(Size::Bits(out->clang.getTarget().getLongLongWidth()), {});
+    Type Char = new (out) IntType(Size::Bits(clang.getTarget().getCharWidth()), {});
+    Type Short = new (out) IntType(Size::Bits(clang.getTarget().getShortWidth()), {});
+    Type Int = new (out) IntType(Size::Bits(clang.getTarget().getIntWidth()), {});
+    Type Long = new (out) IntType(Size::Bits(clang.getTarget().getLongWidth()), {});
+    Type LongLong = new (out) IntType(Size::Bits(clang.getTarget().getLongLongWidth()), {});
 
-    ImportContext(Module* out, bool debug)
-        : ctx(out->context), out(out), debug(debug) {}
+    ImportContext(Module* out, clang::CompilerInstance& clang, bool debug)
+        : ctx(out->context), clang(clang), out(out), debug(debug) {}
     
     void HandleTranslationUnit(clang::ASTContext& C) {
         AST = &C;
@@ -219,7 +220,7 @@ struct ImportContext {
                     .padding = false
                 });
 
-                size = offs + fields.back().type.size(out);
+                size = offs + fields.back().type.size(ctx);
             }
 
             out->exports[s->name].push_back(s);
@@ -250,11 +251,13 @@ auto src::Module::ImportCXXHeaders(
     llvm::IntrusiveRefCntPtr<llvm::vfs::OverlayFileSystem> file_system;
     llvm::IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> in_memory_fs;
     llvm::IntrusiveRefCntPtr<clang::FileManager> mgr;
+    clang::CompilerInstance clang;
+    ctx->init_clang(clang);
     file_system = std::make_unique<llvm::vfs::OverlayFileSystem>(llvm::vfs::getRealFileSystem());
     in_memory_fs = std::make_unique<llvm::vfs::InMemoryFileSystem>();
     file_system->pushOverlay(in_memory_fs);
     auto mod = Module::Create(ctx, std::move(module_name), true, loc);
-    mgr = new clang::FileManager {mod->clang.getFileSystemOpts(), file_system};
+    mgr = new clang::FileManager {clang.getFileSystemOpts(), file_system};
 
     std::string code;
     auto filename = fmt::format("<{}>", header_names.front());
@@ -279,11 +282,11 @@ auto src::Module::ImportCXXHeaders(
 
     clang::CreateInvocationOptions opts;
     opts.VFS = file_system;
-    opts.Diags = &mod->clang.getDiagnostics();
+    opts.Diags = &clang.getDiagnostics();
     auto AST = clang::ASTUnit::LoadFromCompilerInvocation(
         clang::createInvocation(args, opts),
         std::make_shared<clang::PCHContainerOperations>(),
-        mod->clang.getDiagnosticsPtr(),
+        clang.getDiagnosticsPtr(),
         mgr.get()
     );
 
@@ -292,7 +295,7 @@ auto src::Module::ImportCXXHeaders(
         return nullptr;
     }
 
-    ImportContext IC{mod, debug_cxx};
+    ImportContext IC{mod, clang, debug_cxx};
     IC.HandleTranslationUnit(AST->getASTContext());
     Sema::Analyse(mod);
     return ctx->has_error() ? nullptr : mod;
