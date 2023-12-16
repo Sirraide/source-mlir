@@ -544,10 +544,10 @@ private:
     std::string msg;
 
     /// Handle fatal error codes.
-    void HandleFatalErrors();
+    void HandleFatalErrors(utils::Colours);
 
     /// Print a diagnostic with no (valid) location info.
-    void PrintDiagWithoutLocation();
+    void PrintDiagWithoutLocation(utils::Colours);
 
     /// Do not print a stack trace.
     void NoTrace() { include_stack_trace = false; }

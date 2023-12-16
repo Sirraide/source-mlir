@@ -47,6 +47,15 @@ int main(int argc, char** argv) {
         else if (*c == "never") use_colour = false;
     }
 
+    /// Disallow filenames starting with '-'; users can still write `./-`.
+    for (auto& f : *opts.get<"file">()) {
+        if (f.starts_with('-')) src::Diag::FatalNoTrace(
+            "Invalid option: '{}'. Write './{}' to treat it as a filename.",
+            f,
+            f
+        );
+    }
+
     /// Create driver.
     using Action = src::CompileOptions::Action;
     auto driver = src::Driver::Create({

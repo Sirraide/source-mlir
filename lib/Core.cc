@@ -359,19 +359,20 @@ auto src::Module::_global_scope() -> BlockExpr* {
 namespace src {
 namespace {
 /// Get the colour of a diagnostic.
-static constexpr auto Colour(Diag::Kind kind) {
+static constexpr auto Colour(utils::Colours C, Diag::Kind kind) -> std::string_view {
     using Kind = Diag::Kind;
+    using enum utils::Colour;
     switch (kind) {
-        case Kind::ICError: return fmt::fg(fmt::terminal_color::magenta) | fmt::emphasis::bold;
-        case Kind::Warning: return fmt::fg(fmt::terminal_color::yellow) | fmt::emphasis::bold;
-        case Kind::Note: return fmt::fg(fmt::terminal_color::green) | fmt::emphasis::bold;
+        case Kind::ICError: return C(Magenta);
+        case Kind::Warning: return C(Yellow);
+        case Kind::Note: return C(Green);
 
         case Kind::FError:
         case Kind::Error:
-            return fmt::fg(fmt::terminal_color::red) | fmt::emphasis::bold;
+            return C(Red);
 
         default:
-            return fmt::text_style{};
+            return C(None);
     }
 }
 
@@ -398,12 +399,10 @@ auto NormaliseFilename(std::string_view filename) -> std::string_view {
 }
 
 /// Print the current stack trace.
-void PrintBacktrace() {
+void PrintBacktrace(utils::Colours C) {
+    using enum utils::Colour;
     std::fflush(stdout);
     std::fflush(stderr);
-
-    utils::Colours C{true};
-    using enum utils::Colour;
 
     auto trace = cpptrace::generate_trace(2);
     for (auto&& [i, frame] : llvm::enumerate(trace.frames)) {
@@ -536,13 +535,12 @@ void src::detail::AssertFail(
     int line,
     std::string&& message
 ) {
-    using fmt::fg;
-    using enum fmt::emphasis;
-    using enum fmt::terminal_color;
+    utils::Colours C(isatty(fileno(stderr)));
+    using enum utils::Colour;
 
     /// Print filename and ICE title.
-    fmt::print(stderr, bold, "{}:{}:", NormaliseFilename(file), line);
-    fmt::print(stderr, Colour(Diag::Kind::ICError), " {}: ", Name(Diag::Kind::ICError));
+    fmt::print(stderr, "{}{}:{}:", C(Bold), NormaliseFilename(file), line);
+    fmt::print(stderr, " {}{}: ", Colour(C, Diag::Kind::ICError), Name(Diag::Kind::ICError));
 
     /// Print the condition, if any.
     switch (k) {
@@ -564,36 +562,35 @@ void src::detail::AssertFail(
     fmt::print(stderr, "\n");
 
     /// Print the backtrace and exit.
-    PrintBacktrace();
+    PrintBacktrace(C);
     std::exit(Diag::ICEExitCode);
 }
 
-void src::Diag::HandleFatalErrors() {
+void src::Diag::HandleFatalErrors(utils::Colours C) {
     /// Abort on ICE.
     if (kind == Kind::ICError) {
-        if (include_stack_trace) PrintBacktrace();
+        if (include_stack_trace) PrintBacktrace(C);
         std::exit(ICEExitCode);
     }
 
     /// Exit on a fatal error.
     if (kind == Kind::FError) {
-        if (include_stack_trace) PrintBacktrace();
+        if (include_stack_trace) PrintBacktrace(C);
         std::exit(FatalExitCode);
     }
 }
 
 /// Print a diagnostic with no (valid) location info.
-void src::Diag::PrintDiagWithoutLocation() {
+void src::Diag::PrintDiagWithoutLocation(utils::Colours C) {
     /// Print the message.
-    fmt::print(stderr, Colour(kind), "{}: ", Name(kind));
+    fmt::print(stderr, "{}{}{}: ", C(utils::Colour::Bold), Colour(C, kind), Name(kind));
     fmt::print(stderr, "{}\n", msg);
-    HandleFatalErrors();
+    HandleFatalErrors(C);
 }
 
 void src::Diag::print() {
-    using fmt::fg;
-    using enum fmt::emphasis;
-    using enum fmt::terminal_color;
+    utils::Colours C(ctx ? ctx->use_colours : isatty(fileno(stderr)));
+    using enum utils::Colour;
 
     /// If this diagnostic is suppressed, do nothing.
     if (kind == Kind::None) return;
@@ -606,12 +603,12 @@ void src::Diag::print() {
         kind = Kind::None;
 
         /// Reset the colour when we’re done.
-        fmt::print(stderr, "\033[m");
+        fmt::print(stderr, "{}", C(Reset));
     };
 
     /// If there is no context, then there is also no location info.
     if (not ctx) {
-        PrintDiagWithoutLocation();
+        PrintDiagWithoutLocation(C);
         return;
     }
 
@@ -628,10 +625,15 @@ void src::Diag::print() {
     /// skip printing the location.
     if (not where.seekable(ctx)) {
         /// Even if the location is invalid, print the file name if we can.
-        if (auto f = ctx->file(where.file_id)) fmt::print(stderr, bold, "{}: ", f->path().string());
+        if (auto f = ctx->file(where.file_id)) fmt::print(
+            stderr,
+            "{}{}: ",
+            C(Bold),
+            f->path().string()
+        );
 
         /// Print the message.
-        PrintDiagWithoutLocation();
+        PrintDiagWithoutLocation(C);
         return;
     }
 
@@ -655,16 +657,16 @@ void src::Diag::print() {
 
     /// Print the file name, line number, and column number.
     const auto& file = *ctx->file(where.file_id);
-    fmt::print(stderr, bold, "{}:{}:{}: ", file.path().string(), line, col);
+    fmt::print(stderr, "{}{}:{}:{}: ", C(Bold), file.path().string(), line, col);
 
     /// Print the diagnostic name and message.
-    fmt::print(stderr, Colour(kind), "{}: ", Name(kind));
-    fmt::print(stderr, "{}\n", msg);
+    fmt::print(stderr, "{}{}: ", Colour(C, kind), Name(kind));
+    fmt::print(stderr, "{}{}\n", C(Reset), msg);
 
     /// Print the line up to the start of the location, the range in the right
     /// colour, and the rest of the line.
     fmt::print(stderr, " {} | {}", line, before);
-    fmt::print(stderr, Colour(kind), "{}", range);
+    fmt::print(stderr, "{}{}{}", Colour(C, kind), range, C(Reset));
     fmt::print(stderr, "{}\n", after);
 
     /// Determine the number of digits in the line number.
@@ -684,12 +686,13 @@ void src::Diag::print() {
         fmt::print(stderr, " ");
 
     /// Finally, underline the range.
+    fmt::print(stderr, "{}", Colour(C, kind));
     for (usz i = 0, end = ColumnWidth(range); i < end; i++)
-        fmt::print(stderr, Colour(kind), "~");
+        fmt::print(stderr, "~");
     fmt::print(stderr, "\n");
 
     /// Handle fatal errors.
-    HandleFatalErrors();
+    HandleFatalErrors(C);
 }
 
 /// ===========================================================================

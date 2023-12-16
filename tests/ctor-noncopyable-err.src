@@ -1,0 +1,14 @@
+/// R %srcc %s --sema |& cat
+
+proc q extern;
+proc sink (foo a) extern;
+
+struct foo {
+    init { q(); }
+}
+
+foo a;
+foo b = a; /// * ctor-noncopyable-err.src:11:5: Error: Overload resolution failed
+
+/// Ok, because foo is still movable.
+sink a;

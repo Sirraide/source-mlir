@@ -484,7 +484,7 @@ void src::Sema::ReportOverloadResolutionFailure(
     ArrayRef<Expr*> args
 ) {
     using enum utils::Colour;
-    utils::Colours C{true};
+    utils::Colours C{ctx->use_colours};
     Error(where, "Overload resolution failed");
 
     /// Print all argument types.

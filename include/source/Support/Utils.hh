@@ -234,15 +234,16 @@ concept always_false = false;
 
 /// ANSI Terminal colours.
 enum struct Colour {
-    Bold = 1,
-    Reset = 0,
-    Red = 31,
-    Green = 32,
-    Yellow = 33,
-    Blue = 34,
-    Magenta = 35,
-    Cyan = 36,
-    White = 37,
+    Bold,
+    Reset,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+    None,
 };
 
 /// RAII helper to toggle colours when printing.
@@ -256,13 +257,14 @@ enum struct Colour {
 /// \endcode
 struct Colours {
     bool use_colours;
-    Colours(bool use_colours)
+    constexpr Colours(bool use_colours)
         : use_colours{use_colours} {}
 
-    auto operator()(Colour c) -> std::string_view {
+    constexpr auto operator()(Colour c) -> std::string_view {
         if (not use_colours) return "";
         switch (c) {
             case Colour::Reset: return "\033[m";
+            case Colour::None: return "";
             case Colour::Red: return "\033[31m";
             case Colour::Green: return "\033[32m";
             case Colour::Yellow: return "\033[33m";
