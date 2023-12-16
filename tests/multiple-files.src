@@ -1,4 +1,17 @@
+/// R %srcc tests/multiple-files.src tests/multiple-files-aux.src --hlir
+
+/// d t %[a-zA-Z0-9_]+
 
 proc sink (foo) extern;
 
+/// * scope {
+/// + (?<b1>$t) = call @_S3barPE -> @foo
+/// + call @_S4sinkPS3fooE($b1)
+/// + (?<b2>$t) = call @_S3barPE -> @foo
+/// + call @_S4sinkPS3fooE($b2)
+/// + yield
+/// + }
 sink bar();
+
+/// Merging should create one scope, not two.
+/// !* scope

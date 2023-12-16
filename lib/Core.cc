@@ -340,27 +340,6 @@ bool src::Module::add_import(
     return false;
 }
 
-void src::Module::assimilate(Module* other) {
-    for (auto& i : other->imports)
-        if (not utils::contains(imports, i))
-            imports.push_back(i);
-
-    for (auto& [k, v] : other->exports)
-        exports[k].insert(exports[k].end(), v.begin(), v.end());
-
-    utils::append(named_structs, std::move(other->named_structs));
-    utils::append(exprs, std::move(other->exprs));
-    utils::append(functions, std::move(other->functions));
-    utils::append(static_assertions, std::move(other->static_assertions));
-
-    strtab.assimilate(std::move(other->strtab));
-
-    /// Merge top-level content. We create a separate block to wrap the two
-    /// previous top-level blocks so name lookup works correctly.
-    Todo(); /// TODO: Replace references to global scope / top level function
-    ///               Maybe it’s finally time to implement an AST visitor?
-}
-
 auto src::Module::Create(Context* ctx, std::string name, bool is_cxx_header, Location module_decl_location) -> Module* {
     auto* mod = new Module(ctx, std::move(name), is_cxx_header, module_decl_location);
     ctx->add_module(std::unique_ptr<Module>{mod});

@@ -3,6 +3,7 @@
 
 #include <source/Core.hh>
 #include <source/Frontend/Lexer.hh>
+#include <source/Support/Generator.hh>
 #include <source/Support/Result.hh>
 
 namespace src {
@@ -17,6 +18,7 @@ class ProcType;
 class BlockExpr;
 class Nil;
 class ConstructExpr;
+class Assimilator;
 
 struct ArrayInfo;
 
@@ -198,6 +200,9 @@ public:
         return utils::AllocateAndRegister<Expr>(sz, mod->exprs);
     }
 
+    /// Iterate over all children of this node.
+    auto children() -> utils::Generator<Expr**>;
+
     /// Strip lvalue-to-rvalue conversion. This only removes one
     /// level of lvalue-to-rvalue conversion, not lvalue-ref-to-lvalue
     /// conversion.
@@ -247,8 +252,8 @@ public:
 class Type {
     Expr* ptr;
 
-    /// Sema needs access to the type pointer.
     friend Sema;
+    friend Assimilator;
 
     struct NullConstructTag {};
     explicit constexpr Type(NullConstructTag) : ptr(nullptr) {}
@@ -809,7 +814,7 @@ public:
     }
 
     /// Get the arguments to this construct expression.
-    auto args() -> ArrayRef<Expr*> {
+    auto args() -> MutableArrayRef<Expr*> {
         return {
             getTrailingObjects<Expr*>(),
             numTrailingObjects(OT<Expr*>{}),
@@ -817,7 +822,7 @@ public:
     }
 
     /// Get the arguments and the initialiser. This is meant for printing.
-    auto args_and_init() -> ArrayRef<Expr*> {
+    auto args_and_init() -> MutableArrayRef<Expr*> {
         return {
             getTrailingObjects<Expr*>(),
             numTrailingObjects(OT<Expr*>{}) + numTrailingObjects(OT<ProcDecl*>{}),
@@ -1969,6 +1974,255 @@ struct THCastImpl {
         return doCast(t);
     }
 };
+
+/// ===========================================================================
+///  AST Visitor.
+/// ===========================================================================
+/*class ASTVisitor {
+    template <std::derived_from<ASTVisitor> Self>
+    void visit_impl(this Self& self, Type& ty) {
+        self.visit_impl(ty.ptr);
+    }
+
+    template <std::derived_from<ASTVisitor> Self, std::derived_from<Expr> Expression>
+    requires (not std::is_same_v<Expression, Expr>)
+    void visit_impl(this Self& self, Expression*& e) {
+        self.visit_children(e);
+        if constexpr (requires { self.visit(e); }) self.visit(e);
+        else {
+            Expr* expr = e;
+            self.visit(expr);
+            Assert(isa<Expression>(expr), "AST Visitor must not change expression kind");
+            e = cast<Expression>(expr);
+        }
+    }
+
+    template <std::derived_from<ASTVisitor> Self>
+    void visit_impl(this Self& self, Expr*& e) {
+        self.visit_children(e);
+        self.visit(e);
+    }
+
+    template <std::derived_from<ASTVisitor> Self>
+    void visit_children(this Self& self, Expr* e) {
+        switch (e->kind) {
+            case Expr::Kind::BuiltinType:
+            case Expr::Kind::IntType:
+            case Expr::Kind::Nil:
+            case Expr::Kind::OpaqueType:
+                break;
+
+            case Expr::Kind::ProcType: {
+                auto p = cast<ProcType>(e);
+                self.visit_impl(p->ret_type);
+                for (auto t : p->param_types) self.visit_impl(t);
+                if (p->static_chain_parent) self.visit(p->static_chain_parent);
+                if (p->init_of) self.visit(p->init_of);
+            } break;
+
+            case Expr::Kind::ReferenceType:
+            case Expr::Kind::ScopedPointerType:
+            case Expr::Kind::SliceType:
+            case Expr::Kind::ArrayType:
+            case Expr::Kind::OptionalType:
+            case Expr::Kind::SugaredType:
+            case Expr::Kind::ScopedType:
+            case Expr::Kind::ClosureType: {
+                auto ty = cast<SingleElementTypeBase>(e);
+                self.visit_impl(ty->elem);
+            } break;
+
+            case Expr::Kind::StructType: {
+                auto st = cast<StructType>(e);
+                for (auto& f : st->all_fields) self.visit_impl(f.type);
+                for (auto& init : st->initialisers) self.visit_impl(init);
+                if (st->scope) self.visit_impl(st->scope);
+                co_return;
+            }
+
+            case Expr::Kind::WhileExpr: {
+                auto w = cast<WhileExpr>(e);
+                self.visit_impl(w->body);
+                self.visit_impl(w->cond);
+            } break;
+
+            case Expr::Kind::ForInExpr: {
+                auto f = cast<ForInExpr>(e);
+                self.visit_impl(f->body);
+                self.visit_impl(f->iter);
+                self.visit_impl(f->range);
+            } break;
+
+            case Expr::Kind::AssertExpr: {
+                auto a = cast<AssertExpr>(e);
+                self.visit_impl(a->cond);
+                if (a->msg) self.visit_impl(a->msg);
+                if (a->cond_str) self.visit_impl(a->cond_str);
+                if (a->file_str) self.visit_impl(a->file_str);
+            } break;
+
+            case Expr::Kind::DeferExpr: {
+                auto d = cast<DeferExpr>(e);
+                self.visit_impl(d->expr);
+            } break;
+
+            case Expr::Kind::ExportExpr: {
+                auto x = cast<ExportExpr>(e);
+                self.visit_impl(x->expr);
+            } break;
+
+            case Expr::Kind::LabelExpr: {
+                auto l = cast<LabelExpr>(e);
+                self.visit_impl(l->expr);
+                if (l->parent) self.visit(l->parent);
+                if (l->parent_full_expression) self.visit(l->parent_full_expression);
+            } break;
+
+            case Expr::Kind::EmptyExpr: break;
+            case Expr::Kind::ModuleRefExpr: break;
+            case Expr::Kind::AliasExpr: break;
+            case Expr::Kind::ConstructExpr: break;
+            case Expr::Kind::OverloadSetExpr: break;
+            case Expr::Kind::ReturnExpr: break;
+            case Expr::Kind::GotoExpr: break;
+            case Expr::Kind::LoopControlExpr: break;
+            case Expr::Kind::BlockExpr: break;
+            case Expr::Kind::ImplicitThisExpr: break;
+            case Expr::Kind::InvokeExpr: break;
+            case Expr::Kind::InvokeBuiltinExpr: break;
+            case Expr::Kind::ConstExpr: break;
+            case Expr::Kind::CastExpr: break;
+            case Expr::Kind::MemberAccessExpr: break;
+            case Expr::Kind::ScopeAccessExpr: break;
+            case Expr::Kind::UnaryPrefixExpr: break;
+            case Expr::Kind::IfExpr: break;
+            case Expr::Kind::BinaryExpr: break;
+            case Expr::Kind::DeclRefExpr: break;
+            case Expr::Kind::LocalRefExpr: break;
+            case Expr::Kind::ParenExpr: break;
+            case Expr::Kind::SubscriptExpr: break;
+            case Expr::Kind::ArrayLiteralExpr: break;
+            case Expr::Kind::BoolLiteralExpr: break;
+            case Expr::Kind::IntegerLiteralExpr: break;
+            case Expr::Kind::StringLiteralExpr: break;
+            case Expr::Kind::LocalDecl: break;
+            case Expr::Kind::ProcDecl: break;
+        }
+    }
+
+public:
+    /// Visit an expression and its children using a preorder traversal.
+    ///
+    /// To prevent infinite loops, this will not visit children of any
+    /// nodes which are known to possibly contain loops (e.g. the child
+    /// of a DeclRefExpr *will* be visited, but not the children of that
+    /// child.
+    template <std::derived_from<ASTVisitor> Self>
+    static void Visit(Expr*& e) {
+        Self s;
+        s.visit_impl(e);
+    }
+};*/
+
+/*auto Expr::children() -> utils::Generator<Expr**> {
+#define YIELD_AS(type, e)   \
+    do {                    \
+        Expr* _e = e;       \
+        co_yield &_e;       \
+        e = cast<type>(_e); \
+    } while (0)
+
+    switch (kind) {
+        case Kind::BuiltinType:
+        case Kind::IntType:
+        case Kind::Nil:
+        case Kind::OpaqueType:
+            co_return;
+
+        case Kind::ProcType: {
+            auto p = cast<ProcType>(this);
+            co_yield &p->ret_type.ptr;
+            for (auto t : p->param_types) co_yield &t.ptr;
+            co_return;
+        }
+
+        case Kind::ReferenceType:
+        case Kind::ScopedPointerType:
+        case Kind::SliceType:
+        case Kind::ArrayType:
+        case Kind::OptionalType:
+        case Kind::SugaredType:
+        case Kind::ScopedType:
+        case Kind::ClosureType: {
+            auto ty = cast<SingleElementTypeBase>(this);
+            co_yield &ty->elem.ptr;
+            co_return;
+        }
+
+        case Kind::StructType: {
+            auto st = cast<StructType>(this);
+            for (auto& f : st->all_fields) co_yield &f.type.ptr;
+            for (auto& init : st->initialisers) YIELD_AS(ProcDecl, init);
+            co_return;
+        }
+
+        case Kind::WhileExpr: {
+            auto w = cast<WhileExpr>(this);
+            co_yield &w->cond;
+            YIELD_AS(BlockExpr, w->body);
+            co_return;
+        }
+        case Kind::ForInExpr: break;
+        case Kind::AssertExpr: break;
+        case Kind::DeferExpr: break;
+        case Kind::ExportExpr: break;
+        case Kind::LabelExpr: break;
+        case Kind::EmptyExpr: break;
+        case Kind::ModuleRefExpr: break;
+        case Kind::AliasExpr: break;
+        case Kind::ConstructExpr: break;
+        case Kind::OverloadSetExpr: break;
+        case Kind::ReturnExpr: break;
+        case Kind::GotoExpr: break;
+        case Kind::LoopControlExpr: break;
+        case Kind::BlockExpr: break;
+        case Kind::ImplicitThisExpr: break;
+        case Kind::InvokeExpr: break;
+        case Kind::InvokeBuiltinExpr: break;
+        case Kind::ConstExpr: break;
+        case Kind::CastExpr: break;
+        case Kind::MemberAccessExpr: break;
+        case Kind::ScopeAccessExpr: break;
+        case Kind::UnaryPrefixExpr: break;
+        case Kind::IfExpr: break;
+        case Kind::BinaryExpr: break;
+        case Kind::DeclRefExpr: break;
+        case Kind::LocalRefExpr: break;
+        case Kind::ParenExpr: break;
+        case Kind::SubscriptExpr: break;
+        case Kind::ArrayLiteralExpr: break;
+        case Kind::BoolLiteralExpr: break;
+        case Kind::IntegerLiteralExpr: break;
+        case Kind::StringLiteralExpr: break;
+        case Kind::LocalDecl: break;
+        case Kind::ProcDecl: break;
+    }
+
+    Unreachable();
+#undef YIELD_AS
+}
+
+/// Visit this expression and its children using a preorder traversal.
+///
+/// To prevent infinite loops, this will not visit children of any
+/// nodes which are known to possibly contain loops (e.g. the child
+/// of a DeclRefExpr *will* be visited, but not the children of that
+/// child.
+template <typename Visitor>
+void Visit(Expr*& e, Visitor&& v) {
+    for (auto ch : e->children()) std::invoke(FWD(v), *ch);
+    std::invoke(FWD(v), *e);
+}*/
 } // namespace src
 
 namespace llvm {
