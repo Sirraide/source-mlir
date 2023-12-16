@@ -41,11 +41,11 @@ struct ImportContext {
     llvm::DenseSet<const clang::Decl*> translated_decls;
     llvm::DenseMap<const clang::Type*, std::optional<Type>> translated_types;
 
-    Type Char = new (out) IntType(Size::Bits(ctx->clang.getTarget().getCharWidth()), {});
-    Type Short = new (out) IntType(Size::Bits(ctx->clang.getTarget().getShortWidth()), {});
-    Type Int = new (out) IntType(Size::Bits(ctx->clang.getTarget().getIntWidth()), {});
-    Type Long = new (out) IntType(Size::Bits(ctx->clang.getTarget().getLongWidth()), {});
-    Type LongLong = new (out) IntType(Size::Bits(ctx->clang.getTarget().getLongLongWidth()), {});
+    Type Char = new (out) IntType(Size::Bits(out->clang.getTarget().getCharWidth()), {});
+    Type Short = new (out) IntType(Size::Bits(out->clang.getTarget().getShortWidth()), {});
+    Type Int = new (out) IntType(Size::Bits(out->clang.getTarget().getIntWidth()), {});
+    Type Long = new (out) IntType(Size::Bits(out->clang.getTarget().getLongWidth()), {});
+    Type LongLong = new (out) IntType(Size::Bits(out->clang.getTarget().getLongLongWidth()), {});
 
     ImportContext(Module* out, bool debug)
         : ctx(out->context), out(out), debug(debug) {}
@@ -194,7 +194,7 @@ struct ImportContext {
             SmallVector<StructType::Field> fields;
             Size size;
             usz padding_count = 0;
-            for (auto [i, f] : vws::enumerate(decl->fields())) {
+            for (auto [i, f] : llvm::enumerate(decl->fields())) {
                 auto ty = TranslateType(f->getType());
                 if (not ty.has_value()) return std::nullopt;
                 if (f->isBitField()) return std::nullopt;
@@ -219,7 +219,7 @@ struct ImportContext {
                     .padding = false
                 });
 
-                size = offs + fields.back().type.size(ctx);
+                size = offs + fields.back().type.size(out);
             }
 
             out->exports[s->name].push_back(s);
@@ -253,7 +253,8 @@ auto src::Module::ImportCXXHeaders(
     file_system = std::make_unique<llvm::vfs::OverlayFileSystem>(llvm::vfs::getRealFileSystem());
     in_memory_fs = std::make_unique<llvm::vfs::InMemoryFileSystem>();
     file_system->pushOverlay(in_memory_fs);
-    mgr = new clang::FileManager {ctx->clang.getFileSystemOpts(), file_system};
+    auto mod = Module::Create(ctx, std::move(module_name), true, loc);
+    mgr = new clang::FileManager {mod->clang.getFileSystemOpts(), file_system};
 
     std::string code;
     auto filename = fmt::format("<{}>", header_names.front());
@@ -278,11 +279,11 @@ auto src::Module::ImportCXXHeaders(
 
     clang::CreateInvocationOptions opts;
     opts.VFS = file_system;
-    opts.Diags = &ctx->clang.getDiagnostics();
+    opts.Diags = &mod->clang.getDiagnostics();
     auto AST = clang::ASTUnit::LoadFromCompilerInvocation(
         clang::createInvocation(args, opts),
         std::make_shared<clang::PCHContainerOperations>(),
-        ctx->clang.getDiagnosticsPtr(),
+        mod->clang.getDiagnosticsPtr(),
         mgr.get()
     );
 
@@ -291,7 +292,6 @@ auto src::Module::ImportCXXHeaders(
         return nullptr;
     }
 
-    auto mod = new Module(ctx, std::move(module_name), true, loc);
     ImportContext IC{mod, debug_cxx};
     IC.HandleTranslationUnit(AST->getASTContext());
     Sema::Analyse(mod);

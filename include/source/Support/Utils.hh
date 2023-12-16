@@ -8,6 +8,7 @@
 #include <coroutine>
 #include <cstdio>
 #include <deque>
+#include <exception>
 #include <filesystem>
 #include <fmt/color.h>
 #include <fmt/format.h>
@@ -88,6 +89,8 @@ using f64 = double;
 
 #define CAT_(X, Y) X##Y
 #define CAT(X, Y)  CAT_(X, Y)
+
+#define FWD(x) std::forward<decltype(x)>(x)
 
 /// \brief Defer execution of a lambda until the end of the scope.
 ///
@@ -305,6 +308,26 @@ auto AllocateAndRegister(
     return ptr;
 }
 
+/// Append a range to another.
+template <typename Dest, typename Src>
+void append(Dest& dest, Src&& src) {
+    FWD(dest).insert(
+        FWD(dest).end(),
+        FWD(src).begin(),
+        FWD(src).end()
+    );
+}
+
+/// std::ranges::contains.
+template <typename Range, typename Element, typename Proj = std::identity>
+[[nodiscard]] constexpr bool contains(
+    Range&& r,
+    const Element& el,
+    Proj&& proj = {}
+) {
+    return rgs::find_if(FWD(r), [&](auto&& x) { return std::invoke(proj, x) == el; }) != r.end();
+}
+
 /// Compress data and append it to a vector.
 ///
 /// Any data already present in the vector is retained.
@@ -502,7 +525,5 @@ namespace std {
 template <typename, typename T> constexpr T&& forward_like(T&& val);
 }
 #endif
-
-#define FWD(x) std::forward<decltype(x)>(x)
 
 #endif // SOURCE_MLIR_UTILS_HH

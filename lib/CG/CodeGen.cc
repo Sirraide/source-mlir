@@ -18,9 +18,8 @@ namespace src {
 struct CodeGen {
     Module* const mod;
     Context* const ctx;
-    mlir::MLIRContext* const mctx;
+    mlir::MLIRContext *mctx;
     mlir::OpBuilder builder;
-    usz anon_structs = 0;
     bool no_verify;
 
     mlir::Type Int, Bool;
@@ -35,13 +34,13 @@ struct CodeGen {
     /// Procedure we’re currently emitting.
     ProcDecl* curr_proc{};
 
-    CodeGen(Module* mod, bool no_verify)
+    CodeGen(mlir::MLIRContext* mctx, Module* mod, bool no_verify)
         : mod(mod),
           ctx(mod->context),
-          mctx(&ctx->mlir),
+          mctx(mctx),
           builder(mctx),
           no_verify(no_verify) {
-        Int = GetIntType(Type::Int.size(ctx));
+        Int = GetIntType(Type::Int.size(mod));
         Bool = GetIntType(Size::Bits(1));
     }
 
@@ -121,6 +120,9 @@ struct CodeGen {
     /// Perform preprocessing on locals to support nested procedures.
     void InitStaticChain(ProcDecl* proc, hlir::FuncOp f);
 
+    /// Get the MLIR location of a source location.
+    auto Loc(Location loc) -> mlir::Location;
+
     /// Offset a pointer by a constant.
     auto Offset(mlir::Value ptr, i64 value) -> mlir::Value;
 
@@ -131,21 +133,21 @@ struct CodeGen {
 };
 } // namespace src
 
-void src::CodeGenModule(src::Module* mod, bool no_verify) {
+void src::CodeGenModule(mlir::MLIRContext* threads, src::Module* mod, bool no_verify) {
     Assert(not mod->context->has_error(), "Refusing to codegen broken module");
-    CodeGen c{mod, no_verify};
+    CodeGen c{threads, mod, no_verify};
     c.GenerateModule();
 }
 
 /// ===========================================================================
 ///  Helpers
 /// ===========================================================================
-auto src::Location::mlir(Context* ctx) const -> mlir::Location {
-    if (not seekable(ctx)) return mlir::UnknownLoc::get(&ctx->mlir);
-    auto lc = seek_line_column(ctx);
+auto src::CodeGen::Loc(Location loc) -> mlir::Location {
+    if (not loc.seekable(ctx)) return mlir::UnknownLoc::get(mctx);
+    auto lc = loc.seek_line_column(ctx);
     return mlir::FileLineColLoc::get(
-        &ctx->mlir,
-        ctx->files()[file_id]->path().native(),
+        mctx,
+        ctx->file(loc.file_id)->path().string(),
         unsigned(lc.line),
         unsigned(lc.col)
     );
@@ -165,15 +167,15 @@ mlir::ModuleOp src::Module::_mlir() {
 auto src::CodeGen::AllocateLocalVar(LocalDecl* decl) -> mlir::Value {
     /// Captured variables are stored in the static chain area.
     if (decl->captured) return Create<hlir::StructGEPOp>(
-        decl->location.mlir(ctx),
+        Loc(decl->location),
         decl->parent->captured_locals_ptr,
         decl->capture_index
     );
 
     return Create<hlir::LocalOp>(
-        decl->location.mlir(ctx),
+        Loc(decl->location),
         Ty(decl->type),
-        decl->type.align(ctx).value(),
+        decl->type.align(mod).value(),
         decl->deleted_or_moved
     );
 }
@@ -330,9 +332,9 @@ void src::CodeGen::Construct(
 
         case ConstructKind::ArrayListInit: {
             addr = Create<hlir::ArrayDecayOp>(loc, addr);
-            for (auto [i, c] : vws::enumerate(ctor->args())) Construct(
+            for (auto [i, c] : llvm::enumerate(ctor->args())) Construct(
                 loc,
-                Offset(addr, i),
+                Offset(addr, i64(i)),
                 align,
                 cast<ConstructExpr>(c)
             );
@@ -365,7 +367,7 @@ void src::CodeGen::Construct(
                 builder.getUnknownLoc(),
                 f.getArgument(0),
                 ptr.getResult(),
-                sc.align(ctx) / 8
+                sc.align(mod) / 8
             );
 
             /// Call the element type’s constructor, if any.
@@ -498,8 +500,8 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     for (auto v : proc->captured_locals) {
         captured.push_back({
             v,
-            u64(v->type.size(ctx).bytes()),
-            v->type.align(ctx),
+            u64(v->type.size(mod).bytes()),
+            v->type.align(mod),
             llvm::OptimizedStructLayoutField::FlexibleOffset,
         });
     }
@@ -513,7 +515,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     /// about the offsets.
     SmallVector<StructType::Field> fields;
     Size total_size;
-    for (const auto& [i, var] : vws::enumerate(captured)) {
+    for (const auto& [i, var] : llvm::enumerate(captured)) {
         /// Zero is the static chain.
         if (proc->takes_static_chain and i == 0) {
             fields.emplace_back(
@@ -544,7 +546,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
             );
         }
 
-        total_size = Size::Bytes(var.Offset) + v->type.size(ctx);
+        total_size = Size::Bytes(var.Offset) + v->type.size(mod);
         fields.emplace_back(
             "",
             v->type,
@@ -758,7 +760,7 @@ auto src::CodeGen::UnwindValues(ArrayRef<Expr*> exprs) -> SmallVector<mlir::Valu
     for (auto e : exprs) {
         if (isa<DeferExpr>(e)) vals.push_back(e->mlir);
         else if (auto l = dyn_cast<LocalDecl>(e)) {
-            auto d = Destroy(l->location.mlir(ctx), l->mlir, l->type);
+            auto d = Destroy(Loc(l->location), l->mlir, l->type);
             if (d) vals.push_back(d);
         }
     }
@@ -823,7 +825,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
                 /// Create the call.
                 auto call_op = Create<hlir::CallOp>(
-                    e->location.mlir(ctx),
+                    Loc(e->location),
                     cast<mlir::FunctionType>(proc.getType()).getResults(),
                     proc.getValue(),
                     false,
@@ -839,7 +841,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// If the callee is a closure, then use a special operation for that.
             else if (auto c = dyn_cast<ClosureType>(e->callee->type)) {
                 auto call_op = Create<hlir::InvokeClosureOp>(
-                    e->location.mlir(ctx),
+                    Loc(e->location),
                     e->type.yields_value ? mlir::TypeRange{Ty(e->type)} : mlir::TypeRange{},
                     e->callee->mlir,
                     args
@@ -860,7 +862,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             switch (i->builtin) {
                 case Builtin::New: {
                     i->mlir = Create<hlir::NewOp>(
-                        i->location.mlir(ctx),
+                        Loc(i->location),
                         hlir::ReferenceType::get(Ty(i->type))
                     );
                     return;
@@ -886,7 +888,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::DeclRefExpr: {
             auto e = cast<DeclRefExpr>(expr);
-            e->mlir = EmitReference(e->location.mlir(ctx), e->decl);
+            e->mlir = EmitReference(Loc(e->location), e->decl);
         } break;
 
         case Expr::Kind::LocalRefExpr: {
@@ -908,7 +910,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 auto& locals = var->decl->parent->captured_locals;
                 auto var_index = std::distance(locals.begin(), rgs::find(locals, var->decl));
                 var->mlir = Create<hlir::StructGEPOp>(
-                    var->location.mlir(ctx),
+                    Loc(var->location),
                     GetStaticChainPointer(var->decl->parent),
                     var_index + var->decl->parent->nested
                 );
@@ -926,7 +928,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 Assert(e->is_lvalue, "Accessing a member of an lvalue should yield an lvalue");
                 Assert(e->field, "Struct field not set for member access");
                 e->mlir = Create<hlir::StructGEPOp>(
-                    e->location.mlir(ctx),
+                    Loc(e->location),
                     e->object->mlir,
                     e->field->index
                 );
@@ -938,12 +940,12 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 if (isa<SliceType>(e->object->type)) {
                     if (e->member == "data") {
                         e->mlir = Create<hlir::SliceDataOp>(
-                            e->location.mlir(ctx),
+                            Loc(e->location),
                             e->object->mlir
                         );
                     } else if (e->member == "size") {
                         e->mlir = Create<hlir::SliceSizeOp>(
-                            e->location.mlir(ctx),
+                            Loc(e->location),
                             Ty(Type::Int),
                             e->object->mlir
                         );
@@ -959,7 +961,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::ScopeAccessExpr: {
             auto sa = cast<ScopeAccessExpr>(expr);
             Generate(sa->object);
-            sa->mlir = EmitReference(sa->location.mlir(ctx), sa->resolved);
+            sa->mlir = EmitReference(Loc(sa->location), sa->resolved);
         } break;
 
         case Expr::Kind::CastExpr: {
@@ -977,7 +979,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 case CastKind::LValueToRValue: {
                     Assert(c->operand->is_lvalue);
                     c->mlir = Create<hlir::LoadOp>(
-                        c->location.mlir(ctx),
+                        Loc(c->location),
                         c->operand->mlir
                     );
                 } break;
@@ -994,7 +996,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 /// Technically a no-op, but the type is different.
                 case CastKind::ArrayToElemRef:
                     c->mlir = Create<hlir::ArrayDecayOp>(
-                        c->location.mlir(ctx),
+                        Loc(c->location),
                         c->operand->mlir
                     );
                     break;
@@ -1005,9 +1007,9 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
                     /// Compare optional references against null.
                     if (isa<ReferenceType>(opt->elem)) {
-                        auto nil = Create<hlir::NilOp>(c->operand->location.mlir(ctx), Ty(opt->elem));
+                        auto nil = Create<hlir::NilOp>(Loc(c->operand->location), Ty(opt->elem));
                         c->mlir = Create<hlir::PointerNeOp>(
-                            c->location.mlir(ctx),
+                            Loc(c->location),
                             c->operand->mlir,
                             nil
                         );
@@ -1028,7 +1030,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                                      : Ty(opt->elem);
 
                         c->mlir = Create<hlir::BitCastOp>(
-                            c->location.mlir(ctx),
+                            Loc(c->location),
                             res,
                             c->operand->mlir
                         );
@@ -1045,7 +1047,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                     /// No-op for optional references. This is always an rvalue.
                     if (isa<ReferenceType>(opt->elem)) {
                         c->mlir = Create<hlir::BitCastOp>(
-                            c->location.mlir(ctx),
+                            Loc(c->location),
                             Ty(c->type),
                             c->operand->mlir
                         );
@@ -1061,7 +1063,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 case CastKind::Hard: {
                     /// Create a nil of the target type.
                     if (isa<Nil>(c->operand)) {
-                        c->mlir = Create<hlir::NilOp>(c->location.mlir(ctx), Ty(c->type));
+                        c->mlir = Create<hlir::NilOp>(Loc(c->location), Ty(c->type));
                     }
 
                     /// No-op.
@@ -1079,7 +1081,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                         if (proc_type->static_chain_parent) {
                             auto chain = GetStaticChainPointer(proc_type->static_chain_parent);
                             c->mlir = Create<hlir::MakeClosureOp>(
-                                c->location.mlir(ctx),
+                                Loc(c->location),
                                 proc.getValue(),
                                 Ty(c->type),
                                 chain
@@ -1090,7 +1092,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                         /// set it to null during lowering.
                         else {
                             c->mlir = Create<hlir::MakeClosureOp>(
-                                c->location.mlir(ctx),
+                                Loc(c->location),
                                 proc.getValue(),
                                 Ty(c->type)
                             );
@@ -1099,8 +1101,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
                     /// Integer-to-integer casts.
                     else if (c->operand->type.is_int(true) and c->type.is_int(true)) {
-                        auto from_size = c->operand->type.size(ctx);
-                        auto to_size = c->type.size(ctx);
+                        auto from_size = c->operand->type.size(mod);
+                        auto to_size = c->type.size(mod);
 
                         /// Truncation.
                         if (from_size > to_size) {
@@ -1110,13 +1112,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
                             if (c->type == Type::Bool) {
                                 auto int_type = mlir::IntegerType::get(mctx, unsigned(from_size.bits()));
                                 auto zero = Create<mlir::arith::ConstantOp>(
-                                    c->location.mlir(ctx),
+                                    Loc(c->location),
                                     int_type,
                                     mlir::IntegerAttr::get(int_type, 0)
                                 );
 
                                 c->mlir = Create<mlir::arith::CmpIOp>(
-                                    c->location.mlir(ctx),
+                                    Loc(c->location),
                                     mlir::IntegerType::get(mctx, 1),
                                     mlir::arith::CmpIPredicate::ne,
                                     c->operand->mlir,
@@ -1124,7 +1126,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                                 );
                             } else {
                                 c->mlir = Create<mlir::arith::TruncIOp>(
-                                    c->location.mlir(ctx),
+                                    Loc(c->location),
                                     mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
                                     c->operand->mlir
                                 );
@@ -1140,13 +1142,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
                             /// sign-extension would yield -1 instead of 1.
                             if (from_size.bits() == 1) {
                                 c->mlir = Create<mlir::arith::ExtUIOp>(
-                                    c->location.mlir(ctx),
+                                    Loc(c->location),
                                     mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
                                     c->operand->mlir
                                 );
                             } else {
                                 c->mlir = Create<mlir::arith::ExtSIOp>(
-                                    c->location.mlir(ctx),
+                                    Loc(c->location),
                                     mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
                                     c->operand->mlir
                                 );
@@ -1175,11 +1177,11 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::ConstExpr: {
             auto c = cast<ConstExpr>(expr);
             Assert(c->value.is_int(), "Can only generate integer constant expressions");
-            c->mlir = CreateInt(c->location.mlir(ctx), c->value.as_int(), c->type);
+            c->mlir = CreateInt(Loc(c->location), c->value.as_int(), c->type);
         } break;
 
         case Expr::Kind::DeferExpr: {
-            auto d = Create<hlir::DeferOp>(expr->location.mlir(ctx));
+            auto d = Create<hlir::DeferOp>(Loc(expr->location));
             expr->mlir = d;
             mlir::OpBuilder::InsertionGuard guard{builder};
             builder.setInsertionPointToEnd(&d.getBody().front());
@@ -1193,7 +1195,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
         case Expr::Kind::LoopControlExpr: {
             auto l = cast<LoopControlExpr>(expr);
-            const auto loc = expr->location.mlir(ctx);
+            const auto loc = Loc(expr->location);
 
             /// Emit the branch.
             Create<hlir::DirectBrOp>(
@@ -1207,7 +1209,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto g = cast<GotoExpr>(expr);
 
             Create<hlir::DirectBrOp>(
-                g->location.mlir(ctx),
+                Loc(g->location),
                 g->target->block,
                 UnwindValues(g->unwind)
             );
@@ -1219,7 +1221,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// Insert the block that we’ve already created for this label.
             if (l->used) {
                 Create<mlir::cf::BranchOp>(
-                    l->location.mlir(ctx),
+                    Loc(l->location),
                     l->block
                 );
 
@@ -1246,7 +1248,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// Return the value.
             if (not Closed()) {
                 Create<hlir::ReturnOp>(
-                    r->location.mlir(ctx),
+                    Loc(r->location),
                     r->value ? r->value->mlir : mlir::Value{},
                     UnwindValues(r->unwind)
                 );
@@ -1260,7 +1262,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// Only emit assertion message if the assertion fails.
             auto r = builder.getBlock()->getParent();
-            auto loc = a->location.mlir(ctx);
+            auto loc = Loc(a->location);
             auto fail = new mlir::Block;
             auto cont = new mlir::Block;
             Create<mlir::cf::CondBranchOp>(
@@ -1294,8 +1296,8 @@ void src::CodeGen::Generate(src::Expr* expr) {
             ///     int col
             /// )
             auto lc = a->location.seek_line_column(ctx);
-            auto line = Create<mlir::arith::ConstantIntOp>(loc, lc.line, Type::Int.size(ctx).bits());
-            auto col = Create<mlir::arith::ConstantIntOp>(loc, lc.col, Type::Int.size(ctx).bits());
+            auto line = Create<mlir::arith::ConstantIntOp>(loc, lc.line, Type::Int.size(mod).bits());
+            auto col = Create<mlir::arith::ConstantIntOp>(loc, lc.col, Type::Int.size(mod).bits());
             Generate(a->cond_str);
             Generate(a->file_str);
 
@@ -1331,7 +1333,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// Create a scope for the block.
             const bool yields_value = e->type.yields_value;
             auto b = Create<hlir::ScopeOp>(
-                e->location.mlir(ctx),
+                Loc(e->location),
                 not yields_value ? mlir::Type{}
                 : e->is_lvalue   ? hlir::ReferenceType::get(Ty(e->type))
                                  : Ty(e->type)
@@ -1359,7 +1361,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             if (yields_value) e->mlir = b.getRes();
             if (not Closed(builder.getBlock())) {
                 Create<hlir::YieldOp>(
-                    e->location.mlir(ctx),
+                    Loc(e->location),
                     yields_value ? e->exprs.back()->mlir : mlir::Value{},
                     UnwindValues(e->unwind)
                 );
@@ -1374,26 +1376,26 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto str_value = mod->strtab[str->index];
             auto i8 = mlir::IntegerType::get(mctx, 8);
             auto str_arr = Create<hlir::GlobalRefOp>(
-                str->location.mlir(ctx),
+                Loc(str->location),
                 hlir::ReferenceType::get(hlir::ArrayType::get(i8, str_value.size())),
                 mlir::SymbolRefAttr::get(mctx, fmt::format(".str.data.{}", str->index))
             );
 
             /// Insert a conversion from i8[size]& to i8&.
             auto str_ptr = Create<hlir::ArrayDecayOp>(
-                str->location.mlir(ctx),
+                Loc(str->location),
                 str_arr
             );
 
             /// Create an integer holding the string size.
             auto str_size = Create<mlir::index::ConstantOp>(
-                str->location.mlir(ctx),
+                Loc(str->location),
                 mod->strtab[str->index].size() - 1 /// Exclude null terminator.
             );
 
             /// Create a slice.
             str->mlir = Create<hlir::LiteralOp>(
-                str->location.mlir(ctx),
+                Loc(str->location),
                 hlir::SliceType::get(i8),
                 str_ptr,
                 str_size
@@ -1404,7 +1406,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         case Expr::Kind::BoolLiteralExpr: {
             auto e = cast<BoolLitExpr>(expr);
             e->mlir = Create<mlir::arith::ConstantIntOp>(
-                e->location.mlir(ctx),
+                Loc(e->location),
                 e->value,
                 mlir::IntegerType::get(mctx, 1)
             );
@@ -1413,7 +1415,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
         /// Create an integer constant.
         case Expr::Kind::IntegerLiteralExpr: {
             auto e = cast<IntLitExpr>(expr);
-            e->mlir = CreateInt(e->location.mlir(ctx), e->value, e->type);
+            e->mlir = CreateInt(Loc(e->location), e->value, e->type);
         } break;
 
         case Expr::Kind::ArrayLiteralExpr: Todo();
@@ -1425,7 +1427,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             if (not e->mlir) e->mlir = AllocateLocalVar(e);
 
             /// Handle construction.
-            Construct(e->location.mlir(ctx), e->mlir, e->type.align(ctx), e->ctor);
+            Construct(Loc(e->location), e->mlir, e->type.align(mod), e->ctor);
         } break;
 
         /// If expressions.
@@ -1441,7 +1443,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto then = new mlir::Block;
             auto join = e->type.is_noreturn ? nullptr : new mlir::Block;
             auto else_ = e->else_ ? new mlir::Block : join;
-            auto if_loc = e->location.mlir(ctx);
+            auto if_loc = Loc(e->location);
 
             /// Add an argument to the join block if the expression
             /// yields a value.
@@ -1486,19 +1488,19 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// to it and emit the condition there.
             auto region = builder.getBlock()->getParent();
             w->continue_block = Attach(region, new mlir::Block);
-            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), w->continue_block);
+            Create<mlir::cf::BranchOp>(Loc(w->location), w->continue_block);
             builder.setInsertionPointToEnd(w->continue_block);
             Generate(w->cond);
 
             /// Emit the branch to the body.
             auto body = Attach(region, new mlir::Block);
             w->break_block = new mlir::Block;
-            Create<mlir::cf::CondBranchOp>(w->location.mlir(ctx), w->cond->mlir, body, w->break_block);
+            Create<mlir::cf::CondBranchOp>(Loc(w->location), w->cond->mlir, body, w->break_block);
 
             /// Emit the body.
             builder.setInsertionPointToEnd(body);
             Generate(w->body);
-            Create<mlir::cf::BranchOp>(w->location.mlir(ctx), w->continue_block);
+            Create<mlir::cf::BranchOp>(Loc(w->location), w->continue_block);
 
             /// Insert the join block and continue inserting there.
             Attach(region, w->break_block);
@@ -1547,14 +1549,14 @@ void src::CodeGen::Generate(src::Expr* expr) {
 
             /// Create the index used for the iteration. We just store the index
             /// in a block argument since it’s not exposed anyway.
-            auto zero = Create<mlir::index::ConstantOp>(f->location.mlir(ctx), 0);
+            auto zero = Create<mlir::index::ConstantOp>(Loc(f->location), 0);
             auto region = builder.getBlock()->getParent();
 
             /// This needs to be a new block so we can branch to it.
             auto cond_block = Attach(region, new mlir::Block);
             cond_block->addArgument(mlir::IndexType::get(mctx), builder.getUnknownLoc());
             Create<mlir::cf::BranchOp>(
-                f->location.mlir(ctx),
+                Loc(f->location),
                 cond_block,
                 mlir::ValueRange{f->reverse ? size.getRes() : zero}
             );
@@ -1596,7 +1598,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 offset = Create<mlir::index::SubOp>(
                     builder.getUnknownLoc(),
                     offset,
-                    Create<mlir::index::ConstantOp>(f->location.mlir(ctx), 1)
+                    Create<mlir::index::ConstantOp>(Loc(f->location), 1)
                 );
             }
 
@@ -1624,13 +1626,13 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 inc = Create<mlir::index::SubOp>(
                     builder.getUnknownLoc(),
                     cond_block->getArgument(0),
-                    Create<mlir::index::ConstantOp>(f->location.mlir(ctx), 1)
+                    Create<mlir::index::ConstantOp>(Loc(f->location), 1)
                 );
             } else {
                 inc = Create<mlir::index::AddOp>(
                     builder.getUnknownLoc(),
                     cond_block->getArgument(0),
-                    Create<mlir::index::ConstantOp>(f->location.mlir(ctx), 1)
+                    Create<mlir::index::ConstantOp>(Loc(f->location), 1)
                 );
             }
 
@@ -1654,7 +1656,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 /// Negation.
                 case Tk::Not: {
                     u->mlir = Create<hlir::NotOp>(
-                        u->location.mlir(ctx),
+                        Loc(u->location),
                         u->operand->mlir
                     );
                 } break;
@@ -1662,7 +1664,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 /// Dereference.
                 case Tk::Star: {
                     u->mlir = Create<hlir::LoadOp>(
-                        u->location.mlir(ctx),
+                        Loc(u->location),
                         u->operand->mlir
                     );
                 } break;
@@ -1681,12 +1683,12 @@ void src::CodeGen::Generate(src::Expr* expr) {
             Generate(f->object);
 
             auto ptr = Create<hlir::SliceDataOp>(
-                f->location.mlir(ctx),
+                Loc(f->location),
                 f->object->mlir
             );
 
             f->mlir = Create<hlir::OffsetOp>(
-                f->location.mlir(ctx),
+                Loc(f->location),
                 ptr,
                 f->index->mlir
             );
@@ -1696,7 +1698,7 @@ void src::CodeGen::Generate(src::Expr* expr) {
             auto b = cast<BinaryExpr>(expr);
             if (b->op == Tk::And or b->op == Tk::Or) {
                 Generate(b->lhs);
-                auto loc = b->location.mlir(ctx);
+                auto loc = Loc(b->location);
                 auto rhs = new mlir::Block;
                 auto res = new mlir::Block;
                 res->addArgument(Ty(Type::Bool), loc);
@@ -1785,10 +1787,10 @@ void src::CodeGen::Generate(src::Expr* expr) {
                 case Tk::Assign:
                 case Tk::RDblArrow: {
                     Create<hlir::StoreOp>(
-                        b->location.mlir(ctx),
+                        Loc(b->location),
                         b->lhs->mlir,
                         b->rhs->mlir,
-                        b->type.align(ctx).value()
+                        b->type.align(mod).value()
                     );
 
                     /// Yields lhs as lvalue.
@@ -1819,17 +1821,17 @@ void src::CodeGen::GenerateAssignBinOp(src::BinaryExpr* b) {
     /// LHS is an lvalue, so load it first. Perform the binary
     /// operation and store the result back into the lvalue; the
     /// yield of the entire expression is the lvalue.
-    auto align = b->type.align(ctx).value();
-    auto lhs = Create<hlir::LoadOp>(b->lhs->location.mlir(ctx), b->lhs->mlir);
-    auto res = Create<Op>(b->location.mlir(ctx), lhs, b->rhs->mlir);
-    Create<hlir::StoreOp>(b->location.mlir(ctx), b->lhs->mlir, res, align);
+    auto align = b->type.align(mod).value();
+    auto lhs = Create<hlir::LoadOp>(Loc(b->lhs->location), b->lhs->mlir);
+    auto res = Create<Op>(Loc(b->location), lhs, b->rhs->mlir);
+    Create<hlir::StoreOp>(Loc(b->location), b->lhs->mlir, res, align);
     b->mlir = b->lhs->mlir;
 }
 
 template <typename Op>
 void src::CodeGen::GenerateBinOp(src::BinaryExpr* b) {
     b->mlir = Create<Op>(
-        b->location.mlir(ctx),
+        Loc(b->location),
         b->lhs->mlir,
         b->rhs->mlir
     );
@@ -1838,7 +1840,7 @@ void src::CodeGen::GenerateBinOp(src::BinaryExpr* b) {
 template <typename Op>
 void src::CodeGen::GenerateCmpOp(BinaryExpr* b, mlir::arith::CmpIPredicate pred) {
     b->mlir = Create<Op>(
-        b->location.mlir(ctx),
+        Loc(b->location),
         pred,
         b->lhs->mlir,
         b->rhs->mlir
@@ -1850,7 +1852,7 @@ void src::CodeGen::GenerateModule() {
 
     /// Initialise MLIR module.
     mod->mlir_module_op = mlir::ModuleOp::create(
-        mod->module_decl_location.mlir(ctx),
+        Loc(mod->module_decl_location),
         mod->name.empty() ? "__exe__" : mod->name
     );
 
@@ -1868,7 +1870,7 @@ void src::CodeGen::GenerateModule() {
 
     /// Codegen string literals.
     builder.setInsertionPointToEnd(mod->mlir.getBody());
-    for (auto [i, s] : vws::enumerate(mod->strtab)) {
+    for (auto [i, s] : llvm::enumerate(mod->strtab)) {
         Create<hlir::StringOp>(
             builder.getUnknownLoc(),
             StringRef(s.data(), s.size()),
@@ -1935,7 +1937,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
     auto ptype = cast<ProcType>(proc->type);
     auto ty = Ty(ptype);
     auto func = Create<hlir::FuncOp>(
-        proc->location.mlir(ctx),
+        Loc(proc->location),
         proc->mangled_name,
         ConvertLinkage(proc->linkage),
         mlir::LLVM::CConv::C,
@@ -1976,7 +1978,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
                     mlir::LLVM::Linkage::Private,
                     name,
                     mlir::IntegerAttr::get(int32, 0),
-                    Type::I32.align(ctx).value()
+                    Type::I32.align(mod).value()
                 );
             }
 
@@ -2040,7 +2042,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
     InitStaticChain(proc, func);
 
     /// Create local variables for parameters.
-    for (auto [i, p] : vws::enumerate(proc->params)) {
+    for (auto [i, p] : llvm::enumerate(proc->params)) {
         p->emitted = true;
         p->mlir = AllocateLocalVar(p);
 
@@ -2048,10 +2050,10 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
 
         /// Store the initial parameter value in the variable.
         Create<hlir::StoreOp>(
-            p->location.mlir(ctx),
+            Loc(p->location),
             p->mlir,
             func.getExplicitArgument(u32(i)),
-            p->type.align(ctx).value()
+            p->type.align(mod).value()
         );
     }
 
@@ -2065,20 +2067,20 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
     if (func.back().empty() or not func.back().back().hasTrait<mlir::OpTrait::IsTerminator>()) {
         /// Function returns void.
         if (proc->ret_type == Type::Void) {
-            Create<hlir::ReturnOp>(proc->location.mlir(ctx));
+            Create<hlir::ReturnOp>(Loc(proc->location));
         }
 
         /// Function does not return, or all paths return a value, but there
         /// is no return expression at the very end.
         else if (proc->ret_type == Type::NoReturn or not proc->body->implicit) {
-            Create<hlir::UnreachableOp>(proc->location.mlir(ctx));
+            Create<hlir::UnreachableOp>(Loc(proc->location));
         }
 
         /// Function is a `= <expr>` function that returns its body.
         else {
             Assert(proc->body->mlir, "Inferred procedure body must yield a value");
             Create<hlir::ReturnOp>(
-                proc->location.mlir(ctx),
+                Loc(proc->location),
                 proc->body->mlir
             );
         }

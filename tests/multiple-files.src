@@ -1,0 +1,4 @@
+
+proc sink (foo) extern;
+
+sink bar();

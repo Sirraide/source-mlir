@@ -102,7 +102,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
                 if (c->type == c->operand->type) return true;
 
                 /// Always *zero-extend* bools to avoid turning true into -1.
-                const auto bits = unsigned(c->type.size(mod->context).bits());
+                const auto bits = unsigned(c->type.size(mod).bits());
                 if (c->operand->type == Type::Bool) {
                     out.as_int() = out.as_int().zext(bits);
                     return true;
@@ -188,12 +188,12 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
 
                 case Tk::StarStar: {
                     if (rhs.isZero()) {
-                        out = {APInt(unsigned(b->lhs->type.size(mod->context).bits()), 1), b->lhs->type};
+                        out = {APInt(unsigned(b->lhs->type.size(mod).bits()), 1), b->lhs->type};
                         return true;
                     }
 
                     if (rhs.isNegative()) {
-                        out = {APInt(unsigned(b->lhs->type.size(mod->context).bits()), 0), b->lhs->type};
+                        out = {APInt(unsigned(b->lhs->type.size(mod).bits()), 0), b->lhs->type};
                         return true;
                     }
 

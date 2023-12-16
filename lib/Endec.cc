@@ -411,7 +411,7 @@ struct Serialiser {
                 }
 
                 /// Write field types.
-                for (const auto& [i, f] : vws::enumerate(s->all_fields)) {
+                for (const auto& [i, f] : llvm::enumerate(s->all_fields)) {
                     auto td = SerialiseType(cast<TypeBase>(f.type));
                     WriteAt(offs + usz(i) * sizeof(TD), td);
                 }
@@ -508,7 +508,7 @@ struct Deserialiser {
     Context* ctx;
     Location loc;
     ArrayRef<u8> description;
-    std::unique_ptr<Module> mod{};
+    Module* mod{};
     UncompressedHeader uhdr;
 
     SmallVector<std::pair<Type*, TD>> type_fixup_list;
@@ -516,7 +516,7 @@ struct Deserialiser {
 
     Deserialiser(Context* ctx, std::string module_name, Location loc, ArrayRef<u8> description)
         : ctx{ctx}, loc{loc}, description{description} {
-        mod = std::make_unique<Module>(ctx, std::move(module_name), false, loc);
+        mod = Module::Create(ctx, std::move(module_name), false, loc);
     }
 
     /// Abort due to ill-formed module description.
@@ -528,7 +528,7 @@ struct Deserialiser {
     }
 
     /// Entry.
-    auto deserialise() -> std::unique_ptr<Module> {
+    auto deserialise() -> Module* {
         auto data = StringRef{reinterpret_cast<const char*>(description.data()), description.size()};
         auto obj_contents = llvm::MemoryBufferRef{data, mod->name};
         auto expected_obj = llvm::object::ObjectFile::createObjectFile(obj_contents);
@@ -573,7 +573,7 @@ struct Deserialiser {
         }
 
         /// If we get here, everything went well.
-        return std::move(mod);
+        return mod;
     }
 
     /// Version 0.
@@ -866,7 +866,5 @@ auto src::Module::Deserialise(
     Location loc,
     ArrayRef<u8> description
 ) -> Module* {
-    auto m = Deserialiser{ctx, std::move(module_name), loc, description}.deserialise();
-    ctx->modules.push_back(std::move(m));
-    return ctx->modules.back().get();
+    return Deserialiser{ctx, std::move(module_name), loc, description}.deserialise();
 }

@@ -668,12 +668,10 @@ void src::Parser::ParseFile() {
         Next();
         if (not Consume(Tk::Semicolon)) Error("Expected ';'");
 
-        ctx->modules.push_back(std::make_unique<Module>(ctx, std::move(module_name), false, loc));
+        mod = Module::Create(ctx, std::move(module_name), false, loc);
     } else {
-        ctx->modules.push_back(std::make_unique<Module>(ctx, ""));
+        mod = Module::Create(ctx, "");
     }
-
-    mod = ctx->modules.back().get();
 
     /// Parse imports.
     while (At(Tk::Identifier) and tok.text == "import") {
@@ -713,7 +711,7 @@ void src::Parser::ParseFile() {
         }
 
         /// Skip duplicate imports.
-        if (rgs::contains(mod->imports, name, &ImportedModuleRef::linkage_name)) {
+        if (utils::contains(mod->imports, name, &ImportedModuleRef::linkage_name)) {
             Diag::Warning(ctx, start, "Duplicate import '{}' ignored", name);
             Synchronise();
             continue;
@@ -1201,32 +1199,32 @@ auto src::Parser::ParseType() -> Result<Type> {
 
         /// Builtins. Not officially part of the language.
         case Tk::CChar:
-            base_type = mod->ffi_char;
+            base_type = ctx->ffi_char;
             Next();
             break;
 
         case Tk::CShort:
-            base_type = mod->ffi_short;
+            base_type = ctx->ffi_short;
             Next();
             break;
 
         case Tk::CInt:
-            base_type = mod->ffi_int;
+            base_type = ctx->ffi_int;
             Next();
             break;
 
         case Tk::CLong:
-            base_type = mod->ffi_long;
+            base_type = ctx->ffi_long;
             Next();
             break;
 
         case Tk::CLongLong:
-            base_type = mod->ffi_long_long;
+            base_type = ctx->ffi_long_long;
             Next();
             break;
 
         case Tk::CSizeT:
-            base_type = mod->ffi_size_t;
+            base_type = ctx->ffi_size_t;
             Next();
             break;
     }

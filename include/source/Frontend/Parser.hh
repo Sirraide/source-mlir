@@ -16,9 +16,6 @@ class Parser : Lexer {
     /// Current function.
     ProcDecl* curr_func{};
 
-    __declspec(property (get = foo))
-    int s;
-
     readonly(BlockExpr*, global_scope, return scope_stack[0]);
     readonly(BlockExpr*, curr_scope, return scope_stack.back());
     readonly(Location, curr_loc, return tok.location);

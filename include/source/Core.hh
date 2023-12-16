@@ -4,7 +4,6 @@
 #include <clang/Frontend/CompilerInstance.h>
 #include <llvm/IR/Module.h>
 #include <mlir/IR/MLIRContext.h>
-#include <source/Support/Buffer.hh>
 #include <source/Support/StringTable.hh>
 #include <source/Support/Utils.hh>
 
@@ -35,6 +34,7 @@ inline constexpr usz SizeOfMLIRValue = 8;
     alignas(::src::AlignOfMLIRType) char _##name##_[::src::SizeOfMLIRType]{}; \
     property_decl(mlir::Type, name)
 
+class DriverImpl;
 class Context;
 class Module;
 class Decl;
@@ -103,27 +103,49 @@ private:
     friend Context;
 };
 
+/// Context.
+///
+/// This stores anything that is shared between modules. Operations
+/// on the context are thread-safe.
 class Context {
+    friend DriverImpl;
+
     /// The files owned by the context.
     std::vector<std::unique_ptr<File>> owned_files;
 
-    /// Error flag. This is set-only.
-    mutable bool error_flag = false;
-
-public:
-    /// Contexts.
-    mlir::MLIRContext mlir;
-    llvm::LLVMContext llvm;
-    clang::CompilerInstance clang;
-
     /// Import paths.
-    std::vector<fs::path> import_paths;
+    std::span<const fs::path> module_import_paths;
 
-    /// Modules in the context.
+    /// Modules in the context. Sometimes, we have to create modules
+    /// during the compilation process, so we have to store them all
+    /// in the context so we always have a place where we can put them.
     std::vector<std::unique_ptr<Module>> modules;
 
+    /// For thread safety.
+    mutable std::recursive_mutex mtx;
+
+    /// Whether to use colours in diagnostics.
+    std::atomic<bool> should_use_colours = true;
+
+    /// Error flag. This is set-only.
+    mutable std::atomic_flag error_flag;
+
+    /// Some built-in types are stored here.
+    std::array<std::unique_ptr<IntType>, 6> type_storage;
 public:
-    friend Module;
+    /// Whether to use colours in diagnostics.
+    readonly_const(bool, use_colours, return should_use_colours.load(std::memory_order_relaxed));
+
+    /// Paths to search for modules.
+    readonly_const(std::span<const fs::path>, import_paths, return module_import_paths);
+
+    /// FFI types.
+    IntType* ffi_char;
+    IntType* ffi_short;
+    IntType* ffi_int;
+    IntType* ffi_long;
+    IntType* ffi_long_long;
+    IntType* ffi_size_t;
 
     /// Create a context for the host target.
     explicit Context();
@@ -137,18 +159,30 @@ public:
     /// Delete context data.
     ~Context();
 
+    /// Add a module to the context.
+    void add_module(std::unique_ptr<Module> mod);
+
     /// Create a new file from a name and contents.
     template <typename Buffer>
     File& create_file(fs::path name, Buffer&& contents) {
+        std::unique_lock _{mtx};
         return MakeFile(
             std::move(name),
             std::vector<char>{std::forward<Buffer>(contents)}
         );
     }
 
-    /// Get a list of all files owned by the context.
-    [[nodiscard]] auto files() const -> const decltype(owned_files)& {
-        return owned_files;
+    /// Get a file by id.
+    [[nodiscard]] auto file(usz id) const -> File* {
+        std::unique_lock _{mtx};
+        if (id >= owned_files.size()) return nullptr;
+        return owned_files[id].get();
+    }
+
+    /// Get the number of files in the context.
+    [[nodiscard]] auto file_count() const -> usz {
+        std::unique_lock _{mtx};
+        return owned_files.size();
     }
 
     /// Get a file from disk.
@@ -161,23 +195,23 @@ public:
     File& get_or_load_file(fs::path path);
 
     /// Check if the error flag is set.
-    [[nodiscard]] bool has_error() const { return error_flag; }
+    [[nodiscard]] bool has_error() const {
+        return error_flag.test(std::memory_order_acquire);
+    }
+
+    /// Create a clang compiler instance.
+    void init_clang(clang::CompilerInstance& ci);
 
     /// Set the error flag.
     ///
     /// \return The previous value of the error flag.
     bool set_error() const {
-        auto old = error_flag;
-        error_flag = true;
-        return old;
+        return error_flag.test_and_set(std::memory_order_release);
     }
 
 private:
     /// Initialise the context.
     void Initialise();
-
-    /// Initialise the MLIR context. Implemented in HLIR.cc.
-    void InitialiseMLIRContext();
 
     /// Register a file in the context.
     File& MakeFile(fs::path name, std::vector<char>&& contents);
@@ -265,9 +299,6 @@ struct Location {
 
     [[nodiscard]] constexpr bool is_valid() const { return len != 0; }
 
-    /// Get this location as an MLIR Location. Implemented in CodeGen.cc.
-    [[nodiscard]] auto mlir(Context* ctx) const -> mlir::Location;
-
     /// Seek to a source location.
     [[nodiscard]] auto seek(const Context* ctx) const -> LocInfo;
 
@@ -308,12 +339,25 @@ struct ImportedModuleRef {
 
     /// The module.
     Module* mod{};
+
+    friend bool operator==(const ImportedModuleRef& a, const ImportedModuleRef& b) {
+        return a.logical_name == b.logical_name and
+               a.linkage_name == b.linkage_name and
+               a.is_open == b.is_open;
+    }
 };
 
 /// A Source module.
+///
+/// Unlike the context, a module is NOT thread-safe; it may only be
+/// accessed from one thread at a time.
 class Module {
+    llvm::LLVMContext llvm_context;
+
 public:
     Context* const context;
+
+    clang::CompilerInstance clang;
 
     /// Modules imported by this module.
     SmallVector<ImportedModuleRef> imports;
@@ -349,7 +393,7 @@ public:
     readonly(bool, is_logical_module, return not name.empty());
 
     /// Whether this is a C++ header.
-    bool is_cxx_header;
+    bool is_cxx_header{};
 
     /// Get the global scope of this module.
     readonly_decl(BlockExpr*, global_scope);
@@ -366,25 +410,44 @@ public:
     /// imported modules.
     std::unique_ptr<llvm::Module> llvm;
 
-    /// FFI types.
-    IntType* ffi_char;
-    IntType* ffi_short;
-    IntType* ffi_int;
-    IntType* ffi_long;
-    IntType* ffi_long_long;
-    IntType* ffi_size_t;
-
-    /// An empty name means this isn’t a logical module.
+private:
     explicit Module(
+        Context* ctx,
+        std::string name,
+        bool is_cxx_header,
+        Location module_decl_location
+    );
+
+public:
+    Module(const Module&) = delete;
+    Module(Module&&) = delete;
+    Module& operator=(const Module&) = delete;
+    Module& operator=(Module&&) = delete;
+    ~Module();
+
+    /// Create a new module.
+    static auto Create(
         Context* ctx,
         std::string name,
         bool is_cxx_header = false,
         Location module_decl_location = {}
-    );
-    ~Module();
+    ) -> Module*;
 
     /// Add a function to this module.
     void add_function(ProcDecl* func) { functions.push_back(func); }
+
+    /// Add an import to this module.
+    bool add_import(
+        StringRef linkage_name,
+        StringRef logical_name,
+        Location import_location,
+        bool is_open = false,
+        bool is_cxx_header = false
+    );
+
+    /// Merge another module into this one. The other module will be
+    /// left empty and should not be used anymore.
+    void assimilate(Module* other);
 
     /// Get the name to use for the module description section in the object file.
     [[nodiscard]] auto description_section_name() const -> std::string {
@@ -409,10 +472,10 @@ public:
 
     /// Print the AST of the module to stdout. Implemented
     /// in AST.cc
-    void print_ast(bool use_colour) const;
+    void print_ast() const;
 
     /// Print the AST of any exported symbols.
-    void print_exports(bool use_colour) const;
+    void print_exports() const;
 
     /// Print the HLIR of the module. Implemented in CodeGen.cc.
     void print_hlir(bool use_generic_assembly_format) const;
@@ -426,7 +489,6 @@ public:
     /// Serialise the module to a description that can be saved and
     /// loaded later. Implemented in Endec.cc.
     auto serialise() -> SmallVector<u8>;
-
 
     /// Deserialise a module from a module description. Implemented in Endec.cc.
     static auto Deserialise(

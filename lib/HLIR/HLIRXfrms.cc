@@ -606,7 +606,7 @@ struct HLIRXfrmPass
 
 } // namespace mlir::hlir
 
-void src::LowerHLIR(Module* mod) {
+void src::LowerHLIR(mlir::MLIRContext* mlir, Module* mod) {
     /// These do not operate as a pass because individual operations interact
     /// in complex ways that a pass can’t model to well, at least not in my
     /// experience.
@@ -614,7 +614,7 @@ void src::LowerHLIR(Module* mod) {
     mlir::hlir::InlineScopes(mod);
 
     /// Lowering that processes operations individually.
-    mlir::PassManager pm{&mod->context->mlir};
+    mlir::PassManager pm{mlir};
     pm.addPass(std::make_unique<mlir::hlir::HLIRXfrmPass>());
     if (mlir::failed(pm.run(mod->mlir)))
         Diag::ICE(mod->context, mod->module_decl_location, "Module lowering failed");

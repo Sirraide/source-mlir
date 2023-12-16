@@ -9,8 +9,14 @@ class StringTable {
     SmallVector<SmallString<32>, 0> data;
 
 public:
-    auto begin() const { return data.begin(); }
-    auto end() const { return data.end(); }
+    /// Merge another string table into this one.
+    auto assimilate(StringTable&& other) -> void {
+        data.reserve(data.size() + other.data.size());
+        for (auto& s : other.data) data.emplace_back(std::move(s));
+    }
+
+    auto begin(this auto&& self) { return FWD(self).data.begin(); }
+    auto end(this auto&& self) { return FWD(self).data.end(); }
 
     /// Intern a string.
     auto intern(StringRef str) -> u32 {

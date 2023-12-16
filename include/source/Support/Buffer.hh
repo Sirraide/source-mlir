@@ -1,5 +1,5 @@
-#ifndef SOURCE_BUFFER_HH
-#define SOURCE_BUFFER_HH
+#ifndef SOURCE_SUPPORT_BUFFER_HH
+#define SOURCE_SUPPORT_BUFFER_HH
 
 #include <source/Support/Utils.hh>
 
@@ -53,9 +53,17 @@ public:
     [[nodiscard]] auto size() const -> usz { return element_count; }
 
     /// Access an element of the buffer.
-    [[nodiscard]] auto operator[](this auto&& self, usz idx) {
+    template <std::unsigned_integral Index>
+    [[nodiscard]] auto operator[](this auto&& self, Index idx) -> decltype(FWD(self).buffer[idx]) {
         FWD(self).CheckInbounds(idx);
         return FWD(self).buffer[idx];
+    }
+
+    /// Access an element of the buffer.
+    template <std::signed_integral Index>
+    [[nodiscard]] auto operator[](this auto&& self, Index idx) -> decltype(FWD(self).buffer[usz(idx)]) {
+        FWD(self).CheckInbounds(idx);
+        return FWD(self).buffer[usz(idx)];
     }
 
     /// Access a range of elements of the buffer.
@@ -73,10 +81,17 @@ public:
     operator ArrayRef<T>() const { return {buffer.get(), size()}; }
 
 private:
-    void CheckInbounds(usz idx) const {
+    template <std::unsigned_integral Index>
+    void CheckInbounds(Index idx) const {
         Assert(idx < size(), "Index out of bounds");
     }
-};
-} // namespace src
 
-#endif // SOURCE_BUFFER_HH
+    template <std::signed_integral Index>
+    void CheckInbounds(Index idx) const {
+        Assert(idx >= 0, "Index out of bounds");
+        CheckInbounds(std::make_unsigned_t<Index>(idx));
+    }
+};
+} // namespace src::utils
+
+#endif // SOURCE_SUPPORT_BUFFER_HH

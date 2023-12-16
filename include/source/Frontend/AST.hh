@@ -3,7 +3,6 @@
 
 #include <source/Core.hh>
 #include <source/Frontend/Lexer.hh>
-#include <source/Support/Buffer.hh>
 #include <source/Support/Result.hh>
 
 namespace src {
@@ -184,12 +183,17 @@ public:
     /// may also contain the expression itself if it is protected.
     SmallVector<Expr*, 1> protected_children{};
 
+private:
+    friend Context;
+    void* operator new(size_t sz) {
+        return __builtin_operator_new(sz);
+    }
+
 public:
     Expr(Kind k, Location loc) : kind(k), location(loc) {}
     virtual ~Expr() = default;
 
     /// Only allow allocating nodes in a module.
-    void* operator new(size_t) = delete;
     void* operator new(size_t sz, Module* mod) noexcept {
         return utils::AllocateAndRegister<Expr>(sz, mod->exprs);
     }
@@ -274,7 +278,7 @@ public:
     static Type UnsafeEmpty() { return Type(NullConstructTag{}); }
 
     /// Get the alignment of this type, in *bytes*.
-    auto align(Context* ctx) const -> Align;
+    auto align(Module* mod) const -> Align;
 
     /// Get the procedure type from a closure or proc.
     readonly_decl(ProcType*, callable);
@@ -307,7 +311,7 @@ public:
     readonly_decl(isz, ref_depth);
 
     /// Get the size of this type.
-    auto size(Context* ctx) const -> Size;
+    auto size(Module* mod) const -> Size;
 
     /// Get a string representation of this type.
     auto str(bool use_colour) const -> std::string;
@@ -1613,13 +1617,11 @@ constexpr Type::Type(TypeBase* ptr) : ptr(ptr) { Assert(ptr); }
 
 class IntType : public TypeBase {
 public:
-    /// The size of this integer type, in bits.
-    Size size;
+    const Size size;
 
     IntType(Size size, Location loc)
         : TypeBase(Kind::IntType, loc), size(size) {
-        /// TODO: Maybe allow `i0` so we can set this unconditionally?
-        if (size.bits() > 0) sema.set_done();
+        sema.set_done();
     }
 
     static auto Create(Module* mod, Size size, Location loc = {}) -> IntType* {

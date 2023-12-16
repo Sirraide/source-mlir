@@ -1,14 +1,11 @@
 #include <clopts.hh>
 #include <csignal>
-#include <source/CG/CodeGen.hh>
-#include <source/Core.hh>
-#include <source/Frontend/Parser.hh>
-#include <source/Frontend/Sema.hh>
+#include <source/Driver/Driver.hh>
 
 namespace detail {
 using namespace command_line_options;
 using options = clopts< // clang-format off
-    positional<"file", "The file to compile">,
+    multiple<positional<"file", "The file to compile", std::string, true>>,
     option<"--colour", "Enable coloured output (default: auto)", values<"always", "auto", "never">>,
     option<"--dir", "Set module output directory">,
     option<"-o", "Output file name. Ignored for modules">,
@@ -28,11 +25,16 @@ using options = clopts< // clang-format off
     flag<"--nostdrt", "Do not import the standard runtime module">,
     flag<"--sema", "Run sema only and always exit with code 0 unless there is an ICE">,
     flag<"--syntax-only", "Skip the semantic analysis step">,
+    option<"--threads", "Number of threads to use for compilation", std::int64_t>,
     flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
     help<>
 >; // clang-format on
 }
 using detail::options;
+
+/// TODO: Optional `program <name>` directive in the first line of a file
+/// to allow specifying the name of the executable (as well as building
+/// multiple executables at the same time)
 
 int main(int argc, char** argv) {
     /// Parse options.
@@ -45,150 +47,48 @@ int main(int argc, char** argv) {
         else if (*c == "never") use_colour = false;
     }
 
-    /// Create context.
-    src::Context ctx;
+    /// Create driver.
+    using Action = src::CompileOptions::Action;
+    auto driver = src::Driver::Create({
+        .module_output_dir = opts.get_or<"--dir">(src::fs::current_path()),
+        .executable_output_name = opts.get_or<"-o">("a.out"),
+        .opt_level = src::u8(opts.get_or<"-O">(0)),
+        .action = opts.get<"--ast">()        ? Action::PrintAST
+                : opts.get<"--debug-llvm">() ? Action::PrintLLVMLowering
+                : opts.get<"--exports">()    ? Action::PrintExports
+                : opts.get<"--hlir">()       ? Action::PrintHLIR
+                : opts.get<"--llvm">()       ? Action::PrintLLVM
+                : opts.get<"--lowered">()    ? Action::PrintLoweredHLIR
+                : opts.get<"-r">()           ? Action::Execute
+                : opts.get<"--sema">()       ? Action::Sema
+                                             : Action::Compile,
+
+        .threads = src::u16(opts.get_or<"--threads">(0)),
+        .debug_cxx = opts.get<"--debug-cxx">(),
+        .include_runtime = not opts.get<"--nostdrt">(),
+        .syntax_only = opts.get<"--syntax-only">(),
+        .use_default_import_paths = not opts.get<"--nostdinc">(),
+        .use_colours = use_colour,
+        .use_generic_assembly_format = opts.get<"--use-generic-assembly-format">(),
+        .verify_hlir = not opts.get<"--no-verify">(),
+    });
 
     /// Add import paths.
-    for (auto& path : *opts.get<"-I">()) {
-        std::filesystem::path p{path};
-        if (p.is_relative()) p = std::filesystem::current_path() / p;
-        ctx.import_paths.push_back(std::move(p));
-    }
+    for (auto& path : *opts.get<"-I">())
+        driver->add_import_path(path);
 
     /// Describe module, if requested.
     if (opts.get<"--describe-module">()) {
-        src::Module* mod{};
-        auto& name = *opts.get<"file">();
-
-        /// C++ header.
-        if (name.starts_with('<') and name.ends_with('>')) {
-            name = name.substr(1, name.size() - 2);
-            mod = src::Module::ImportCXXHeaders(
-                &ctx,
-                {name},
-                name,
-                opts.get<"--debug-cxx">(),
-                {}
-            );
-        }
-
-        else {
-            /// Runtime.
-            if (name == __SRCC_RUNTIME_NAME and not opts.get<"--nostdrt">()) {
-                std::filesystem::path p = __SRCC_BUILTIN_MODULE_PATH;
-                p /= __SRCC_RUNTIME_NAME;
-                p += __SRCC_OBJ_FILE_EXT;
-                name = p.string();
-            }
-
-            auto& f = ctx.get_or_load_file(name);
-            mod = src::Module::Deserialise(
-                &ctx,
-                auto{f.path()}.filename().replace_extension(""),
-                {},
-                llvm::ArrayRef(
-                    reinterpret_cast<const src::u8*>(f.data()),
-                    f.size()
-                )
-            );
-        }
-
-        /// Check for errors.
-        if (ctx.has_error()) std::exit(1);
-        mod->print_exports(use_colour);
-        std::exit(0);
+        const bool ok = driver->describe_module(opts.get<"file">()->front());
+        std::exit(ok ? 0 : 1);
     }
 
-    /// Parse the file. Exit on error since, in that case, the
-    /// parser returns nullptr.
-    auto& f = ctx.get_or_load_file(*opts.get<"file">());
-    auto mod = src::Parser::Parse(ctx, f);
-    if (ctx.has_error()) std::exit(1);
+    /// Collect files.
+    std::vector<std::filesystem::path> files;
+    for (auto& f : *opts.get<"file">()) files.emplace_back(f);
 
-    /// Print the AST of the module, if requested.
-    if (opts.get<"--syntax-only">()) {
-        if (opts.get<"--ast">()) mod->print_ast(use_colour);
-        std::exit(0);
-    }
-
-    /// Import standard modules, if requested.
-    if (not opts.get<"--nostdinc">()) ctx.import_paths.emplace_back(__SRCC_BUILTIN_MODULE_PATH);
-    if (not opts.get<"--nostdrt">()) mod->imports.push_back(src::ImportedModuleRef{
-        .linkage_name = __SRCC_RUNTIME_NAME,
-        .logical_name = __SRCC_RUNTIME_NAME,
-        .import_location = {},
-        .is_open = false,
-        .is_cxx_header = false,
-    });
-
-    /// Perform semantic analysis.
-    src::Sema::Analyse(mod, opts.get<"--debug-cxx">());
-    if (ctx.has_error()) std::exit(opts.get<"--sema">() ? 0 : 1);
-    if (opts.get<"--ast">() or opts.get<"--sema">()) {
-        if (opts.get<"--ast">()) mod->print_ast(use_colour);
-        std::exit(0);
-    }
-
-    /// Print exports if requested.
-    if (opts.get<"--exports">()) {
-        if (not mod->is_logical_module) src::Diag::Fatal(
-            "Cannot print exports: not a logical module"
-        );
-
-        for (auto& exps : mod->exports)
-            for (auto e : exps.second)
-                e->print(false);
-
-        std::exit(0);
-    }
-
-    /// Generate HLIR. If this fails, that’s an ICE, so no
-    /// need for error checking here.
-    src::CodeGenModule(mod, opts.get<"--no-verify">());
-    if (ctx.has_error()) std::exit(1);
-    if (opts.get<"--hlir">()) {
-        mod->print_hlir(opts.get<"--use-generic-assembly-format">());
-        std::exit(0);
-    }
-
-    /// Lower HLIR to lowered HLIR.
-    src::LowerHLIR(mod);
-    if (ctx.has_error()) std::exit(1);
-    if (opts.get<"--lowered">()) {
-        mod->print_hlir(opts.get<"--use-generic-assembly-format">());
-        std::exit(0);
-    }
-
-    /// Lower HLIR to LLVM IR.
-    src::LowerToLLVM(mod, opts.get<"--debug-llvm">(), opts.get<"--no-verify">());
-    if (ctx.has_error()) std::exit(1);
-    if (opts.get<"--llvm">()) {
-        mod->print_llvm(int(opts.get_or<"-O">(0)));
-        std::exit(0);
-    }
-
-    /// Run the code if requested.
-    if (opts.get<"-r">()) {
-        if (mod->is_logical_module) src::Diag::Fatal("'-r' flag is invalid: cannot execute module");
-        return mod->run(int(opts.get_or<"-O">(0)));
-    }
-
-    /// Emit the module to disk.
-    if (mod->is_logical_module) {
-        auto dir = opts.get_or<"--dir">(std::filesystem::current_path());
-        auto oname = fmt::format(
-            "{}/{}" __SRCC_OBJ_FILE_EXT,
-            dir,
-            not mod->name.empty() ? mod->name : f.path().filename().replace_extension("").string()
-        );
-        mod->emit_object_file(int(opts.get_or<"-O">(0)), oname);
-    }
-
-    /// Emit executables in the cwd.
-    else {
-        auto oname = opts.get_or<"-o">(f.path().filename().replace_extension("").string());
-        mod->emit_executable(int(opts.get_or<"-O">(0)), oname);
-    }
+    /// Dew it.
+    return driver->compile(std::move(files));
 
     /*    /// Notes:
         /// - ‘freeze’ keyword that makes a value const rather than forcing

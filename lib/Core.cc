@@ -26,9 +26,42 @@ src::Context::~Context() = default;
 
 src::Context::Context() {
     Initialise();
+
+    /// Init builtin types.
+    clang::CompilerInstance clang;
+    init_clang(clang);
+    auto& ast = clang.getASTContext();
+    auto CreateFFIIntType = [&](clang::CanQualType cxx_type) -> IntType* {
+        auto integer = new IntType(Size::Bits(ast.getTypeSize(cxx_type)), {});
+        integer->sema.set_done();
+        /// TODO(AST-REFACTOR): reenable this.
+        /*auto source_align = Type(integer).align(this);
+        auto cxx_align = ast.getTypeAlign(cxx_type) / 8;
+        Assert(
+            source_align == cxx_align,
+            "Unsupported: Weird alignment for FFI type '{}': source:{} vs cxx:{}",
+            Type(integer).str(true),
+            source_align.value(),
+            cxx_align
+        );*/
+        return integer;
+    };
+
+    ffi_char = CreateFFIIntType(ast.CharTy);
+    ffi_short = CreateFFIIntType(ast.ShortTy);
+    ffi_int = CreateFFIIntType(ast.IntTy);
+    ffi_long = CreateFFIIntType(ast.LongTy);
+    ffi_long_long = CreateFFIIntType(ast.LongLongTy);
+    ffi_size_t = CreateFFIIntType(ast.getSizeType());
+}
+
+void src::Context::add_module(std::unique_ptr<Module> mod) {
+    std::unique_lock _{mtx};
+    modules.emplace_back(std::move(mod));
 }
 
 auto src::Context::get_or_load_file(fs::path path) -> File& {
+    std::unique_lock _{mtx};
     auto f = rgs::find_if(owned_files, [&](const auto& e) { return e->path() == path; });
     if (f != owned_files.end()) return **f;
 
@@ -37,9 +70,14 @@ auto src::Context::get_or_load_file(fs::path path) -> File& {
     return MakeFile(std::move(path), std::move(contents));
 }
 
-/// Implemented in HLIR.cc
-namespace mlir::hlir {
-void InitContext(MLIRContext& mctx);
+void src::Context::init_clang(clang::CompilerInstance& clang) {
+    clang.createDiagnostics();
+    clang.getTargetOpts().Triple = llvm::sys::getDefaultTargetTriple();
+    clang.createTarget();
+    clang.createSourceManager(*clang.createFileManager());
+    clang.createPreprocessor(clang::TU_Prefix);
+    clang.createASTContext();
+    clang.getDiagnostics().setShowColors(true);
 }
 
 void src::Context::Initialise() {
@@ -49,15 +87,6 @@ void src::Context::Initialise() {
     llvm::InitializeAllTargetMCs();
     llvm::InitializeAllAsmParsers();
     llvm::InitializeAllAsmPrinters();
-    mlir::hlir::InitContext(mlir);
-
-    clang.createDiagnostics();
-    clang.getTargetOpts().Triple = llvm::sys::getDefaultTargetTriple();
-    clang.createTarget();
-    clang.createSourceManager(*clang.createFileManager());
-    clang.createPreprocessor(clang::TU_Prefix);
-    clang.createASTContext();
-    clang.getDiagnostics().setShowColors(true);
 }
 
 auto src::Context::MakeFile(fs::path name, std::vector<char>&& contents) -> File& {
@@ -191,9 +220,8 @@ auto src::File::LoadFileData(const fs::path& path) -> std::vector<char> {
 ///  Location
 /// ===========================================================================
 bool src::Location::seekable(const Context* ctx) const {
-    auto& files = ctx->files();
-    if (file_id >= files.size()) return false;
-    const auto* f = files[file_id].get();
+    auto* f = ctx->file(file_id);
+    if (not f) return false;
     return pos + len <= f->size() and is_valid();
 }
 
@@ -202,8 +230,7 @@ auto src::Location::seek(const Context* ctx) const -> LocInfo {
     LocInfo info{};
 
     /// Get the file that the location is in.
-    auto& files = ctx->files();
-    const auto* f = files.at(file_id).get();
+    const auto* f = ctx->file(file_id);
 
     /// Seek back to the start of the line.
     const char* const data = f->data();
@@ -237,8 +264,7 @@ auto src::Location::seek_line_column(const Context* ctx) const -> LocInfoShort {
     LocInfoShort info{};
 
     /// Get the file that the location is in.
-    auto& files = ctx->files();
-    const auto* f = files.at(file_id).get();
+    const auto* f = ctx->file(file_id);
 
     /// Seek back to the start of the line.
     const char* const data = f->data();
@@ -259,8 +285,7 @@ auto src::Location::seek_line_column(const Context* ctx) const -> LocInfoShort {
 }
 
 auto src::Location::text(const Context* ctx) const -> std::string_view {
-    auto& files = ctx->files();
-    auto* f = files[file_id].get();
+    auto* f = ctx->file(file_id);
     return std::string_view{f->data(), f->size()}.substr(pos, len);
 }
 
@@ -272,6 +297,8 @@ src::Module::Module(Context* ctx, std::string name, bool is_cxx_header, Location
       name(std::move(name)),
       module_decl_location(module_decl_location),
       is_cxx_header(is_cxx_header) {
+    ctx->init_clang(clang);
+
     top_level_func = new (this) ProcDecl{
         this,
         nullptr,
@@ -284,33 +311,60 @@ src::Module::Module(Context* ctx, std::string name, bool is_cxx_header, Location
     };
 
     top_level_func->body = new (this) BlockExpr{this, {}};
-
-    auto& ast = ctx->clang.getASTContext();
-    auto CreateFFIIntType = [&](clang::CanQualType cxx_type) -> IntType* {
-        auto integer = new (this) IntType(Size::Bits(ast.getTypeSize(cxx_type)), {});
-        integer->sema.set_done();
-        auto source_align = Type(integer).align(ctx);
-        auto cxx_align = ast.getTypeAlign(cxx_type) / 8;
-        Assert(
-            source_align == cxx_align,
-            "Unsupported: Weird alignment for FFI type '{}': source:{} vs cxx:{}",
-            Type(integer).str(true),
-            source_align.value(),
-            cxx_align
-        );
-        return integer;
-    };
-
-    ffi_char = CreateFFIIntType(ast.CharTy);
-    ffi_short = CreateFFIIntType(ast.ShortTy);
-    ffi_int = CreateFFIIntType(ast.IntTy);
-    ffi_long = CreateFFIIntType(ast.LongTy);
-    ffi_long_long = CreateFFIIntType(ast.LongLongTy);
-    ffi_size_t = CreateFFIIntType(ast.getSizeType());
 }
 
 src::Module::~Module() {
     for (auto ex : exprs) utils::Deallocate(ex);
+}
+
+bool src::Module::add_import(
+    llvm::StringRef linkage_name,
+    llvm::StringRef logical_name,
+    src::Location import_location,
+    bool is_open,
+    bool is_cxx_header
+) {
+    ImportedModuleRef i{
+        std::string{linkage_name},
+        std::string{logical_name},
+        import_location,
+        is_open,
+        is_cxx_header,
+    };
+
+    if (not utils::contains(imports, i)) {
+        imports.push_back(std::move(i));
+        return true;
+    }
+
+    return false;
+}
+
+void src::Module::assimilate(Module* other) {
+    for (auto& i : other->imports)
+        if (not utils::contains(imports, i))
+            imports.push_back(i);
+
+    for (auto& [k, v] : other->exports)
+        exports[k].insert(exports[k].end(), v.begin(), v.end());
+
+    utils::append(named_structs, std::move(other->named_structs));
+    utils::append(exprs, std::move(other->exprs));
+    utils::append(functions, std::move(other->functions));
+    utils::append(static_assertions, std::move(other->static_assertions));
+
+    strtab.assimilate(std::move(other->strtab));
+
+    /// Merge top-level content. We create a separate block to wrap the two
+    /// previous top-level blocks so name lookup works correctly.
+    Todo(); /// TODO: Replace references to global scope / top level function
+    ///               Maybe it’s finally time to implement an AST visitor?
+}
+
+auto src::Module::Create(Context* ctx, std::string name, bool is_cxx_header, Location module_decl_location) -> Module* {
+    auto* mod = new Module(ctx, std::move(name), is_cxx_header, module_decl_location);
+    ctx->add_module(std::unique_ptr<Module>{mod});
+    return mod;
 }
 
 auto src::Module::_global_scope() -> BlockExpr* {
@@ -370,7 +424,7 @@ void PrintBacktrace() {
     using enum utils::Colour;
 
     auto trace = cpptrace::generate_trace(2);
-    for (auto&& [i, frame] : vws::enumerate(trace.frames)) {
+    for (auto&& [i, frame] : llvm::enumerate(trace.frames)) {
         std::string_view symbol = frame.symbol;
         std::string sym;
 
@@ -581,13 +635,9 @@ void src::Diag::print() {
     /// If the location is invalid, either because the specified file does not
     /// exists, its position is out of bounds or 0, or its length is 0, then we
     /// skip printing the location.
-    const auto& fs = ctx->files();
     if (not where.seekable(ctx)) {
         /// Even if the location is invalid, print the file name if we can.
-        if (where.file_id < fs.size()) {
-            const auto& file = *fs[where.file_id].get();
-            fmt::print(stderr, bold, "{}: ", file.path().string());
-        }
+        if (auto f = ctx->file(where.file_id)) fmt::print(stderr, bold, "{}: ", f->path().string());
 
         /// Print the message.
         PrintDiagWithoutLocation();
@@ -612,7 +662,7 @@ void src::Diag::print() {
     utils::ReplaceAll(after, "\t", "    ");
 
     /// Print the file name, line number, and column number.
-    const auto& file = *fs[where.file_id].get();
+    const auto& file = *ctx->file(where.file_id);
     fmt::print(stderr, bold, "{}:{}:{}: ", file.path().string(), line, col);
 
     /// Print the diagnostic name and message.

@@ -3,12 +3,20 @@
 
 #include <string>
 
+namespace mlir {
+class MLIRContext;
+}
+
+namespace llvm {
+class ThreadPool;
+}
+
 namespace src {
 class Module;
 class Expr;
-void LowerHLIR(Module* mod);
-void LowerToLLVM(Module* mod, bool debug_llvm_lowering, bool no_verify);
-void CodeGenModule(Module* mod, bool no_verify);
+void LowerHLIR(mlir::MLIRContext* ctx, Module* mod);
+void LowerToLLVM(mlir::MLIRContext* ctx, Module* mod, bool debug_llvm_lowering, bool no_verify);
+void CodeGenModule(mlir::MLIRContext* ctx, Module* mod, bool no_verify);
 }
 
 #endif // SOURCE_CG_CODEGEN_HH

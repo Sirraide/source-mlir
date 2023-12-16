@@ -300,7 +300,7 @@ src::StructType::StructType(
 }
 
 /// FIXME: Use llvm::Align for this.
-auto src::Type::align([[maybe_unused]] Context* ctx) const -> Align {
+auto src::Type::align([[maybe_unused]] Module* ctx) const -> Align {
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
             switch (cast<BuiltinType>(ptr)->builtin_kind) {
@@ -422,7 +422,7 @@ auto src::Type::_ref_depth() -> isz {
     return depth;
 }
 
-auto src::Type::size(src::Context* ctx) const -> Size {
+auto src::Type::size(Module* ctx) const -> Size {
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
             switch (cast<BuiltinType>(ptr)->builtin_kind) {
@@ -1533,13 +1533,13 @@ void src::Expr::print(bool print_children) const {
     ASTPrinter{nullptr, true, print_children}(const_cast<Expr*>(this));
 }
 
-void src::Module::print_ast(bool use_colour) const {
+void src::Module::print_ast() const {
     /// Ok because ASTPrinter does not attempt to mutate this.
-    ASTPrinter{const_cast<Module*>(this), use_colour, true}.print();
+    ASTPrinter{const_cast<Module*>(this), context->use_colours, true}.print();
 }
 
-void src::Module::print_exports(bool) const {
+void src::Module::print_exports() const {
     for (auto& exps : exports)
         for (auto e : exps.second)
-            e->print(isa<TypeBase>(e));
+            e->print(context->use_colours);
 }

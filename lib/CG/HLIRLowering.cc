@@ -788,7 +788,7 @@ struct FuncOpLowering : public ConversionPattern {
         );
 
         /// Add the appropriate parameter attributes.
-        for (auto [i, t] : vws::enumerate(ftype.getInputs())) {
+        for (auto [i, t] : llvm::enumerate(ftype.getInputs())) {
             if (auto ref = dyn_cast<hlir::ReferenceType>(t)) {
                 auto sz = DataLayout::closest(op).getTypeSize(ref.getElem());
                 llvm_func.setArgAttr(u32(i), "llvm.dereferenceable", IntegerAttr::get(tc->getIndexType(), i64(sz)));
@@ -972,10 +972,10 @@ struct HLIRToLLVMLoweringPass
 };
 } // namespace src
 
-void src::LowerToLLVM(Module* mod, bool debug_llvm_lowering, bool no_verify) {
+void src::LowerToLLVM(mlir::MLIRContext* ctx, Module* mod, bool debug_llvm_lowering, bool no_verify) {
     /// Lower the module.
-    if (debug_llvm_lowering) mod->context->mlir.disableMultithreading();
-    mlir::PassManager pm{&mod->context->mlir};
+    if (debug_llvm_lowering) ctx->disableMultithreading();
+    mlir::PassManager pm{ctx};
     if (no_verify) pm.enableVerifier(false);
     pm.addPass(std::make_unique<HLIRToLLVMLoweringPass>());
     if (debug_llvm_lowering) pm.enableIRPrinting();
@@ -987,7 +987,7 @@ void src::Module::GenerateLLVMIR(int opt_level) {
     if (not llvm) {
         llvm = mlir::translateModuleToLLVMIR(
             mlir,
-            context->llvm,
+            llvm_context,
             is_logical_module ? name : "Source Executable"
         );
 
@@ -1002,7 +1002,7 @@ void src::Module::GenerateLLVMIR(int opt_level) {
             auto md = serialise();
             auto nm = description_section_name();
             auto ty = llvm::ArrayType::get(llvm::IntegerType::getInt8Ty(llvm->getContext()), md.size());
-            auto cst = llvm::ConstantDataArray::get(context->llvm, md);
+            auto cst = llvm::ConstantDataArray::get(llvm_context, md);
             llvm->getOrInsertGlobal(
                 nm,
                 ty,
