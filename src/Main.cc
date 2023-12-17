@@ -38,7 +38,7 @@ using detail::options;
 
 int main(int argc, char** argv) {
     /// Parse options.
-    auto opts = options::parse(argc, argv, [](auto&& s) -> bool { src::Diag::FatalNoTrace("{}", s); });
+    auto opts = options::parse(argc, argv, [](auto&& s) -> bool { src::Diag::Fatal("{}", s); });
 
     /// Check if we want to use colours.
     bool use_colour = isatty(fileno(stdout));
@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
 
     /// Disallow filenames starting with '-'; users can still write `./-`.
     for (auto& f : *opts.get<"file">()) {
-        if (f.starts_with('-')) src::Diag::FatalNoTrace(
+        if (f.starts_with('-')) src::Diag::Fatal(
             "Invalid option: '{}'. Write './{}' to treat it as a filename.",
             f,
             f

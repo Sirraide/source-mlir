@@ -544,6 +544,7 @@ private:
     Kind kind;
     bool include_stack_trace = true;
     Location where;
+    std::source_location sloc{};
     std::string msg;
 
     /// Handle fatal error codes.
@@ -592,8 +593,8 @@ public:
         : ctx(ctx), kind(kind), where(where), msg(std::move(msg)) {}
 
     /// Issue a diagnostic with no location.
-    Diag(Kind _kind, std::string&& msg)
-        : ctx(nullptr), kind(_kind), where(), msg(std::move(msg)) {}
+    Diag(Kind _kind, std::string&& msg, std::source_location sloc = {})
+        : ctx(nullptr), kind(_kind), where(), sloc(sloc), msg(std::move(msg)) {}
 
     /// Issue a diagnostic with a format string and arguments.
     template <typename... Args>
@@ -603,8 +604,7 @@ public:
         Location where,
         fmt::format_string<Args...> fmt,
         Args&&... args
-    )
-        : Diag{ctx, kind, where, fmt::format(fmt, std::forward<Args>(args)...)} {}
+    ) : Diag{ctx, kind, where, fmt::format(fmt, std::forward<Args>(args)...)} {}
 
     /// Issue a diagnostic with a format string and arguments, but no location.
     template <typename... Args>
@@ -653,7 +653,10 @@ public:
 
     /// Emit an error.
     template <typename... Args>
-    static Diag Error(fmt::format_string<Args...> fmt, Args&&... args) {
+    static Diag Error(
+        fmt::format_string<Args...> fmt,
+        Args&&... args
+    ) {
         return Diag{Kind::Error, fmt::format(fmt, std::forward<Args>(args)...)};
     }
 
@@ -670,8 +673,11 @@ public:
 
     /// Raise an internal compiler error and exit.
     template <typename... Args>
-    [[noreturn]] static void ICE(fmt::format_string<Args...> fmt, Args&&... args) {
-        Diag{Kind::ICError, fmt::format(fmt, std::forward<Args>(args)...)};
+    [[noreturn]] static void ICE(
+        utils::FStringWithSrcLoc<Args...> fmt,
+        Args&&... args
+    ) {
+        Diag{Kind::ICError, fmt::format(fmt.fmt, std::forward<Args>(args)...), fmt.sloc};
         std::terminate(); /// Should never be reached.
     }
 
@@ -693,15 +699,11 @@ public:
     /// the underlying system, such as attempting to output to a directory that
     /// isn’t accessible to the user.
     template <typename... Args>
-    [[noreturn]] static void Fatal(fmt::format_string<Args...> fmt, Args&&... args) {
-        Diag{Kind::FError, fmt::format(fmt, std::forward<Args>(args)...)};
-        std::terminate(); /// Should never be reached.
-    }
-
-    /// Same as Fatal(), but do not print a stacktrace.
-    template <typename... Args>
-    [[noreturn]] static void FatalNoTrace(fmt::format_string<Args...> fmt, Args&&... args) {
-        Diag{Kind::FError, fmt::format(fmt, std::forward<Args>(args)...)}.NoTrace();
+    [[noreturn]] static void Fatal(
+        utils::FStringWithSrcLoc<Args...> fmt,
+        Args&&... args
+    ) {
+        Diag{Kind::FError, fmt::format(fmt.fmt, std::forward<Args>(args)...), fmt.sloc};
         std::terminate(); /// Should never be reached.
     }
 };

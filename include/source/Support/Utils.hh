@@ -30,6 +30,7 @@
 #include <numeric>
 #include <optional>
 #include <ranges>
+#include <source_location>
 #include <span>
 #include <string>
 #include <type_traits>
@@ -245,6 +246,22 @@ enum struct Colour {
     White,
     None,
 };
+
+template <typename... Args>
+struct FStringWithSrcLocImpl {
+    fmt::format_string<Args...> fmt;
+    std::source_location sloc;
+
+    consteval FStringWithSrcLocImpl(
+        std::convertible_to<std::string_view> auto fmt,
+        std::source_location sloc = std::source_location::current()
+    ) : fmt(fmt), sloc(sloc) {}
+};
+
+
+/// Inhibit template argument deduction.
+template <typename... Args>
+using FStringWithSrcLoc = FStringWithSrcLocImpl<std::type_identity_t<Args>...>;
 
 /// RAII helper to toggle colours when printing.
 ///

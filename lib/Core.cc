@@ -324,7 +324,7 @@ auto src::Module::_global_scope() -> BlockExpr* {
 namespace src {
 namespace {
 /// Get the colour of a diagnostic.
-static constexpr auto Colour(utils::Colours C, Diag::Kind kind) -> std::string_view {
+constexpr auto Colour(utils::Colours C, Diag::Kind kind) -> std::string_view {
     using Kind = Diag::Kind;
     using enum utils::Colour;
     switch (kind) {
@@ -342,7 +342,7 @@ static constexpr auto Colour(utils::Colours C, Diag::Kind kind) -> std::string_v
 }
 
 /// Get the name of a diagnostic.
-static constexpr std::string_view Name(Diag::Kind kind) {
+constexpr std::string_view Name(Diag::Kind kind) {
     using Kind = Diag::Kind;
     switch (kind) {
         case Kind::ICError: return "Internal Compiler Error";
@@ -355,7 +355,7 @@ static constexpr std::string_view Name(Diag::Kind kind) {
 }
 
 /// Remove project directory from filename.
-auto NormaliseFilename(std::string_view filename) -> std::string_view {
+constexpr auto NormaliseFilename(std::string_view filename) -> std::string_view {
     if (auto pos = filename.find(__SRCC_PROJECT_DIR_NAME); pos != std::string_view::npos) {
         static constexpr std::string_view name{__SRCC_PROJECT_DIR_NAME};
         filename.remove_prefix(pos + name.size() + 1);
@@ -538,16 +538,26 @@ void src::Diag::HandleFatalErrors(utils::Colours C) {
         std::exit(ICEExitCode);
     }
 
-    /// Exit on a fatal error.
-    if (kind == Kind::FError) {
-        if (include_stack_trace) PrintBacktrace(C);
-        std::exit(FatalExitCode);
-    }
+    /// Exit on a fatal error. Never print a backtrace here as fatal
+    /// errors are due to the underlying system misbehaving, so a stack
+    /// trace won’t help because it’s not our fault.
+    if (kind == Kind::FError)
+        std::exit(FatalExitCode); /// Separate line for breakpoint.
 }
 
 /// Print a diagnostic with no (valid) location info.
 void src::Diag::PrintDiagWithoutLocation(utils::Colours C) {
     using enum utils::Colour;
+
+    /// Print error location, if present.
+    if (sloc.line() != 0) fmt::print(
+        stderr,
+        "{}{}:{}:{}: ",
+        C(Bold),
+        NormaliseFilename(sloc.file_name()),
+        sloc.line(),
+        sloc.column()
+    );
 
     /// Print the message.
     fmt::print(stderr, "{}{}{}: {}", C(Bold), Colour(C, kind), Name(kind), C(Reset));
