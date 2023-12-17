@@ -18,7 +18,7 @@ namespace src {
 struct CodeGen {
     Module* const mod;
     Context* const ctx;
-    mlir::MLIRContext *mctx;
+    mlir::MLIRContext* mctx;
     mlir::OpBuilder builder;
     bool no_verify;
 
@@ -440,7 +440,7 @@ auto src::CodeGen::Destructor(Type type) -> std::optional<StringRef> {
 
     /// Some structs may have a destructor.
     if (auto s = dyn_cast<StructType>(type))
-        return s->deleter ? std::optional { s->deleter->mangled_name } : std::nullopt;
+        return s->deleter ? std::optional{s->deleter->mangled_name} : std::nullopt;
 
     /// Auto-generate destructors for scoped pointers.
     if (auto sc = dyn_cast<ScopedPointerType>(type)) {
@@ -518,17 +518,19 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     /// all fields are known, we may still need to emit padding to align
     /// each field to its required offset since LLVM doesn’t know anything
     /// about the offsets.
-    SmallVector<StructType::Field> fields;
+    SmallVector<FieldDecl*> fields;
     Size total_size;
     for (const auto& [i, var] : llvm::enumerate(captured)) {
         /// Zero is the static chain.
         if (proc->takes_static_chain and i == 0) {
-            fields.emplace_back(
+            fields.push_back(new (mod) FieldDecl(
                 "",
                 new (mod) ReferenceType(proc->parent->captured_locals_type, {}),
+                {},
                 Size::Bytes(0),
+                0,
                 false
-            );
+            ));
 
             total_size += Size::Bytes(8); /// FIXME: Get pointer alignment from context.
             continue;
@@ -543,21 +545,25 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
         /// Insert padding if required.
         if (total_size.bytes() != var.Offset) {
             v->capture_index++;
-            fields.emplace_back(
+            fields.push_back(new (mod) FieldDecl(
                 "",
                 ArrayType::GetByteArray(mod, isz(usz(var.Offset) - total_size.bytes())),
+                {},
                 total_size,
+                u32(-1), /// We’re past the point where this matters.
                 true
-            );
+            ));
         }
 
         total_size = Size::Bytes(var.Offset) + v->type.size(ctx);
-        fields.emplace_back(
+        fields.push_back(new (mod) FieldDecl(
             "",
             v->type,
+            {},
             Size::Bytes(var.Offset),
+            u32(-1), /// We’re past the point where this matters.
             false
-        );
+        ));
     }
 
     /// Create a struct type and finalise it.
@@ -729,7 +735,7 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
                 s->mlir = mlir::LLVM::LLVMStructType::getIdentified(mctx, s->name);
 
             /// Collect element types.
-            auto range = s->field_types() | vws::transform([&](auto& t) { return Ty(t); });
+            auto range = s->field_types() | vws::transform([&](auto t) { return Ty(t); });
             SmallVector<mlir::Type> elements{range.begin(), range.end()};
 
             /// Named struct.
@@ -779,28 +785,29 @@ void src::CodeGen::Generate(src::Expr* expr) {
     if (expr->emitted) return;
     expr->emitted = true;
     switch (expr->kind) {
+        case Expr::Kind::ArrayType:
         case Expr::Kind::BuiltinType:
+        case Expr::Kind::ClosureType:
         case Expr::Kind::IntType:
-        case Expr::Kind::ReferenceType:
-        case Expr::Kind::ScopedPointerType:
-        case Expr::Kind::SliceType:
+        case Expr::Kind::OpaqueType:
         case Expr::Kind::OptionalType:
         case Expr::Kind::ProcType:
-        case Expr::Kind::ClosureType:
-        case Expr::Kind::ArrayType:
-        case Expr::Kind::SugaredType:
+        case Expr::Kind::ReferenceType:
+        case Expr::Kind::ScopedPointerType:
         case Expr::Kind::ScopedType:
-        case Expr::Kind::OpaqueType:
+        case Expr::Kind::SliceType:
+        case Expr::Kind::SugaredType:
             Unreachable();
 
         case Expr::Kind::OverloadSetExpr:
             Diag::ICE(ctx, expr->location, "Unresolved overload set in codegen");
 
         /// These are no-ops.
-        case Expr::Kind::StructType:
-        case Expr::Kind::ModuleRefExpr:
-        case Expr::Kind::EmptyExpr:
         case Expr::Kind::AliasExpr:
+        case Expr::Kind::EmptyExpr:
+        case Expr::Kind::FieldDecl:
+        case Expr::Kind::ModuleRefExpr:
+        case Expr::Kind::StructType:
             break;
 
         case Expr::Kind::ConstructExpr:
@@ -930,36 +937,52 @@ void src::CodeGen::Generate(src::Expr* expr) {
             /// The object may be an lvalue; if so, yield the address
             /// rather than loading the entire object.
             if (e->object->is_lvalue) {
-                Assert(e->is_lvalue, "Accessing a member of an lvalue should yield an lvalue");
-                Assert(e->field, "Struct field not set for member access");
-                e->mlir = Create<hlir::StructGEPOp>(
-                    Loc(e->location),
-                    e->object->mlir,
-                    e->field->index
+                if (isa<StructType>(e->object->type.desugared)) {
+                    /// If we get here, this should be a field decl as member
+                    /// function calls are handled elsewhere.
+                    Assert(isa<FieldDecl>(e->field), "Member access should point to a field");
+                    Assert(e->is_lvalue, "Accessing a member of an lvalue should yield an lvalue");
+                    Assert(e->field, "Struct field not set for member access");
+                    e->mlir = Create<hlir::StructGEPOp>(
+                        Loc(e->location),
+                        e->object->mlir,
+                        cast<FieldDecl>(e->field)->index
+                    );
+                    break;
+                }
+
+                Unreachable(
+                    "Unsupported member access on lvalue of type '{}'",
+                    e->object->type.str(ctx->use_colours)
                 );
             }
 
             /// Object is an rvalue.
             else {
                 /// Member of a slice.
-                if (isa<SliceType>(e->object->type)) {
+                if (isa<SliceType>(e->object->type.desugared)) {
                     if (e->member == "data") {
                         e->mlir = Create<hlir::SliceDataOp>(
                             Loc(e->location),
                             e->object->mlir
                         );
-                    } else if (e->member == "size") {
+                        break;
+                    }
+
+                    if (e->member == "size") {
                         e->mlir = Create<hlir::SliceSizeOp>(
                             Loc(e->location),
                             Ty(Type::Int),
                             e->object->mlir
                         );
-                    } else {
-                        Unreachable();
+                        break;
                     }
-                } else {
-                    Unreachable();
                 }
+
+                Unreachable(
+                    "Unsupported member access on rvalue of type '{}'",
+                    e->object->type.str(ctx->use_colours)
+                );
             }
         } break;
 

@@ -7,7 +7,7 @@ struct foo {
     i64 x;
 
     init {
-        .x = 10;
+        .init 10; /// Call a different constructor.
     }
 
     init (i64 x) {

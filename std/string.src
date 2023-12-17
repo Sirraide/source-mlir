@@ -1,0 +1,32 @@
+module string;
+
+import <stdio>.*;
+
+struct string {
+    i8&? data;
+    int size;
+    int capacity;
+
+    init {
+        data = nil;
+        size = 0;
+        capacity = 0;
+    }
+
+    init (i8[] str) {
+        .init;
+        .append str;
+    }
+
+    proc append (with string& s, i8[] str) -> string& {
+        .reserve slice.size;
+        __srcc_copy .data + slice.size, slice.data, slice.size;
+        .size += slice.size;
+        return s;
+    }
+}
+
+string s;
+s.append "hello";
+s.append " world";
+puts s.data;

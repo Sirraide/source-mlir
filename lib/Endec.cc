@@ -162,7 +162,8 @@ auto ObjectDecl::_mangled_name() -> StringRef {
         }
 
         /// All other functions just include the name.
-        else s += fmt::format("{}{}", name.size(), name);
+        else
+            s += fmt::format("{}{}", name.size(), name);
 
         /// The type is always included.
         s += type.mangled_name;
@@ -440,13 +441,13 @@ struct Serialiser {
 
                 /// Write field data, excluding the type.
                 for (auto& f : s->all_fields) {
-                    *this << f.padding << f.offset;
-                    if (not f.padding) *this << f.name;
+                    *this << f->padding << f->offset;
+                    if (not f->padding) *this << f->name;
                 }
 
                 /// Write field types.
                 for (const auto& [i, f] : llvm::enumerate(s->all_fields)) {
-                    auto td = SerialiseType(cast<TypeBase>(f.type));
+                    auto td = SerialiseType(cast<TypeBase>(f->type));
                     WriteAt(offs + usz(i) * sizeof(TD), td);
                 }
 
@@ -736,22 +737,28 @@ struct Deserialiser {
                 auto field_count = rd<u64>();
 
                 /// Read field types.
-                SmallVector<StructType::Field> fields{};
+                SmallVector<FieldDecl*> fields{};
                 SmallVector<TD> field_types{};
                 for (usz i = 0; i < field_count; i++) {
                     /// TD may refer to type that was serialised later on.
                     auto td = rd<TD>();
                     field_types.push_back(td);
-                    if (td.is_builtin() or td.index() < types.size()) fields.push_back({"", Map(field_types.back())});
-                    else fields.push_back({"", Type::UnsafeEmpty()});
-                    fields[i].index = u32(i);
+                    fields.push_back(new (&*mod) FieldDecl(
+                        "",
+                        td.is_builtin() or td.index() < types.size()
+                            ? Map(field_types.back())
+                            : Type::UnsafeEmpty(),
+                        {},
+                        {},
+                        u32(i)
+                    ));
                 }
 
                 /// Read fields.
                 for (auto& f : fields) {
-                    f.padding = rd<bool>();
-                    f.offset = rd<Size>();
-                    if (not f.padding) f.name = rd<std::string>();
+                    f->padding = rd<bool>();
+                    f->offset = rd<Size>();
+                    if (not f->padding) f->name = rd<std::string>();
                 }
 
                 /// Create the struct.
@@ -768,8 +775,8 @@ struct Deserialiser {
 
                 /// Mark fields for fixup if need be.
                 for (auto& f : s->all_fields)
-                    if (static_cast<Expr*>(f.type) == nullptr)
-                        type_fixup_list.emplace_back(&f.type, field_types[f.index]);
+                    if (static_cast<Expr*>(f->type) == nullptr)
+                        type_fixup_list.emplace_back(&f->stored_type, field_types[f->index]);
 
                 /// Set size and alignment.
                 s->stored_alignment = align;

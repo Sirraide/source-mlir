@@ -293,7 +293,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         /// Member access.
         case Tk::Dot: {
             auto loc = Next();
-            if (not At(Tk::Identifier)) return Error("Expected identifier");
+            if (not At(Tk::Identifier, Tk::Init)) return Error("Expected identifier");
             lhs = new (mod) MemberAccessExpr(nullptr, tok.text, {loc, curr_loc});
             Next();
         } break;
@@ -583,7 +583,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             /// Member access.
             case Tk::Dot: {
                 Next();
-                if (not At(Tk::Identifier)) Error("Expected identifier");
+                if (not At(Tk::Identifier, Tk::Init)) Error("Expected identifier");
                 lhs = new (mod) MemberAccessExpr(*lhs, tok.text, {lhs->location, curr_loc});
                 Next();
                 continue;
@@ -1094,7 +1094,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
     /// Parse fields and member functions.
     if (not Consume(Tk::LBrace)) return Error("Expected '{{' in struct type");
     ScopeRAII sc{this};
-    SmallVector<StructType::Field> fields;
+    SmallVector<FieldDecl*> fields;
     SmallVector<ProcDecl*> initialisers;
     ProcDecl* deleter{};
     sc.scope->set_struct_scope();
@@ -1127,8 +1127,15 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 
         /// If the decl is a var decl, add it as a field. Other
         /// decls are currently illegal in this position.
-        if (auto var = dyn_cast<LocalDecl>(*field)) fields.push_back({var->name, var->type});
-        else Error("Only variable declarations are allowed in struct types");
+        if (auto var = dyn_cast<LocalDecl>(*field)) {
+            fields.push_back(new (mod) FieldDecl(
+                var->name,
+                var->type,
+                var->location
+            ));
+        } else {
+            Error("Expected declaration");
+        }
         Consume(Tk::Semicolon);
     }
 

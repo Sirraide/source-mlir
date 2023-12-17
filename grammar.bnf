@@ -40,7 +40,7 @@
 <expr-proc>      ::= <proc-extern> | <proc-named>
 <expr-block>     ::= "{" <exprs> "}"
 <expr-decl-ref>  ::= IDENTIFIER
-<expr-access>    ::= [ <expr> ] "." IDENTIFIER
+<expr-access>    ::= [ <expr> ] "." [ IDENTIFIER | INIT ]
 <expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL | <array-literal>
 <expr-prefix>    ::= <prefix-op> <expr>
 <expr-binary>    ::= <expr> <binary-op> <expr>

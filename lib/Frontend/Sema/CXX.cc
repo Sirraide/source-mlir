@@ -193,7 +193,7 @@ struct ImportContext {
             s->stored_size = Size::Bytes(usz(layout.getSize().getQuantity()));
             s->sema.set_done();
 
-            SmallVector<StructType::Field> fields;
+            SmallVector<FieldDecl*> fields;
             Size size;
             usz padding_count = 0;
             for (auto [i, f] : llvm::enumerate(decl->fields())) {
@@ -204,24 +204,26 @@ struct ImportContext {
 
                 if (offs != size) {
                     Assert(offs > size);
-                    fields.push_back(StructType::Field{
-                        .name = fmt::format("#padding{}", padding_count++),
-                        .type = ArrayType::GetByteArray(out, isz((offs - size).bytes())),
-                        .offset = offs - size,
-                        .index = u32(fields.size()),
-                        .padding = true
+                    fields.push_back(new (out) FieldDecl {
+                        fmt::format("#padding{}", padding_count++),
+                        ArrayType::GetByteArray(out, isz((offs - size).bytes())),
+                        {},
+                        offs - size,
+                        u32(fields.size()),
+                        true
                     });
                 }
 
-                fields.push_back(StructType::Field{
-                    .name = std::string{f->getName()},
-                    .type = *ty,
-                    .offset = offs,
-                    .index = u32(fields.size()),
-                    .padding = false
+                fields.push_back(new (out) FieldDecl{
+                    std::string{f->getName()},
+                    *ty,
+                    {},
+                    offs,
+                    u32(fields.size()),
+                    false
                 });
 
-                size = offs + fields.back().type.size(ctx);
+                size = offs + fields.back()->type.size(ctx);
             }
 
             out->exports[s->name].push_back(s);

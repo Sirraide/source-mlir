@@ -666,7 +666,7 @@ void src::Diag::print() {
     /// Print the line up to the start of the location, the range in the right
     /// colour, and the rest of the line.
     fmt::print(stderr, " {} | {}", line, before);
-    fmt::print(stderr, "{}{}{}", Colour(C, kind), range, C(Reset));
+    fmt::print(stderr, "{}{}{}{}", C(Bold), Colour(C, kind), range, C(Reset));
     fmt::print(stderr, "{}\n", after);
 
     /// Determine the number of digits in the line number.
@@ -686,7 +686,7 @@ void src::Diag::print() {
         fmt::print(stderr, " ");
 
     /// Finally, underline the range.
-    fmt::print(stderr, "{}", Colour(C, kind));
+    fmt::print(stderr, "{}{}", C(Bold), Colour(C, kind));
     for (usz i = 0, end = ColumnWidth(range); i < end; i++)
         fmt::print(stderr, "~");
     fmt::print(stderr, "\n");

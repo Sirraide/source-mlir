@@ -123,6 +123,7 @@ public:
 
         /// Decl [begin]
         LocalDecl,
+        FieldDecl,
 
         /// ObjectDecl [begin]
         ProcDecl,
@@ -612,9 +613,7 @@ public:
 
     OverloadSetExpr(SmallVector<ProcDecl*> overloads, Location loc)
         : Expr(Kind::OverloadSetExpr, loc),
-          overloads(std::move(overloads)) {
-        sema.set_done(); /// Only constructed by sema.
-    }
+          overloads(std::move(overloads)) { }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::OverloadSetExpr; }
@@ -1224,6 +1223,10 @@ public:
           scope(sc),
           decl(nullptr) {}
 
+    /// Create a resolved DeclRefExpr. It is set to done iff the
+    /// referenced proc decl is.
+    DeclRefExpr(Decl* referenced, Location loc);
+
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::DeclRefExpr; }
 };
@@ -1378,6 +1381,34 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind >= Kind::ProcDecl; }
+};
+
+/// Struct field decl.
+class FieldDecl : public Decl {
+public:
+    /// Offset to this field in the containing struct.
+    Size offset{};
+
+    /// Index of this field in the containing struct.
+    u32 index{};
+
+    /// Whether this is a padding field.
+    bool padding{};
+
+    FieldDecl(
+        std::string name,
+        Type type,
+        Location loc,
+        Size offset = Size::Bits(0),
+        u32 index = 0,
+        bool padding = false
+    ) : Decl(Kind::FieldDecl, std::move(name), type, loc),
+        offset(offset),
+        index(index),
+        padding(padding) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::FieldDecl; }
 };
 
 /// Local variable declaration.
@@ -1708,16 +1739,8 @@ public:
 
 class StructType : public NamedType {
 public:
-    struct Field {
-        std::string name;
-        Type type;
-        Size offset{};
-        u32 index{};
-        bool padding{};
-    };
-
     /// The fields of this struct.
-    SmallVector<Field> all_fields;
+    SmallVector<FieldDecl*> all_fields;
 
     /// Initialisers of this struct.
     SmallVector<ProcDecl*> initialisers;
@@ -1738,7 +1761,7 @@ public:
     StructType(
         Module* mod,
         std::string name,
-        SmallVector<Field> fields,
+        SmallVector<FieldDecl*> fields,
         SmallVector<ProcDecl*> initialisers,
         ProcDecl* deleter,
         BlockExpr* scope,
@@ -1749,20 +1772,25 @@ public:
     /// Creates an anonymous struct. Intended for the backend only.
     StructType(
         Module* mod,
-        SmallVector<Field> fields,
+        SmallVector<FieldDecl*> fields,
         Mangling mangling = Mangling::Source,
         Location loc = {}
     ) : StructType(mod, "", std::move(fields), {}, nullptr, nullptr, mangling, loc) {}
 
     /// Get the non-padding fields of this struct.
     auto fields() {
-        return vws::filter(all_fields, [](Field& f) { return not f.padding; });
+        return vws::filter(all_fields, [](FieldDecl* f) { return not f->padding; });
     }
 
     /// Get the fields of this struct, including all padding fields.
     auto field_types() {
-        return vws::transform(all_fields, &Field::type);
+        return vws::transform(all_fields, [](FieldDecl* f) { return f->stored_type; });
     }
+
+    /// Get the initialisers as an overload set if there is more
+    /// than one, or a DeclRefExpr to a ProcDecl otherwise. Null
+    /// is returned if this type has no initialisers.
+    Expr* initialiser_overloads(Location where);
 
     /// Check if two struct types have the same layout.
     static bool LayoutCompatible(StructType* a, StructType* b);
@@ -1969,8 +1997,8 @@ public:
     /// The object being accessed.
     Expr* object;
 
-    /// The field being accessed if this is a struct field access.
-    StructType::Field* field{};
+    /// The member (function) being accessed if this is a field access.
+    Expr* field{};
 
     MemberAccessExpr(Expr* object, std::string member, Location loc)
         : TypedExpr(Kind::MemberAccessExpr, Type::Unknown, loc),
@@ -2263,40 +2291,41 @@ struct CastInfo<T, const src::Type*> : src::THCastImpl<T, const src::Type*> {};
 } // namespace llvm
 
 #define SOURCE_NON_TYPE_EXPRS            \
-    case Expr::Kind::ExportExpr:         \
-    case Expr::Kind::AssertExpr:         \
-    case Expr::Kind::ConstExpr:          \
-    case Expr::Kind::ReturnExpr:         \
-    case Expr::Kind::LoopControlExpr:    \
-    case Expr::Kind::GotoExpr:           \
-    case Expr::Kind::LabelExpr:          \
-    case Expr::Kind::EmptyExpr:          \
-    case Expr::Kind::DeferExpr:          \
-    case Expr::Kind::WhileExpr:          \
-    case Expr::Kind::ForInExpr:          \
-    case Expr::Kind::BlockExpr:          \
-    case Expr::Kind::InvokeExpr:         \
-    case Expr::Kind::InvokeBuiltinExpr:  \
-    case Expr::Kind::MemberAccessExpr:   \
-    case Expr::Kind::ScopeAccessExpr:    \
-    case Expr::Kind::DeclRefExpr:        \
-    case Expr::Kind::ModuleRefExpr:      \
-    case Expr::Kind::LocalRefExpr:       \
-    case Expr::Kind::BoolLiteralExpr:    \
-    case Expr::Kind::IntegerLiteralExpr: \
+    case Expr::Kind::AliasExpr:          \
     case Expr::Kind::ArrayLiteralExpr:   \
-    case Expr::Kind::StringLiteralExpr:  \
-    case Expr::Kind::ProcDecl:           \
-    case Expr::Kind::CastExpr:           \
-    case Expr::Kind::IfExpr:             \
-    case Expr::Kind::UnaryPrefixExpr:    \
+    case Expr::Kind::AssertExpr:         \
     case Expr::Kind::BinaryExpr:         \
-    case Expr::Kind::LocalDecl:          \
-    case Expr::Kind::OverloadSetExpr:    \
-    case Expr::Kind::ImplicitThisExpr:   \
-    case Expr::Kind::ParenExpr:          \
-    case Expr::Kind::SubscriptExpr:      \
+    case Expr::Kind::BlockExpr:          \
+    case Expr::Kind::BoolLiteralExpr:    \
+    case Expr::Kind::CastExpr:           \
+    case Expr::Kind::ConstExpr:          \
     case Expr::Kind::ConstructExpr:      \
-    case Expr::Kind::AliasExpr
+    case Expr::Kind::DeclRefExpr:        \
+    case Expr::Kind::DeferExpr:          \
+    case Expr::Kind::EmptyExpr:          \
+    case Expr::Kind::ExportExpr:         \
+    case Expr::Kind::FieldDecl:          \
+    case Expr::Kind::ForInExpr:          \
+    case Expr::Kind::GotoExpr:           \
+    case Expr::Kind::IfExpr:             \
+    case Expr::Kind::ImplicitThisExpr:   \
+    case Expr::Kind::IntegerLiteralExpr: \
+    case Expr::Kind::InvokeBuiltinExpr:  \
+    case Expr::Kind::InvokeExpr:         \
+    case Expr::Kind::LabelExpr:          \
+    case Expr::Kind::LocalDecl:          \
+    case Expr::Kind::LocalRefExpr:       \
+    case Expr::Kind::LoopControlExpr:    \
+    case Expr::Kind::MemberAccessExpr:   \
+    case Expr::Kind::ModuleRefExpr:      \
+    case Expr::Kind::OverloadSetExpr:    \
+    case Expr::Kind::ParenExpr:          \
+    case Expr::Kind::ProcDecl:           \
+    case Expr::Kind::ReturnExpr:         \
+    case Expr::Kind::ScopeAccessExpr:    \
+    case Expr::Kind::StringLiteralExpr:  \
+    case Expr::Kind::SubscriptExpr:      \
+    case Expr::Kind::UnaryPrefixExpr:    \
+    case Expr::Kind::WhileExpr
 
 #endif // SOURCE_FRONTEND_AST_HH

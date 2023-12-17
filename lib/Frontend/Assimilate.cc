@@ -35,22 +35,24 @@ class Assimilator {
     void AssimilateChildren(Expr* e) {
         if (auto te = dyn_cast<TypedExpr>(e)) Assimilate(te->stored_type);
         switch (e->kind) {
-            case Expr::Kind::BuiltinType:
-            case Expr::Kind::IntType:
-            case Expr::Kind::Nil:
-            case Expr::Kind::EmptyExpr:
             case Expr::Kind::BoolLiteralExpr:
+            case Expr::Kind::BuiltinType:
+            case Expr::Kind::EmptyExpr:
+            case Expr::Kind::FieldDecl:
+            case Expr::Kind::IntType:
             case Expr::Kind::IntegerLiteralExpr:
+            case Expr::Kind::Nil:
             case Expr::Kind::StringLiteralExpr:
                 break;
+
+            case Expr::Kind::ArrayType:
+            case Expr::Kind::ClosureType:
+            case Expr::Kind::OptionalType:
             case Expr::Kind::ReferenceType:
             case Expr::Kind::ScopedPointerType:
-            case Expr::Kind::SliceType:
-            case Expr::Kind::ArrayType:
-            case Expr::Kind::OptionalType:
-            case Expr::Kind::SugaredType:
             case Expr::Kind::ScopedType:
-            case Expr::Kind::ClosureType: {
+            case Expr::Kind::SliceType:
+            case Expr::Kind::SugaredType: {
                 auto ty = cast<SingleElementTypeBase>(e);
                 Assimilate(ty->elem);
             } break;
@@ -70,7 +72,7 @@ class Assimilator {
 
             case Expr::Kind::StructType: {
                 auto st = cast<StructType>(e);
-                for (auto& f : st->all_fields) Assimilate(f.type);
+                for (auto& f : st->all_fields) Assimilate(f);
                 for (auto& init : st->initialisers) Assimilate(init);
                 Assimilate(st->deleter);
                 Assimilate(st->scope);

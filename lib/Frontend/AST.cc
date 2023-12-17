@@ -54,6 +54,14 @@ src::ProcDecl::ProcDecl(
     for (auto param : params) param->parent = this;
 }
 
+src::DeclRefExpr::DeclRefExpr(Decl* referenced, Location loc)
+    : TypedExpr(Kind::DeclRefExpr, referenced->type, loc),
+      name(referenced->name),
+      decl(referenced) {
+    sema = referenced->sema;
+    is_lvalue = referenced->is_lvalue;
+}
+
 src::LocalRefExpr::LocalRefExpr(ProcDecl* parent, LocalDecl* decl, Location loc)
     : TypedExpr(Kind::LocalRefExpr, decl->type, loc),
       parent(parent),
@@ -115,48 +123,49 @@ bool src::Expr::_is_nil() {
 
 auto src::Expr::_scope_name() -> std::string {
     switch (kind) {
+        case Kind::AliasExpr:
+        case Kind::ArrayLiteralExpr:
+        case Kind::ArrayType:
+        case Kind::AssertExpr:
+        case Kind::BinaryExpr:
+        case Kind::BlockExpr:
+        case Kind::BoolLiteralExpr:
         case Kind::BuiltinType:
+        case Kind::CastExpr:
+        case Kind::ClosureType:
+        case Kind::ConstExpr:
+        case Kind::ConstructExpr:
+        case Kind::DeclRefExpr:
+        case Kind::DeferExpr:
+        case Kind::EmptyExpr:
+        case Kind::FieldDecl:
+        case Kind::ForInExpr:
+        case Kind::GotoExpr:
+        case Kind::IfExpr:
+        case Kind::ImplicitThisExpr:
+        case Kind::IntegerLiteralExpr:
         case Kind::IntType:
+        case Kind::InvokeBuiltinExpr:
+        case Kind::InvokeExpr:
+        case Kind::LabelExpr:
+        case Kind::LocalDecl:
+        case Kind::LocalRefExpr:
+        case Kind::LoopControlExpr:
+        case Kind::MemberAccessExpr:
+        case Kind::Nil:
+        case Kind::OpaqueType:
+        case Kind::OptionalType:
+        case Kind::OverloadSetExpr:
+        case Kind::ParenExpr:
+        case Kind::ProcType:
         case Kind::ReferenceType:
+        case Kind::ReturnExpr:
         case Kind::ScopedPointerType:
         case Kind::SliceType:
-        case Kind::ArrayType:
-        case Kind::OptionalType:
-        case Kind::ProcType:
-        case Kind::ClosureType:
-        case Kind::AssertExpr:
-        case Kind::ReturnExpr:
-        case Kind::DeferExpr:
-        case Kind::WhileExpr:
-        case Kind::ForInExpr:
-        case Kind::LoopControlExpr:
-        case Kind::GotoExpr:
-        case Kind::LabelExpr:
-        case Kind::EmptyExpr:
-        case Kind::BlockExpr:
-        case Kind::InvokeExpr:
-        case Kind::InvokeBuiltinExpr:
-        case Kind::ConstExpr:
-        case Kind::CastExpr:
-        case Kind::MemberAccessExpr:
-        case Kind::UnaryPrefixExpr:
-        case Kind::IfExpr:
-        case Kind::BinaryExpr:
-        case Kind::DeclRefExpr:
-        case Kind::LocalRefExpr:
-        case Kind::BoolLiteralExpr:
-        case Kind::IntegerLiteralExpr:
-        case Kind::ArrayLiteralExpr:
         case Kind::StringLiteralExpr:
-        case Kind::LocalDecl:
-        case Kind::OverloadSetExpr:
-        case Kind::ImplicitThisExpr:
-        case Kind::ParenExpr:
         case Kind::SubscriptExpr:
-        case Kind::Nil:
-        case Kind::ConstructExpr:
-        case Kind::OpaqueType:
-        case Kind::AliasExpr:
+        case Kind::UnaryPrefixExpr:
+        case Kind::WhileExpr:
             return "<?>";
 
         case Kind::ModuleRefExpr:
@@ -210,56 +219,57 @@ auto src::Expr::_type() -> Type {
         case Kind::ArrayLiteralExpr:
             return Type::ArrayLiteral;
 
-        case Kind::AssertExpr:
-        case Kind::DeferExpr:
-        case Kind::WhileExpr:
-        case Kind::ForInExpr:
-        case Kind::ExportExpr:
-        case Kind::ModuleRefExpr:
-        case Kind::LabelExpr:
-        case Kind::EmptyExpr:
-        case Kind::ConstructExpr:
         case Kind::AliasExpr:
+        case Kind::AssertExpr:
+        case Kind::ConstructExpr:
+        case Kind::DeferExpr:
+        case Kind::EmptyExpr:
+        case Kind::ExportExpr:
+        case Kind::ForInExpr:
+        case Kind::LabelExpr:
+        case Kind::ModuleRefExpr:
+        case Kind::WhileExpr:
             return Type::Void;
 
         /// Typed exprs.
-        case Kind::BlockExpr:
-        case Kind::InvokeExpr:
-        case Kind::InvokeBuiltinExpr:
-        case Kind::ConstExpr:
-        case Kind::MemberAccessExpr:
-        case Kind::ScopeAccessExpr:
-        case Kind::DeclRefExpr:
-        case Kind::LocalRefExpr:
-        case Kind::BoolLiteralExpr:
-        case Kind::IntegerLiteralExpr:
-        case Kind::StringLiteralExpr:
-        case Kind::ProcDecl:
-        case Kind::CastExpr:
-        case Kind::IfExpr:
         case Kind::BinaryExpr:
-        case Kind::UnaryPrefixExpr:
-        case Kind::LocalDecl:
+        case Kind::BlockExpr:
+        case Kind::BoolLiteralExpr:
+        case Kind::CastExpr:
+        case Kind::ConstExpr:
+        case Kind::DeclRefExpr:
+        case Kind::FieldDecl:
+        case Kind::IfExpr:
         case Kind::ImplicitThisExpr:
+        case Kind::IntegerLiteralExpr:
+        case Kind::InvokeBuiltinExpr:
+        case Kind::InvokeExpr:
+        case Kind::LocalDecl:
+        case Kind::LocalRefExpr:
+        case Kind::MemberAccessExpr:
         case Kind::ParenExpr:
+        case Kind::ProcDecl:
+        case Kind::ScopeAccessExpr:
+        case Kind::StringLiteralExpr:
         case Kind::SubscriptExpr:
+        case Kind::UnaryPrefixExpr:
             return cast<TypedExpr>(this)->stored_type;
 
         /// Already a type.
+        case Kind::ArrayType:
         case Kind::BuiltinType:
-        case Kind::ReferenceType:
-        case Kind::ScopedPointerType:
-        case Kind::OptionalType:
-        case Kind::ProcType:
         case Kind::ClosureType:
         case Kind::IntType:
+        case Kind::Nil:
+        case Kind::OpaqueType:
+        case Kind::OptionalType:
+        case Kind::ProcType:
+        case Kind::ReferenceType:
+        case Kind::ScopedPointerType:
+        case Kind::ScopedType:
         case Kind::SliceType:
         case Kind::StructType:
-        case Kind::ArrayType:
         case Kind::SugaredType:
-        case Kind::ScopedType:
-        case Kind::OpaqueType:
-        case Kind::Nil:
             return Type(this);
     }
 }
@@ -287,7 +297,7 @@ bool src::ProcDecl::_takes_static_chain() {
 src::StructType::StructType(
     Module* mod,
     std::string sname,
-    SmallVector<Field> fields,
+    SmallVector<FieldDecl*> fields,
     SmallVector<ProcDecl*> inits,
     ProcDecl* deleter,
     BlockExpr* scope,
@@ -299,6 +309,12 @@ src::StructType::StructType(
     deleter(deleter),
     scope(scope) {
     if (not name.empty()) mod->named_structs.push_back(this);
+}
+
+auto src::StructType::initialiser_overloads(Location where) -> Expr* {
+    if (initialisers.empty()) return nullptr;
+    if (initialisers.size() == 1) return new (module) DeclRefExpr(initialisers[0], where);
+    return new (module) OverloadSetExpr(initialisers, where);
 }
 
 auto src::Type::align(Context* ctx) const -> Align {
@@ -427,13 +443,13 @@ auto src::Type::size(Context* ctx) const -> Size {
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
             switch (cast<BuiltinType>(ptr)->builtin_kind) {
-                case BuiltinTypeKind::Unknown: return {};
-                case BuiltinTypeKind::Void: return {};
-                case BuiltinTypeKind::Int: return ctx->size_of_int;
+                case BuiltinTypeKind::ArrayLiteral: return {};
                 case BuiltinTypeKind::Bool: return Size::Bits(1);
+                case BuiltinTypeKind::Int: return ctx->size_of_int;
                 case BuiltinTypeKind::NoReturn: return {};
                 case BuiltinTypeKind::OverloadSet: return {};
-                case BuiltinTypeKind::ArrayLiteral: return {};
+                case BuiltinTypeKind::Unknown: return {};
+                case BuiltinTypeKind::Void: return {};
             }
 
             Unreachable();
@@ -500,12 +516,12 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
     };
 
     switch (ptr->kind) {
-        case Expr::Kind::ReferenceType: WriteSElem("&"); break;
-        case Expr::Kind::ScopedPointerType: WriteSElem("^"); break;
-        case Expr::Kind::OptionalType: WriteSElem("?"); break;
-        case Expr::Kind::SliceType: WriteSElem("[]"); break;
         case Expr::Kind::IntType: out += fmt::format("i{}", cast<IntType>(ptr)->size); break;
         case Expr::Kind::Nil: out += "nil"; break;
+        case Expr::Kind::OptionalType: WriteSElem("?"); break;
+        case Expr::Kind::ReferenceType: WriteSElem("&"); break;
+        case Expr::Kind::ScopedPointerType: WriteSElem("^"); break;
+        case Expr::Kind::SliceType: WriteSElem("[]"); break;
 
         case Expr::Kind::SugaredType: {
             out += C(Yellow);
@@ -520,13 +536,13 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
         case Expr::Kind::BuiltinType: {
             auto bk = cast<BuiltinType>(ptr)->builtin_kind;
             switch (bk) {
-                case BuiltinTypeKind::Unknown: out += "<unknown>"; goto done;
-                case BuiltinTypeKind::Void: out += "void"; goto done;
-                case BuiltinTypeKind::Int: out += "int"; goto done;
+                case BuiltinTypeKind::ArrayLiteral: out += "<empty array literal>"; goto done;
                 case BuiltinTypeKind::Bool: out += "bool"; goto done;
+                case BuiltinTypeKind::Int: out += "int"; goto done;
                 case BuiltinTypeKind::NoReturn: out += "noreturn"; goto done;
                 case BuiltinTypeKind::OverloadSet: out += "<overload set>"; goto done;
-                case BuiltinTypeKind::ArrayLiteral: out += "<empty array literal>"; goto done;
+                case BuiltinTypeKind::Unknown: out += "<unknown>"; goto done;
+                case BuiltinTypeKind::Void: out += "void"; goto done;
             }
 
             out += fmt::format("<invalid builtin type: {}>", int(bk));
@@ -649,16 +665,16 @@ bool src::Type::_trivial() {
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
         case Expr::Kind::IntType:
+        case Expr::Kind::Nil:
         case Expr::Kind::OptionalType:
         case Expr::Kind::ScopedPointerType:
         case Expr::Kind::SliceType:
-        case Expr::Kind::Nil:
             return true;
 
         case Expr::Kind::ClosureType:
+        case Expr::Kind::OpaqueType:
         case Expr::Kind::ProcType:
         case Expr::Kind::ReferenceType:
-        case Expr::Kind::OpaqueType:
             return false;
 
         case Expr::Kind::SugaredType:
@@ -879,12 +895,12 @@ struct ASTPrinter {
     void PrintLinkage(Linkage l) {
         out += C(Red);
         switch (l) {
-            case Linkage::Local: out += "Local "; return;
-            case Linkage::Internal: out += "Internal "; return;
             case Linkage::Exported: out += "Exported "; return;
             case Linkage::Imported: out += "Imported "; return;
-            case Linkage::Reexported: out += "Reexported "; return;
+            case Linkage::Internal: out += "Internal "; return;
             case Linkage::LinkOnceODR: out += "LinkOnceODR "; return;
+            case Linkage::Local: out += "Local "; return;
+            case Linkage::Reexported: out += "Reexported "; return;
         }
         Unreachable();
     }
@@ -1037,17 +1053,17 @@ struct ASTPrinter {
                 PrintBasicHeader("CastExpr", e);
                 out += C(Red);
                 switch (c->cast_kind) {
+                    case CastKind::ArrayToElemRef: out += " ArrayToElemRef"; break;
+                    case CastKind::Hard: out += " Hard"; break;
                     case CastKind::Implicit: out += " Implicit"; break;
-                    case CastKind::ReferenceToLValue: out += " ReferenceToLValue"; break;
                     case CastKind::LValueRefToLValue: out += " LValueRefToLValue"; break;
-                    case CastKind::LValueToRValue: out += " LValueToRValue"; break;
                     case CastKind::LValueToReference: out += " LValueToReference"; break;
+                    case CastKind::LValueToRValue: out += " LValueToRValue"; break;
                     case CastKind::OptionalNilTest: out += " OptionalNilTest"; break;
                     case CastKind::OptionalUnwrap: out += " OptionalUnwrap"; break;
                     case CastKind::OptionalWrap: out += " OptionalWrap"; break;
-                    case CastKind::ArrayToElemRef: out += " ArrayToElemRef"; break;
+                    case CastKind::ReferenceToLValue: out += " ReferenceToLValue"; break;
                     case CastKind::Soft: out += " Soft"; break;
-                    case CastKind::Hard: out += " Hard"; break;
                 }
                 out += fmt::format(
                     " {}{}{}\n",
@@ -1207,6 +1223,21 @@ struct ASTPrinter {
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
 
+            case K::FieldDecl: {
+                auto f = cast<FieldDecl>(e);
+                PrintBasicHeader("FieldDecl", e);
+                out += fmt::format(
+                    "{} {}{} {}at {}{}\n",
+                    f->type.str(use_colour),
+                    C(Magenta),
+                    f->name,
+                    C(Red),
+                    C(Yellow),
+                    f->sema.ok ? std::to_string(f->offset.bits()) : "?"
+                );
+                return;
+            }
+
             case K::AliasExpr: {
                 PrintBasicHeader("AliasExpr", e);
                 out += fmt::format(" {}{}\n", C(White), cast<AliasExpr>(e)->alias);
@@ -1277,18 +1308,18 @@ struct ASTPrinter {
             }
 
             /// We don’t print any other types here.
-            case K::ProcType:
-            case K::ClosureType:
             case K::ArrayType:
             case K::BuiltinType:
+            case K::ClosureType:
+            case K::IntType:
+            case K::OpaqueType:
+            case K::OptionalType:
+            case K::ProcType:
             case K::ReferenceType:
             case K::ScopedPointerType:
-            case K::OptionalType:
-            case K::IntType:
+            case K::ScopedType:
             case K::SliceType:
             case K::SugaredType:
-            case K::ScopedType:
-            case K::OpaqueType:
                 PrintBasicNode("Type", e, e);
                 return;
         }
@@ -1304,48 +1335,33 @@ struct ASTPrinter {
         switch (e->kind) {
             /// These don’t have children.
             case K::BoolLiteralExpr:
-            case K::IntegerLiteralExpr:
-            case K::StringLiteralExpr:
-            case K::ModuleRefExpr:
             case K::EmptyExpr:
+            case K::FieldDecl:
+            case K::IntegerLiteralExpr:
+            case K::ModuleRefExpr:
+            case K::StringLiteralExpr:
                 break;
 
             /// We don’t print children of most types here.
+            case K::ArrayType:
             case K::BuiltinType:
-            case K::ProcType:
             case K::ClosureType:
+            case K::IntType:
+            case K::Nil:
+            case K::OpaqueType:
+            case K::OptionalType:
+            case K::ProcType:
             case K::ReferenceType:
             case K::ScopedPointerType:
-            case K::OptionalType:
-            case K::IntType:
-            case K::ArrayType:
+            case K::ScopedType:
             case K::SliceType:
             case K::SugaredType:
-            case K::ScopedType:
-            case K::OpaqueType:
-            case K::Nil:
                 break;
 
             case K::StructType: {
                 auto s = cast<StructType>(e);
-                for (auto& f : s->all_fields) {
-                    out += fmt::format(
-                        "{}{}{}Field {} {}{} {}at {}{}\n",
-                        C(Red),
-                        leading_text,
-                        &f == &s->all_fields.back() and s->initialisers.empty() and not s->deleter
-                            ? "└─"
-                            : "├─",
-                        f.type.str(use_colour),
-                        C(Magenta),
-                        f.name,
-                        C(Red),
-                        C(Yellow),
-                        s->sema.ok ? std::to_string(f.offset.bits()) : "?"
-                    );
-                }
-
-                SmallVector<Expr*, 12> children{};
+                SmallVector<Expr*, 36> children{};
+                utils::append(children, s->all_fields);
                 utils::append(children, s->initialisers);
                 if (s->deleter) children.push_back(s->deleter);
                 PrintChildren(children, leading_text);
