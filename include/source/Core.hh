@@ -53,7 +53,7 @@ class File {
     fs::path file_path;
 
     /// The contents of the file.
-    std::vector<char> contents;
+    std::unique_ptr<llvm::MemoryBuffer> contents;
 
     /// The id of the file.
     u32 id;
@@ -75,13 +75,13 @@ public:
     File& operator=(File&&) = delete;
 
     /// Get an iterator to the beginning of the file.
-    [[nodiscard]] auto begin() const { return contents.begin(); }
+    [[nodiscard]] auto begin() const { return contents->getBufferStart(); }
 
     /// Get the file data.
-    [[nodiscard]] auto data() const -> const char* { return contents.data(); }
+    [[nodiscard]] auto data() const -> const char* { return contents->getBufferStart(); }
 
     /// Get an iterator to the end of the file.
-    [[nodiscard]] auto end() const { return contents.end(); }
+    [[nodiscard]] auto end() const { return contents->getBufferEnd(); }
 
     /// Get the id of this file.
     [[nodiscard]] auto file_id() const { return id; }
@@ -90,14 +90,18 @@ public:
     [[nodiscard]] auto path() const -> const fs::path& { return file_path; }
 
     /// Get the size of the file.
-    [[nodiscard]] auto size() const -> usz { return contents.size(); }
+    [[nodiscard]] auto size() const -> usz { return contents->getBufferSize(); }
 
 private:
     /// Construct a file from a name and source.
-    explicit File(Context& _ctx, fs::path _name, std::vector<char>&& _contents);
+    explicit File(
+        Context& _ctx,
+        fs::path _name,
+        std::unique_ptr<llvm::MemoryBuffer> _contents
+    );
 
     /// Load a file from disk.
-    static auto LoadFileData(const fs::path& path) -> std::vector<char>;
+    static auto LoadFileData(const fs::path& path) -> std::unique_ptr<llvm::MemoryBuffer>;
 
     /// The context is the only thing that can create files.
     friend Context;
@@ -176,12 +180,11 @@ public:
     void add_module(std::unique_ptr<Module> mod);
 
     /// Create a new file from a name and contents.
-    template <typename Buffer>
-    File& create_file(fs::path name, Buffer&& contents) {
+    File& create_file(fs::path name, std::unique_ptr<llvm::MemoryBuffer> contents) {
         std::unique_lock _{mtx};
         return MakeFile(
             std::move(name),
-            std::vector<char>{std::forward<Buffer>(contents)}
+            std::move(contents)
         );
     }
 
@@ -229,7 +232,7 @@ private:
     void Initialise();
 
     /// Register a file in the context.
-    File& MakeFile(fs::path name, std::vector<char>&& contents);
+    File& MakeFile(fs::path name, std::unique_ptr<llvm::MemoryBuffer> contents);
 };
 
 /// A decoded source location.

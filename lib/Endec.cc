@@ -854,7 +854,8 @@ struct Deserialiser {
     auto operator>>(T& t) -> Deserialiser& {
         if (description.size() < sizeof(T)) {
             Diag::Fatal(
-                "expected {} bytes, got {}",
+                "Ill-formed module description for '{}': expected {} bytes, got {}",
+                mod->name,
                 sizeof(T),
                 description.size()
             );
@@ -871,7 +872,8 @@ struct Deserialiser {
     auto operator>>(std::span<T> data) -> Deserialiser& {
         if (description.size() < data.size_bytes()) {
             Diag::Fatal(
-                "expected {} bytes, got {}",
+                "Ill-formed module description for '{}': expected {} bytes, got {}",
+                mod->name,
                 data.size_bytes(),
                 description.size()
             );

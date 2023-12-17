@@ -94,7 +94,7 @@ void src::Context::Initialise() {
     llvm::InitializeAllAsmPrinters();
 }
 
-auto src::Context::MakeFile(fs::path name, std::vector<char>&& contents) -> File& {
+auto src::Context::MakeFile(fs::path name, std::unique_ptr<llvm::MemoryBuffer> contents) -> File& {
     /// Create the file.
     auto fptr = new File(*this, std::move(name), std::move(contents));
     fptr->id = u32(owned_files.size());
@@ -166,59 +166,24 @@ void src::File::WriteOrDie(void* data, usz size, const fs::path& file) {
         Diag::Fatal("Failed to write to file '{}': {}", file.string(), std::strerror(errno));
 }
 
-src::File::File(Context& ctx, fs::path name, std::vector<char>&& contents)
+src::File::File(Context& ctx, fs::path name, std::unique_ptr<llvm::MemoryBuffer> contents)
     : ctx(ctx), file_path(std::move(name)), contents(std::move(contents)) {}
 
-auto src::File::LoadFileData(const fs::path& path) -> std::vector<char> {
-#ifdef __linux__
-    /// Open the file.
-    int fd = open(path.c_str(), O_RDONLY);
-    if (fd == -1) Diag::Fatal("Could not open file \"{}\": {}", path.string(), strerror(errno));
-    defer { close(fd); };
+auto src::File::LoadFileData(const fs::path& path) -> std::unique_ptr<llvm::MemoryBuffer> {
+    auto buf = llvm::MemoryBuffer::getFile(
+        path.string(),
+        true,
+        false
+    );
 
-    /// Determine the file size.
-    struct stat st {};
-    if (fstat(fd, &st) == -1) Diag::Fatal("Could not stat file \"{}\": {}", path.string(), strerror(errno));
-
-    /// If the file is empty, return an empty string.
-    if (st.st_size == 0) return {};
-
-    /// Map the file into memory.
-    void* ptr = mmap(nullptr, static_cast<usz>(st.st_size), PROT_READ, MAP_PRIVATE, fd, 0);
-    if (ptr == MAP_FAILED) Diag::Fatal("Could not map file \"{}\": {}", path.string(), strerror(errno));
-
-    /// Copy the file into a vector.
-    std::vector<char> ret(static_cast<usz>(st.st_size));
-    memcpy(ret.data(), ptr, static_cast<usz>(st.st_size));
-
-    /// Unmap the file.
-    munmap(ptr, static_cast<usz>(st.st_size));
-
-#else
-    /// Read the file manually.
-    std::unique_ptr<FILE, decltype(&std::fclose)> f{std::fopen(path.string().c_str(), "rb"), std::fclose};
-    if (not f) Diag::Fatal("Could not open file \"{}\": {}", path.string(), strerror(errno));
-
-    /// Get the file size.
-    std::fseek(f.get(), 0, SEEK_END);
-    auto sz = std::size_t(std::ftell(f.get()));
-    std::fseek(f.get(), 0, SEEK_SET);
-
-    /// Read the file.
-    std::vector<char> ret;
-    ret.resize(sz);
-    std::size_t n_read = 0;
-    while (n_read < sz) {
-        errno = 0;
-        auto n = std::fread(ret.data() + n_read, 1, sz - n_read, f.get());
-        if (errno) Diag::Fatal("Error reading file \"{}\": {}", path.string(), strerror(errno));
-        if (n == 0) break;
-        n_read += n;
-    }
-#endif
+    if (auto ec = buf.getError()) Diag::Fatal(
+        "Could not load file '{}': {}",
+        path.string(),
+        ec.message()
+    );
 
     /// Construct the file data.
-    return ret;
+    return std::move(*buf);
 }
 
 /// ===========================================================================
@@ -582,9 +547,11 @@ void src::Diag::HandleFatalErrors(utils::Colours C) {
 
 /// Print a diagnostic with no (valid) location info.
 void src::Diag::PrintDiagWithoutLocation(utils::Colours C) {
+    using enum utils::Colour;
+
     /// Print the message.
-    fmt::print(stderr, "{}{}{}: ", C(utils::Colour::Bold), Colour(C, kind), Name(kind));
-    fmt::print(stderr, "{}\n", msg);
+    fmt::print(stderr, "{}{}{}: {}", C(Bold), Colour(C, kind), Name(kind), C(Reset));
+    fmt::print(stderr, "{}{}{}\n", C(Bold), msg, C(Reset));
     HandleFatalErrors(C);
 }
 
