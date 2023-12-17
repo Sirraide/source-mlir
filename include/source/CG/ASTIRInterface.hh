@@ -9,14 +9,6 @@ static_assert(src::AlignOfMLIRValue >= alignof(mlir::Value));
 static_assert(src::SizeOfMLIRType == sizeof(mlir::Type));
 static_assert(src::SizeOfMLIRValue == sizeof(mlir::Value));
 
-inline auto src::Expr::_mlir() -> mlir::Value {
-    return std::bit_cast<mlir::Value>(_mlir_);
-}
-
-inline void src::Expr::_set_mlir(mlir::Value val) {
-    std::memcpy(&_mlir_, &val, sizeof(_mlir_));
-}
-
 inline auto src::ProcDecl::_captured_locals_ptr() -> mlir::Value {
     return std::bit_cast<mlir::Value>(_captured_locals_ptr_);
 }

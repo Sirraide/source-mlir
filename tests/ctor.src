@@ -3,22 +3,6 @@
 /// d t %[a-zA-Z0-9_]+
 /// p lit []
 
-struct foo {
-    i64 x;
-
-    init {
-        .init 10; /// Call a different constructor.
-    }
-
-    init (i64 x) {
-        .x = x;
-    }
-
-    init (i64 x, i64 y) {
-        .x = x + y;
-    }
-}
-
 /// b
 /// * hlir.func external @__src_main
 /// * scope
@@ -39,31 +23,45 @@ foo c = 3, 9;
 /// var e = foo(20);
 /// var f = foo(3, 9);
 
-/// b
-/// * hlir.func private @_SXS3fooPE
-/// + scope
-/// + (?<x>$t) = structgep $t[0] -> i64&
-/// + (?<ten>$t) = arith.constant 10
-/// + store into $x, i64 $ten
+struct foo {
+    i64 x;
 
-/// b
-/// * hlir.func private @_SXS3fooPI64_E
-/// + (?<param1>$t) = local i64
-/// + store into $param1
-/// + scope
-/// + (?<x>$t) = structgep $t[0] -> i64&
-/// + (?<val1>$t) = load i64 from $param1
-/// + store into $x, i64 $val1
+    /// b
+    /// * hlir.func private @_SXS3fooPE
+    /// + scope
+    /// + (?<ten>$t) = arith.constant 10
+    /// + call @_SXS3fooPI64_E(%arg0, $ten)
+    init {
+        .init 10; /// Call a different constructor.
+    }
 
-/// b
-/// * hlir.func private @_SXS3fooPI64_I64_E
-/// + (?<param1>$t) = local i64
-/// + store into $param1
-/// + (?<param2>$t) = local i64
-/// + store into $param2
-/// + scope
-/// + (?<x>$t) = structgep $t[0] -> i64&
-/// + (?<val1>$t) = load i64 from $param1
-/// + (?<val2>$t) = load i64 from $param2
-/// + (?<sum>$t) = arith.addi $val1, $val2
-/// + store into $x, i64 $sum
+    /// b
+    /// * hlir.func private @_SXS3fooPI64_E
+    /// + (?<param1>$t) = local i64
+    /// + store into $param1
+    /// + scope
+    /// + (?<x>$t) = structgep $t[0] -> i64&
+    /// + (?<val1>$t) = load i64 from $param1
+    /// + store into $x, i64 $val1
+    init (i64 x) {
+        .x = x;
+    }
+
+    /// b
+    /// * hlir.func private @_SXS3fooPI64_I64_E
+    /// + (?<param1>$t) = local i64
+    /// + store into $param1
+    /// + (?<param2>$t) = local i64
+    /// + store into $param2
+    /// + scope
+    /// + (?<x>$t) = structgep $t[0] -> i64&
+    /// + (?<val1>$t) = load i64 from $param1
+    /// + (?<val2>$t) = load i64 from $param2
+    /// + (?<sum>$t) = arith.addi $val1, $val2
+    /// + store into $x, i64 $sum
+    init (i64 x, i64 y) {
+        .x = x + y;
+    }
+}
+
+

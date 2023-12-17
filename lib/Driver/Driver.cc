@@ -260,7 +260,7 @@ auto src::DriverImpl::Compile(FileSource& source) -> int {
     }
 
     /// Lower HLIR to lowered HLIR.
-    ForEachModule([&](auto mod) { LowerHLIR(&mlir, mod); });
+    ForEachModule([&](auto mod) { LowerHLIR(&mlir, mod, not opts.verify_hlir); });
     if (opts.action == Action::PrintLoweredHLIR) {
         for (auto mod : combined_modules)
             mod->print_hlir(opts.use_generic_assembly_format);

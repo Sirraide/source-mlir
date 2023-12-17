@@ -41,7 +41,6 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::LoopControlExpr:
         case Expr::Kind::MemberAccessExpr:
         case Expr::Kind::ModuleRefExpr:
-        case Expr::Kind::OverloadSetExpr:
         case Expr::Kind::ProcDecl:
         case Expr::Kind::ReturnExpr:
         case Expr::Kind::ScopeAccessExpr:
@@ -62,6 +61,10 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
 
         case Expr::Kind::ConstExpr:
             out = cast<ConstExpr>(e)->value;
+            return true;
+
+        case Expr::Kind::OverloadSetExpr:
+            out = cast<OverloadSetExpr>(e);
             return true;
 
         case Expr::Kind::BoolLiteralExpr: {
@@ -219,4 +222,11 @@ bool src::Sema::EvaluateAsIntegerInPlace(Expr*& e, bool must_succeed) {
 
     e = new (mod) ConstExpr(e, std::move(res), e->location);
     return true;
+}
+
+auto src::Sema::EvaluateAsOverloadSet(Expr* e) -> OverloadSetExpr* {
+    EvalResult res;
+    Assert(e->type == Type::OverloadSet, "Only call this if the type is OverloadSet");
+    Assert(Evaluate(e, res, true), "Overload set must be constant");
+    return res.as_overload_set();
 }

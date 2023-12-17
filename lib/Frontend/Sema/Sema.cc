@@ -1720,151 +1720,7 @@ bool src::Sema::Analyse(Expr*& e) {
         } break;
 
         /// An invoke expression may be a procedure call, or a declaration.
-        case Expr::Kind::InvokeExpr: {
-            /// Analyse the callee first.
-            ///
-            /// If it is a DeclRefExpr, we recognise builtins here,
-            /// so the decl ref being undefined is not an error.
-            auto invoke = cast<InvokeExpr>(e);
-            if (isa<DeclRefExpr>(invoke->callee)) {
-                AnalyseDeclRefExpr<true>(invoke->callee);
-
-                /// Check for builtins.
-                if (auto d = dyn_cast<DeclRefExpr>(invoke->callee); d and not d->decl) {
-                    auto b = llvm::StringSwitch<std::optional<Builtin>>(d->name) // clang-format off
-                        .Case("new", Builtin::New)
-                        .Case("__srcc_new", Builtin::New)
-                        .Case("__srcc_delete", Builtin::Destroy)
-                        .Default(std::nullopt);
-
-                    /// Found a builtin.
-                    if (b.has_value()) {
-                        e = new (mod) InvokeBuiltinExpr(
-                            *b,
-                            std::move(invoke->args),
-                            invoke->location
-                        );
-                        return Analyse(e);
-                    }
-
-                    /// Unknown symbol.
-                    Error(invoke->callee, "Unknown symbol '{}'", d->name);
-                    return e->sema.set_errored();
-                } // clang-format on
-            }
-
-            /// Otherwise, the callee must be a valid symbol.
-            if (not Analyse(invoke->callee)) { return e->sema.set_errored(); }
-
-            /// Perform overload resolution, if need be.
-            if (auto o = dyn_cast<OverloadSetExpr>(invoke->callee)) {
-                auto callee = PerformOverloadResolution(invoke->location, o->overloads, invoke->args, true);
-                if (not callee) return e->sema.set_errored();
-                invoke->stored_type = callee->type.callable->ret_type;
-
-                /// Wrap the procedure with a DeclRefExpr, for backend reasons.
-                auto dr = new (mod) DeclRefExpr(callee->name, curr_scope, invoke->location);
-                dr->decl = callee;
-                invoke->callee = dr;
-                Assert(Analyse(invoke->callee));
-                return true;
-            }
-
-            /// If the callee is of function type, and not a type itself,
-            /// then this is a function call.
-            if (isa<ProcType, ClosureType>(invoke->callee->type) and not isa<TypeBase>(invoke->callee)) {
-                auto ptype = invoke->callee->type.callable;
-
-                /// Callee must be an rvalue.
-                InsertLValueToRValueConversion(invoke->callee);
-
-                /// Analyse the arguments.
-                for (auto& arg : invoke->args)
-                    if (not Analyse(arg))
-                        e->sema.set_errored();
-
-                /// Make sure the types match.
-                for (usz i = 0; i < invoke->args.size(); i++) {
-                    if (i < ptype->param_types.size()) {
-                        if (not Convert(invoke->args[i], ptype->param_types[i])) {
-                            Error(
-                                invoke->args[i],
-                                "Argument type '{}' is not convertible to parameter type '{}'",
-                                invoke->args[i]->type,
-                                ptype->param_types[i]
-                            );
-                            e->sema.set_errored();
-                        }
-                    }
-
-                    /// Variadic arguments only undergo lvalue-to-rvalue conversion.
-                    else { InsertLValueToRValueConversion(invoke->args[i]); }
-                }
-
-                /// Make sure there are as many arguments as parameters.
-                if (
-                    invoke->args.size() < ptype->param_types.size() or
-                    (invoke->args.size() != ptype->param_types.size() and not ptype->variadic)
-                ) {
-                    Error(
-                        e,
-                        "Expected {} arguments, but got {}",
-                        ptype->param_types.size(),
-                        invoke->args.size()
-                    );
-                }
-
-                /// The type of the expression is the return type of the
-                /// callee. Invoke expressions are never lvalues.
-                invoke->stored_type = ptype->ret_type;
-            }
-
-            /// Otherwise, if the callee is a type, then this is a declaration.
-            else if (isa<TypeBase>(invoke->callee)) {
-                /// TODO: naked: decl. parens: literal!
-                Type ty{invoke->callee};
-                if (not MakeDeclType(ty)) e->sema.set_errored();
-
-                /// The arguments must be DeclRefExprs.
-                for (auto& arg : invoke->args) {
-                    if (not isa<DeclRefExpr>(arg)) {
-                        Error(arg, "Expected identifier in declaration");
-                        e->sema.set_errored();
-                    }
-                }
-
-                /// Helper to create a var decl.
-                auto MakeVar = [&](Expr* name, SmallVector<Expr*> init) -> LocalDecl* {
-                    return new (mod) LocalDecl(
-                        curr_proc,
-                        cast<DeclRefExpr>(name)->name,
-                        ty,
-                        std::move(init),
-                        LocalKind::Variable,
-                        name->location
-                    );
-                };
-
-                /// Rewrite the invocation to a declaration. Type checking
-                /// for the initialiser is done elsewhere.
-                if (invoke->args.size() == 1) {
-                    e = MakeVar(invoke->args.front(), invoke->init_args);
-                    return Analyse(e);
-                }
-
-                /// If the invoke expression contains multiple declarations
-                /// rewrite to a VarListDecl expr.
-                else {
-                    Todo();
-                }
-            }
-
-            /// Otherwise, no idea what this is supposed to be.
-            else {
-                e->sema.set_errored();
-                Error(invoke->callee, "Expected procedure or type");
-            }
-        } break;
+        case Expr::Kind::InvokeExpr: return AnalyseInvoke(e);
 
         /// Builtins are handled out of line.
         case Expr::Kind::InvokeBuiltinExpr: return AnalyseInvokeBuiltin(e);
@@ -2015,8 +1871,10 @@ bool src::Sema::Analyse(Expr*& e) {
                             unwrapped.str(mod->context->use_colours, true)
                         );
 
-                        m->field = s->initialiser_overloads(m->location);
-                        m->stored_type = m->field->type;
+                        if (s->initialisers.size() == 1) m->field = new (mod) DeclRefExpr(s->initialisers[0], m->location);
+                        else m->field = new (mod) OverloadSetExpr(s->initialisers, m->location);
+                        Assert(Analyse(m->field));
+                        m->stored_type = Type::MemberProc;
                         m->is_lvalue = false;
                         return {};
                     }
@@ -2840,6 +2698,166 @@ void src::Sema::AnalyseExplicitCast(Expr*& e, [[maybe_unused]] bool is_hard) {
         c->operand->type,
         e->type
     );
+}
+
+bool src::Sema::AnalyseInvoke(Expr*& e) {
+    /// Analyse the callee first.
+    ///
+    /// If it is a DeclRefExpr, we recognise builtins here,
+    /// so the decl ref being undefined is not an error.
+    auto invoke = cast<InvokeExpr>(e);
+    if (isa<DeclRefExpr>(invoke->callee)) {
+        AnalyseDeclRefExpr<true>(invoke->callee);
+
+        /// Check for builtins.
+        if (auto d = dyn_cast<DeclRefExpr>(invoke->callee); d and not d->decl) {
+            auto b = llvm::StringSwitch<std::optional<Builtin>>(d->name) // clang-format off
+                .Case("new", Builtin::New)
+                .Case("__srcc_new", Builtin::New)
+                .Case("__srcc_delete", Builtin::Destroy)
+                .Default(std::nullopt);
+
+            /// Found a builtin.
+            if (b.has_value()) {
+                e = new (mod) InvokeBuiltinExpr(
+                    *b,
+                    std::move(invoke->args),
+                    invoke->location
+                );
+                return Analyse(e);
+            }
+
+            /// Unknown symbol.
+            Error(invoke->callee, "Unknown symbol '{}'", d->name);
+            return e->sema.errored;
+        } // clang-format on
+    }
+
+    /// Otherwise, the callee must be a valid symbol.
+    if (not Analyse(invoke->callee)) { return e->sema.set_errored(); }
+
+    /// Perform overload resolution.
+    auto ResolveOverloadSet = [&](OverloadSetExpr* o, Expr*& callee_ref) {
+        auto callee = PerformOverloadResolution(invoke->location, o->overloads, invoke->args, true);
+        if (not callee) return e->sema.set_errored();
+        invoke->stored_type = callee->type.callable->ret_type;
+
+        /// Wrap the procedure with a DeclRefExpr, for backend reasons.
+        auto dr = new (mod) DeclRefExpr(callee->name, curr_scope, invoke->location);
+        dr->decl = callee;
+        callee_ref = dr;
+        Assert(Analyse(callee_ref));
+        return true;
+    };
+
+    /// Handle regular calls.
+    auto PerformSimpleCall = [&](Expr*& callee) {
+        auto ptype = callee->type.callable;
+
+        /// Callee must be an rvalue.
+        InsertLValueToRValueConversion(callee);
+
+        /// Analyse the arguments.
+        for (auto& arg : invoke->args)
+            if (not Analyse(arg))
+                e->sema.set_errored();
+
+        /// Make sure the types match.
+        for (usz i = 0; i < invoke->args.size(); i++) {
+            if (i < ptype->param_types.size()) {
+                if (not Convert(invoke->args[i], ptype->param_types[i])) {
+                    Error(
+                        invoke->args[i],
+                        "Argument type '{}' is not convertible to parameter type '{}'",
+                        invoke->args[i]->type,
+                        ptype->param_types[i]
+                    );
+                    e->sema.set_errored();
+                }
+            }
+
+            /// Variadic arguments only undergo lvalue-to-rvalue conversion.
+            else { InsertLValueToRValueConversion(invoke->args[i]); }
+        }
+
+        /// Make sure there are as many arguments as parameters.
+        if (
+            invoke->args.size() < ptype->param_types.size() or
+            (invoke->args.size() != ptype->param_types.size() and not ptype->variadic)
+        ) {
+            Error(
+                e,
+                "Expected {} arguments, but got {}",
+                ptype->param_types.size(),
+                invoke->args.size()
+            );
+        }
+
+        /// The type of the expression is the return type of the
+        /// callee. Invoke expressions are never lvalues.
+        invoke->stored_type = ptype->ret_type;
+        return not e->sema.errored;
+    };
+
+    /// Handle member function calls.
+    if (invoke->callee->type == Type::MemberProc) {
+        auto m = cast<MemberAccessExpr>(invoke->callee);
+        if (auto o = dyn_cast<OverloadSetExpr>(m->field)) return ResolveOverloadSet(o, m->field);
+        return PerformSimpleCall(m->field);
+    }
+
+    /// Perform overload resolution, if need be.
+    if (auto o = dyn_cast<OverloadSetExpr>(invoke->callee))
+        return ResolveOverloadSet(o, invoke->callee);
+
+    /// If the callee is of function type, and not a type itself,
+    /// then this is a function call.
+    if (isa<ProcType, ClosureType>(invoke->callee->type) and not isa<TypeBase>(invoke->callee))
+        return PerformSimpleCall(invoke->callee);
+
+    /// Otherwise, if the callee is a type, then this is a declaration.
+    if (isa<TypeBase>(invoke->callee)) {
+        /// TODO: naked: decl. parens: literal!
+        Type ty{invoke->callee};
+        if (not MakeDeclType(ty)) e->sema.set_errored();
+
+        /// The arguments must be DeclRefExprs.
+        for (auto& arg : invoke->args) {
+            if (not isa<DeclRefExpr>(arg)) {
+                Error(arg, "Expected identifier in declaration");
+                e->sema.set_errored();
+            }
+        }
+
+        /// Helper to create a var decl.
+        auto MakeVar = [&](Expr* name, SmallVector<Expr*> init) -> LocalDecl* {
+            return new (mod) LocalDecl(
+                curr_proc,
+                cast<DeclRefExpr>(name)->name,
+                ty,
+                std::move(init),
+                LocalKind::Variable,
+                name->location
+            );
+        };
+
+        /// Rewrite the invocation to a declaration. Type checking
+        /// for the initialiser is done elsewhere.
+        if (invoke->args.size() == 1) {
+            e = MakeVar(invoke->args.front(), invoke->init_args);
+            return Analyse(e);
+        }
+
+        /// If the invoke expression contains multiple declarations
+        /// rewrite to a VarListDecl expr.
+        Todo();
+    }
+
+    /// Otherwise, no idea what this is supposed to be.
+    else {
+        e->sema.set_errored();
+        return Error(invoke->callee, "Expected procedure or type");
+    }
 }
 
 bool src::Sema::AnalyseInvokeBuiltin(Expr*& e) {

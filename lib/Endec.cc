@@ -74,9 +74,11 @@ auto Type::_mangled_name() -> std::string {
                 case BuiltinTypeKind::Int: return "i";
                 case BuiltinTypeKind::Bool: return "b";
                 case BuiltinTypeKind::NoReturn: return "r";
-                case BuiltinTypeKind::Unknown:
-                case BuiltinTypeKind::OverloadSet:
+
                 case BuiltinTypeKind::ArrayLiteral:
+                case BuiltinTypeKind::MemberProc:
+                case BuiltinTypeKind::OverloadSet:
+                case BuiltinTypeKind::Unknown:
                     Unreachable("Builtin type must be resolved before mangling");
             }
 
@@ -349,9 +351,11 @@ struct Serialiser {
                     case BuiltinTypeKind::Int: return TD(SerialisedTypeTag::Int);
                     case BuiltinTypeKind::Bool: return TD(SerialisedTypeTag::Bool);
                     case BuiltinTypeKind::NoReturn: return TD(SerialisedTypeTag::NoReturn);
-                    case BuiltinTypeKind::Unknown:
-                    case BuiltinTypeKind::OverloadSet:
+
                     case BuiltinTypeKind::ArrayLiteral:
+                    case BuiltinTypeKind::OverloadSet:
+                    case BuiltinTypeKind::MemberProc:
+                    case BuiltinTypeKind::Unknown:
                         Unreachable();
                 }
 

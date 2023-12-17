@@ -17,7 +17,11 @@ proc exit (i32) extern nomangle -> noreturn;
 /// * scope
 proc p1 -> int {
     /// + (?<A>$t) = structgep $CHAIN1[0] -> i64&
+    /// + construct $A zeroinit
     int a;
+
+    /// + (?<c>$t) = local i64
+    /// + construct $c zeroinit
     int c;
 
     /// * (?<CONST_1>$t) = arith.constant 4 : i64
@@ -89,7 +93,6 @@ proc p1 -> int {
         /// + store into $CHAIN5
         /// * scope
         proc p5(int, int) {
-
             /// + (?<CHAIN2_4>$t) = extractlocal chain $CHAIN5[0]
             /// + (?<CHAIN1_3>$t) = extractlocal chain $CHAIN2_4[0]
             /// + (?<A3>$t) = structgep $CHAIN1_3[0] -> i64&

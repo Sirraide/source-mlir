@@ -7,18 +7,19 @@
 #include <source/Support/Result.hh>
 
 namespace src {
+class Assimilator;
+class BlockExpr;
+class ConstructExpr;
 class Expr;
-class Sema;
-class Type;
-class TypeBase;
 class FunctionDecl;
 class LocalDecl;
-class StructType;
-class ProcType;
-class BlockExpr;
 class Nil;
-class ConstructExpr;
-class Assimilator;
+class OverloadSetExpr;
+class ProcType;
+class Sema;
+class StructType;
+class Type;
+class TypeBase;
 
 struct ArrayInfo;
 
@@ -166,20 +167,14 @@ public:
     /// The kind of this expression.
     const Kind kind;
 
-    /// State of semantic analysis
-    SemaState sema{};
-
-    /// Whether this expression has already been emitted.
-    bool emitted : 1 = false;
-
-    /// Check if this is an lvalue.
-    bool is_lvalue : 1 = false;
-
     /// The location of this expression.
     Location location;
 
-    /// The MLIR value of this expression.
-    SOURCE_MLIR_VALUE_MEMBER(mlir);
+    /// State of semantic analysis
+    SemaState sema{};
+
+    /// Check if this is an lvalue.
+    bool is_lvalue : 1 = false;
 
     /// Protected subexpressions (i.e. defers and local variables).
     /// Only applicable to full expressions at the block level. This
@@ -266,6 +261,7 @@ public:
     static constinit const Type Bool;
     static constinit const Type NoReturn;
     static constinit const Type OverloadSet;
+    static constinit const Type MemberProc;
     static constinit const Type ArrayLiteral;
     static constinit const Type VoidRef;
     static constinit const Type VoidRefRef;
@@ -361,7 +357,13 @@ struct ArrayInfo {
 };
 
 class EvalResult {
-    std::variant<std::monostate, APInt, Type, std::nullptr_t> value{};
+    std::variant< // clang-format off
+        std::monostate,
+        APInt,
+        Type,
+        OverloadSetExpr*,
+        std::nullptr_t
+    > value{}; // clang-format on
 
 public:
     Type type{Type::Unknown};
@@ -369,10 +371,12 @@ public:
     EvalResult() : value(std::monostate{}) {}
     EvalResult(std::nullptr_t); /// Nil.
     EvalResult(APInt value, Type type) : value(std::move(value)), type(type) {}
+    EvalResult(OverloadSetExpr* os) : value(os), type(Type::OverloadSet) {}
     EvalResult(Type type) : value(type), type(type) {} /// FIXME: should be the `type` type.
 
     auto as_int() -> APInt& { return std::get<APInt>(value); }
     auto as_type() -> Type { return std::get<Type>(value); }
+    auto as_overload_set() -> OverloadSetExpr* { return std::get<OverloadSetExpr*>(value); }
 
     bool is_int() const { return std::holds_alternative<APInt>(value); }
     bool is_type() const { return std::holds_alternative<Type>(value); }
@@ -613,7 +617,7 @@ public:
 
     OverloadSetExpr(SmallVector<ProcDecl*> overloads, Location loc)
         : Expr(Kind::OverloadSetExpr, loc),
-          overloads(std::move(overloads)) { }
+          overloads(std::move(overloads)) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::OverloadSetExpr; }
@@ -1032,24 +1036,24 @@ public:
     /// The arguments to the function.
     SmallVector<Expr*> args;
 
-    /// Whether this is a naked invocation.
-    bool naked;
-
-    /// The function being invoked.
-    Expr* callee;
-
     /// Bound initialisers arguments. These are any arguments
     /// after a `=` in an invoke expression; they are stored
     /// here to facilitate conversion to a variable declaration
     /// in sema.
     SmallVector<Expr*> init_args;
 
+    /// The function being invoked.
+    Expr* callee;
+
+    /// Whether this is a naked invocation.
+    bool naked;
+
     InvokeExpr(Expr* callee, SmallVector<Expr*> args, bool naked, SmallVector<Expr*> init, Location loc)
         : TypedExpr(Kind::InvokeExpr, Type::Unknown, loc),
           args(std::move(args)),
-          naked(naked),
+          init_args(std::move(init)),
           callee(callee),
-          init_args(std::move(init)) {}
+          naked(naked) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::InvokeExpr; }
@@ -1618,6 +1622,10 @@ enum struct BuiltinTypeKind {
     /// each function type in the set.
     OverloadSet,
 
+    /// Type of a member function expression, e.g. `a.foo`. The only
+    /// thing that can reasonably be done with this is to call it.
+    MemberProc,
+
     /// Array literals can be oddly-shaped, so assigning a type to
     /// them doesn’t really make much sense; each array literal has
     /// to be treated as a special case.
@@ -1786,11 +1794,6 @@ public:
     auto field_types() {
         return vws::transform(all_fields, [](FieldDecl* f) { return f->stored_type; });
     }
-
-    /// Get the initialisers as an overload set if there is more
-    /// than one, or a DeclRefExpr to a ProcDecl otherwise. Null
-    /// is returned if this type has no initialisers.
-    Expr* initialiser_overloads(Location where);
 
     /// Check if two struct types have the same layout.
     static bool LayoutCompatible(StructType* a, StructType* b);

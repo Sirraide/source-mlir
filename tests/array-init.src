@@ -28,8 +28,8 @@ i64[5] int_default;
 
 ///  b
 ///  + (?<int_broadcast>$t) = local i64[5]
-///  + (?<C1>$t) = arith.constant 1
 ///  + (?<A>$t) = array_decay $int_broadcast to i64&
+///  + (?<C1>$t) = arith.constant 1
 ///  + construct $A trivial i64 $C1, elems 5
 i64[5] int_broadcast = 1;
 

@@ -14,7 +14,7 @@ class ThreadPool;
 namespace src {
 class Module;
 class Expr;
-void LowerHLIR(mlir::MLIRContext* ctx, Module* mod);
+void LowerHLIR(mlir::MLIRContext* ctx, Module* mod, bool no_verify);
 void LowerToLLVM(mlir::MLIRContext* ctx, Module* mod, bool debug_llvm_lowering, bool no_verify);
 void CodeGenModule(mlir::MLIRContext* ctx, Module* mod, bool no_verify);
 }

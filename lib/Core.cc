@@ -505,7 +505,14 @@ void src::detail::AssertFail(
 
     /// Print filename and ICE title.
     fmt::print(stderr, "{}{}:{}:", C(Bold), NormaliseFilename(file), line);
-    fmt::print(stderr, " {}{}: ", Colour(C, Diag::Kind::ICError), Name(Diag::Kind::ICError));
+    fmt::print(
+        stderr,
+        " {}{}: {}{}",
+        Colour(C, Diag::Kind::ICError),
+        Name(Diag::Kind::ICError),
+        C(Reset),
+        C(Bold)
+    );
 
     /// Print the condition, if any.
     switch (k) {
@@ -523,8 +530,8 @@ void src::detail::AssertFail(
     }
 
     /// Print the message.
-    if (not message.empty()) fmt::print(stderr, ": {}", message);
-    fmt::print(stderr, "\n");
+    if (not message.empty()) fmt::print(stderr, ": {}{}", C(Reset), message);
+    fmt::print(stderr, "{}\n", C(Reset));
 
     /// Print the backtrace and exit.
     PrintBacktrace(C);

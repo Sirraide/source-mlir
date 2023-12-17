@@ -9,6 +9,7 @@ BuiltinType VoidTypeInstance{BuiltinTypeKind::Void, {}};
 BuiltinType BoolTypeInstance{BuiltinTypeKind::Bool, {}};
 BuiltinType NoReturnTypeInstance{BuiltinTypeKind::NoReturn, {}};
 BuiltinType OverloadSetTypeInstance{BuiltinTypeKind::OverloadSet, {}};
+BuiltinType MemberProcTypeInstance{BuiltinTypeKind::MemberProc, {}};
 BuiltinType ArrayLiteralTypeInstance{BuiltinTypeKind::ArrayLiteral, {}};
 ReferenceType VoidRefTypeInstance{&VoidTypeInstance, {}};
 ReferenceType VoidRefRefTypeInstance{&VoidTypeInstance, {}};
@@ -24,6 +25,7 @@ constinit const Type Type::Unknown = &UnknownTypeInstance;
 constinit const Type Type::Bool = &BoolTypeInstance;
 constinit const Type Type::NoReturn = &NoReturnTypeInstance;
 constinit const Type Type::OverloadSet = &OverloadSetTypeInstance;
+constinit const Type Type::MemberProc = &MemberProcTypeInstance;
 constinit const Type Type::ArrayLiteral = &ArrayLiteralTypeInstance;
 constinit const Type Type::VoidRef = &VoidRefTypeInstance;
 constinit const Type Type::VoidRefRef = &VoidRefRefTypeInstance;
@@ -311,12 +313,6 @@ src::StructType::StructType(
     if (not name.empty()) mod->named_structs.push_back(this);
 }
 
-auto src::StructType::initialiser_overloads(Location where) -> Expr* {
-    if (initialisers.empty()) return nullptr;
-    if (initialisers.size() == 1) return new (module) DeclRefExpr(initialisers[0], where);
-    return new (module) OverloadSetExpr(initialisers, where);
-}
-
 auto src::Type::align(Context* ctx) const -> Align {
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
@@ -329,6 +325,7 @@ auto src::Type::align(Context* ctx) const -> Align {
 
                 /// Alignment can’t be 0.
                 case BuiltinTypeKind::ArrayLiteral:
+                case BuiltinTypeKind::MemberProc:
                 case BuiltinTypeKind::NoReturn:
                 case BuiltinTypeKind::OverloadSet:
                 case BuiltinTypeKind::Unknown:
@@ -446,6 +443,7 @@ auto src::Type::size(Context* ctx) const -> Size {
                 case BuiltinTypeKind::ArrayLiteral: return {};
                 case BuiltinTypeKind::Bool: return Size::Bits(1);
                 case BuiltinTypeKind::Int: return ctx->size_of_int;
+                case BuiltinTypeKind::MemberProc: return {};
                 case BuiltinTypeKind::NoReturn: return {};
                 case BuiltinTypeKind::OverloadSet: return {};
                 case BuiltinTypeKind::Unknown: return {};
@@ -539,6 +537,7 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
                 case BuiltinTypeKind::ArrayLiteral: out += "<empty array literal>"; goto done;
                 case BuiltinTypeKind::Bool: out += "bool"; goto done;
                 case BuiltinTypeKind::Int: out += "int"; goto done;
+                case BuiltinTypeKind::MemberProc: out += "<member procedure>"; goto done;
                 case BuiltinTypeKind::NoReturn: out += "noreturn"; goto done;
                 case BuiltinTypeKind::OverloadSet: out += "<overload set>"; goto done;
                 case BuiltinTypeKind::Unknown: out += "<unknown>"; goto done;
@@ -1209,19 +1208,20 @@ struct ASTPrinter {
                 return;
             }
 
-            case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
-            case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
+            case K::ArrayLiteralExpr: PrintBasicNode("ArrayLiteralExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
-            case K::OverloadSetExpr: PrintBasicNode("OverloadSetExpr", e, nullptr); return;
-            case K::ArrayLiteralExpr: PrintBasicNode("ArrayLiteralExpr", e, nullptr); return;
             case K::Nil: PrintBasicNode("Nil", e, nullptr); return;
-            case K::IfExpr: PrintBasicNode("IfExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::OverloadSetExpr: PrintBasicNode("OverloadSetExpr", e, nullptr); return;
+            case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
+            case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
+
             case K::ConstExpr: PrintBasicNode("ConstExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::IfExpr: PrintBasicNode("IfExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, static_cast<Expr*>(e->type)); return;
 
             case K::FieldDecl: {
                 auto f = cast<FieldDecl>(e);
@@ -1433,7 +1433,10 @@ struct ASTPrinter {
 
             case K::MemberAccessExpr: {
                 auto m = cast<MemberAccessExpr>(e);
-                if (m->object) PrintChildren(m->object, leading_text);
+                SmallVector<Expr*, 2> children{};
+                if (m->object) children.push_back(m->object);
+                if (m->field) children.push_back(m->field);
+                PrintChildren(children, leading_text);
             } break;
 
             case K::ScopeAccessExpr: {

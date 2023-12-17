@@ -204,6 +204,7 @@ private:
     template <bool allow_undefined>
     bool AnalyseDeclRefExpr(Expr*& e);
 
+    bool AnalyseInvoke(Expr*& e);
     bool AnalyseInvokeBuiltin(Expr*& e);
     void AnalyseExplicitCast(Expr*& e, bool is_hard);
     void AnalyseProcedure(ProcDecl* proc);
@@ -281,6 +282,11 @@ private:
 
     /// Evaluate an integral constant expression and replace it with the result.
     bool EvaluateAsIntegerInPlace(Expr*& e, bool must_succeed = true);
+
+    /// Evaluate a constant expression as an overload set. This must always
+    /// yield an overload set, so if this fails, it’s an ICE. Only call this
+    /// if the type of the expression is actually OverloadSet.
+    auto EvaluateAsOverloadSet(Expr* e) -> OverloadSetExpr*;
 
     /// Dereference a reference, yielding an lvalue.
     ///
