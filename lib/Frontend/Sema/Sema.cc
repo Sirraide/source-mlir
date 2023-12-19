@@ -1609,6 +1609,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 auto ty = cast<ProcType>(i->type);
                 ty->smp_parent = s;
                 ty->smp_kind = SpecialMemberKind::Constructor;
+                i->parent_struct = s;
                 if (not AnalyseProcedureType(i)) e->sema.set_errored();
             }
 
@@ -1623,6 +1624,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 auto ty = cast<ProcType>(s->deleter->type);
                 ty->smp_parent = s;
                 ty->smp_kind = SpecialMemberKind::Destructor;
+                s->deleter->parent_struct = s;
 
                 /// Analyse the destructor first since initialisers may call it.
                 with_stack.push_back(new (mod) ImplicitThisExpr(s->deleter, s, {}));
@@ -1647,6 +1649,7 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Analyse member functions.
             for (auto& [_, procs] : s->member_procs) {
                 for (auto m : procs) {
+                    m->parent_struct = s;
                     Expr* p = m;
                     if (Analyse(p)) Assert(p == m, "Analysis must not reassign procedure");
                 }
@@ -3011,6 +3014,9 @@ bool src::Sema::AnalyseInvoke(Expr*& e) {
     /// Handle member function calls.
     if (invoke->callee->type == Type::MemberProc) {
         auto m = cast<MemberAccessExpr>(invoke->callee);
+
+        /// Add the object as the first argument if this is not a smp.
+        if (not m->field->is_smp) invoke->args.insert(invoke->args.begin(), m->object);
         if (auto o = dyn_cast<OverloadSetExpr>(m->field)) return ResolveOverloadSet(o, m->field);
         return PerformSimpleCall(m->field);
     }

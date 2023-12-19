@@ -28,6 +28,7 @@
 /// - R
 /// - S
 /// - U
+/// - W
 /// - X
 /// - Y
 ///
@@ -156,16 +157,25 @@ auto ObjectDecl::_mangled_name() -> StringRef {
 
         /// Special members receive an extra sigil followed by the parent
         /// struct name and have no name themselves.
-        if (ty->is_smp) {
+        if (proc->is_smp) {
             if (ty->smp_kind == SpecialMemberKind::Constructor)
                 s += fmt::format("X{}", Type{ty->smp_parent}.mangled_name);
             else if (ty->smp_kind == SpecialMemberKind::Destructor)
                 s += fmt::format("Y{}", Type{ty->smp_parent}.mangled_name);
         }
 
+        /// Member functions have both as sigil and a name.
+        else if (proc->parent_struct) {
+            s += fmt::format(
+                "W{}{}{}",
+                Type{proc->parent_struct}.mangled_name,
+                name.size(),
+                name
+            );
+        }
+
         /// All other functions just include the name.
-        else
-            s += fmt::format("{}{}", name.size(), name);
+        else { s += fmt::format("{}{}", name.size(), name); }
 
         /// The type is always included.
         s += type.mangled_name;

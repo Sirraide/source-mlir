@@ -1135,6 +1135,8 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
     ProcDecl* deleter{};
     sc.scope->set_struct_scope();
     while (not At(Tk::RBrace, Tk::Eof)) {
+        if (Consume(Tk::Semicolon)) continue;
+
         /// Initialiser / Deleter.
         if (At(Tk::Init, Tk::Delete)) {
             auto init = At(Tk::Init);

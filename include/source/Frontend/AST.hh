@@ -220,6 +220,10 @@ public:
     /// Check if this is 'nil'.
     readonly_decl(bool, is_nil);
 
+    /// Whether this is an initialiser/deleter of a struct, an
+    /// overload set thereof, or a procedure type that is an smp.
+    readonly_decl(bool, is_smp);
+
     /// Get a string representation of the name of the scope of
     /// this expression, if it has one.
     readonly_decl(std::string, scope_name);
@@ -1568,6 +1572,9 @@ public:
     /// Type of the struct containing the captured variables.
     StructType* captured_locals_type{};
 
+    /// The parent struct if this is a member function.
+    StructType* parent_struct{};
+
     /// LocalVar holding the captured variables.
     SOURCE_MLIR_VALUE_MEMBER(captured_locals_ptr);
 
@@ -2040,9 +2047,6 @@ public:
 
     /// Get what kind of smf this is.
     SpecialMemberKind smp_kind{};
-
-    /// Whether this is an initialiser/deleter of a struct.
-    readonly_const(bool, is_smp, return smp_parent != nullptr);
 
     /// Whether this type is variadic.
     bool variadic{};

@@ -270,8 +270,8 @@ void src::CodeGen::Construct(
     };
 
     switch (ctor->ctor_kind) {
-        /// Handled elsewhere.
-        case ConstructKind::MoveParameter: Unreachable();
+        /// Handled elsewhere. No-op here.
+        case ConstructKind::MoveParameter: break;
 
         /// Perform no initialisation at all.
         case ConstructKind::Uninitialised: break;
@@ -849,10 +849,14 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             auto m = dyn_cast<MemberAccessExpr>(e->callee);
             if (e->callee->type != Type::MemberProc) callee = Generate(e->callee);
             else {
-                /// Sema should ensure that this is an lvalue, if need be by materialising a temporary.
+                /// Sema should ensure that this is an lvalue, if need be by materialising a
+                /// temporary. Furthermore, Sema sets the object as the first argument, so we
+                /// don’t need to emit it here, unless this is an smp (an smp that is called
+                /// implicitly is never a member procedure call, so if a member call calls an
+                /// smp, it’s because the user actually wrote e.g. `.init`).
                 Assert(m->object->is_lvalue, "Member function calls on rvalues are not supported");
                 callee = Generate(m->field);
-                args.push_back(Generate(m->object));
+                if (m->field->is_smp) args.push_back(Generate(m->object));
             }
 
             /// Emit args.
@@ -1967,7 +1971,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         ConvertLinkage(proc->linkage),
         mlir::LLVM::CConv::C,
         ty.cast<mlir::FunctionType>(),
-        ptype->is_smp,
+        proc->is_smp,
         ptype->variadic
     );
 

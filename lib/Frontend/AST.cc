@@ -126,6 +126,15 @@ bool src::Expr::_is_nil() {
     return isa<Nil>(this);
 }
 
+bool src::Expr::_is_smp() {
+    if (auto d = dyn_cast<DeclRefExpr>(this)) return d->decl->is_smp;
+    if (auto p = dyn_cast<ProcType>(this)) return p->smp_parent != nullptr;
+    if (auto p = dyn_cast<ProcDecl>(this)) return p->type->is_smp;
+    if (auto o = dyn_cast<OverloadSetExpr>(this))
+        return rgs::any_of(o->overloads, [](Expr* e) { return e->is_smp; });
+    return false;
+}
+
 auto src::Expr::_scope_name() -> std::string {
     switch (kind) {
         case Kind::AliasExpr:

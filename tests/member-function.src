@@ -1,0 +1,43 @@
+/// R %srcc %s --hlir
+
+/// d t %[a-zA-Z0-9_]+
+/// p lit []
+
+proc sink (i32) extern;
+
+/// b
+/// * scope
+/// + $s:t = local @S
+/// + construct $s init @_SXS1SPE
+/// + $copy:t = load @S from $s
+/// + $sum:t = call @_SWS1S3sumPS1SE($copy) -> i32
+/// + call @_S4sinkPI32_E($sum)
+S s;
+sink s.sum();
+
+struct S {
+    i32 a;
+    i32 b;
+
+    init {
+        .a = 22;
+        .b = 20;
+    }
+
+    /// ‘this’ is passed by value here.
+    ///
+    /// b
+    /// * hlir.func private @_SWS1S3sumPS1SE
+    /// + $s:t = local @S
+    /// + store into $s, @S %arg0
+    /// + $ret:t = scope i32 {
+    /// + $aref:t = structgep $s[0]
+    /// + $a:t = load i32 from $aref
+    /// + $bref:t = structgep $s[1]
+    /// + $b:t = load i32 from $bref
+    /// + $sum:t = arith.addi $a, $b
+    /// + yield i32 $sum
+    /// + }
+    /// + return i32 $ret
+    proc sum (with S) = .a + .b;
+}
