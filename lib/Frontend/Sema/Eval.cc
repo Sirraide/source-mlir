@@ -49,6 +49,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::SubscriptExpr:
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::WhileExpr:
+        case Expr::Kind::WithExpr:
         not_constexpr:
             if (must_succeed) Error(e, "Not a constant expression");
             return false;

@@ -1,4 +1,5 @@
-<file> ::= <module-part> <exprs>
+\usepackage{ulem}
+\usepackage{ulem}<file> ::= <module-part> <exprs>
 
 <module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT <import-name> [ AS IDENTIFIER ] ";" }
 <import-name> ::= IDENTIFIER [ "." "*" ] | <header-name>
@@ -58,6 +59,7 @@
 <expr-paren>     ::= "(" <expr> ")"
 <expr-subscript> ::= <expr> "[" <expr> "]"
 <expr-alias>     ::= ALIAS IDENTIFIER "=" <expr>
+<expr-with>      ::= WITH <expr> [ <do> ]
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>

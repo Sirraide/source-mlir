@@ -1680,6 +1680,17 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             return {};
         }
 
+        case Expr::Kind::WithExpr: {
+            auto w = cast<WithExpr>(expr);
+
+            /// Emit the object.
+            std::ignore = Generate(w->object);
+
+            /// Emit the body if there is one.
+            if (w->body) return Generate(w->body);
+            return {};
+        }
+
         case Expr::Kind::UnaryPrefixExpr: {
             auto u = cast<UnaryPrefixExpr>(expr);
             auto op = Generate(u->operand);

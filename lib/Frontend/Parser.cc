@@ -151,6 +151,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Var:
         case Tk::Void:
         case Tk::While:
+        case Tk::With:
             return true;
 
         default:
@@ -356,6 +357,10 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
         case Tk::While:
             lhs = ParseWhile();
+            break;
+
+        case Tk::With:
+            lhs = ParseWith();
             break;
 
         case Tk::For:
@@ -1366,7 +1371,7 @@ auto src::Parser::ParseType() -> Result<Type> {
     }
 }
 
-/// <expr-while> ::= WHILE <expr> [ DO ] <implicit-block>
+/// <expr-while> ::= WHILE <expr> <do>
 auto src::Parser::ParseWhile() -> Result<Expr*> {
     auto start = curr_loc;
     Assert(Consume(Tk::While));
@@ -1381,4 +1386,20 @@ auto src::Parser::ParseWhile() -> Result<Expr*> {
     /// Create the expression.
     if (IsError(body)) return body;
     return new (mod) WhileExpr(*cond, *body, {start, curr_loc});
+}
+
+/// <expr-with> ::= WITH <expr> [ <do> ]
+auto src::Parser::ParseWith() -> Result<WithExpr*> {
+    auto start = curr_loc;
+    Assert(Consume(Tk::With));
+
+    /// Parse object.
+    auto object = ParseExpr();
+
+    /// Parse optional body.
+    auto body = Result<BlockExpr*>::Null();
+    if (Consume(Tk::Do) or MayStartAnExpression(tok.type)) body = ParseImplicitBlock();
+    else if (not At(Tk::Semicolon)) Error("Expected body or ';' in with expression");
+    if (IsError(object, body)) return Diag();
+    return new (mod) WithExpr(*object, *body, {start, curr_loc});
 }

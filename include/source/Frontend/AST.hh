@@ -106,6 +106,7 @@ public:
         /// TypedExpr [begin]
         BlockExpr,
         ImplicitThisExpr,
+        WithExpr,
         InvokeExpr,
         InvokeBuiltinExpr,
         ConstExpr,
@@ -1631,6 +1632,23 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::ImplicitThisExpr; }
 };
 
+class WithExpr : public TypedExpr {
+public:
+    /// The argument to the with expression.
+    Expr* object;
+
+    /// The body of the with expression. May be null.
+    BlockExpr* body;
+
+    WithExpr(Expr* object, BlockExpr* body, Location loc)
+        : TypedExpr(Kind::WithExpr, Type::Unknown, loc),
+          object(object),
+          body(body) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::WithExpr; }
+};
+
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
@@ -2395,6 +2413,7 @@ struct CastInfo<T, const src::Type*> : src::THCastImpl<T, const src::Type*> {};
     case Expr::Kind::StringLiteralExpr:  \
     case Expr::Kind::SubscriptExpr:      \
     case Expr::Kind::UnaryPrefixExpr:    \
-    case Expr::Kind::WhileExpr
+    case Expr::Kind::WhileExpr:          \
+    case Expr::Kind::WithExpr
 
 #endif // SOURCE_FRONTEND_AST_HH

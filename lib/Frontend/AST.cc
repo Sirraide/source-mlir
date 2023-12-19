@@ -17,12 +17,12 @@ IntType IntType32Instance{Size::Bits(32), {}};
 IntType IntType64Instance{Size::Bits(64), {}};
 Nil NilInstance{{}};
 ReferenceType VoidRefTypeInstance = [] {
-    ReferenceType ty {&VoidTypeInstance, {}};
+    ReferenceType ty{&VoidTypeInstance, {}};
     ty.sema.set_done();
     return ty;
 }();
 ReferenceType VoidRefRefTypeInstance = [] {
-    ReferenceType ty {&VoidRefTypeInstance, {}};
+    ReferenceType ty{&VoidRefTypeInstance, {}};
     ty.sema.set_done();
     return ty;
 }();
@@ -172,6 +172,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::SubscriptExpr:
         case Kind::UnaryPrefixExpr:
         case Kind::WhileExpr:
+        case Kind::WithExpr:
             return "<?>";
 
         case Kind::ModuleRefExpr:
@@ -260,6 +261,7 @@ auto src::Expr::_type() -> Type {
         case Kind::StringLiteralExpr:
         case Kind::SubscriptExpr:
         case Kind::UnaryPrefixExpr:
+        case Kind::WithExpr:
             return cast<TypedExpr>(this)->stored_type;
 
         /// Already a type.
@@ -957,7 +959,7 @@ struct ASTPrinter {
             case K::LocalDecl:
             case K::ParamDecl: {
                 auto v = cast<LocalDecl>(e);
-                PrintBasicHeader("LocalDecl", e);
+                PrintBasicHeader(isa<ParamDecl>(v) ? "ParamDecl" : "LocalDecl", e);
                 out += fmt::format(
                     "{}{}{} {}{} lvalue{}",
                     C(White),
@@ -1231,12 +1233,13 @@ struct ASTPrinter {
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
             case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::WithExpr: PrintBasicNode("WithExpr", e, static_cast<Expr*>(e->type)); return;
 
             case K::FieldDecl: {
                 auto f = cast<FieldDecl>(e);
                 PrintBasicHeader("FieldDecl", e);
                 out += fmt::format(
-                    "{} {}{} {}at {}{}\n",
+                    " {} {}{} {}at {}{}\n",
                     f->type.str(use_colour),
                     C(Magenta),
                     f->name,
@@ -1447,6 +1450,14 @@ struct ASTPrinter {
                 SmallVector<Expr*, 2> children{};
                 if (m->object) children.push_back(m->object);
                 if (m->field) children.push_back(m->field);
+                PrintChildren(children, leading_text);
+            } break;
+
+            case K::WithExpr: {
+                auto m = cast<WithExpr>(e);
+                SmallVector<Expr*, 2> children{};
+                if (m->object) children.push_back(m->object);
+                if (m->body) children.push_back(m->body);
                 PrintChildren(children, leading_text);
             } break;
 

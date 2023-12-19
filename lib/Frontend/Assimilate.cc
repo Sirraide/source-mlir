@@ -88,6 +88,13 @@ class Assimilator {
                 Assimilate(w->cond);
             } break;
 
+
+            case Expr::Kind::WithExpr: {
+                auto w = cast<WithExpr>(e);
+                Assimilate(w->object);
+                Assimilate(w->body);
+            } break;
+
             case Expr::Kind::ForInExpr: {
                 auto f = cast<ForInExpr>(e);
                 Assimilate(f->body);

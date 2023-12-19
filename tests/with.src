@@ -1,0 +1,83 @@
+/// R %srcc %s --hlir
+
+/// d t %[a-zA-Z0-9_]+
+/// p lit []
+
+pragma nomangle;
+
+struct s {
+    i32 x;
+    i32 y;
+}
+
+/// b
+/// * scope
+/// + $a:t = local @s
+/// + construct $a zeroinit
+s a;
+
+/// + $b:t = local @s
+/// + construct $b zeroinit
+s b;
+
+/// + $c:t = local @s
+/// + construct $c zeroinit
+s c;
+
+/// + call @foo($a)
+foo a;
+
+/// + $x:t = local i32
+/// + $yield:t = scope i32 {
+/// + $axref:t = structgep $a[0] -> i32&
+/// + $axval:t = load i32 from $axref
+/// + $ayref:t = structgep $a[1] -> i32&
+/// + $ayval:t = load i32 from $ayref
+/// + $sum:t = arith.addi $axval, $ayval
+/// + yield i32 $sum
+i32 x = with a do .x + .y;
+/// + }
+/// + construct $x trivial i32 $yield
+
+/// + scope
+/// + $bxref:t = structgep $b[0] -> i32&
+/// + $three:t = arith.constant 3
+/// + store into $bxref, i32 $three
+/// + $byref:t = structgep $b[1] -> i32&
+/// + $four:t = arith.constant 4
+/// + store into $byref, i32 $four
+/// + yield
+/// + }
+with b {
+    .x = 3;
+    .y = 4;
+}
+
+/// + $cxref:t = structgep $c[0] -> i32&
+/// + $five:t = arith.constant 5
+/// + store into $cxref, i32 $five
+/// + $cyref:t = structgep $c[1] -> i32&
+/// + $six:t = arith.constant 6
+/// + store into $cyref, i32 $six
+with c;
+.x = 5;
+.y = 6;
+
+
+/// b
+/// * hlir.func private @foo
+/// + $arg:t = local @s&
+/// + store into $arg, @s& %arg0
+/// + scope
+proc foo (with s& x) {
+    /// + $x1:t = load @s& from $arg
+    /// + $xref:t = structgep $x1[0] -> i32&
+    /// + $one:t = arith.constant 1
+    /// + store into $xref, i32 $one
+    /// + $x2:t = load @s& from $arg
+    /// + $yref:t = structgep $x2[1] -> i32&
+    /// + $two:t = arith.constant 2
+    /// + store into $yref, i32 $two
+    x.x = 1;
+    x.y = 2;
+}

@@ -1557,6 +1557,7 @@ bool src::Sema::Analyse(Expr*& e) {
                     true
                 );
 
+                f->sema.set_done();
                 s->all_fields.insert(insert_before, f);
                 s->stored_size += padding;
             };
@@ -1582,6 +1583,7 @@ bool src::Sema::Analyse(Expr*& e) {
                     not AnalyseAsType(f->stored_type) or
                     not MakeDeclType(f->stored_type)
                 ) {
+                    f->sema.set_errored();
                     e->sema.set_errored();
                     continue;
                 }
@@ -1590,6 +1592,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// of the struct.
                 auto align = s->all_fields[i]->type.align(ctx);
                 AlignField(align, i);
+                s->all_fields[i]->sema.set_done();
                 s->all_fields[i]->offset = s->stored_size;
                 s->all_fields[i]->index = index++;
                 s->stored_alignment = std::max(s->stored_alignment, align);
@@ -2361,6 +2364,47 @@ bool src::Sema::Analyse(Expr*& e) {
             expr = f->body;
             Analyse(expr);
             Assert(expr == f->body, "Body of for-in expression must be a block");
+        } break;
+
+        /// With expression as in Pascal or JavaScript.
+        case Expr::Kind::WithExpr: {
+            auto w = cast<WithExpr>(e);
+
+            /// The controlling expression is kind of important for this.
+            if (not Analyse(w->object)) return e->sema.set_errored();
+
+            /// TODO: Temporary materialisation if this is an rvalue and has a body.
+            UnwrapInPlace(w->object, true);
+            if (not w->object->is_lvalue) return Error(
+                e,
+                "Object of with expression must be an lvalue"
+            );
+
+            /// Object must have members.
+            if (not isa<SliceType, StructType, ArrayType>(w->object->type.desugared)) return Error(
+                e,
+                "Type '{}' is not a struct, array, or slice",
+                w->object->type
+            );
+
+            /// These come in two forms: with and without a body. If a with
+            /// expression has a body, then the controlling expression is only
+            /// ‘open’ within that body; otherwise, it is open for the rest of
+            /// the enclosing scope.
+            with_stack.push_back(w->object);
+            if (w->body) {
+                defer { with_stack.pop_back(); };
+                Expr* expr = w->body;
+                if (Analyse(expr)) {
+                    Assert(expr == w->body, "May not change block expression");
+
+                    /// Forward return type of block.
+                    w->stored_type = w->body->type;
+                    w->is_lvalue = w->body->is_lvalue;
+                }
+            } else {
+                w->stored_type = Type::Void;
+            }
         } break;
 
         /// Export.

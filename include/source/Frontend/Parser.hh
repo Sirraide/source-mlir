@@ -175,6 +175,7 @@ private:
     auto ParseStruct() -> Result<StructType*>;
     auto ParseType() -> Result<Type>;
     auto ParseWhile() -> Result<Expr*>;
+    auto ParseWith() -> Result<WithExpr*>;
 
     /// Synchronise in case of errors.
     void Synchronise(Tk token = Tk::Semicolon, std::same_as<Tk> auto... tks) {
