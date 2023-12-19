@@ -44,6 +44,9 @@ class BlockExpr;
 class StructType;
 class IntType;
 
+/// Enable colours in Assert()/Todo()/Unreachable().
+void EnableAssertColours(bool enable);
+
 /// A file in the context.
 class File {
     /// Context handle.

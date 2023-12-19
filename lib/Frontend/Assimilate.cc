@@ -74,6 +74,9 @@ class Assimilator {
                 auto st = cast<StructType>(e);
                 for (auto& f : st->all_fields) Assimilate(f);
                 for (auto& init : st->initialisers) Assimilate(init);
+                for (auto& [_, procs] : st->member_procs)
+                    for (auto m : procs)
+                        Assimilate(m);
                 Assimilate(st->deleter);
                 Assimilate(st->scope);
                 DoAssimilate(st->module);
@@ -256,7 +259,8 @@ class Assimilator {
                 Assimilate(a->result_object);
             } break;
 
-            case Expr::Kind::LocalDecl: {
+            case Expr::Kind::LocalDecl:
+            case Expr::Kind::ParamDecl: {
                 auto l = cast<LocalDecl>(e);
                 for (auto& i : l->init_args) Assimilate(i);
                 Assimilate(l->parent);

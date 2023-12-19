@@ -11,13 +11,21 @@ BuiltinType NoReturnTypeInstance{BuiltinTypeKind::NoReturn, {}};
 BuiltinType OverloadSetTypeInstance{BuiltinTypeKind::OverloadSet, {}};
 BuiltinType MemberProcTypeInstance{BuiltinTypeKind::MemberProc, {}};
 BuiltinType ArrayLiteralTypeInstance{BuiltinTypeKind::ArrayLiteral, {}};
-ReferenceType VoidRefTypeInstance{&VoidTypeInstance, {}};
-ReferenceType VoidRefRefTypeInstance{&VoidTypeInstance, {}};
 IntType IntType8Instance{Size::Bits(8), {}};
 IntType IntType16Instance{Size::Bits(16), {}};
 IntType IntType32Instance{Size::Bits(32), {}};
 IntType IntType64Instance{Size::Bits(64), {}};
 Nil NilInstance{{}};
+ReferenceType VoidRefTypeInstance = [] {
+    ReferenceType ty {&VoidTypeInstance, {}};
+    ty.sema.set_done();
+    return ty;
+}();
+ReferenceType VoidRefRefTypeInstance = [] {
+    ReferenceType ty {&VoidRefTypeInstance, {}};
+    ty.sema.set_done();
+    return ty;
+}();
 } // namespace
 constinit const Type Type::Int = &IntTypeInstance;
 constinit const Type Type::Void = &VoidTypeInstance;
@@ -44,7 +52,7 @@ src::ProcDecl::ProcDecl(
     ProcDecl* parent,
     std::string name,
     Type type,
-    SmallVector<LocalDecl*> param_decls,
+    SmallVector<ParamDecl*> param_decls,
     Linkage linkage,
     Mangling mangling,
     Location loc
@@ -114,11 +122,6 @@ auto src::Expr::_ignore_paren_refs() -> Expr* {
     return this;
 }
 
-bool src::Expr::_is_active_optional() {
-    auto local = dyn_cast<LocalDecl>(this->ignore_paren_refs);
-    return isa<OptionalType>(this->type) and local and local->has_value;
-}
-
 bool src::Expr::_is_nil() {
     return isa<Nil>(this);
 }
@@ -158,6 +161,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::OpaqueType:
         case Kind::OptionalType:
         case Kind::OverloadSetExpr:
+        case Kind::ParamDecl:
         case Kind::ParenExpr:
         case Kind::ProcType:
         case Kind::ReferenceType:
@@ -249,6 +253,7 @@ auto src::Expr::_type() -> Type {
         case Kind::LocalDecl:
         case Kind::LocalRefExpr:
         case Kind::MemberAccessExpr:
+        case Kind::ParamDecl:
         case Kind::ParenExpr:
         case Kind::ProcDecl:
         case Kind::ScopeAccessExpr:
@@ -276,15 +281,6 @@ auto src::Expr::_type() -> Type {
     }
 }
 
-auto src::Expr::_unwrapped_type() -> Type {
-    if (is_active_optional) {
-        auto opt = cast<OptionalType>(this->type);
-        return opt->type->unwrapped_type;
-    }
-
-    return type.strip_refs_and_pointers;
-}
-
 auto src::ProcDecl::_ret_type() -> Type {
     return cast<ProcType>(stored_type)->ret_type;
 }
@@ -301,6 +297,7 @@ src::StructType::StructType(
     std::string sname,
     SmallVector<FieldDecl*> fields,
     SmallVector<ProcDecl*> inits,
+    MemberProcedures member_procs,
     ProcDecl* deleter,
     BlockExpr* scope,
     Mangling mangling,
@@ -308,6 +305,7 @@ src::StructType::StructType(
 ) : NamedType(Kind::StructType, mod, std::move(sname), mangling, loc),
     all_fields(std::move(fields)),
     initialisers(std::move(inits)),
+    member_procs(std::move(member_procs)),
     deleter(deleter),
     scope(scope) {
     if (not name.empty()) mod->named_structs.push_back(this);
@@ -484,8 +482,11 @@ auto src::Type::size(Context* ctx) const -> Size {
         case Expr::Kind::StructType:
             return cast<StructType>(ptr)->stored_size;
 
-        case Expr::Kind::OptionalType:
-            Todo();
+        case Expr::Kind::OptionalType: {
+            auto o = cast<OptionalType>(ptr);
+            if (isa<ReferenceType>(o->elem.desugared)) return o->elem.size(ctx);
+            Todo("Optional non-references");
+        }
 
         case Expr::Kind::OpaqueType:
             Diag::ICE("Cannot get size of opaque type '{}'", str(true));
@@ -773,8 +774,10 @@ bool src::operator==(Type a, Type b) {
             if (not sa->name.empty() or not sb->name.empty()) return false;
 
             /// Two anonymous structs are equal iff they are layout-compatible
-            /// and neither has a user-defined constructor or destructor.
+            /// and neither has a user-defined constructor or destructor or any
+            /// member functions.
             if (not sa->initialisers.empty() or not sb->initialisers.empty()) return false;
+            if (not sa->member_procs.empty() or not sb->member_procs.empty()) return false;
             if (sa->deleter or sb->deleter) return false;
             return StructType::LayoutCompatible(sa, sb);
         }
@@ -951,7 +954,8 @@ struct ASTPrinter {
                 return;
             }
 
-            case K::LocalDecl: {
+            case K::LocalDecl:
+            case K::ParamDecl: {
                 auto v = cast<LocalDecl>(e);
                 PrintBasicHeader("LocalDecl", e);
                 out += fmt::format(
@@ -963,6 +967,10 @@ struct ASTPrinter {
                     C(Blue),
                     v->captured ? " captured" : ""
                 );
+
+                if (auto p = dyn_cast<ParamDecl>(v)) {
+                    if (p->with) out += fmt::format(" with");
+                }
 
                 out += "\n";
                 return;
@@ -1094,8 +1102,9 @@ struct ASTPrinter {
             case K::InvokeBuiltinExpr: {
                 static const auto String = [](Builtin b) -> std::string_view {
                     switch (b) {
-                        case Builtin::New: return "new";
                         case Builtin::Destroy: return "__srcc_destroy";
+                        case Builtin::Memcpy: return "__srcc_memcpy";
+                        case Builtin::New: return "new";
                     }
 
                     Unreachable();
@@ -1363,6 +1372,7 @@ struct ASTPrinter {
                 SmallVector<Expr*, 36> children{};
                 utils::append(children, s->all_fields);
                 utils::append(children, s->initialisers);
+                for (auto& [_, procs] : s->member_procs) utils::append(children, procs);
                 if (s->deleter) children.push_back(s->deleter);
                 PrintChildren(children, leading_text);
             } break;
@@ -1420,7 +1430,8 @@ struct ASTPrinter {
                 PrintChildren(children, leading_text);
             } break;
 
-            case K::LocalDecl: {
+            case K::LocalDecl:
+            case K::ParamDecl: {
                 tempset print_procedure_bodies = false;
                 auto v = cast<LocalDecl>(e);
                 if (v->ctor) PrintChildren(v->ctor, leading_text);

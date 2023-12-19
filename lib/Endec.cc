@@ -427,6 +427,7 @@ struct Serialiser {
             case Expr::Kind::StructType: {
                 if (auto td = FindTD(); td != TD{}) return td;
                 auto s = cast<StructType>(t);
+                if (not s->member_procs.empty() or not s->initialisers.empty()) Todo("Serialise member functions");
 
                 /// Create struct type descriptor first to support recursive
                 /// types; write name, size, alignment, and number of fields.
@@ -770,6 +771,7 @@ struct Deserialiser {
                     &*mod,
                     std::move(name),
                     std::move(fields),
+                    {},
                     {},
                     {},
                     new (&*mod) BlockExpr(&*mod, mod->global_scope),

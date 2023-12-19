@@ -1,0 +1,23 @@
+module vectors;
+
+alias foo = i8;
+
+/// Size chosen explicitly.
+export proc f1(i8<32> ymm0) -> i8<32> {
+    i8<16 * 2> ymm1 = 2;
+    foo<(8 * 2) << 1> ymm2 = 3;
+    return ymm0 + ymm1 * ymm2
+}
+
+/// Size chosen by the compiler.
+export proc f2(i8<*> ymm0) -> i8<*> {
+    i8<*> ymm1 = 2;
+    foo<*> ymm2 = 3;
+    return ymm0 + ymm1 * ymm2
+}
+
+/// TODO: shuffle operator: ><
+
+f1 1;
+f2 1;
+

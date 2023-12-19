@@ -893,13 +893,6 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         case Expr::Kind::InvokeBuiltinExpr: {
             auto i = cast<InvokeBuiltinExpr>(expr);
             switch (i->builtin) {
-                case Builtin::New: {
-                    return Create<hlir::NewOp>(
-                        Loc(i->location),
-                        hlir::ReferenceType::get(Ty(i->type))
-                    );
-                }
-
                 /// Delete calls the destructor of an object.
                 case Builtin::Destroy: {
                     std::ignore = Generate(i->args[0]);
@@ -907,6 +900,18 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
                     EndLifetime(var);
                     return {};
                 }
+
+                case Builtin::Memcpy: {
+                    Todo();
+                }
+
+                case Builtin::New: {
+                    return Create<hlir::NewOp>(
+                        Loc(i->location),
+                        hlir::ReferenceType::get(Ty(i->type))
+                    );
+                }
+
             }
 
             Unreachable();
@@ -1448,7 +1453,8 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
 
         case Expr::Kind::ArrayLiteralExpr: Unreachable("Cannot emit array literals w/o a result object");
 
-        case Expr::Kind::LocalDecl: {
+        case Expr::Kind::LocalDecl:
+        case Expr::Kind::ParamDecl: {
             auto e = cast<LocalDecl>(expr);
 
             /// If the variable hasn’t already been allocated, do so now.

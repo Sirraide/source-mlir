@@ -127,6 +127,7 @@ auto src::Lexer::LookAhead(usz n) -> Token& {
     if (idx < lookahead_tokens.size()) return lookahead_tokens[idx];
 
     /// Otherwise, lex enough tokens.
+    tempset looking_ahead = true;
     auto current = std::move(tok);
     for (usz i = lookahead_tokens.size(); i < n; i++) {
         tok = {};

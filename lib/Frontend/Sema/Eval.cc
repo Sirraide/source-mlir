@@ -41,6 +41,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::LoopControlExpr:
         case Expr::Kind::MemberAccessExpr:
         case Expr::Kind::ModuleRefExpr:
+        case Expr::Kind::ParamDecl:
         case Expr::Kind::ProcDecl:
         case Expr::Kind::ReturnExpr:
         case Expr::Kind::ScopeAccessExpr:

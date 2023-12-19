@@ -11,6 +11,7 @@ using options = clopts< // clang-format off
     option<"-o", "Output file name. Ignored for modules">,
     multiple<option<"-I", "Add module import directory">>,
     experimental::short_option<"-O", "Optimisation level", values<0, 1, 2, 3, 4>>,
+    experimental::short_option<"-j", "Number of threads to use for compilation", std::int64_t>,
     flag<"-r", "JIT-compile and run the program after compiling">,
     flag<"--ast", "Print the AST of the module after parsing">,
     flag<"--lowered", "Print lowered HLIR">,
@@ -25,7 +26,6 @@ using options = clopts< // clang-format off
     flag<"--nostdrt", "Do not import the standard runtime module">,
     flag<"--sema", "Run sema only and always exit with code 0 unless there is an ICE">,
     flag<"--syntax-only", "Skip the semantic analysis step">,
-    option<"--threads", "Number of threads to use for compilation", std::int64_t>,
     flag<"--use-generic-assembly-format", "Print HLIR using the generic assembly format">,
     help<>
 >; // clang-format on
@@ -46,6 +46,9 @@ int main(int argc, char** argv) {
         if (*c == "always") use_colour = true;
         else if (*c == "never") use_colour = false;
     }
+
+    /// Enable them globally.
+    src::EnableAssertColours(use_colour);
 
     /// Disallow filenames starting with '-'; users can still write `./-`.
     for (auto& f : *opts.get<"file">()) {
@@ -72,7 +75,7 @@ int main(int argc, char** argv) {
                 : opts.get<"--sema">()       ? Action::Sema
                                              : Action::Compile,
 
-        .threads = src::u16(opts.get_or<"--threads">(0)),
+        .threads = src::u16(opts.get_or<"-j">(0)),
         .debug_cxx = opts.get<"--debug-cxx">(),
         .include_runtime = not opts.get<"--nostdrt">(),
         .syntax_only = opts.get<"--syntax-only">(),

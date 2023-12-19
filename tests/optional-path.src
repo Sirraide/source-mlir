@@ -1,0 +1,45 @@
+/// R %srcc %s --hlir
+
+/// d t %[a-zA-Z0-9_]+
+
+proc sink (i64&) extern nomangle;
+
+struct a { i64&? z; }
+struct b { a y; }
+struct c { b x; }
+struct d { c w; }
+
+/// * scope
+/// + (?<q>$t) = local i64
+/// + construct $q zeroinit
+i64 q;
+
+/// + (?<o>$t) = local @d
+/// + construct $o zeroinit
+d o;
+
+/// (?<w1>$t) = structgep $o[0] -> @c&
+/// (?<x1>$t) = structgep $w1[0] -> @b&
+/// (?<y1>$t) = structgep $x1[0] -> @a&
+/// (?<z1>$t) = structgep $y1[0] -> i64&?&
+/// store into $z1, i64& $q
+o.w.x.y.z => q;
+
+/// (?<w2>$t) = structgep $o[0] -> @c&
+/// (?<x2>$t) = structgep $w2[0] -> @b&
+/// (?<y2>$t) = structgep $x2[0] -> @a&
+/// (?<z2>$t) = structgep $y2[0] -> i64&?&
+/// (?<unwrap>$t) = bitcast i64&?& $z2 to i64&&
+/// (?<ref>$t) = load i64& from $unwrap
+/// (?<c>$t) = arith.constant 42
+/// store into $ref, i64 $c
+o.w.x.y.z = 42;
+
+/// (?<w3>$t) = structgep $o[0] -> @c&
+/// (?<x3>$t) = structgep $w3[0] -> @b&
+/// (?<y3>$t) = structgep $x3[0] -> @a&
+/// (?<z3>$t) = structgep $y3[0] -> i64&?&
+/// (?<unwrap2>$t) = bitcast i64&?& $z3 to i64&&
+/// (?<ref2>$t) = load i64& from $unwrap2
+/// call @sink($ref2)
+sink o.w.x.y.z;

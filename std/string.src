@@ -1,16 +1,17 @@
 module string;
 
-import <stdio>.*;
+import <cstdio>.*;
 
 struct string {
-    i8&? data;
+    /// TODO: SSO.
+    i8&? ptr;
     int size;
     int capacity;
 
     init {
-        data = nil;
-        size = 0;
-        capacity = 0;
+        .ptr = nil;
+        .size = 0;
+        .capacity = 0;
     }
 
     init (i8[] str) {
@@ -19,14 +20,20 @@ struct string {
     }
 
     proc append (with string& s, i8[] str) -> string& {
-        .reserve slice.size;
-        __srcc_copy .data + slice.size, slice.data, slice.size;
-        .size += slice.size;
+        if str.size < 0 then return s;
+        .reserve str.size;
+        assert .ptr, "reserve() must allocate memory";
+        __srcc_memcpy .ptr, str.data, str.size;
+        .size += str.size;
         return s;
+    }
+
+    proc reserve (int size) {
+        assert false, "Todo";
     }
 }
 
 string s;
 s.append "hello";
 s.append " world";
-puts s.data;
+printf "%.*s".data, s.size as __srcc_ffi_int, s.ptr;

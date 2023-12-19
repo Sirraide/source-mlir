@@ -62,10 +62,11 @@
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
 <proc-signature> ::= [ <proc-params> ] { <proc-attrs> } [ <proc-ret> ]
-<proc-params>    ::= "(" <param-decl> { "," <param-decl> } ")"
+<proc-params>    ::= "(" <parameter> { "," <parameter> } ")"
 <proc-ret>       ::= "->" <type>
 <proc-body>      ::= <expr-block> | "=" <implicit-block>
 <proc-attrs>     ::= EXTERN | NOMANGLE
+<parameter>      ::= [ WITH ] <param-decl>
 <param-decl>     ::= <type> [ IDENTIFIER ] | PROC [ IDENTIFIER ] <proc-signature>
 <then>           ::= [ THEN ] <implicit-block>
 <do>             ::= [ DO ] <implicit-block>

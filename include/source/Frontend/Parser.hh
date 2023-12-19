@@ -120,7 +120,7 @@ private:
     struct Signature {
         ProcType* type;
         std::string name;
-        SmallVector<LocalDecl*> param_decls;
+        SmallVector<ParamDecl*> param_decls;
         Location loc{};
         bool is_extern{};
         bool is_nomangle{};
@@ -166,7 +166,8 @@ private:
     auto ParseIdentExpr() -> Result<Expr*>;
     auto ParseIf() -> Result<Expr*>;
     auto ParseImplicitBlock() -> Result<BlockExpr*>;
-    auto ParseParamDeclList(SVI<LocalDecl*>& param_decls, SVI<Type>& param_types) -> Location;
+    auto ParseNakedInvokeExpr(Expr* callee) -> Result<InvokeExpr*>;
+    auto ParseParamDeclList(SVI<ParamDecl*>& param_decls, SVI<Type>& param_types) -> Location;
     void ParsePragma();
     auto ParseProc() -> Result<ProcDecl*>;
     auto ParseProcBody() -> Result<BlockExpr*>;

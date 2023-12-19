@@ -73,7 +73,7 @@ void src::Sema::ConversionSequence::ApplyOverloadSetToProc(Sema& S, Expr*& e, Pr
 void src::Sema::ApplyConversionSequence(Expr*& e, std::same_as<ConversionSequence> auto&& seq) { // clang-format off
     using CS = ConversionSequence;
     for (auto& conv : seq.entries) {
-        visit(conv, detail::overloaded {
+        visit(conv, utils::overloaded {
             [&] (CS::BuildConstExpr) { CS::ApplyConstExpr(*this, e, std::forward_like<decltype(seq)>(*seq.constant)); },
             [&] (CS::BuildCast& cast) { CS::ApplyCast(*this, e, cast.kind, cast.to); },
             [&] (CS::CallConstructor& ctor) { CS::ApplyConstructor(*this, e, ctor.ctor, ctor.args); },
@@ -148,8 +148,7 @@ bool src::Sema::ConvertImpl(
 
     /// Active optionals are convertible to the type they contain. There
     /// are no other valid conversions involving optionals at the moment.
-    if (ctx.expr and ctx.expr->is_active_optional) {
-        auto ty = cast<OptionalType>(ctx.expr->ignore_paren_refs->type);
+    if (auto ty = Optionals.GetActiveOptionalType(ctx.expr)) {
         from = ctx.cast(CastKind::OptionalUnwrap, ty->elem);
         return ConvertImpl<perform_conversion>(ctx, from, type);
     }
@@ -161,11 +160,19 @@ bool src::Sema::ConvertImpl(
         auto to_ref = dyn_cast<ReferenceType>(to);
         to_ref or isa<ReferenceType, ScopedPointerType>(from)
     ) {
-        /// Base types are equal.
-        if (from.strip_refs_and_pointers == to.strip_refs) {
-            auto from_depth = from.ref_depth;
-            auto to_depth = to.ref_depth;
+        auto from_base = from.strip_refs_and_pointers;
+        auto to_base = to.strip_refs;
+        auto from_depth = from.ref_depth;
+        auto to_depth = to.ref_depth;
 
+        /// Reference to void& conversion.
+        if (from_depth == to_depth and to_base == Type::Void) {
+            from = ctx.cast(CastKind::Implicit, to);
+            return true;
+        }
+
+        /// Base types are equal.
+        else if (from_base == to_base) {
             /// If the depth we’re converting to is one greater than
             /// the depth of the expression, and the expression is an
             /// lvalue, then this is reference binding.
@@ -377,8 +384,7 @@ auto src::Sema::Unwrap(Expr* e, bool keep_lvalues) -> Expr* {
     Assert(e->sema.ok, "Unwrap() called on broken or unanalysed expression");
 
     /// Unwrap active optionals.
-    if (e->is_active_optional) {
-        auto opt = cast<OptionalType>(e->type);
+    if (auto opt = Optionals.GetActiveOptionalType(e)) {
         e = new (mod) CastExpr(CastKind::OptionalUnwrap, e, opt->elem, e->location);
         Analyse(e);
         return Unwrap(e, keep_lvalues);
@@ -397,6 +403,150 @@ auto src::Sema::Unwrap(Expr* e, bool keep_lvalues) -> Expr* {
 
 void src::Sema::UnwrapInPlace(Expr*& e, bool keep_lvalues) {
     e = Unwrap(e, keep_lvalues);
+}
+
+auto src::Sema::UnwrappedType(Expr* e) -> Type {
+    if (auto opt = Optionals.GetActiveOptionalType(e)) return opt->elem.strip_refs_and_pointers;
+    return e->type.strip_refs_and_pointers;
+}
+
+/// ===========================================================================
+///  Optional tracking.
+/// ===========================================================================
+src::Sema::OptionalState::ScopeGuard::ScopeGuard(src::Sema& S)
+    : S(S),
+      previous(std::exchange(S.Optionals.guard, this)) {}
+
+src::Sema::OptionalState::ScopeGuard::~ScopeGuard() {
+    for (auto&& [e, old_state] : changes) S.Optionals.tracked[e] = std::move(old_state);
+    S.Optionals.guard = previous;
+}
+
+src::Sema::OptionalState::ActivationGuard::ActivationGuard(Sema& S, Expr* expr)
+    : S(S), expr(expr) {
+    S.Optionals.Activate(expr);
+}
+
+src::Sema::OptionalState::ActivationGuard::~ActivationGuard() {
+    S.Optionals.Deactivate(expr);
+}
+
+auto src::Sema::OptionalState::GetObjectPath(MemberAccessExpr* m) -> std::pair<LocalDecl*, Path> {
+    if (not m or not m->field or not m->object) return {nullptr, {}};
+
+    /// Find object root.
+    Path path;
+    Expr* object;
+    do {
+        auto f = dyn_cast<FieldDecl>(m->field);
+        if (not f) return {nullptr, {}};
+        path.push_back(f->index);
+        object = m->object;
+    } while (m = dyn_cast<MemberAccessExpr>(m->object->ignore_parens), m);
+
+    /// Got a local.
+    if (auto var = dyn_cast<LocalDecl>(object->ignore_paren_refs)) {
+        Assert(isa<StructType>(var->type.desugared), "Only structs can contain paths");
+        rgs::reverse(path);
+        return {var, std::move(path)};
+    }
+
+    return {nullptr, {}};
+}
+
+void src::Sema::OptionalState::ChangeState(Expr* e, auto cb) {
+    if (not e) return;
+    e = e->ignore_paren_refs;
+
+    if (auto var = dyn_cast<LocalDecl>(e)) {
+        if (not guard->changes.contains(var)) guard->changes[var] = tracked[var];
+        std::invoke(cb, var);
+        return;
+    }
+
+    if (auto m = dyn_cast<MemberAccessExpr>(e)) {
+        if (auto [var, path] = GetObjectPath(m); var) {
+            Assert(not path.empty());
+            if (not guard->changes.contains(var)) guard->changes[var] = tracked[var];
+            std::invoke(cb, var, std::move(path));
+        }
+    }
+}
+
+void src::Sema::OptionalState::Activate(Expr* e) { // clang-format off
+    ChangeState(e, utils::overloaded {
+        [&] (LocalDecl* var) { tracked[var].active = true; },
+        [&] (LocalDecl* var, Path path) {
+            /// Activating a field only makes sense if the thing
+            /// itself is active, so if we get here, it must be
+            /// active.
+            tracked[var].active = true;
+            tracked[var].active_fields.push_back(std::move(path));
+        }
+    });
+} // clang-format on
+
+void src::Sema::OptionalState::Deactivate(Expr* e) { // clang-format off
+    ChangeState(e, utils::overloaded {
+        [&] (LocalDecl* var) { tracked[var].active = false; },
+        [&] (LocalDecl* var, Path path) {
+            /// Delete all paths that *start with* this path, as nested
+            /// objects are now part of a different object.
+            llvm::erase_if(tracked[var].active_fields, [&](Path& p) {
+                return utils::starts_with(p, path);
+            });
+        }
+    });
+} // clang-format on
+
+auto src::Sema::OptionalState::GetActiveOptionalType(Expr* e) -> OptionalType* {
+    if (not e) return nullptr;
+    e = e->ignore_paren_refs;
+
+    if (auto var = dyn_cast<LocalDecl>(e)) {
+        auto obj = tracked.find(var);
+        if (obj == tracked.end() or not obj->second.active) return nullptr;
+        return dyn_cast<OptionalType>(var->type.desugared);
+    }
+
+    if (auto m = dyn_cast<MemberAccessExpr>(e)) {
+        if (auto [var, path] = GetObjectPath(m); var) {
+            Assert(not path.empty());
+            auto obj = tracked.find(var);
+            if (obj == tracked.end() or not obj->second.active) return nullptr;
+            if (
+                rgs::any_of(
+                    obj->second.active_fields,
+                    [&](Path& p) { return utils::starts_with(p, path); }
+                )
+            ) {
+                auto s = cast<StructType>(var->type.desugared);
+                FieldDecl* f{};
+                for (auto idx : path) {
+                    f = s->all_fields[idx];
+                    s = dyn_cast<StructType>(f->type.desugared);
+                }
+
+                return dyn_cast<OptionalType>(f->type.desugared);
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+auto src::Sema::OptionalState::MatchNilTest(Expr* test) -> Expr* {
+    auto c = dyn_cast<CastExpr>(test->ignore_lv2rv);
+    if (
+        c and
+        c->cast_kind == CastKind::OptionalNilTest
+    ) {
+        auto o = c->operand->ignore_lv2rv;
+        if (auto local = dyn_cast<LocalRefExpr>(o)) return local->decl;
+        if (auto member = dyn_cast<MemberAccessExpr>(o)) return member;
+    }
+
+    return nullptr;
 }
 
 /// ===========================================================================
@@ -987,7 +1137,7 @@ auto src::Sema::Construct(
     Location loc,
     Type type,
     MutableArrayRef<Expr*> init_args,
-    bool* active_optional
+    Expr* target
 ) -> ConstructExpr* {
     /// Validate initialisers.
     if (not rgs::all_of(init_args, [&](auto*& e) { return Analyse(e); }))
@@ -1227,7 +1377,7 @@ auto src::Sema::Construct(
                     return ConstructExpr::CreateTrivialCopy(mod, init_args[0]);
 
                 /// Otherwise, attempt to convert it to the wrapped type.
-                if (active_optional) *active_optional = true;
+                Optionals.Activate(target);
                 return TrivialCopy(opt->elem);
             }
 
@@ -1490,6 +1640,14 @@ bool src::Sema::Analyse(Expr*& e) {
                     Assert(i->ret_type == Type::Void, "Initialiser must return void");
                 }
             }
+
+            /// Analyse member functions.
+            for (auto& [_, procs] : s->member_procs) {
+                for (auto m : procs) {
+                    Expr* p = m;
+                    if (Analyse(p)) Assert(p == m, "Analysis must not reassign procedure");
+                }
+            }
         } break;
 
         /// Defer expressions have nothing to typecheck really, so
@@ -1629,13 +1787,9 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::AssertExpr: {
             Assert(e->location.seekable(mod->context), "Assertion requires location information");
             auto a = cast<AssertExpr>(e);
-            if (Analyse(a->cond) and not Convert(a->cond, Type::Bool)) {
-                Error(
-                    a->cond->location,
-                    "Condition of 'assert' must be of type '{}', but was '{}'",
-                    Type::Bool,
-                    a->cond->type
-                );
+            if (Analyse(a->cond) and EnsureCondition(a->cond)) {
+                /// If this asserts that an optional is not nil, mark it as active.
+                if (auto o = Optionals.MatchNilTest(a->cond)) Optionals.Activate(o);
             }
 
             /// Message must be an i8[].
@@ -1670,12 +1824,10 @@ bool src::Sema::Analyse(Expr*& e) {
             tempset curr_scope = b;
 
             /// Track what optionals were made active in this scope and reset
-            /// their active state when we leave it.
-            tempset active_optionals = decltype(active_optionals){};
-            defer {
-                for (auto& [local, old_value] : active_optionals)
-                    local->has_value = old_value;
-            };
+            /// their active state when we leave it; same for with expressions.
+            OptionalState::ScopeGuard _{*this};
+            const auto with_stack_size = with_stack.size();
+            defer { with_stack.resize(with_stack_size); };
 
             /// Skip ProcDecls for the purpose of determining the type of the block.
             isz last = std::ssize(b->exprs) - 1;
@@ -1798,7 +1950,7 @@ bool src::Sema::Analyse(Expr*& e) {
             auto TryAccess = [&](Expr*& object) -> Result<void> {
                 /// Analyse the accessed object.
                 if (not Analyse(object)) return Diag();
-                auto unwrapped = object->unwrapped_type;
+                auto unwrapped = UnwrappedType(object);
 
                 /// A slice type has a `data` and a `size` member.
                 ///
@@ -1855,6 +2007,14 @@ bool src::Sema::Analyse(Expr*& e) {
 
                 /// Struct field accesses are lvalues if the struct is an lvalue.
                 if (auto s = dyn_cast<StructType>(unwrapped)) {
+                    auto MakeMemberProcRef = [&](ArrayRef<ProcDecl*> procs) {
+                        if (procs.size() == 1) m->field = new (mod) DeclRefExpr(procs[0], m->location);
+                        else m->field = new (mod) OverloadSetExpr(SmallVector<ProcDecl*>(procs), m->location);
+                        Assert(Analyse(m->field));
+                        m->stored_type = Type::MemberProc;
+                        m->is_lvalue = false;
+                    };
+
                     /// "init" calls a constructor.
                     if (m->member == "init") {
                         UnwrapInPlace(object, true);
@@ -1871,29 +2031,35 @@ bool src::Sema::Analyse(Expr*& e) {
                             unwrapped.str(mod->context->use_colours, true)
                         );
 
-                        if (s->initialisers.size() == 1) m->field = new (mod) DeclRefExpr(s->initialisers[0], m->location);
-                        else m->field = new (mod) OverloadSetExpr(s->initialisers, m->location);
-                        Assert(Analyse(m->field));
-                        m->stored_type = Type::MemberProc;
-                        m->is_lvalue = false;
+                        MakeMemberProcRef(s->initialisers);
                         return {};
                     }
 
+                    /// Search fields.
                     auto fields = s->fields();
                     auto f = rgs::find(fields, m->member, [](auto& f) { return f->name; });
-                    if (f == fields.end()) return Diag::Error(
+                    if (f != fields.end()) {
+                        UnwrapInPlace(object, true);
+                        m->field = *f;
+                        m->stored_type = m->field->type;
+                        m->is_lvalue = object->is_lvalue;
+                        return {};
+                    }
+
+                    /// Search member procedures.
+                    auto procs = rgs::find(s->member_procs, m->member, [](auto& e) { return e.first(); });
+                    if (procs != s->member_procs.end()) {
+                        MakeMemberProcRef(procs->getValue());
+                        return {};
+                    }
+
+                    return Diag::Error(
                         mod->context,
                         m->location,
                         "Type '{}' has no '{}' member",
                         unwrapped.str(mod->context->use_colours, true),
                         m->member
                     );
-
-                    UnwrapInPlace(object, true);
-                    m->field = *f;
-                    m->stored_type = m->field->type;
-                    m->is_lvalue = object->is_lvalue;
-                    return {};
                 }
 
                 return Diag::Error(
@@ -1990,17 +2156,30 @@ bool src::Sema::Analyse(Expr*& e) {
             }
         } break;
 
+        /// Parameter declaration.
+        case Expr::Kind::ParamDecl: {
+            protected_subexpressions.push_back(e);
+            auto var = cast<ParamDecl>(e);
+            if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
+            if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
+            var->ctor = ConstructExpr::CreateMoveParam(mod);
+
+            /// Add the variable to the current scope.
+            if (not var->sema.errored) {
+                if (var->with) with_stack.push_back(var);
+                curr_scope->declare(var->name, var);
+                var->is_lvalue = true;
+            }
+        } break;
+
         /// Variable declaration.
         case Expr::Kind::LocalDecl: {
             protected_subexpressions.push_back(e);
             auto var = cast<LocalDecl>(e);
             if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
 
-            /// Parameters are currently move-only and need no special handling.
-            if (var->local_kind == LocalKind::Parameter) {
-                if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
-                var->ctor = ConstructExpr::CreateMoveParam(mod);
-            }
+            /// Parameters should be ParamDecls instead.
+            if (var->local_kind == LocalKind::Parameter) Unreachable();
 
             /// Synthesised variables are just lvalues that point somewhere else.
             else if (var->local_kind == LocalKind::Synthesised) {
@@ -2030,7 +2209,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 }
 
                 /// Type must be constructible from the initialiser args.
-                var->ctor = Construct(var->location, var->type, var->init_args, &var->has_value);
+                var->ctor = Construct(var->location, var->type, var->init_args, var);
                 if (not var->ctor) e->sema.set_errored();
                 var->init_args.clear();
             }
@@ -2056,15 +2235,9 @@ bool src::Sema::Analyse(Expr*& e) {
             /// If the condition tests whether an optional is not nil, set
             /// the active state of the optional to true in the branch where
             /// it isn’t.
-            if (
-                auto c = dyn_cast<CastExpr>(i->cond->ignore_lv2rv);
-                c and
-                c->cast_kind == CastKind::OptionalNilTest and
-                isa<LocalRefExpr>(c->operand->ignore_lv2rv)
-            ) {
+            if (auto o = Optionals.MatchNilTest(i->cond)) {
                 {
-                    auto local = cast<LocalRefExpr>(c->operand->ignore_lv2rv)->decl;
-                    tempset local->has_value = true;
+                    OptionalState::ActivationGuard _{*this, o};
                     if (not Analyse(i->then)) return e->sema.set_errored();
                 }
 
@@ -2083,12 +2256,12 @@ bool src::Sema::Analyse(Expr*& e) {
                 .get()
             ) {
                 {
-                    tempset local->decl->has_value = true;
+                    OptionalState::ActivationGuard _{*this, local->decl};
                     if (i->else_ and not Analyse(i->else_)) return e->sema.set_errored();
                 }
 
                 if (not Analyse(i->then)) return e->sema.set_errored();
-                if (i->then->type == Type::NoReturn) local->decl->has_value = true;
+                if (i->then->type == Type::NoReturn) Optionals.Activate(local->decl);
             } // clang-format on
 
             /// Otherwise, there is nothing to infer.
@@ -2505,17 +2678,8 @@ bool src::Sema::Analyse(Expr*& e) {
                             opt->elem
                         );
 
-                        /// If the initialiser a non-optional reference, and this is a variable
-                        /// declaration, then this is active now.
-                        if (
-                            auto ref = dyn_cast<LocalRefExpr>(b->lhs);
-                            ref and
-                            isa<LocalDecl>(ref->decl)
-                        ) {
-                            auto l = cast<LocalDecl>(ref->decl);
-                            active_optionals.try_emplace(l, l->has_value);
-                            l->has_value = true;
-                        }
+                        /// If the initialiser is non-optional reference, then it is active now.
+                        Optionals.Activate(b->lhs);
 
                         b->stored_type = b->lhs->type;
                         b->is_lvalue = true;
@@ -2713,8 +2877,9 @@ bool src::Sema::AnalyseInvoke(Expr*& e) {
         if (auto d = dyn_cast<DeclRefExpr>(invoke->callee); d and not d->decl) {
             auto b = llvm::StringSwitch<std::optional<Builtin>>(d->name) // clang-format off
                 .Case("new", Builtin::New)
-                .Case("__srcc_new", Builtin::New)
                 .Case("__srcc_delete", Builtin::Destroy)
+                .Case("__srcc_memcpy", Builtin::Memcpy)
+                .Case("__srcc_new", Builtin::New)
                 .Default(std::nullopt);
 
             /// Found a builtin.
@@ -2863,28 +3028,6 @@ bool src::Sema::AnalyseInvoke(Expr*& e) {
 bool src::Sema::AnalyseInvokeBuiltin(Expr*& e) {
     auto invoke = cast<InvokeBuiltinExpr>(e);
     switch (invoke->builtin) {
-        /// Allocate a scoped pointer.
-        case Builtin::New: {
-            /// New takes one operand.
-            if (invoke->args.size() != 1) return Error(
-                e,
-                "Expected 1 argument, but got {}",
-                invoke->args.size()
-            );
-
-            /// Operand must be a type.
-            Type ty{invoke->args[0]};
-            if (not AnalyseAsType(ty)) return e->sema.set_errored();
-
-            /// Type is a scoped pointer to the allocated type.
-            invoke->stored_type = new (mod) ScopedPointerType(
-                ty,
-                invoke->location
-            );
-
-            return true;
-        }
-
         /// Call a destructor.
         case Builtin::Destroy: {
             /// Destroy takes one operand.
@@ -2908,6 +3051,60 @@ bool src::Sema::AnalyseInvokeBuiltin(Expr*& e) {
             invoke->stored_type = Type::Void;
             return true;
         }
+
+        /// Copy memory.
+        case Builtin::Memcpy: {
+            /// Operands must be references and a size.
+            if (invoke->args.size() != 3) return Error(
+                e,
+                "__srcc_memcpy takes 3 arguments, but got {}",
+                invoke->args.size()
+            );
+
+            auto CheckRefArg = [&](usz i) {
+                if (not Analyse(invoke->args[i])) return;
+                if (not Convert(invoke->args[i], Type::VoidRef)) Error(
+                    invoke->args[i],
+                    "No conversion from {} to a reference",
+                    invoke->args[i]->type
+                );
+            };
+
+            CheckRefArg(0);
+            CheckRefArg(1);
+            if (Analyse(invoke->args[2]) and not Convert(invoke->args[2], Type::Int)) Error(
+                invoke->args[2],
+                "No conversion from {} to {}",
+                invoke->args[2]->type,
+                Type::Int
+            );
+
+            /// This returns nothing.
+            invoke->stored_type = Type::Void;
+            return true;
+        }
+
+        /// Allocate a scoped pointer.
+        case Builtin::New: {
+            /// New takes one operand.
+            if (invoke->args.size() != 1) return Error(
+                e,
+                "new takes 1 argument, but got {}",
+                invoke->args.size()
+            );
+
+            /// Operand must be a type.
+            Type ty{invoke->args[0]};
+            if (not AnalyseAsType(ty)) return e->sema.set_errored();
+
+            /// Type is a scoped pointer to the allocated type.
+            invoke->stored_type = new (mod) ScopedPointerType(
+                ty,
+                invoke->location
+            );
+
+            return true;
+        }
     }
 
     Unreachable();
@@ -2926,6 +3123,8 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
     tempset unwind_entries = decltype(unwind_entries){};
 
     /// Protected subexpressions never cross a procedure boundary.
+    /// FIXME: Shouldn’t this be a tempset too?
+    /// FIXME: Comment above is irrelevant since this system will be yeeted soon.
     defer { protected_subexpressions.clear(); };
 
     /// Assign a name to the procedure if it doesn’t have one.

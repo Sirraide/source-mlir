@@ -161,6 +161,86 @@ class Sema {
         usz mismatch_index{};
     };
 
+    /// Machinery for tracking the state of optionals.
+    class OptionalState {
+        using Path = SmallVector<u32, 4>;
+        struct State {
+            /// Whether the variable itself is active.
+            bool active : 1;
+
+            /// List of field paths that are active, by field index.
+            SmallVector<Path, 1> active_fields;
+        };
+
+    public:
+        /// Guard for entering a scope.
+        class ScopeGuard {
+            friend OptionalState;
+            Sema& S;
+            ScopeGuard* previous;
+
+            /// Entities of optional type whose active state has changed in
+            /// this scope, as well as the value of that state in the previous
+            /// scope.
+            DenseMap<LocalDecl*, State> changes;
+
+        public:
+            ScopeGuard(Sema& S);
+            ~ScopeGuard();
+        };
+
+        /// Guard for temporarily making a value active. This always
+        /// resets the active state to what it was before the guard,
+        /// irrespective of whether it is changed after the guard was
+        /// created.
+        struct ActivationGuard {
+            friend OptionalState;
+            Sema& S;
+            Expr* expr;
+
+        public:
+            ActivationGuard(Sema& S, Expr* expr);
+            ~ActivationGuard();
+        };
+
+    private:
+        /// All entities that are currently tracked, and whether they
+        /// are active. Key is the root object of the entity, which
+        /// is always a local variable (this is because tracking only
+        /// makes sense for lvalues since rvalues don’t survive long
+        /// enough to be tracked in the first place).
+        DenseMap<LocalDecl*, State> tracked;
+
+        /// Current guard.
+        ScopeGuard* guard{};
+
+
+        /// Used to implement Activate() and Deactivate().
+        void ChangeState(Expr* e, auto cb);
+
+        /// Get the path to an entity of optional type.
+        auto GetObjectPath(MemberAccessExpr* e) -> std::pair<LocalDecl*, Path>;
+
+    public:
+        /// Mark an optional as active until the end of the current scope.
+        ///
+        /// \param e The expression to activate. May be null.
+        void Activate(Expr* e);
+
+        /// Mark an optional as inactive until the end of the current scope.
+        ///
+        /// \param e The expression to deactivate. May be null.
+        void Deactivate(Expr* e);
+
+        /// If this is an active entity of optional type, return the optional
+        /// type, else return null.
+        auto GetActiveOptionalType(Expr* e) -> OptionalType*;
+
+        /// Test if an expression checks whether an entity of optional type
+        /// is nil, and if so, return a pointer to that entity.
+        auto MatchNilTest(Expr* test) -> Expr*;
+    } Optionals;
+
     /// Expressions that still need to be checked for unwinding.
     SmallVector<Unwind> unwind_entries;
 
@@ -172,10 +252,6 @@ class Sema {
 
     /// Expressions eligible for `.x` access.
     SmallVector<Expr*> with_stack;
-
-    /// Locals of optional type whose active state has changed in this scope,
-    /// as well as the value of that state in the previous scope.
-    DenseMap<LocalDecl*, bool> active_optionals;
 
     readonly(Context*, ctx, return mod->context);
 
@@ -219,13 +295,13 @@ private:
     /// \param loc Location to use for errors.
     /// \param ty The type to construct.
     /// \param args Arguments with which to construct a \p ty.
-    /// \param active_optional Flag that is set to true if this creates an active optional.
+    /// \param target Expression that is marked as active if this creates an active optional.
     /// \return The constructor for `into`.
     auto Construct(
         Location loc,
         Type ty,
         MutableArrayRef<Expr*> args,
-        bool* active_optional = nullptr
+        Expr* target = nullptr
     ) -> ConstructExpr*;
 
     /// Convert an expression to a type, inserting implicit conversions
@@ -347,6 +423,9 @@ private:
 
     /// Unwrap an expression and replace it with the unwrapped expression.
     void UnwrapInPlace(Expr*& e, bool keep_lvalues = false);
+
+    /// Get the unwrapped type of an expression.
+    Type UnwrappedType(Expr* e);
 
     /// Unwinder.
     ///

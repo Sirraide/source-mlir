@@ -42,6 +42,7 @@ enum struct Mangling : u8 {
 
 enum struct Builtin : u8 {
     Destroy,
+    Memcpy,
     New,
 };
 
@@ -73,6 +74,7 @@ public:
         ScopedPointerType,
         SliceType,
         ArrayType,
+        // VectorType,
         OptionalType,
         SugaredType,
         ScopedType,
@@ -124,6 +126,7 @@ public:
 
         /// Decl [begin]
         LocalDecl,
+        ParamDecl,
         FieldDecl,
 
         /// ObjectDecl [begin]
@@ -213,10 +216,6 @@ public:
     /// Strip parentheses, and DeclRefExprs.
     readonly_decl(Expr*, ignore_paren_refs);
 
-    /// Whether this is an optional that is known to be active in
-    /// the current scope.
-    readonly_decl(bool, is_active_optional);
-
     /// Check if this is 'nil'.
     readonly_decl(bool, is_nil);
 
@@ -227,10 +226,6 @@ public:
     /// Get the type of this expression; returns void if
     /// this expression has no type.
     readonly_decl(Type, type);
-
-    /// Get the type of this when unwrapped. This will strip an
-    /// optional type iff the expression is known to be active.
-    readonly_decl(Type, unwrapped_type);
 
     /// Print this expression to stdout.
     void print(bool print_children = true) const;
@@ -1436,10 +1431,6 @@ public:
     /// What kind of variable this is.
     LocalKind local_kind;
 
-    /// If this is a variable of optional type, whether a value
-    /// is currently present.
-    bool has_value = false;
-
     /// Whether this declaration is captured.
     readonly(bool, captured, return is_captured);
 
@@ -1456,6 +1447,22 @@ public:
         return local_kind != LocalKind::Synthesised
     );
 
+protected:
+    LocalDecl(
+        Kind k,
+        ProcDecl* parent,
+        std::string name,
+        Type type,
+        SmallVector<Expr*> init,
+        LocalKind kind,
+        Location loc
+    ) : Decl(k, std::move(name), type, loc),
+        parent(parent),
+        init_args(std::move(init)),
+        local_kind(kind) {
+    }
+
+public:
     LocalDecl(
         ProcDecl* parent,
         std::string name,
@@ -1463,11 +1470,15 @@ public:
         SmallVector<Expr*> init,
         LocalKind kind,
         Location loc
-    ) : Decl(Kind::LocalDecl, std::move(name), type, loc),
-        parent(parent),
-        init_args(std::move(init)),
-        local_kind(kind) {
-    }
+    ) : LocalDecl( //
+            Kind::LocalDecl,
+            parent,
+            std::move(name),
+            type,
+            std::move(init),
+            kind,
+            loc
+        ) {}
 
     /// Mark this declaration as captured.
     void set_captured();
@@ -1476,7 +1487,35 @@ public:
     void set_deleted_or_moved() { deleted = true; }
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::LocalDecl; }
+    static bool classof(const Expr* e) {
+        return e->kind == Kind::LocalDecl or e->kind == Kind::ParamDecl;
+    }
+};
+
+class ParamDecl : public LocalDecl {
+public:
+    /// Modifiers.
+    bool with : 1 = false;
+
+    ParamDecl(
+        ProcDecl* parent,
+        std::string name,
+        Type type,
+        bool with,
+        Location loc
+    ) : LocalDecl( //
+            Kind::ParamDecl,
+            parent,
+            std::move(name),
+            type,
+            {},
+            LocalKind::Parameter,
+            loc
+        ),
+        with(with) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ParamDecl; }
 };
 
 /*
@@ -1514,7 +1553,7 @@ public:
     ProcDecl* parent;
 
     /// The function parameter decls. Empty if this is a declaration.
-    SmallVector<LocalDecl*> params;
+    SmallVector<ParamDecl*> params;
 
     /// Body of the function.
     BlockExpr* body;
@@ -1539,7 +1578,7 @@ public:
         ProcDecl* parent,
         std::string name,
         Type type,
-        SmallVector<LocalDecl*> params,
+        SmallVector<ParamDecl*> params,
         Linkage linkage,
         Mangling mangling,
         Location loc
@@ -1747,11 +1786,17 @@ public:
 
 class StructType : public NamedType {
 public:
+    using MemberProcedures = StringMap<SmallVector<ProcDecl*, 1>>;
+
     /// The fields of this struct.
     SmallVector<FieldDecl*> all_fields;
 
     /// Initialisers of this struct.
     SmallVector<ProcDecl*> initialisers;
+
+    /// Member procedures. Note that we do not distinguish between
+    /// ‘static’ and ‘non-static’ member functions.
+    MemberProcedures member_procs;
 
     /// Deleter of this struct.
     ProcDecl* deleter{};
@@ -1771,6 +1816,7 @@ public:
         std::string name,
         SmallVector<FieldDecl*> fields,
         SmallVector<ProcDecl*> initialisers,
+        MemberProcedures member_procs,
         ProcDecl* deleter,
         BlockExpr* scope,
         Mangling mangling,
@@ -1783,7 +1829,7 @@ public:
         SmallVector<FieldDecl*> fields,
         Mangling mangling = Mangling::Source,
         Location loc = {}
-    ) : StructType(mod, "", std::move(fields), {}, nullptr, nullptr, mangling, loc) {}
+    ) : StructType(mod, "", std::move(fields), {}, {}, nullptr, nullptr, mangling, loc) {}
 
     /// Get the non-padding fields of this struct.
     auto fields() {
@@ -1890,6 +1936,25 @@ public:
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ArrayType; }
 };
+
+/*class VectorType : public SingleElementTypeBase {
+public:
+    Expr* dim_expr;
+
+    VectorType(Type elem, Expr* dim_expr, Location loc)
+        : SingleElementTypeBase(Kind::VectorType, elem, loc),
+          dim_expr(dim_expr) {}
+
+    /// Get the dimension of this vector type.
+    auto dimension() -> const APInt& {
+        Assert(sema.ok);
+        auto cexpr = cast<ConstExpr>(dim_expr);
+        return cexpr->value.as_int();
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::VectorType; }
+};*/
 
 class SliceType : public SingleElementTypeBase {
 public:
@@ -2322,6 +2387,7 @@ struct CastInfo<T, const src::Type*> : src::THCastImpl<T, const src::Type*> {};
     case Expr::Kind::MemberAccessExpr:   \
     case Expr::Kind::ModuleRefExpr:      \
     case Expr::Kind::OverloadSetExpr:    \
+    case Expr::Kind::ParamDecl:          \
     case Expr::Kind::ParenExpr:          \
     case Expr::Kind::ProcDecl:           \
     case Expr::Kind::ReturnExpr:         \

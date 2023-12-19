@@ -453,6 +453,19 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         Spelling(start_token)
     );
 
+    /// Whether an expression is invokable w/o parens.
+    static const auto Invokable = [](Expr* e) { // clang-format off
+        /// TODO: Allow invoking invoke expressions so `deque int a;` works.
+        return isa<
+            TypeBase,
+            DeclRefExpr,
+            MemberAccessExpr,
+            ScopeAccessExpr,
+            ParenExpr,
+            SubscriptExpr
+        >(e);
+    }; // clang-format on
+
     /// Parse anything that looks like a binary operator or
     /// postfix operator.
     while (not IsError(lhs)) {
@@ -470,15 +483,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 if (NakedInvokePrecedence <= curr_prec) break;
 
                 /// Only allow invoking certain kinds of expressions.
-                /// TODO: Allow invoking invoke expressions so `deque int a;` works.
-                if (not isa< // clang-format off
-                    TypeBase,
-                    DeclRefExpr,
-                    MemberAccessExpr,
-                    ScopeAccessExpr,
-                    ParenExpr,
-                    SubscriptExpr
-                >(*lhs)) break; // clang-format on
+                if (not Invokable(*lhs)) break;
 
                 /// We specifically disallow blocks in this position so that, e.g.
                 /// in `if a {`, `a {` does not get parsed as an invoke expression.
@@ -510,31 +515,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
                 if (IsPostfix(tok.type)) break;
 
                 /// Parse the arguments of the invoke expression.
-                SmallVector<Expr*> args;
-                do {
-                    auto arg = ParseExpr(NakedInvokePrecedence);
-                    if (not IsError(arg)) args.push_back(*arg);
-                } while (Consume(Tk::Comma));
-
-                /// An assignment expression after a naked invocation is bound to it
-                /// in case it turns out to be a declaration.
-                SmallVector<Expr*> init_args;
-                if (Consume(Tk::Assign)) {
-                    do {
-                        auto expr = ParseExpr();
-                        if (IsError(expr)) return expr.diag;
-                        init_args.push_back(*expr);
-                    } while (Consume(Tk::Comma));
-                }
-
-                Location loc = {lhs->location, not args.empty() ? args.back()->location : Location{}};
-                lhs = new (mod) InvokeExpr(
-                    *lhs,
-                    std::move(args),
-                    true,
-                    std::move(init_args),
-                    loc
-                );
+                lhs = ParseNakedInvokeExpr(*lhs);
                 continue;
             }
 
@@ -582,6 +563,21 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
 
             /// Member access.
             case Tk::Dot: {
+                /// If the token after the identifier is `","`, and we’re not already parsing an
+                /// invocation, then we have the situation `<expr> "." IDENT ","`, which is likely
+                /// supposed to be a naked invoke, i.e.`<expr> ("." b) "," `, instead as the former
+                /// is nonsense.
+                if (
+                    Is(LookAhead(1), Tk::Identifier, Tk::Init) and
+                    Is(LookAhead(2), Tk::Comma) and
+                    curr_prec != NakedInvokePrecedence and
+                    Invokable(*lhs)
+                ) {
+                    lhs = ParseNakedInvokeExpr(*lhs);
+                    continue;
+                }
+
+                /// Regular member access.
                 Next();
                 if (not At(Tk::Identifier, Tk::Init)) Error("Expected identifier");
                 lhs = new (mod) MemberAccessExpr(*lhs, tok.text, {lhs->location, curr_loc});
@@ -822,8 +818,7 @@ auto src::Parser::ParseIf() -> Result<Expr*> {
     Consume(Tk::Then);
 
     auto then = ParseImplicitBlock();
-    Consume(Tk::Semicolon);
-
+    if (Is(LookAhead(1), Tk::Elif, Tk::Else)) Consume(Tk::Semicolon);
     auto else_ = At(Tk::Elif)      ? ParseIf()
                : Consume(Tk::Else) ? ParseImplicitBlock()
                                    : Result<Expr*>::Null();
@@ -866,10 +861,44 @@ auto src::Parser::ParseImplicitBlock() -> Result<BlockExpr*> {
     }
 }
 
-/// <proc-params> ::= "(" <param-decl> { "," <param-decl> } ")"
+/// Parse the arguments of a naked invoke expression.
+///
+/// This does no checking as to whether this should syntactically be parsed
+/// as a naked invoke expression in the first place, so make sure to do that
+/// first before calling this.
+auto src::Parser::ParseNakedInvokeExpr(Expr* callee) -> Result<InvokeExpr*> {
+    SmallVector<Expr*> args;
+    do {
+        auto arg = ParseExpr(NakedInvokePrecedence);
+        if (not IsError(arg)) args.push_back(*arg);
+    } while (Consume(Tk::Comma));
+
+    /// An assignment expression after a naked invocation is bound to it
+    /// in case it turns out to be a declaration.
+    SmallVector<Expr*> init_args;
+    if (Consume(Tk::Assign)) {
+        do {
+            auto expr = ParseExpr();
+            if (IsError(expr)) return expr.diag;
+            init_args.push_back(*expr);
+        } while (Consume(Tk::Comma));
+    }
+
+    Location loc = {callee->location, not args.empty() ? args.back()->location : Location{}};
+    return new (mod) InvokeExpr(
+        callee,
+        std::move(args),
+        true,
+        std::move(init_args),
+        loc
+    );
+}
+
+/// <proc-params> ::= "(" <parameter> { "," <parameter> } ")"
+/// <parameter>   ::= [ WITH ] <param-decl>
 /// <param-decl>  ::= <type> [ IDENTIFIER ] | PROC [ IDENTIFIER ] <proc-signature>
 auto src::Parser::ParseParamDeclList(
-    SVI<LocalDecl*>& param_decls,
+    SVI<ParamDecl*>& param_decls,
     SVI<Type>& param_types
 ) -> Location {
     auto loc = curr_loc;
@@ -880,6 +909,9 @@ auto src::Parser::ParseParamDeclList(
 
     /// Parse param decls.
     do {
+        /// Modifiers.
+        const bool with = Consume(Tk::With);
+
         /// Procedure.
         if (At(Tk::Proc)) {
             auto sig = ParseSignature();
@@ -887,15 +919,14 @@ auto src::Parser::ParseParamDeclList(
             /// Return type defaults to void.
             if (sig.type->ret_type == Type::Unknown) sig.type->ret_type = Type::Void;
 
-            param_decls.push_back(new (mod) LocalDecl(
+            param_types.push_back(sig.type);
+            param_decls.push_back(new (mod) ParamDecl(
                 nullptr,
                 std::move(sig.name),
                 sig.type,
-                {},
-                LocalKind::Parameter,
+                with,
                 sig.loc
             ));
-            param_types.push_back(sig.type);
         }
 
         /// Regular type.
@@ -915,15 +946,14 @@ auto src::Parser::ParseParamDeclList(
             }
 
             /// TODO: Default values go in their own scope.
-            param_decls.push_back(new (mod) LocalDecl(
+            param_types.push_back(Type(*param_type));
+            param_decls.push_back(new (mod) ParamDecl(
                 nullptr,
                 std::move(name),
                 *param_type,
-                {},
-                LocalKind::Parameter,
+                with,
                 tok.location
             ));
-            param_types.push_back(Type(*param_type));
         }
     } while (Consume(Tk::Comma));
 
@@ -1075,11 +1105,11 @@ auto src::Parser::ParseSignature() -> Signature {
     return sig;
 }
 
-/// <type-struct>    ::= STRUCT <name> <struct-rest>
-/// <struct-anon>    ::= STRUCT <struct-rest>
-/// <struct-rest>    ::= "{" { <struct-field> | <init-decl> } "}"
-/// <struct-field>   ::= <var-decl>
-/// <init-decl>      ::= INIT <proc-signature> <proc-body>
+/// <type-struct>  ::= STRUCT <name> <struct-rest>
+/// <struct-anon>  ::= STRUCT <struct-rest>
+/// <struct-rest>  ::= "{" { <struct-field> | <init-decl> } "}"
+/// <struct-field> ::= <var-decl>
+/// <init-decl>    ::= INIT <proc-signature> <proc-body>
 auto src::Parser::ParseStruct() -> Result<StructType*> {
     Assert(At(Tk::Struct));
     auto start = Next();
@@ -1096,6 +1126,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
     ScopeRAII sc{this};
     SmallVector<FieldDecl*> fields;
     SmallVector<ProcDecl*> initialisers;
+    StructType::MemberProcedures member_procs;
     ProcDecl* deleter{};
     sc.scope->set_struct_scope();
     while (not At(Tk::RBrace, Tk::Eof)) {
@@ -1119,24 +1150,72 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
         }
 
         /// Field.
-        auto field = ParseDecl();
-        if (IsError(field)) {
+        auto decl = ParseDecl();
+        if (IsError(decl)) {
             Synchronise(Tk::Semicolon, Tk::RBrace);
             continue;
         }
 
-        /// If the decl is a var decl, add it as a field. Other
-        /// decls are currently illegal in this position.
-        if (auto var = dyn_cast<LocalDecl>(*field)) {
+        /// If the decl is a var decl, add it as a field.
+        if (auto var = dyn_cast<LocalDecl>(*decl)) {
+            if (not Consume(Tk::Semicolon)) Error("Expected ';'");
+            if (
+                auto it = rgs::find_if(fields, [&](auto f) { return f->name == var->name; });
+                it != fields.end()
+            ) {
+                Error(var->location, "Cannot redeclare field '{}'", var->name);
+                Diag::Note(ctx, (*it)->location, "Previous declaration was here");
+                continue;
+            }
+
+            if (auto it = member_procs.find(var->name); it != member_procs.end()) {
+                Error(
+                    var->location,
+                    "Cannot declare field '{}' with the same name as a procedure",
+                    var->name
+                );
+
+                Diag::Note(
+                    ctx,
+                    it->second.front()->location,
+                    "Member procedure declaration was here"
+                );
+                continue;
+            }
+
             fields.push_back(new (mod) FieldDecl(
                 var->name,
                 var->type,
                 var->location
             ));
-        } else {
-            Error("Expected declaration");
+
+            continue;
         }
-        Consume(Tk::Semicolon);
+
+        /// If it is a procedure, then this is a member function.
+        if (auto proc = dyn_cast<ProcDecl>(*decl)) {
+            if (proc->name.empty()) Error(decl->location, "Member procedures must have a name");
+            if (
+                auto it = rgs::find_if(fields, [&](auto f) { return f->name == proc->name; });
+                it != fields.end()
+            ) {
+                Error(
+                    proc->location,
+                    "Cannot declare member procedure '{}' with the same name as a field",
+                    proc->name
+                );
+
+                Diag::Note(ctx, (*it)->location, "Field declaration was here");
+                continue;
+            }
+
+            member_procs[proc->name].push_back(proc);
+            continue;
+        }
+
+        /// Other decls are currently illegal in this position.
+        Error(decl->location, "This declaration is not allowed here");
+        Synchronise();
     }
 
     /// Parse closing brace.
@@ -1148,6 +1227,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
         std::move(name),
         std::move(fields),
         std::move(initialisers),
+        std::move(member_procs),
         deleter,
         sc.scope,
         Mangling::Source,

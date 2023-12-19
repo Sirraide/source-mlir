@@ -323,6 +323,9 @@ auto src::Module::_global_scope() -> BlockExpr* {
 /// ===========================================================================
 namespace src {
 namespace {
+/// Whether to use colours in assertions.
+std::atomic<bool> enable_assert_colours{isatty(fileno(stderr))};
+
 /// Get the colour of a diagnostic.
 constexpr auto Colour(utils::Colours C, Diag::Kind kind) -> std::string_view {
     using Kind = Diag::Kind;
@@ -492,7 +495,11 @@ void PrintBacktrace(utils::Colours C) {
 } // namespace
 } // namespace src
 
-/// Abort due to assertion failure.
+
+void src::EnableAssertColours(bool enable) {
+    enable_assert_colours.store(enable, std::memory_order_relaxed);
+}
+
 void src::detail::AssertFail(
     AssertKind k,
     std::string_view condition,
@@ -500,7 +507,7 @@ void src::detail::AssertFail(
     int line,
     std::string&& message
 ) {
-    utils::Colours C(isatty(fileno(stderr)));
+    utils::Colours C(enable_assert_colours.load(std::memory_order_relaxed));
     using enum utils::Colour;
 
     /// Print filename and ICE title.
@@ -573,7 +580,7 @@ void src::Diag::PrintDiagWithoutLocation(utils::Colours C) {
 }
 
 void src::Diag::print() {
-    utils::Colours C(ctx ? ctx->use_colours : isatty(fileno(stderr)));
+    utils::Colours C(ctx ? ctx->use_colours : enable_assert_colours.load(std::memory_order_relaxed));
     using enum utils::Colour;
 
     /// If this diagnostic is suppressed, do nothing.

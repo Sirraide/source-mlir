@@ -302,6 +302,15 @@ enum IterationResult {
     ContinueIteration,
 };
 
+/// Overloaded function idiom.
+template <typename... Ts>
+struct overloaded : Ts... {
+    using Ts::operator()...;
+};
+
+template <typename... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+
 /// Get the padding required to align a value to a given alignment.
 template <typename T = usz>
 constexpr T AlignPadding(T value, T align) {
@@ -405,6 +414,20 @@ void ReplaceAll(
     std::string_view to
 );
 
+/// std::ranges::starts_with.
+template <typename Range, typename Prefix, typename Proj = std::identity>
+[[nodiscard]] constexpr bool starts_with(
+    Range&& r,
+    const Prefix& prefix,
+    Proj&& proj = {}
+) {
+    return rgs::equal(
+        FWD(r),
+        prefix,
+        [&](auto&& x, auto&& y) { return std::invoke(proj, FWD(x)) == FWD(y); }
+    );
+}
+
 /// Get the smallest unique value in a range.
 ///
 /// \param r The range to search.
@@ -495,21 +518,11 @@ public:
     [[nodiscard]] friend constexpr auto operator<=>(Size lhs, Size rhs) = default;
 };
 
-namespace detail {
-template <typename... Ts>
-struct overloaded : Ts... {
-    using Ts::operator()...;
-};
-
-template <typename... Ts>
-overloaded(Ts...) -> overloaded<Ts...>;
-} // namespace detail
-
 /// Visit with a better order of arguments.
 template <typename Variant, typename... Visitors>
 void visit(Variant&& v, Visitors&&... visitors) {
     std::visit(
-        detail::overloaded{std::forward<Visitors>(visitors)...},
+        utils::overloaded{std::forward<Visitors>(visitors)...},
         std::forward<Variant>(v)
     );
 }

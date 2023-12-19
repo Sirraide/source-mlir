@@ -391,6 +391,7 @@ add_custom_target(source-std ALL)
 add_custom_target(source-runtime
     COMMAND "${source-compiler}"
         "${PROJECT_SOURCE_DIR}/std/__src_runtime.src"
+        --colour always
         --dir "${SOURCE_BUILTIN_MODULE_PATH}"
         -O3
         --nostdrt --nostdinc
@@ -411,6 +412,7 @@ function(source_stdlib_module name)
     add_custom_target("source-module-${name}"
         COMMAND "${source-compiler}"
             "${PROJECT_SOURCE_DIR}/std/${path}.src"
+            --colour always
             --dir "${SOURCE_BUILTIN_MODULE_PATH}"
             -O3
         DEPENDS srcc source-runtime ${ARGN}
