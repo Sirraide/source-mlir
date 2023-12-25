@@ -42,9 +42,10 @@ enum struct Builtin : u8 {
 };
 
 enum struct LocalKind : u8 {
-    Variable,    /// Regular stack variable.
-    Parameter,   /// Procedure parameter.
-    Synthesised, /// Named lvalue that points to an object somewhere else.
+    Variable,         /// Regular stack variable.
+    Parameter,        /// Procedure parameter.
+    Synthesised,      /// Named *lvalue* that points to an object somewhere else.
+    SynthesisedValue, /// Named *rvalue* that denotes some value.
 };
 
 /// ===========================================================================
@@ -378,17 +379,27 @@ public:
     /// The iteration variable of this for-in loop.
     LocalDecl* iter;
 
+    /// The index variable of this for-in loop.
+    LocalDecl* index;
+
     /// The range that we’re iterating over.
     Expr* range;
 
     /// Whether we’re iterating in reverse.
     bool reverse;
 
-    ForInExpr(LocalDecl* iter, Expr* range, BlockExpr* body, bool reverse, Location loc)
-        : Loop(Kind::ForInExpr, body, loc),
-          iter(iter),
-          range(range),
-          reverse(reverse) {}
+    ForInExpr(
+        LocalDecl* iter,
+        LocalDecl* index,
+        Expr* range,
+        BlockExpr* body,
+        bool reverse,
+        Location loc
+    ) : Loop(Kind::ForInExpr, body, loc),
+        iter(iter),
+        index(index),
+        range(range),
+        reverse(reverse) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ForInExpr; }
@@ -1397,7 +1408,8 @@ public:
     readonly_const(
         bool,
         is_legal_to_capture,
-        return local_kind != LocalKind::Synthesised
+        return local_kind != LocalKind::Synthesised and
+               local_kind != LocalKind::SynthesisedValue
     );
 
 protected:

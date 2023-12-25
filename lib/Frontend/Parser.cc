@@ -800,26 +800,51 @@ void src::Parser::ParseFile() {
     std::ignore = ParseStmts(Tk::Eof, mod->top_level_func->body->exprs);
 }
 
-/// <expr-for-in> ::= FOR <type> IDENTIFIER IN <expr> <do>
+/// <expr-for-in>   ::= FOR [ <for-loop-vars> ] IN <expr> <do>
+/// <for-loop-vars> ::= IDENTIFIER | ENUM IDENTIFIER | ENUM IDENTIFIER "," IDENTIFIER
 auto src::Parser::ParseFor() -> Result<Expr*> {
     auto start = curr_loc;
     bool reverse = At(Tk::ForReverse);
     Assert(Consume(Tk::For, Tk::ForReverse));
 
-    /// Iteration variable.
+    /// Helper to create an artificial variable.
+    auto CreateVar = [&] (LocalKind k) {
+        auto var = new (mod) LocalDecl(
+            curr_func,
+            tok.text,
+            Type::Unknown,
+            {},
+            k,
+            tok.location
+        );
+
+        Next();
+        return var;
+    };
+
+    /// Parse index and iteration variable.
     ScopeRAII sc{this};
-    if (not At(Tk::Identifier)) return Error("Expected identifier");
-    auto decl = new (mod) LocalDecl(
-        curr_func,
-        tok.text,
-        Type::Unknown,
-        {},
-        LocalKind::Synthesised,
-        tok.location
-    );
+    auto index = Result<LocalDecl*>::Null();
+    auto iter = Result<LocalDecl*>::Null();
+
+    /// ENUM IDENTIFIER
+    if (Consume(Tk::Enum)) {
+        if (not At(Tk::Identifier)) return Error("Expected identifier");
+        index = CreateVar(LocalKind::SynthesisedValue);
+
+        /// ENUM IDENTIFIER "," IDENTIFIER
+        if (Consume(Tk::Comma)) {
+            if (not At(Tk::Identifier)) return Error("Expected identifier");
+            iter = CreateVar(LocalKind::Synthesised);
+        }
+    }
+
+    /// IDENTIFIER
+    else if (At(Tk::Identifier)) {
+        iter = CreateVar(LocalKind::Synthesised);
+    }
 
     /// Parse range.
-    Next();
     if (not Consume(Tk::In)) Error("Expected 'in'");
     auto range = ParseExpr();
     if (IsError(range)) return range.diag;
@@ -828,7 +853,7 @@ auto src::Parser::ParseFor() -> Result<Expr*> {
     Consume(Tk::Do);
     auto body = ParseImplicitBlock();
     if (IsError(body)) return body.diag;
-    return new (mod) ForInExpr(decl, *range, *body, reverse, start);
+    return new (mod) ForInExpr(*iter, *index, *range, *body, reverse, start);
 }
 
 /// <expr-if> ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]

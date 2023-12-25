@@ -104,6 +104,7 @@ class Assimilator {
                 auto f = cast<ForInExpr>(e);
                 Assimilate(f->body);
                 Assimilate(f->iter);
+                Assimilate(f->index);
                 Assimilate(f->range);
             } break;
 

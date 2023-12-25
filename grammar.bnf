@@ -29,9 +29,9 @@
 /// reason not to do so.
 <stmts> ::= { <stmt> | <pragma> }
 <stmt>  ::= <expr>
-          | <stmt-labelled>
-          | <stmt-export>
           | <stmt-defer>
+          | <stmt-export>
+          | <stmt-labelled>
           | <decl>
 
 <stmt-labelled>  ::= IDENTIFIER ":" <stmt>
@@ -40,52 +40,52 @@
 /// ===========================================================================
 ///  Expressions
 /// ===========================================================================
-<expr> ::= <expr-invoke>
-         | <expr-proc>
-         | <expr-literal>
-         | <expr-if>
-         | <expr-decl-ref>
-         | <expr-access>
-         | <expr-block>
-         | <expr-prefix>
-         | <expr-binary>
-         | <expr-assert>
-         | <expr-return>
-         | <expr-cast>
-         | <expr-while>
-         | <expr-loop-ctrl>
-         | <expr-jump>
-         | <expr-qual-name>
-         | <expr-paren>
-         | <expr-subscript>
-         | <expr-for-in>
+<expr> ::= <expr-access>
          | <expr-alias>
-         | <expr-with>
+         | <expr-assert>
+         | <expr-binary>
+         | <expr-block>
+         | <expr-cast>
+         | <expr-decl-ref>
+         | <expr-for-in>
+         | <expr-if>
+         | <expr-invoke>
+         | <expr-jump>
+         | <expr-literal>
+         | <expr-loop-ctrl>
+         | <expr-paren>
+         | <expr-prefix>
+         | <expr-proc>
+         | <expr-qual-name>
+         | <expr-return>
+         | <expr-subscript>
          | <expr-tuple>
+         | <expr-while>
+         | <expr-with>
          | <type-struct>
 
-<expr-assert>    ::= ASSERT <expr> [ ","  <expr> ]
-<expr-invoke>    ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
-<expr-proc>      ::= <proc-extern> | <proc-named>
-<expr-block>     ::= "{" <stmts> "}"
-<expr-decl-ref>  ::= IDENTIFIER
 <expr-access>    ::= [ <expr> ] "." [ IDENTIFIER | INIT ]
-<expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL | <array-literal>
-<expr-prefix>    ::= <prefix-op> <expr>
-<expr-binary>    ::= <expr> <binary-op> <expr>
-<expr-if>        ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
-<expr-return>    ::= RETURN [ <expr> ]
-<expr-cast>      ::= <expr> ( "as" | "as!" ) <type>
-<expr-while>     ::= WHILE <expr> <do>
-<expr-for-in>    ::= FOR IDENTIFIER IN <expr> <do>
-<expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
-<expr-jump>      ::= GOTO IDENTIFIER
-<expr-qual-name> ::= <expr> "::" IDENTIFIER
-<expr-paren>     ::= "(" <expr> ")"
-<expr-subscript> ::= <expr> "[" <expr> "]"
 <expr-alias>     ::= ALIAS IDENTIFIER "=" <expr>
-<expr-with>      ::= WITH <expr> [ <do> ]
+<expr-assert>    ::= ASSERT <expr> [ ","  <expr> ]
+<expr-binary>    ::= <expr> <binary-op> <expr>
+<expr-block>     ::= "{" <stmts> "}"
+<expr-cast>      ::= <expr> ( "as" | "as!" ) <type>
+<expr-decl-ref>  ::= IDENTIFIER
+<expr-for-in>    ::= FOR [ <for-loop-vars> ] IN <expr> <do>
+<expr-if>        ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
+<expr-invoke>    ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
+<expr-jump>      ::= GOTO IDENTIFIER
+<expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL | <array-literal>
+<expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
+<expr-paren>     ::= "(" <expr> ")"
+<expr-prefix>    ::= <prefix-op> <expr>
+<expr-proc>      ::= <proc-extern> | <proc-named>
+<expr-qual-name> ::= <expr> "::" IDENTIFIER
+<expr-return>    ::= RETURN [ <expr> ]
+<expr-subscript> ::= <expr> "[" <expr> "]"
 <expr-tuple>     ::= "(" { <expr> "," } [ <expr> ] ")"
+<expr-while>     ::= WHILE <expr> <do>
+<expr-with>      ::= WITH <expr> [ <do> ]
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
@@ -96,6 +96,7 @@
 <proc-attrs>     ::= EXTERN | NOMANGLE
 <parameter>      ::= [ WITH ] <param-decl>
 <param-decl>     ::= <type> [ IDENTIFIER ] | PROC [ IDENTIFIER ] <proc-signature>
+<for-loop-vars>  ::= IDENTIFIER | ENUM IDENTIFIER | ENUM IDENTIFIER "," IDENTIFIER
 <then>           ::= [ THEN ] <implicit-block>
 <do>             ::= [ DO ] <implicit-block>
 <array-literal>  ::= "[" { <expr>  "," } [ <expr> ] "]"

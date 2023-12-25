@@ -82,6 +82,7 @@ struct CodeGen {
     template <typename T, typename... Args>
     auto Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
 
+    auto CreateInt(mlir::Location loc, u64 value) -> mlir::Value;
     auto CreateInt(mlir::Location loc, const APInt& value, Type type) -> mlir::Value;
 
     /// Create a function and execute a callback to populate its body.
@@ -460,6 +461,10 @@ auto src::CodeGen::CreateInt(mlir::Location loc, const APInt& value, Type type) 
     else { Unreachable("Cannot create an integer constant of type {}", type.str(true)); }
 }
 
+auto src::CodeGen::CreateInt(mlir::Location loc, u64 value) -> mlir::Value {
+    return CreateInt(loc, APInt(64, value), Type::Int);
+}
+
 auto src::CodeGen::Destroy(mlir::Location loc, mlir::Value addr, Type type) -> mlir::Value {
     type = type.desugared;
     auto d = Destructor(type);
@@ -641,7 +646,7 @@ auto src::CodeGen::Offset(mlir::Value ptr, i64 value) -> mlir::Value {
     return Create<hlir::OffsetOp>(
         ptr.getLoc(),
         ptr,
-        Create<mlir::index::ConstantOp>(ptr.getLoc(), value)
+        CreateInt(ptr.getLoc(), u64(value))
     );
 }
 
@@ -1356,7 +1361,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             );
 
             /// Create an integer holding the string size.
-            auto str_size = Create<mlir::index::ConstantOp>(
+            auto str_size = CreateInt(
                 Loc(str->location),
                 mod->strtab[str->index].size() - 1 /// Exclude null terminator.
             );
@@ -1534,18 +1539,18 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             /// Get the size of the range.
             mlir::Value size = Create<hlir::SliceSizeOp>(
                 builder.getUnknownLoc(),
-                mlir::IndexType::get(mctx),
+                Int,
                 range
             );
 
             /// Create the index used for the iteration. We just store the index
             /// in a block argument since it’s not exposed anyway.
-            auto zero = Create<mlir::index::ConstantOp>(Loc(f->location), 0);
+            auto zero = CreateInt(Loc(f->location), 0);
             auto region = builder.getBlock()->getParent();
 
             /// This needs to be a new block so we can branch to it.
             auto cond_block = Attach(region, new mlir::Block);
-            cond_block->addArgument(mlir::IndexType::get(mctx), builder.getUnknownLoc());
+            cond_block->addArgument(Int, builder.getUnknownLoc());
             Create<mlir::cf::BranchOp>(
                 Loc(f->location),
                 cond_block,
@@ -1553,11 +1558,11 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             );
 
             /// Test the condition.
-            using Pred = mlir::index::IndexCmpPredicate;
+            using Pred = mlir::arith::CmpIPredicate;
             builder.setInsertionPointToEnd(cond_block);
-            auto should_continue = Create<mlir::index::CmpOp>(
+            auto should_continue = Create<mlir::arith::CmpIOp>(
                 builder.getUnknownLoc(),
-                f->reverse ? Pred::UGT : Pred::ULT,
+                f->reverse ? Pred::ugt : Pred::ult,
                 cond_block->getArgument(0),
                 f->reverse ? zero : size
             );
@@ -1583,15 +1588,18 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             /// Offset is `i` if we’re iterating forward and `i - 1` otherwise.
             mlir::Value offset = cond_block->getArgument(0);
             if (f->reverse) {
-                offset = Create<mlir::index::SubOp>(
+                offset = Create<mlir::arith::SubIOp>(
                     builder.getUnknownLoc(),
                     offset,
-                    Create<mlir::index::ConstantOp>(Loc(f->location), 1)
+                    CreateInt(Loc(f->location), 1)
                 );
             }
 
-            auto iter = Create<hlir::OffsetOp>(builder.getUnknownLoc(), data, offset);
-            local_vars[f->iter] = iter;
+            if (f->index) local_vars[f->index] = cond_block->getArgument(0);
+            if (f->iter) {
+                auto iter = Create<hlir::OffsetOp>(builder.getUnknownLoc(), data, offset);
+                local_vars[f->iter] = iter;
+            }
 
             /// Dew it.
             std::ignore = Generate(f->body);
@@ -1607,16 +1615,16 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             mlir::Value inc;
             builder.setInsertionPointToEnd(f->continue_block);
             if (f->reverse) {
-                inc = Create<mlir::index::SubOp>(
+                inc = Create<mlir::arith::SubIOp>(
                     builder.getUnknownLoc(),
                     cond_block->getArgument(0),
-                    Create<mlir::index::ConstantOp>(Loc(f->location), 1)
+                    CreateInt(Loc(f->location), 1)
                 );
             } else {
-                inc = Create<mlir::index::AddOp>(
+                inc = Create<mlir::arith::AddIOp>(
                     builder.getUnknownLoc(),
                     cond_block->getArgument(0),
-                    Create<mlir::index::ConstantOp>(Loc(f->location), 1)
+                    CreateInt(Loc(f->location), 1)
                 );
             }
 

@@ -87,7 +87,7 @@ src::LocalRefExpr::LocalRefExpr(ProcDecl* parent, LocalDecl* decl, Location loc)
     : TypedExpr(Kind::LocalRefExpr, decl->type, loc),
       parent(parent),
       decl(decl) {
-    is_lvalue = true;
+    is_lvalue = decl->is_lvalue;
 }
 
 src::LabelExpr::LabelExpr(
@@ -899,6 +899,7 @@ struct ASTPrinter {
     /// Print the children of a node.
     void PrintChildren(ArrayRef<Expr*> exprs, std::string leading_text) {
         for (usz i = 0; i < exprs.size(); i++) {
+            if (exprs[i] == nullptr) continue;
             const bool last = i == exprs.size() - 1;
 
             /// Print the leading text.
@@ -948,12 +949,13 @@ struct ASTPrinter {
                 auto v = cast<LocalDecl>(e);
                 PrintBasicHeader(isa<ParamDecl>(v) ? "ParamDecl" : "LocalDecl", e);
                 out += fmt::format(
-                    "{}{}{} {}{} lvalue{}",
+                    "{}{}{} {}{}{}{}",
                     C(White),
                     v->name.empty() ? "" : " ",
                     v->name,
                     v->type.str(use_colour),
                     C(Blue),
+                    v->is_lvalue ? " lvalue" : "",
                     v->captured ? " captured" : ""
                 );
 
@@ -1034,9 +1036,10 @@ struct ASTPrinter {
                 auto n = cast<LocalRefExpr>(e);
                 PrintBasicHeader("LocalRefExpr", e);
                 out += fmt::format(
-                    " {} {}lvalue{}\n",
+                    " {}{}{}{}\n",
                     n->type.str(use_colour),
                     C(Blue),
+                    n->is_lvalue ? " lvalue" : "",
                     n->parent != n->decl->parent
                         ? fmt::format(" chain{}:{}{}", C(Red), C(Green), n->decl->parent->name)
                         : ""
@@ -1484,7 +1487,7 @@ struct ASTPrinter {
 
             case K::ForInExpr: {
                 auto w = cast<ForInExpr>(e);
-                PrintChildren({w->iter, w->range, w->body}, leading_text);
+                PrintChildren({w->iter, w->index, w->range, w->body}, leading_text);
             } break;
 
             case K::AliasExpr: {

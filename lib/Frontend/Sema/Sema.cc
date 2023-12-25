@@ -2103,8 +2103,11 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Parameters should be ParamDecls instead.
             if (var->local_kind == LocalKind::Parameter) Unreachable();
 
-            /// Synthesised variables are just lvalues that point somewhere else.
-            else if (var->local_kind == LocalKind::Synthesised) {
+            /// Synthesised variables just point somewhere else.
+            else if (
+                var->local_kind == LocalKind::Synthesised or
+                var->local_kind == LocalKind::SynthesisedValue
+            ) {
                 if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
                 var->ctor = ConstructExpr::CreateUninitialised(mod);
             }
@@ -2139,7 +2142,7 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Add the variable to the current scope.
             if (not var->sema.errored) {
                 curr_scope->declare(var->name, var);
-                var->is_lvalue = true;
+                var->is_lvalue = var->local_kind != LocalKind::SynthesisedValue;
             }
         } break;
 
@@ -2267,18 +2270,28 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// The loop variable is an lvalue of the element type of the range.
             auto s = cast<SingleElementTypeBase>(f->range->type);
-            f->iter->stored_type = s->elem;
 
             /// Now check the loop variable. We can’t analyse the body if this fails
             /// since it is probably going to use it.
-            Expr* expr = f->iter;
-            if (not Analyse(expr)) return e->sema.set_errored();
-            Assert(expr == f->iter, "Must not wrap loop variable");
+            if (f->iter) {
+                f->iter->stored_type = s->elem;
+                Expr* expr = f->iter;
+                if (not Analyse(expr)) return e->sema.set_errored();
+                Assert(expr == f->iter, "Must not wrap loop variable");
+            }
+
+            /// Check the index variable, if it exists.
+            if (f->index) {
+                f->index->stored_type = Type::Int;
+                Expr* expr = f->index;
+                if (not Analyse(expr)) return e->sema.set_errored();
+                Assert(expr == f->index, "Must not wrap index variable");
+            }
 
             /// Finally, check the body.
             loop_stack.push_back(f);
             defer { loop_stack.pop_back(); };
-            expr = f->body;
+            Expr* expr = f->body;
             Analyse(expr);
             Assert(expr == f->body, "Body of for-in expression must be a block");
         } break;

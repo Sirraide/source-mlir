@@ -19,10 +19,10 @@ export proc a -> i32 {
     i32 sum;
 
     /// * $sz:t = slice_size i32[]
-    /// + $I0:t = index.constant 0
-    /// + cf.br $cond:b($I0 : index)
-    /// + $cond($I:t: index):
-    /// + $cont:t = index.cmp ult($I, $sz)
+    /// + $I0:t = arith.constant 0
+    /// + cf.br $cond:b($I0 : i64)
+    /// + $cond($I:t: i64):
+    /// + $cont:t = arith.cmpi ult, $I, $sz
     /// + cf.cond_br $cont, $true:b, $false:b
     /// + $true:
     /// + $data:t = slice_data i32[]
@@ -36,9 +36,9 @@ export proc a -> i32 {
     /// + }
     /// + cf.br $inc:b
     /// + $inc:
-    /// + $one:t = index.constant 1
-    /// + $I1:t = index.add $I, $one
-    /// + cf.br $cond($I1 : index)
+    /// + $one:t = arith.constant 1
+    /// + $I1:t = arith.addi $I, $one
+    /// + cf.br $cond($I1 : i64)
     for i in slice do sum += i;
 
     /// + $false:
@@ -58,10 +58,10 @@ export proc b -> i32 {
     i32 sum;
 
     /// * $sz:t = slice_size i32[]
-    /// + $I0:t = index.constant 0
-    /// + cf.br $cond:b($I0 : index)
-    /// + $cond($I:t: index):
-    /// + $cont:t = index.cmp ult($I, $sz)
+    /// + $I0:t = arith.constant 0
+    /// + cf.br $cond:b($I0 : i64)
+    /// + $cond($I:t: i64):
+    /// + $cont:t = arith.cmpi ult, $I, $sz
     /// + cf.cond_br $cont, $true:b, $false:b
     /// + $true:
     /// + $data:t = slice_data i32[]
@@ -75,9 +75,9 @@ export proc b -> i32 {
     /// + }
     /// + cf.br $inc:b
     /// + $inc:
-    /// + $one:t = index.constant 1
-    /// + $I1:t = index.add $I, $one
-    /// + cf.br $cond($I1 : index)
+    /// + $one:t = arith.constant 1
+    /// + $I1:t = arith.addi $I, $one
+    /// + cf.br $cond($I1 : i64)
     for i in arr do sum += i;
 
     /// + $false:

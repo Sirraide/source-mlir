@@ -1,13 +1,13 @@
 /// R %srcc %s --hlir
 
-/// d t %[a-zA-Z0-9]+
+/// d t %[a-zA-Z0-9_]+
 
 /// * hlir.string 0, "Hello, world!\\00"
-/// * (?<str>$t) = global_ref @".str.data.0"
-/// + (?<ptr>$t) = array_decay $str to i8&
-/// + (?<len>$t) = index.constant 13
-/// + (?<slc>$t) = literal i8\[\] $ptr, $len
-/// + (?<dat>$t) = slice_data i8\[\] $slc
+/// * $str:t = global_ref @".str.data.0"
+/// + $ptr:t = array_decay $str to i8&
+/// + $len:t = arith.constant 13
+/// + $slc:t = literal i8\[\] $ptr, $len
+/// + $dat:t = slice_data i8\[\] $slc
 /// + $t = call @puts($dat)
 puts "Hello, world!".data;
 
