@@ -375,8 +375,9 @@ auto src::Driver::Create(CompileOptions opts) -> std::unique_ptr<Driver> {
     return std::unique_ptr<Driver>{driver.release()};
 }
 
-void std::default_delete<src::Driver>::operator()(src::Driver* ptr) const noexcept {
-    delete ptr->Impl();
+void src::Driver::operator delete(Driver* d, std::destroying_delete_t) {
+    d->Impl()->~DriverImpl();
+    ::operator delete(d);
 }
 
 void src::Driver::add_import_path(fs::path path) {

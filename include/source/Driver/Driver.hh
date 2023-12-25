@@ -79,11 +79,8 @@ struct CompileOptions {
 
 /// Compiler driver. This is the main entry point for the compiler.
 class Driver {
-    friend std::default_delete<Driver>;
-
 protected:
     Driver() = default;
-    ~Driver() = default;
     auto Impl();
 
 public:
@@ -91,6 +88,10 @@ public:
     Driver(Driver&&) = delete;
     Driver& operator=(const Driver&) = delete;
     Driver& operator=(Driver&&) = delete;
+    ~Driver() = default;
+
+    /// This needs to delete the derived class.
+    void operator delete(Driver*, std::destroying_delete_t);
 
     /// Create a new driver.
     static auto Create(CompileOptions options) -> std::unique_ptr<Driver>;
@@ -129,14 +130,5 @@ public:
     bool describe_module(StringRef name);
 };
 } // namespace src
-
-template <>
-struct std::default_delete<src::Driver> {
-    /// Default constructor
-    constexpr default_delete() noexcept = default;
-
-    /// Delete a driver.
-    void operator()(src::Driver* ptr) const noexcept;
-};
 
 #endif // SOURCE_DRIVER_DRIVER_HH
