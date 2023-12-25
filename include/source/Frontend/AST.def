@@ -1,0 +1,103 @@
+#ifndef SOURCE_AST_EXPR
+#    define SOURCE_AST_EXPR(...)
+#endif
+
+#ifndef SOURCE_AST_TYPE
+#    define SOURCE_AST_TYPE(...) SOURCE_AST_EXPR(__VA_ARGS__)
+#endif
+
+#ifndef SOURCE_AST_NIL
+#    define SOURCE_AST_NIL(...) SOURCE_AST_TYPE(__VA_ARGS__)
+#endif
+
+#ifndef SOURCE_AST_UNTYPED_EXPR
+#    define SOURCE_AST_UNTYPED_EXPR(...) SOURCE_AST_EXPR(__VA_ARGS__)
+#endif
+
+#ifndef SOURCE_AST_TYPED_EXPR
+#    define SOURCE_AST_TYPED_EXPR(...) SOURCE_AST_EXPR(__VA_ARGS__)
+#endif
+
+/// Type [begin]
+SOURCE_AST_TYPE(BuiltinType)
+SOURCE_AST_TYPE(IntType)
+SOURCE_AST_NIL(Nil) // Both a type and an expression.
+SOURCE_AST_TYPE(ProcType)
+SOURCE_AST_TYPE(OpaqueType)
+
+/// RecordType [begin]
+SOURCE_AST_TYPE(StructType)
+SOURCE_AST_TYPE(TupleType)
+/// RecordType [end]
+
+/// SingleElementType [begin]
+SOURCE_AST_TYPE(ReferenceType)
+SOURCE_AST_TYPE(ScopedPointerType)
+SOURCE_AST_TYPE(SliceType)
+SOURCE_AST_TYPE(ArrayType)
+// SOURCE_AST_TYPE(VectorType)
+SOURCE_AST_TYPE(OptionalType)
+SOURCE_AST_TYPE(SugaredType)
+SOURCE_AST_TYPE(ScopedType)
+SOURCE_AST_TYPE(ClosureType)
+/// SingleElementType [end]
+/// Type [end]
+
+/// Loop [begin]
+SOURCE_AST_UNTYPED_EXPR(WhileExpr)
+SOURCE_AST_UNTYPED_EXPR(ForInExpr)
+/// Loop [end]
+
+SOURCE_AST_UNTYPED_EXPR(AssertExpr)
+SOURCE_AST_UNTYPED_EXPR(DeferExpr)
+SOURCE_AST_UNTYPED_EXPR(ExportExpr)
+SOURCE_AST_UNTYPED_EXPR(LabelExpr)
+SOURCE_AST_UNTYPED_EXPR(EmptyExpr)
+SOURCE_AST_UNTYPED_EXPR(ModuleRefExpr)
+SOURCE_AST_UNTYPED_EXPR(AliasExpr)
+SOURCE_AST_UNTYPED_EXPR(ConstructExpr)
+SOURCE_AST_UNTYPED_EXPR(ArrayLiteralExpr)
+SOURCE_AST_UNTYPED_EXPR(OverloadSetExpr)
+
+/// UnwindExpr [begin]
+SOURCE_AST_UNTYPED_EXPR(ReturnExpr)
+SOURCE_AST_UNTYPED_EXPR(GotoExpr)
+SOURCE_AST_UNTYPED_EXPR(LoopControlExpr)
+/// UnwindExpr [end]
+
+/// TypedExpr [begin]
+SOURCE_AST_TYPED_EXPR(BlockExpr)
+SOURCE_AST_TYPED_EXPR(ImplicitThisExpr)
+SOURCE_AST_TYPED_EXPR(WithExpr)
+SOURCE_AST_TYPED_EXPR(InvokeExpr)
+SOURCE_AST_TYPED_EXPR(InvokeBuiltinExpr)
+SOURCE_AST_TYPED_EXPR(ConstExpr)
+SOURCE_AST_TYPED_EXPR(CastExpr)
+SOURCE_AST_TYPED_EXPR(MemberAccessExpr)
+SOURCE_AST_TYPED_EXPR(ScopeAccessExpr)
+SOURCE_AST_TYPED_EXPR(UnaryPrefixExpr)
+SOURCE_AST_TYPED_EXPR(IfExpr)
+SOURCE_AST_TYPED_EXPR(BinaryExpr)
+SOURCE_AST_TYPED_EXPR(DeclRefExpr)
+SOURCE_AST_TYPED_EXPR(LocalRefExpr)
+SOURCE_AST_TYPED_EXPR(ParenExpr)
+SOURCE_AST_TYPED_EXPR(TupleExpr)
+SOURCE_AST_TYPED_EXPR(SubscriptExpr)
+SOURCE_AST_TYPED_EXPR(TupleIndexExpr)
+SOURCE_AST_TYPED_EXPR(BoolLiteralExpr)
+SOURCE_AST_TYPED_EXPR(IntegerLiteralExpr)
+SOURCE_AST_TYPED_EXPR(StringLiteralExpr)
+
+/// Decl [begin]
+SOURCE_AST_TYPED_EXPR(LocalDecl)
+SOURCE_AST_TYPED_EXPR(ParamDecl)
+SOURCE_AST_TYPED_EXPR(FieldDecl)
+
+/// ObjectDecl [begin]
+SOURCE_AST_TYPED_EXPR(ProcDecl)
+
+#undef SOURCE_AST_EXPR
+#undef SOURCE_AST_TYPE
+#undef SOURCE_AST_NIL
+#undef SOURCE_AST_UNTYPED_EXPR
+#undef SOURCE_AST_TYPED_EXPR

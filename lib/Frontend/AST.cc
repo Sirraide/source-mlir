@@ -146,54 +146,7 @@ bool src::Expr::_is_smp() {
 
 auto src::Expr::_scope_name() -> std::string {
     switch (kind) {
-        case Kind::AliasExpr:
-        case Kind::ArrayLiteralExpr:
-        case Kind::ArrayType:
-        case Kind::AssertExpr:
-        case Kind::BinaryExpr:
-        case Kind::BlockExpr:
-        case Kind::BoolLiteralExpr:
-        case Kind::BuiltinType:
-        case Kind::CastExpr:
-        case Kind::ClosureType:
-        case Kind::ConstExpr:
-        case Kind::ConstructExpr:
-        case Kind::DeclRefExpr:
-        case Kind::DeferExpr:
-        case Kind::EmptyExpr:
-        case Kind::FieldDecl:
-        case Kind::ForInExpr:
-        case Kind::GotoExpr:
-        case Kind::IfExpr:
-        case Kind::ImplicitThisExpr:
-        case Kind::IntegerLiteralExpr:
-        case Kind::IntType:
-        case Kind::InvokeBuiltinExpr:
-        case Kind::InvokeExpr:
-        case Kind::LabelExpr:
-        case Kind::LocalDecl:
-        case Kind::LocalRefExpr:
-        case Kind::LoopControlExpr:
-        case Kind::MemberAccessExpr:
-        case Kind::Nil:
-        case Kind::OpaqueType:
-        case Kind::OptionalType:
-        case Kind::OverloadSetExpr:
-        case Kind::ParamDecl:
-        case Kind::ParenExpr:
-        case Kind::ProcType:
-        case Kind::ReferenceType:
-        case Kind::ReturnExpr:
-        case Kind::ScopedPointerType:
-        case Kind::SliceType:
-        case Kind::StringLiteralExpr:
-        case Kind::SubscriptExpr:
-        case Kind::TupleExpr:
-        case Kind::TupleIndexExpr:
-        case Kind::TupleType:
-        case Kind::UnaryPrefixExpr:
-        case Kind::WhileExpr:
-        case Kind::WithExpr:
+        default:
             return "<?>";
 
         case Kind::ModuleRefExpr:
@@ -230,8 +183,6 @@ auto src::Expr::_scope_name() -> std::string {
             return p->name;
         }
     }
-
-    Unreachable();
 }
 
 auto src::Expr::_type() -> Type {
@@ -259,50 +210,14 @@ auto src::Expr::_type() -> Type {
         case Kind::WhileExpr:
             return Type::Void;
 
-        /// Typed exprs.
-        case Kind::BinaryExpr:
-        case Kind::BlockExpr:
-        case Kind::BoolLiteralExpr:
-        case Kind::CastExpr:
-        case Kind::ConstExpr:
-        case Kind::DeclRefExpr:
-        case Kind::FieldDecl:
-        case Kind::IfExpr:
-        case Kind::ImplicitThisExpr:
-        case Kind::IntegerLiteralExpr:
-        case Kind::InvokeBuiltinExpr:
-        case Kind::InvokeExpr:
-        case Kind::LocalDecl:
-        case Kind::LocalRefExpr:
-        case Kind::MemberAccessExpr:
-        case Kind::ParamDecl:
-        case Kind::ParenExpr:
-        case Kind::ProcDecl:
-        case Kind::ScopeAccessExpr:
-        case Kind::StringLiteralExpr:
-        case Kind::SubscriptExpr:
-        case Kind::TupleExpr:
-        case Kind::TupleIndexExpr:
-        case Kind::UnaryPrefixExpr:
-        case Kind::WithExpr:
+            /// Typed exprs.
+#define SOURCE_AST_TYPED_EXPR(name) case Kind::name:
+#include <source/Frontend/AST.def>
             return cast<TypedExpr>(this)->stored_type;
 
         /// Already a type.
-        case Kind::ArrayType:
-        case Kind::BuiltinType:
-        case Kind::ClosureType:
-        case Kind::IntType:
-        case Kind::Nil:
-        case Kind::OpaqueType:
-        case Kind::OptionalType:
-        case Kind::ProcType:
-        case Kind::ReferenceType:
-        case Kind::ScopedPointerType:
-        case Kind::ScopedType:
-        case Kind::SliceType:
-        case Kind::StructType:
-        case Kind::SugaredType:
-        case Kind::TupleType:
+#define SOURCE_AST_TYPE(name) case Kind::name:
+#include <source/Frontend/AST.def>
             return Type(this);
     }
 }
@@ -396,7 +311,9 @@ auto src::Type::align(Context* ctx) const -> Align {
         case Expr::Kind::ProcType:
             Unreachable(".align accessed on function type");
 
-        SOURCE_NON_TYPE_EXPRS:
+#define SOURCE_AST_EXPR(name) case Expr::Kind::name:
+#define SOURCE_AST_TYPE(...)
+#include <source/Frontend/AST.def>
             Unreachable(".align accessed on non-type expression");
     }
 
@@ -523,7 +440,9 @@ auto src::Type::size(Context* ctx) const -> Size {
         case Expr::Kind::ProcType:
             Unreachable(".size accessed on function type");
 
-        SOURCE_NON_TYPE_EXPRS:
+#define SOURCE_AST_EXPR(name) case Expr::Kind::name:
+#define SOURCE_AST_TYPE(...)
+#include <source/Frontend/AST.def>
             Unreachable(".size accessed on non-type expression");
     }
 
@@ -655,7 +574,9 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
             out += fmt::format("{}{}", C(Cyan), cast<OpaqueType>(ptr)->name);
             break;
 
-        SOURCE_NON_TYPE_EXPRS:
+#define SOURCE_AST_EXPR(name) case Expr::Kind::name:
+#define SOURCE_AST_TYPE(...)
+#include <source/Frontend/AST.def>
             return ptr->type.str(use_colour);
     }
 
@@ -730,7 +651,9 @@ bool src::Type::_trivial() {
             return s->initialisers.empty() and not s->deleter;
         }
 
-        SOURCE_NON_TYPE_EXPRS:
+#define SOURCE_AST_EXPR(name) case Expr::Kind::name:
+#define SOURCE_AST_TYPE(...)
+#include <source/Frontend/AST.def>
             Unreachable("Not a type");
     }
 }
@@ -829,7 +752,9 @@ bool src::operator==(Type a, Type b) {
             return RecordType::LayoutCompatible(sa, sb);
         }
 
-        SOURCE_NON_TYPE_EXPRS:
+#define SOURCE_AST_EXPR(name) case Expr::Kind::name:
+#define SOURCE_AST_TYPE(...)
+#include <source/Frontend/AST.def>
             Unreachable("Not a type");
     }
 

@@ -7,18 +7,12 @@
 #include <source/Support/Result.hh>
 
 namespace src {
+#define SOURCE_AST_EXPR(name) class name;
+#include <source/Frontend/AST.def>
+
 class Assimilator;
-class BlockExpr;
-class ConstructExpr;
 class Expr;
-class FieldDecl;
-class FunctionDecl;
-class LocalDecl;
-class Nil;
-class OverloadSetExpr;
-class ProcType;
 class Sema;
-class StructType;
 class Type;
 class TypeBase;
 
@@ -59,83 +53,8 @@ enum struct LocalKind : u8 {
 class Expr {
 public:
     enum struct Kind : u8 {
-        /// Type [begin]
-        BuiltinType,
-        IntType,
-        Nil,
-        ProcType,
-        OpaqueType,
-
-        /// RecordType [begin]
-        StructType,
-        TupleType,
-        /// RecordType [end]
-
-        /// SingleElementType [begin]
-        ReferenceType,
-        ScopedPointerType,
-        SliceType,
-        ArrayType,
-        // VectorType,
-        OptionalType,
-        SugaredType,
-        ScopedType,
-        ClosureType,
-        /// SingleElementType [end]
-        /// Type [end]
-
-        /// Loop [begin]
-        WhileExpr,
-        ForInExpr,
-        /// Loop [end]
-
-        AssertExpr,
-        DeferExpr,
-        ExportExpr,
-        LabelExpr,
-        EmptyExpr,
-        ModuleRefExpr,
-        AliasExpr,
-        ConstructExpr,
-        OverloadSetExpr,
-
-        /// UnwindExpr [begin]
-        ReturnExpr,
-        GotoExpr,
-        LoopControlExpr,
-        /// UnwindExpr [end]
-
-        /// TypedExpr [begin]
-        BlockExpr,
-        ImplicitThisExpr,
-        WithExpr,
-        InvokeExpr,
-        InvokeBuiltinExpr,
-        ConstExpr,
-        CastExpr,
-        MemberAccessExpr,
-        ScopeAccessExpr,
-        UnaryPrefixExpr,
-        IfExpr,
-        BinaryExpr,
-        DeclRefExpr,
-        LocalRefExpr,
-        ParenExpr,
-        TupleExpr,
-        SubscriptExpr,
-        TupleIndexExpr,
-        ArrayLiteralExpr,
-        BoolLiteralExpr,
-        IntegerLiteralExpr,
-        StringLiteralExpr,
-
-        /// Decl [begin]
-        LocalDecl,
-        ParamDecl,
-        FieldDecl,
-
-        /// ObjectDecl [begin]
-        ProcDecl,
+#define SOURCE_AST_EXPR(name) name,
+#include <source/Frontend/AST.def>
     };
 
     class SemaState {
@@ -895,6 +814,24 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::AliasExpr; }
 };
 
+class ArrayLitExpr : public Expr {
+public:
+    /// The elements of this array literal.
+    SmallVector<Expr*> elements;
+
+    /// The result object into which this literal is evaluated. If null,
+    /// the backend will create a temporary for this to be generated into.
+    Expr* result_object{};
+
+    ArrayLitExpr(SmallVector<Expr*> elements, Location loc)
+        : Expr(Kind::ArrayLiteralExpr, loc),
+          elements(std::move(elements)) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::ArrayLiteralExpr; }
+};
+
+
 /// ===========================================================================
 ///  Typed Expressions
 /// ===========================================================================
@@ -1304,23 +1241,6 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::TupleIndexExpr; }
-};
-
-class ArrayLitExpr : public Expr {
-public:
-    /// The elements of this array literal.
-    SmallVector<Expr*> elements;
-
-    /// The result object into which this literal is evaluated. If null,
-    /// the backend will create a temporary for this to be generated into.
-    Expr* result_object{};
-
-    ArrayLitExpr(SmallVector<Expr*> elements, Location loc)
-        : Expr(Kind::ArrayLiteralExpr, loc),
-          elements(std::move(elements)) {}
-
-    /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::ArrayLiteralExpr; }
 };
 
 class IntLitExpr : public TypedExpr {
@@ -2204,47 +2124,5 @@ template <typename T>
 struct CastInfo<T, const src::Type*> : src::THCastImpl<T, const src::Type*> {};
 
 } // namespace llvm
-
-#define SOURCE_NON_TYPE_EXPRS            \
-    case Expr::Kind::AliasExpr:          \
-    case Expr::Kind::ArrayLiteralExpr:   \
-    case Expr::Kind::AssertExpr:         \
-    case Expr::Kind::BinaryExpr:         \
-    case Expr::Kind::BlockExpr:          \
-    case Expr::Kind::BoolLiteralExpr:    \
-    case Expr::Kind::CastExpr:           \
-    case Expr::Kind::ConstExpr:          \
-    case Expr::Kind::ConstructExpr:      \
-    case Expr::Kind::DeclRefExpr:        \
-    case Expr::Kind::DeferExpr:          \
-    case Expr::Kind::EmptyExpr:          \
-    case Expr::Kind::ExportExpr:         \
-    case Expr::Kind::FieldDecl:          \
-    case Expr::Kind::ForInExpr:          \
-    case Expr::Kind::GotoExpr:           \
-    case Expr::Kind::IfExpr:             \
-    case Expr::Kind::ImplicitThisExpr:   \
-    case Expr::Kind::IntegerLiteralExpr: \
-    case Expr::Kind::InvokeBuiltinExpr:  \
-    case Expr::Kind::InvokeExpr:         \
-    case Expr::Kind::LabelExpr:          \
-    case Expr::Kind::LocalDecl:          \
-    case Expr::Kind::LocalRefExpr:       \
-    case Expr::Kind::LoopControlExpr:    \
-    case Expr::Kind::MemberAccessExpr:   \
-    case Expr::Kind::ModuleRefExpr:      \
-    case Expr::Kind::OverloadSetExpr:    \
-    case Expr::Kind::ParamDecl:          \
-    case Expr::Kind::ParenExpr:          \
-    case Expr::Kind::ProcDecl:           \
-    case Expr::Kind::ReturnExpr:         \
-    case Expr::Kind::ScopeAccessExpr:    \
-    case Expr::Kind::StringLiteralExpr:  \
-    case Expr::Kind::SubscriptExpr:      \
-    case Expr::Kind::TupleExpr:          \
-    case Expr::Kind::TupleIndexExpr:     \
-    case Expr::Kind::UnaryPrefixExpr:    \
-    case Expr::Kind::WhileExpr:          \
-    case Expr::Kind::WithExpr
 
 #endif // SOURCE_FRONTEND_AST_HH

@@ -778,7 +778,9 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
         case Expr::Kind::Nil:
             Diag::ICE(ctx, type->location, "Nil type has no representation in the IR");
 
-        SOURCE_NON_TYPE_EXPRS:
+#define SOURCE_AST_EXPR(name) case Expr::Kind::name:
+#define SOURCE_AST_TYPE(...)
+#include <source/Frontend/AST.def>
             Unreachable("Not a type");
     }
 
@@ -803,19 +805,10 @@ auto src::CodeGen::UnwindValues(ArrayRef<Expr*> exprs) -> SmallVector<mlir::Valu
 /// ===========================================================================
 auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
     switch (expr->kind) {
-        case Expr::Kind::ArrayType:
-        case Expr::Kind::BuiltinType:
-        case Expr::Kind::ClosureType:
-        case Expr::Kind::IntType:
-        case Expr::Kind::OpaqueType:
-        case Expr::Kind::OptionalType:
-        case Expr::Kind::ProcType:
-        case Expr::Kind::ReferenceType:
-        case Expr::Kind::ScopedPointerType:
-        case Expr::Kind::ScopedType:
-        case Expr::Kind::SliceType:
-        case Expr::Kind::SugaredType:
-        case Expr::Kind::TupleType:
+        /// Can’t codegen types.
+#define SOURCE_AST_TYPE(name) case Expr::Kind::name:
+#define SOURCE_AST_NIL(...) /// Better error message for nil.
+#include <source/Frontend/AST.def>
             Unreachable();
 
         case Expr::Kind::OverloadSetExpr:
@@ -826,7 +819,6 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         case Expr::Kind::EmptyExpr:
         case Expr::Kind::FieldDecl:
         case Expr::Kind::ModuleRefExpr:
-        case Expr::Kind::StructType:
             return {};
 
         case Expr::Kind::ConstructExpr:
@@ -1272,8 +1264,9 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         case Expr::Kind::ExportExpr: {
             auto e = cast<ExportExpr>(expr);
 
-            /// Do not attempt to emit procedures here.
-            if (not isa<ProcDecl>(e->expr)) std::ignore = Generate(e->expr);
+            /// Do not attempt to emit anything here, but make sure we
+            /// haven’t changed our mind about that either.
+            Assert((isa<ProcDecl, StructType>(e->expr)), "Invalid export");
             return {};
         }
 
@@ -1929,7 +1922,7 @@ void src::CodeGen::GenerateModule() {
                 if (auto p = dyn_cast<ProcDecl>(e)) {
                     GenerateProcedure(p);
                 } else if (isa<StructType>(e)) {
-                    std::ignore = Generate(e);
+                    /// Nop.
                 } else {
                     e->print(false);
                     Unreachable("Invalid import");

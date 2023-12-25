@@ -127,7 +127,9 @@ auto Type::_mangled_name() -> std::string {
 
         case Expr::Kind::TupleType: Todo("Mangle tuple type");
 
-        SOURCE_NON_TYPE_EXPRS:
+#define SOURCE_AST_EXPR(name) case Expr::Kind::name:
+#define SOURCE_AST_TYPE(...)
+#include <source/Frontend/AST.def>
             Unreachable("Not a type");
     }
 }
