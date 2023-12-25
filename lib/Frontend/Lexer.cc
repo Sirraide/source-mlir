@@ -92,8 +92,8 @@ const StringMap<Tk> keywords = {
 /// ========================================================================
 ///  Main lexer implementation.
 /// ========================================================================
-src::Lexer::Lexer(Context* ctx, File& f)
-    : ctx{ctx}, f{f} {
+src::Lexer::Lexer(Context* ctx, TokenStream& into, File& f)
+    : ctx{ctx}, f{f}, tokens(into) {
     /// Init state.
     curr = f.data();
     end = curr + f.size();
@@ -102,13 +102,13 @@ src::Lexer::Lexer(Context* ctx, File& f)
     AllocateMacroDefinition(
         "__filename__",
         {},
-        {Token::Make(Tk::StringLiteral, f.path().filename().string())}
+        {Token::Make(Tk::StringLiteral, into.save(f.path().filename().string()))}
     );
 
     AllocateMacroDefinition(
         "__directory__",
         {},
-        {Token::Make(Tk::StringLiteral, f.path().parent_path().string())}
+        {Token::Make(Tk::StringLiteral, into.save(f.path().parent_path().string()))}
     );
 
     /// Init first token.
@@ -116,18 +116,17 @@ src::Lexer::Lexer(Context* ctx, File& f)
     Next();
 }
 
-auto src::Lexer::LexEntireFile(Context* ctx, File& f) -> TokenStream {
-    Lexer L{ctx, f};
+void src::Lexer::LexEntireFile(Context* ctx, TokenStream& into, File& f) {
+    Lexer L{ctx, into, f};
     do L.Next();
     while (L.tok.type != Tk::Eof);
-    return std::move(L.tokens);
 }
 
 auto src::Lexer::CurrLoc() const -> Location { return {CurrOffs(), 1, u16(f.file_id())}; }
 auto src::Lexer::CurrOffs() const -> u32 { return u32(curr - f.data()) - 1; }
 
 void src::Lexer::Next() {
-    tokens.emplace_back();
+    tokens.allocate();
     NextImpl();
 }
 
@@ -145,7 +144,7 @@ void src::Lexer::NextImpl() {
     /// Insert tokens from macro expansion.
     if (not macro_expansion_stack.empty()) {
         auto& expansion = macro_expansion_stack.back();
-        tokens.back() = ++expansion;
+        *tokens.back() = ++expansion;
 
         /// If this token is another macro definition, handle it.
         if (tok.type == Tk::Identifier and tok.text == "macro") LexMacroDefinition();
@@ -239,9 +238,9 @@ void src::Lexer::NextImpl() {
             /// Validate name.
             if (tok.type == Tk::Identifier or tok.type == Tk::Integer) {
                 if (tok.type == Tk::Integer) {
-                    SmallVector<char, 32> buf;
+                    SmallString<32> buf;
                     tok.integer.toStringUnsigned(buf, 10);
-                    tok.text.assign(buf.begin(), buf.end());
+                    tok.text = tokens.save(buf);
                 }
 
                 tok.type = Tk::MacroParameter;
@@ -396,8 +395,9 @@ void src::Lexer::NextImpl() {
             if (tokens.size() > 1 and tokens[tokens.size() - 2].type == Tk::Import) {
                 tok.type = Tk::CXXHeaderName;
                 raw_mode = true;
+                SmallString<32> text;
                 while (lastc != '>' and lastc != 0) {
-                    tok.text.push_back(lastc);
+                    text.push_back(lastc);
                     NextChar();
                 }
 
@@ -407,6 +407,7 @@ void src::Lexer::NextImpl() {
                 }
 
                 /// Bring the lexer back into sync.
+                tok.text = tokens.save(text);
                 raw_mode = false;
                 NextChar();
                 break;
@@ -526,11 +527,12 @@ void src::Lexer::SkipWhitespace() {
 
 void src::Lexer::LexIdentifier() {
     tok.type = Tk::Identifier;
-    tok.text.clear();
+    SmallString<32> text;
     do {
-        tok.text += lastc;
+        text += lastc;
         NextChar();
     } while (IsContinue(lastc));
+    tok.text = tokens.save(text);
 
     /// Helper to parse keywords and integer types.
     const auto LexSpecialToken = [&] {
@@ -641,14 +643,14 @@ void src::Lexer::LexNumber() {
 
 void src::Lexer::LexString(char delim) {
     /// Yeet the delimiter.
-    tok.text.clear();
+    SmallString<32> text;
     NextChar();
 
     /// Lex the string. If it’s a raw string, we don’t need to
     /// do any escaping.
     if (delim == '\'') {
         while (lastc != delim && lastc != 0) {
-            tok.text += lastc;
+            text += lastc;
             NextChar();
         }
     }
@@ -659,23 +661,23 @@ void src::Lexer::LexString(char delim) {
             if (lastc == '\\') {
                 NextChar();
                 switch (lastc) {
-                    case 'a': tok.text += '\a'; break;
-                    case 'b': tok.text += '\b'; break;
-                    case 'f': tok.text += '\f'; break;
-                    case 'n': tok.text += '\n'; break;
-                    case 'r': tok.text += '\r'; break;
-                    case 't': tok.text += '\t'; break;
-                    case 'v': tok.text += '\v'; break;
-                    case '\\': tok.text += '\\'; break;
-                    case '\'': tok.text += '\''; break;
-                    case '"': tok.text += '"'; break;
-                    case '0': tok.text += '\0'; break;
+                    case 'a': text += '\a'; break;
+                    case 'b': text += '\b'; break;
+                    case 'f': text += '\f'; break;
+                    case 'n': text += '\n'; break;
+                    case 'r': text += '\r'; break;
+                    case 't': text += '\t'; break;
+                    case 'v': text += '\v'; break;
+                    case '\\': text += '\\'; break;
+                    case '\'': text += '\''; break;
+                    case '"': text += '"'; break;
+                    case '0': text += '\0'; break;
                     default:
                         Error({tok.location, CurrLoc()}, "Invalid escape sequence");
                         return;
                 }
             } else {
-                tok.text += lastc;
+                text += lastc;
             }
             NextChar();
         }
@@ -692,6 +694,8 @@ void src::Lexer::LexString(char delim) {
         Error(CurrLoc() << 1, "Unterminated string literal");
         return;
     }
+
+    tok.text = tokens.save(text);
     NextChar();
 
     /// This is a valid string.
@@ -718,9 +722,9 @@ void src::Lexer::LexEscapedId() {
 
     /// If the token is "(", then everything up to the next ")" is the name.
     tok.type = Tk::Identifier;
-    tok.text.clear();
+    SmallString<32> text;
     while (lastc != ')' and lastc != 0) {
-        tok.text += lastc;
+        text += lastc;
         NextChar();
     }
 
@@ -732,6 +736,7 @@ void src::Lexer::LexEscapedId() {
     }
 
     /// Skip the ")".
+    tokens.save(text);
     tok.location = {start, tok.location};
     NextChar();
 }
@@ -740,7 +745,7 @@ void src::Lexer::LexEscapedId() {
 ///  Macros.
 /// ========================================================================
 auto src::Lexer::AllocateMacroDefinition(
-    std::string name,
+    StringRef name,
     Location location,
     SmallVector<Token>&& expansion
 ) -> Macro& {
@@ -780,7 +785,7 @@ void src::Lexer::LexMacroDefinition() {
     };
 
     /// Collect macro parameters to make sure they exist and that there aren’t any duplicates.
-    std::unordered_set<std::string> parameter_names;
+    llvm::StringSet parameter_names;
 
     /// Read tokens until we encounter 'expands'.
     for (;;) {
@@ -911,140 +916,6 @@ auto src::Lexer::MacroExpansion::operator++() -> Token {
     /// closing a macro definition.
     ret.artificial = false;
     return ret;
-}
-
-auto src::Spelling(Tk t) -> std::string_view {
-    switch (t) {
-        case Tk::Invalid: return "<invalid>";
-        case Tk::Eof: return "<eof>";
-        case Tk::Identifier: return "<identifier>";
-        case Tk::CXXHeaderName: return "<cxx header name>";
-        case Tk::MacroParameter: return "<macro parameter>";
-        case Tk::StringLiteral: return "<string literal>";
-        case Tk::Integer: return "<integer>";
-        case Tk::IntegerType: return "<integer type>";
-
-        case Tk::Alias: return "alias";
-        case Tk::And: return "and";
-        case Tk::As: return "as";
-        case Tk::AsBang: return "as!";
-        case Tk::Asm: return "asm";
-        case Tk::Assert: return "assert";
-        case Tk::Bool: return "bool";
-        case Tk::Break: return "break";
-        case Tk::Defer: return "defer";
-        case Tk::Delete: return "delete";
-        case Tk::Do: return "do";
-        case Tk::Dynamic: return "dynamic";
-        case Tk::Elif: return "elif";
-        case Tk::Else: return "else";
-        case Tk::Enum: return "enum";
-        case Tk::Export: return "export";
-        case Tk::F32: return "f32";
-        case Tk::F64: return "f64";
-        case Tk::Fallthrough: return "fallthrough";
-        case Tk::False: return "false";
-        case Tk::For: return "for";
-        case Tk::ForReverse: return "for~";
-        case Tk::Goto: return "goto";
-        case Tk::If: return "if";
-        case Tk::In: return "in";
-        case Tk::Init: return "init";
-        case Tk::Int: return "int";
-        case Tk::Import: return "import";
-        case Tk::Is: return "is";
-        case Tk::Land: return "land";
-        case Tk::Lor: return "lor";
-        case Tk::Match: return "match";
-        case Tk::Nil: return "nil";
-        case Tk::NoReturn: return "noreturn";
-        case Tk::Not: return "not";
-        case Tk::Or: return "or";
-        case Tk::Pragma: return "pragma";
-        case Tk::Proc: return "proc";
-        case Tk::Return: return "return";
-        case Tk::Static: return "static";
-        case Tk::Struct: return "struct";
-        case Tk::Then: return "then";
-        case Tk::True: return "true";
-        case Tk::Try: return "try";
-        case Tk::Type: return "type";
-        case Tk::Typeof: return "typeof";
-        case Tk::Unreachable: return "unreachable";
-        case Tk::Val: return "val";
-        case Tk::Var: return "var";
-        case Tk::Variant: return "variant";
-        case Tk::Void: return "void";
-        case Tk::While: return "while";
-        case Tk::With: return "with";
-        case Tk::Xor: return "xor";
-        case Tk::CChar8T: return "__srcc_ffi_char8";
-        case Tk::CChar16T: return "__srcc_ffi_char16";
-        case Tk::CChar32T: return "__srcc_ffi_char32";
-        case Tk::CChar: return "__srcc_ffi_char";
-        case Tk::CInt: return "__srcc_ffi_int";
-        case Tk::CLong: return "__srcc_ffi_long";
-        case Tk::CLongDouble: return "__srcc_ffi_longdouble";
-        case Tk::CLongLong: return "__srcc_ffi_longlong";
-        case Tk::Continue: return "continue";
-        case Tk::CShort: return "__srcc_ffi_short";
-        case Tk::CSizeT: return "__srcc_ffi_size";
-        case Tk::CWCharT: return "__srcc_ffi_wchar";
-
-        case Tk::Semicolon: return ";";
-        case Tk::Colon: return ":";
-        case Tk::ColonColon: return "::";
-        case Tk::Comma: return ",";
-        case Tk::LParen: return "(";
-        case Tk::RParen: return ")";
-        case Tk::LBrack: return "[";
-        case Tk::RBrack: return "]";
-        case Tk::LBrace: return "{";
-        case Tk::RBrace: return "}";
-        case Tk::Ellipsis: return "...";
-        case Tk::Dot: return ".";
-        case Tk::LArrow: return "<-";
-        case Tk::RArrow: return "->";
-        case Tk::RDblArrow: return "=>";
-        case Tk::Question: return "?";
-        case Tk::Plus: return "+";
-        case Tk::Minus: return "-";
-        case Tk::Star: return "*";
-        case Tk::Slash: return "/";
-        case Tk::Percent: return "%";
-        case Tk::Caret: return "^";
-        case Tk::Ampersand: return "&";
-        case Tk::VBar: return "|";
-        case Tk::Tilde: return "~";
-        case Tk::Bang: return "!";
-        case Tk::Assign: return "=";
-        case Tk::DotDot: return "..";
-        case Tk::DotDotLess: return "..<";
-        case Tk::DotDotEq: return "..=";
-        case Tk::MinusMinus: return "--";
-        case Tk::PlusPlus: return "++";
-        case Tk::StarStar: return "**";
-        case Tk::Lt: return "<";
-        case Tk::Le: return "<=";
-        case Tk::Gt: return ">";
-        case Tk::Ge: return ">=";
-        case Tk::EqEq: return "==";
-        case Tk::Neq: return "!=";
-        case Tk::PlusEq: return "+=";
-        case Tk::MinusEq: return "-=";
-        case Tk::StarEq: return "*=";
-        case Tk::SlashEq: return "/=";
-        case Tk::PercentEq: return "%=";
-        case Tk::ShiftLeft: return "<<";
-        case Tk::ShiftRight: return ">>";
-        case Tk::ShiftRightLogical: return ">>>";
-        case Tk::ShiftLeftEq: return "<<=";
-        case Tk::ShiftRightEq: return ">>=";
-        case Tk::ShiftRightLogicalEq: return ">>>=";
-        case Tk::StarStarEq: return "**=";
-    }
-
-    Unreachable();
 }
 
 bool src::operator==(const Token& a, const Token& b) {

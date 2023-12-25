@@ -180,7 +180,7 @@ auto src::DriverImpl::Compile(FileSource& source) -> int {
         }
 
         if (not utils::TopologicalSort(dep_graph, task_groups)) {
-            SmallVector<std::string_view> cycle;
+            std::string cycle;
 
             /// If the topological sort fails, we have a cycle; find it
             /// using Kruskal’s algorithm.
@@ -189,14 +189,16 @@ auto src::DriverImpl::Compile(FileSource& source) -> int {
             for (int i = 0; i < nodes; i++) {
                 for (int j = 0; j < nodes; j++) {
                     if (dep_graph[usz(i), usz(j)] and not ds.unite(i, j)) {
-                        for (int elem : ds.elements(i))
-                            cycle.push_back(combined_modules[usz(elem)]->name);
+                        for (int elem : ds.elements(i)) {
+                            if (not cycle.empty()) cycle += ", ";
+                            cycle += combined_modules[usz(elem)]->name.sv();
+                        }
                         break;
                     }
                 }
             }
 
-            Diag::Error("Cyclic dependency between modules: {}", fmt::join(cycle, ", "));
+            Diag::Error("Cyclic dependency between modules: {}", cycle);
             return opts.action == Action::Sema ? Ok : Error;
         }
     }
@@ -293,7 +295,7 @@ auto src::DriverImpl::Compile(FileSource& source) -> int {
     ForEachModule([&](Module* mod) {
         if (mod->is_logical_module) {
             Assert(not mod->name.empty());
-            auto name = opts.module_output_dir / mod->name;
+            auto name = opts.module_output_dir / mod->name.sv();
             name += __SRCC_OBJ_FILE_EXT;
             mod->emit_object_file(int(opts.opt_level), name);
         }
@@ -339,7 +341,7 @@ bool src::DriverImpl::DescribeModule(StringRef name) {
         auto& f = ctx.get_or_load_file(std::move(path));
         mod = Module::Deserialise(
             &ctx,
-            auto{f.path()}.filename().replace_extension(""),
+            auto{f.path()}.filename().replace_extension("").string(),
             {},
             ArrayRef(
                 reinterpret_cast<const u8*>(f.data()),

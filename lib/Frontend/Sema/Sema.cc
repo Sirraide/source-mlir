@@ -1956,7 +1956,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
                     /// Search fields.
                     auto fields = s->fields();
-                    auto f = rgs::find(fields, m->member, [](auto& f) { return f->name; });
+                    auto f = rgs::find(fields, m->member, [](auto* f) { return f->name; });
                     if (f != fields.end()) {
                         UnwrapInPlace(object, true);
                         m->field = *f;
@@ -2722,7 +2722,7 @@ bool src::Sema::AnalyseAsType(Type& e, bool diag_if_not_type) {
     if (auto t = dyn_cast<TupleExpr>(e.ptr)) {
         SmallVector<FieldDecl*> ts;
         for (auto& el : t->elements){
-            ts.emplace_back(new (mod) FieldDecl("", Type{el}, el->location));
+            ts.emplace_back(new (mod) FieldDecl(String(), Type{el}, el->location));
             if (not AnalyseAsType(ts.back()->stored_type)) return false;
         }
 
@@ -3143,7 +3143,7 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
 
     /// Assign a name to the procedure if it doesn’t have one.
     if (proc->name.empty())
-        proc->name = fmt::format("__srcc_lambda_{}", lambda_counter++);
+        proc->name = mod->save(fmt::format("__srcc_lambda_{}", lambda_counter++));
 
     /// Sanity check.
     if (proc->ret_type == Type::Unknown and not proc->body->implicit) Diag::ICE(
@@ -3232,7 +3232,7 @@ void src::Sema::AnalyseModule() {
 
         /// Regular module.
         for (auto& p : mod->context->import_paths) {
-            auto mod_path = p / i.linkage_name;
+            auto mod_path = p / i.linkage_name.sv();
             mod_path.replace_extension(__SRCC_OBJ_FILE_EXT);
 
             std::error_code ec;
@@ -3315,7 +3315,7 @@ void src::Sema::AnalyseRecord(RecordType* r) {
     const auto CreatePaddingField = [&](Size padding, auto insert_before) {
         auto ty = ArrayType::GetByteArray(mod, isz(padding.bytes()));
         auto f = new (mod) FieldDecl(
-            fmt::format("#padding{}", padding_count++),
+            mod->save(fmt::format("#padding{}", padding_count++)),
             ty,
             {},
             r->stored_size,

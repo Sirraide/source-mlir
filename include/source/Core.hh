@@ -228,10 +228,10 @@ private:
 /// Reference to an imported module.
 struct ImportedModuleRef {
     /// The actual name of the module for linkage purposes.
-    std::string linkage_name;
+    String linkage_name;
 
     /// The name of the module in code.
-    std::string logical_name;
+    String logical_name;
 
     /// Location of the import declaration.
     Location import_location;
@@ -265,8 +265,15 @@ class Module {
 public:
     Context* const context;
 
+    /// Allocator for AST nodes, strings, etc.
+    std::unique_ptr<llvm::BumpPtrAllocator> alloc = std::make_unique<llvm::BumpPtrAllocator>();
+
     /// Tokens from which this module was parsed.
-    TokenStream tokens;
+    std::unique_ptr<TokenStream> tokens = std::make_unique<TokenStream>(*alloc);
+
+    /// Owner objects that were added to this after merging a module that
+    /// need to be deleted when this module is deleted.
+    SmallVector<utils::OpaqueHandle> owned_objects;
 
     /// Modules imported by this module.
     SmallVector<ImportedModuleRef> imports;
@@ -280,7 +287,7 @@ public:
     /// Top-level module function.
     ProcDecl* top_level_func{};
 
-    /// Module string table.
+    /// Module string table for string literals.
     StringTable strtab;
 
     /// AST nodes in this module.
@@ -293,7 +300,7 @@ public:
     SmallVector<Expr*, 32> static_assertions;
 
     /// Module name.
-    std::string name;
+    String name;
 
     /// Location of the module declaration.
     Location module_decl_location;
@@ -332,14 +339,15 @@ public:
     /// Create a new module.
     static auto Create(
         Context* ctx,
-        std::string name,
+        StringRef name,
         bool is_cxx_header = false,
         Location module_decl_location = {}
     ) -> Module*;
 
     /// Create a new, uninitialised module. The module must be initialised
     /// with a call to init() and cannot be used for anything else until that
-    /// has happened.
+    /// has happened. The exception to this is that any container members
+    /// (e.g. `alloc`) may be accessed at any time.
     static auto CreateUninitialised(Context* ctx) -> Module*;
 
     /// Add a function to this module.
@@ -354,8 +362,11 @@ public:
         bool is_cxx_header = false
     );
 
-    /// Merge another module into this one. The other module will be
-    /// left empty and should not be used anymore.
+    /// Merge another module into this one.
+    ///
+    /// The other module will be left empty and should not be used
+    /// anymore. The only operation that is supported on an assimilated
+    /// module is calling its destructor.
     void assimilate(Module* other);
 
     /// Get the name to use for the module description section in the object file.
@@ -371,7 +382,7 @@ public:
 
     /// Initialise an uninitialised module. It is illegal to call this more
     /// than once or on a module not created with CreateUninitialised().
-    void init(std::string name, bool is_cxx_header = false, Location module_decl_location = {});
+    void init(StringRef name, bool is_cxx_header = false, Location module_decl_location = {});
 
     /// Get the name to use for the guard variable for this module’s initialiser.
     [[nodiscard]] auto init_guard_name() const -> std::string {
@@ -399,6 +410,9 @@ public:
     /// Execute the module. Implemented in HLIRLowering.cc.
     int run(int opt_level);
 
+    /// Save a string. This is not to be used for string literals.
+    auto save(StringRef str) -> String { return tokens->save(str); }
+
     /// Serialise the module to a description that can be saved and
     /// loaded later. Implemented in Endec.cc.
     auto serialise() -> SmallVector<u8>;
@@ -406,7 +420,7 @@ public:
     /// Deserialise a module from a module description. Implemented in Endec.cc.
     static auto Deserialise(
         Context* ctx,
-        std::string module_name,
+        StringRef module_name,
         Location loc,
         ArrayRef<u8> description
     ) -> Module*;
@@ -415,7 +429,7 @@ public:
     static auto ImportCXXHeaders(
         Context* ctx,
         ArrayRef<StringRef> header_names,
-        std::string module_name,
+        StringRef module_name,
         bool debug_cxx,
         Location loc
     ) -> Module*;

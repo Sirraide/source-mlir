@@ -358,6 +358,10 @@ void src::Module::assimilate(Module* other) {
     strtab.assimilate(std::move(other->strtab));
     a.finalise();
 
+    /// Move over identifier table and allocator.
+    owned_objects.emplace_back(other->alloc.release());
+    owned_objects.emplace_back(other->tokens.release());
+
     /// Make sure we don’t attempt to delete expressions twice.
     other->exprs.clear();
 }

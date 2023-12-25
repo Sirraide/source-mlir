@@ -254,7 +254,7 @@ struct Token {
     Tk type = Tk::Invalid;
 
     /// Token text.
-    std::string text{};
+    String text{};
 
     /// Number.
     APInt integer{};
@@ -280,7 +280,185 @@ struct Token {
     }
 };
 
-using TokenStream = std::deque<Token>;
+/// Stringify a token type.
+constexpr auto Spelling(Tk t) -> String {
+    switch (t) {
+        case Tk::Invalid: return "<invalid>";
+        case Tk::Eof: return "<eof>";
+        case Tk::Identifier: return "<identifier>";
+        case Tk::CXXHeaderName: return "<cxx header name>";
+        case Tk::MacroParameter: return "<macro parameter>";
+        case Tk::StringLiteral: return "<string literal>";
+        case Tk::Integer: return "<integer>";
+        case Tk::IntegerType: return "<integer type>";
+
+        case Tk::Alias: return "alias";
+        case Tk::And: return "and";
+        case Tk::As: return "as";
+        case Tk::AsBang: return "as!";
+        case Tk::Asm: return "asm";
+        case Tk::Assert: return "assert";
+        case Tk::Bool: return "bool";
+        case Tk::Break: return "break";
+        case Tk::Defer: return "defer";
+        case Tk::Delete: return "delete";
+        case Tk::Do: return "do";
+        case Tk::Dynamic: return "dynamic";
+        case Tk::Elif: return "elif";
+        case Tk::Else: return "else";
+        case Tk::Enum: return "enum";
+        case Tk::Export: return "export";
+        case Tk::F32: return "f32";
+        case Tk::F64: return "f64";
+        case Tk::Fallthrough: return "fallthrough";
+        case Tk::False: return "false";
+        case Tk::For: return "for";
+        case Tk::ForReverse: return "for~";
+        case Tk::Goto: return "goto";
+        case Tk::If: return "if";
+        case Tk::In: return "in";
+        case Tk::Init: return "init";
+        case Tk::Int: return "int";
+        case Tk::Import: return "import";
+        case Tk::Is: return "is";
+        case Tk::Land: return "land";
+        case Tk::Lor: return "lor";
+        case Tk::Match: return "match";
+        case Tk::Nil: return "nil";
+        case Tk::NoReturn: return "noreturn";
+        case Tk::Not: return "not";
+        case Tk::Or: return "or";
+        case Tk::Pragma: return "pragma";
+        case Tk::Proc: return "proc";
+        case Tk::Return: return "return";
+        case Tk::Static: return "static";
+        case Tk::Struct: return "struct";
+        case Tk::Then: return "then";
+        case Tk::True: return "true";
+        case Tk::Try: return "try";
+        case Tk::Type: return "type";
+        case Tk::Typeof: return "typeof";
+        case Tk::Unreachable: return "unreachable";
+        case Tk::Val: return "val";
+        case Tk::Var: return "var";
+        case Tk::Variant: return "variant";
+        case Tk::Void: return "void";
+        case Tk::While: return "while";
+        case Tk::With: return "with";
+        case Tk::Xor: return "xor";
+        case Tk::CChar8T: return "__srcc_ffi_char8";
+        case Tk::CChar16T: return "__srcc_ffi_char16";
+        case Tk::CChar32T: return "__srcc_ffi_char32";
+        case Tk::CChar: return "__srcc_ffi_char";
+        case Tk::CInt: return "__srcc_ffi_int";
+        case Tk::CLong: return "__srcc_ffi_long";
+        case Tk::CLongDouble: return "__srcc_ffi_longdouble";
+        case Tk::CLongLong: return "__srcc_ffi_longlong";
+        case Tk::Continue: return "continue";
+        case Tk::CShort: return "__srcc_ffi_short";
+        case Tk::CSizeT: return "__srcc_ffi_size";
+        case Tk::CWCharT: return "__srcc_ffi_wchar";
+
+        case Tk::Semicolon: return ";";
+        case Tk::Colon: return ":";
+        case Tk::ColonColon: return "::";
+        case Tk::Comma: return ",";
+        case Tk::LParen: return "(";
+        case Tk::RParen: return ")";
+        case Tk::LBrack: return "[";
+        case Tk::RBrack: return "]";
+        case Tk::LBrace: return "{";
+        case Tk::RBrace: return "}";
+        case Tk::Ellipsis: return "...";
+        case Tk::Dot: return ".";
+        case Tk::LArrow: return "<-";
+        case Tk::RArrow: return "->";
+        case Tk::RDblArrow: return "=>";
+        case Tk::Question: return "?";
+        case Tk::Plus: return "+";
+        case Tk::Minus: return "-";
+        case Tk::Star: return "*";
+        case Tk::Slash: return "/";
+        case Tk::Percent: return "%";
+        case Tk::Caret: return "^";
+        case Tk::Ampersand: return "&";
+        case Tk::VBar: return "|";
+        case Tk::Tilde: return "~";
+        case Tk::Bang: return "!";
+        case Tk::Assign: return "=";
+        case Tk::DotDot: return "..";
+        case Tk::DotDotLess: return "..<";
+        case Tk::DotDotEq: return "..=";
+        case Tk::MinusMinus: return "--";
+        case Tk::PlusPlus: return "++";
+        case Tk::StarStar: return "**";
+        case Tk::Lt: return "<";
+        case Tk::Le: return "<=";
+        case Tk::Gt: return ">";
+        case Tk::Ge: return ">=";
+        case Tk::EqEq: return "==";
+        case Tk::Neq: return "!=";
+        case Tk::PlusEq: return "+=";
+        case Tk::MinusEq: return "-=";
+        case Tk::StarEq: return "*=";
+        case Tk::SlashEq: return "/=";
+        case Tk::PercentEq: return "%=";
+        case Tk::ShiftLeft: return "<<";
+        case Tk::ShiftRight: return ">>";
+        case Tk::ShiftRightLogical: return ">>>";
+        case Tk::ShiftLeftEq: return "<<=";
+        case Tk::ShiftRightEq: return ">>=";
+        case Tk::ShiftRightLogicalEq: return ">>>=";
+        case Tk::StarStarEq: return "**=";
+    }
+
+    Unreachable();
+}
+
+class TokenStream {
+    using Storage = std::deque<Token>;
+    Storage token_storage;
+    llvm::UniqueStringSaver saver;
+
+public:
+    using iterator = Storage::iterator;
+
+    /// Construct a token stream.
+    TokenStream(llvm::BumpPtrAllocator &alloc) : saver(alloc) {}
+
+    /// Allocate a token.
+    ///
+    /// This returns a stable pointer that may be retained.
+    auto allocate() -> Token* {
+        return &token_storage.emplace_back();
+    }
+
+    /// Get the last token.
+    auto back() -> Token* { return &token_storage.back(); }
+
+    /// Get an iterator to the first token.
+    auto begin() { return token_storage.begin(); }
+
+    /// Get an iterator to the last token.
+    auto end() { return token_storage.end(); }
+
+    /// Save a string in the stream.
+    ///
+    /// \param str The string to store.
+    /// \return A stable reference to the stored string.
+    auto save(StringRef str) -> String {
+        return String{saver.save(str)};
+    }
+
+    /// Get the number of tokens in the stream.
+    auto size() const -> usz { return token_storage.size(); }
+
+    /// Access a token by index.
+    auto operator[](usz idx) -> Token& {
+        Assert(idx < token_storage.size(), "Token index out of bounds");
+        return token_storage[idx];
+    }
+};
 } // namespace src
 
 #endif // SOURCE_TOKEN_HH

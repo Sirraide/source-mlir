@@ -531,7 +531,7 @@ struct Serialiser {
 
     /// Write bytes to a vector.
     template <typename T>
-    requires std::is_trivially_copyable_v<T>
+    requires (std::is_trivially_copyable_v<T> and not utils::string_like<T>)
     auto operator<<(const T& t) -> Serialiser& {
         using Ty = std::remove_cvref_t<T>;
 
@@ -548,7 +548,7 @@ struct Serialiser {
         return *this;
     }
 
-    auto operator<<(StringRef sv) -> Serialiser& {
+    auto operator<<(utils::string_like auto sv) -> Serialiser& {
         *this << u64(sv.size());
         out.insert(out.end(), sv.begin(), sv.end());
         return *this;
@@ -568,9 +568,9 @@ struct Deserialiser {
     SmallVector<std::pair<Type*, TD>> type_fixup_list;
     SmallVector<Type> types;
 
-    Deserialiser(Context* ctx, std::string module_name, Location loc, ArrayRef<u8> description)
+    Deserialiser(Context* ctx, StringRef module_name, Location loc, ArrayRef<u8> description)
         : ctx{ctx}, loc{loc}, description{description} {
-        mod = Module::Create(ctx, std::move(module_name), false, loc);
+        mod = Module::Create(ctx, module_name, false, loc);
     }
 
     /// Abort due to ill-formed module description.
@@ -735,7 +735,7 @@ struct Deserialiser {
             case SerialisedTypeTag::Opaque: {
                 auto m = ConvertMangling(rd<SerialisedMangling>());
                 auto name = rd<std::string>();
-                return new (&*mod) OpaqueType(&*mod, std::move(name), m, {});
+                return new (&*mod) OpaqueType(&*mod, mod->save(name), m, {});
             }
 
             case SerialisedTypeTag::Procedure: {
@@ -763,7 +763,7 @@ struct Deserialiser {
                     auto td = rd<TD>();
                     field_types.push_back(td);
                     fields.push_back(new (&*mod) FieldDecl(
-                        "",
+                        String(),
                         td.is_builtin() or td.index() < types.size()
                             ? Map(field_types.back())
                             : Type::UnsafeEmpty(),
@@ -777,13 +777,13 @@ struct Deserialiser {
                 for (auto& f : fields) {
                     f->padding = rd<bool>();
                     f->offset = rd<Size>();
-                    if (not f->padding) f->name = rd<std::string>();
+                    if (not f->padding) f->name = mod->save(rd<std::string>());
                 }
 
                 /// Create the struct.
                 auto s = new (&*mod) StructType(
                     &*mod,
-                    std::move(name),
+                    mod->save(name),
                     std::move(fields),
                     {},
                     {},
@@ -826,7 +826,7 @@ struct Deserialiser {
                 auto p = new (&*mod) ProcDecl(
                     &*mod,
                     mod->top_level_func,
-                    std::move(name),
+                    mod->save(name),
                     ty,
                     {},
                     Linkage::Imported,
@@ -870,7 +870,7 @@ struct Deserialiser {
 
     /// Read a type.
     template <typename T>
-    requires std::is_trivially_copyable_v<T>
+    requires (std::is_trivially_copyable_v<T> and not utils::string_like<T>)
     auto operator>>(T& t) -> Deserialiser& {
         if (description.size() < sizeof(T)) {
             Diag::Fatal(
@@ -926,9 +926,9 @@ auto src::Module::serialise() -> SmallVector<u8> {
 
 auto src::Module::Deserialise(
     Context* ctx,
-    std::string module_name,
+    StringRef module_name,
     Location loc,
     ArrayRef<u8> description
 ) -> Module* {
-    return Deserialiser{ctx, std::move(module_name), loc, description}.deserialise();
+    return Deserialiser{ctx, module_name, loc, description}.deserialise();
 }

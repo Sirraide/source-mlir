@@ -283,8 +283,8 @@ bool src::Module::add_import(
     bool is_cxx_header
 ) {
     ImportedModuleRef i{
-        std::string{linkage_name},
-        std::string{logical_name},
+        save(linkage_name),
+        save(logical_name),
         import_location,
         is_open,
         is_cxx_header,
@@ -300,7 +300,7 @@ bool src::Module::add_import(
 
 auto src::Module::Create(
     Context* ctx,
-    std::string name,
+    StringRef name,
     bool is_cxx_header,
     Location module_decl_location
 ) -> Module* {
@@ -315,17 +315,17 @@ auto src::Module::CreateUninitialised(Context* ctx) -> Module* {
     return mod;
 }
 
-void src::Module::init(std::string _name, bool _is_cxx_header, Location _module_decl_location) {
+void src::Module::init(StringRef _name, bool _is_cxx_header, Location _module_decl_location) {
     Assert(not top_level_func, "Module already initialised");
 
-    name = std::move(_name);
+    name = save(_name);
     module_decl_location = _module_decl_location;
     is_cxx_header = _is_cxx_header;
 
     top_level_func = new (this) ProcDecl{
         this,
         nullptr,
-        is_logical_module ? module_initialiser_name() : "__src_main",
+        save(is_logical_module ? module_initialiser_name() : "__src_main"sv),
         new (this) ProcType({}, BuiltinType::Void(this), false, {}),
         {},
         Linkage::Exported,

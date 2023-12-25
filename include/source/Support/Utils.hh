@@ -13,6 +13,7 @@
 #include <fmt/color.h>
 #include <fmt/format.h>
 #include <functional>
+#include <llvm/ADT/Any.h>
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/DenseMap.h>
@@ -25,6 +26,7 @@
 #include <llvm/ADT/StringSwitch.h>
 #include <llvm/ADT/TinyPtrVector.h>
 #include <llvm/IR/Function.h>
+#include <llvm/Support/StringSaver.h>
 #include <memory>
 #include <mlir/Support/LogicalResult.h>
 #include <new>
@@ -259,7 +261,6 @@ struct FStringWithSrcLocImpl {
     ) : fmt(fmt), sloc(sloc) {}
 };
 
-
 /// Inhibit template argument deduction.
 template <typename... Args>
 using FStringWithSrcLoc = FStringWithSrcLocImpl<std::type_identity_t<Args>...>;
@@ -296,11 +297,47 @@ struct Colours {
     }
 };
 
+/// Check if a type is equal to one of a list of types.
+template <typename T, typename... Ts>
+concept is = (std::is_same_v<T, Ts> or ...);
+
 /// Helper to stop a recursion or iteration in a callback. Unscoped
 /// because it’s already in a namespace.
 enum IterationResult {
     StopIteration,
     ContinueIteration,
+};
+
+/// Type-erased handle to an object that facilitates deletion.
+class OpaqueHandle {
+    void* ptr{};
+    void (*deleter)(void*){};
+
+public:
+    OpaqueHandle(const OpaqueHandle&) = delete;
+    OpaqueHandle& operator=(const OpaqueHandle&) = delete;
+
+    OpaqueHandle(OpaqueHandle&& other) noexcept
+        : ptr{std::exchange(other.ptr, nullptr)},
+          deleter{std::exchange(other.deleter, nullptr)} {}
+
+    OpaqueHandle& operator=(OpaqueHandle&& other) noexcept {
+        if (this != &other) return *this;
+        ptr = std::exchange(other.ptr, nullptr);
+        deleter = std::exchange(other.deleter, nullptr);
+        return *this;
+    }
+
+    ~OpaqueHandle() {
+        if (ptr) deleter(ptr);
+    }
+
+    OpaqueHandle() = default;
+
+    template <typename T>
+    explicit OpaqueHandle(T* ptr)
+        : ptr{ptr},
+          deleter{[](void* ptr) { delete static_cast<T*>(ptr); }} {}
 };
 
 /// Overloaded function idiom.
@@ -478,6 +515,9 @@ constexpr auto operator+(T val) -> std::underlying_type_t<T> {
     return std::to_underlying(val);
 }
 
+class Context;
+class TokenStream;
+
 /// Used to represent the size of a type.
 ///
 /// This is just a wrapper around an integer, but it requires us
@@ -519,6 +559,73 @@ public:
     [[nodiscard]] friend constexpr auto operator<=>(Size lhs, Size rhs) = default;
 };
 
+/// A string that is saved somewhere.
+///
+/// This is used for strings that are guaranteed to ‘live long
+/// enough’ to be passed around without having to worry about who
+/// owns them. This typically means they are stored in a module
+/// or static storage.
+class String {
+    friend TokenStream;
+    StringRef val;
+
+    constexpr explicit String(StringRef val) : val{val} {}
+
+public:
+    constexpr String() = default;
+
+    /// Construct from a string literal.
+    template <usz size>
+    consteval String(const char (&arr)[size]) : val{arr} {}
+
+    /// Construct from a string literal.
+    consteval String(llvm::StringLiteral lit) : val{lit} {}
+
+    /// Get an iterator to the beginning of the string.
+    [[nodiscard]] constexpr auto begin() const { return val.begin(); }
+
+    /// Get the data of the string.
+    [[nodiscard]] constexpr auto data() const -> const char* { return val.data(); }
+
+    /// Check if the string is empty.
+    [[nodiscard]] constexpr auto empty() const -> bool { return val.empty(); }
+
+    /// Get an iterator to the end of the string.
+    [[nodiscard]] constexpr auto end() const { return val.end(); }
+
+    /// Check if the string ends with a given suffix.
+    [[nodiscard]] constexpr auto ends_with(StringRef suffix) const -> bool {
+        return val.ends_with(suffix);
+    }
+
+    /// Get the size of the string.
+    [[nodiscard]] constexpr auto size() const -> usz { return val.size(); }
+
+    /// Check if the string starts with a given prefix.
+    [[nodiscard]] constexpr auto starts_with(StringRef prefix) const -> bool {
+        return val.starts_with(prefix);
+    }
+
+    /// Get the string value as a std::string_view.
+    [[nodiscard]] constexpr auto sv() const -> std::string_view { return val; }
+
+    /// Get the string value.
+    [[nodiscard]] constexpr auto value() const -> StringRef { return val; }
+
+    /// Get a character at a given index.
+    [[nodiscard]] constexpr auto operator[](usz idx) const -> char { return val[idx]; }
+
+    /// Comparison operators.
+    [[nodiscard]] friend auto operator==(String a, StringRef b) { return a.val == b; }
+    [[nodiscard]] friend auto operator==(String a, String b) { return a.sv() == b.sv(); }
+    [[nodiscard]] friend auto operator==(String a, const char* b) { return a.sv() == b; }
+    [[nodiscard]] friend auto operator<=>(String a, String b) { return a.sv() <=> b.sv(); }
+    [[nodiscard]] friend auto operator<=>(String a, std::string_view b) { return a.val <=> b; }
+
+    /// Get the string.
+    [[nodiscard]] constexpr operator StringRef() const { return val; }
+};
+
 /// Visit with a better order of arguments.
 template <typename Variant, typename... Visitors>
 void visit(Variant&& v, Visitors&&... visitors) {
@@ -529,10 +636,23 @@ void visit(Variant&& v, Visitors&&... visitors) {
 }
 } // namespace src
 
+namespace src::utils {
+template <typename T>
+concept string_like = utils::is<T, StringRef, std::string_view, String>;
+}
+
 template <>
 struct fmt::formatter<llvm::StringRef> : formatter<std::string_view> {
     template <typename FormatContext>
     auto format(llvm::StringRef s, FormatContext& ctx) {
+        return formatter<std::string_view>::format(std::string_view{s.data(), s.size()}, ctx);
+    }
+};
+
+template <>
+struct fmt::formatter<src::String> : formatter<std::string_view> {
+    template <typename FormatContext>
+    auto format(src::String s, FormatContext& ctx) {
         return formatter<std::string_view>::format(std::string_view{s.data(), s.size()}, ctx);
     }
 };

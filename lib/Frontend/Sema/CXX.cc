@@ -107,7 +107,7 @@ struct ImportContext {
         auto proc = new (out) ProcDecl(
             out,
             nullptr,
-            f->getDeclName().getAsString(),
+            out->save(f->getDeclName().getAsString()),
             type,
             {},
             Linkage::Imported,
@@ -157,7 +157,7 @@ struct ImportContext {
                 if (decl->isStruct()) {
                     auto name = decl->getNameAsString();
                     if (name.empty()) return Unsupported(type);
-                    return new (out) OpaqueType(out, name, Mangling::None, {});
+                    return new (out) OpaqueType(out, out->save(name), Mangling::None, {});
                 }
             }
         }
@@ -179,7 +179,7 @@ struct ImportContext {
             /// These may be recursive, so create the type upfront.
             auto s = new (out) StructType(
                 out,
-                std::string{decl->getName()},
+                out->save(decl->getName()),
                 {},
                 {},
                 {},
@@ -206,7 +206,7 @@ struct ImportContext {
                 if (offs != size) {
                     Assert(offs > size);
                     fields.push_back(new (out) FieldDecl {
-                        fmt::format("#padding{}", padding_count++),
+                        out->save(fmt::format("#padding{}", padding_count++)),
                         ArrayType::GetByteArray(out, isz((offs - size).bytes())),
                         {},
                         offs - size,
@@ -216,7 +216,7 @@ struct ImportContext {
                 }
 
                 fields.push_back(new (out) FieldDecl{
-                    std::string{f->getName()},
+                    out->save(f->getName()),
                     *ty,
                     {},
                     offs,
@@ -247,7 +247,7 @@ struct ImportContext {
 auto src::Module::ImportCXXHeaders(
     Context* ctx,
     ArrayRef<StringRef> header_names,
-    std::string module_name,
+    StringRef module_name,
     bool debug_cxx,
     Location loc
 ) -> Module* {
@@ -260,7 +260,7 @@ auto src::Module::ImportCXXHeaders(
     file_system = std::make_unique<llvm::vfs::OverlayFileSystem>(llvm::vfs::getRealFileSystem());
     in_memory_fs = std::make_unique<llvm::vfs::InMemoryFileSystem>();
     file_system->pushOverlay(in_memory_fs);
-    auto mod = Module::Create(ctx, std::move(module_name), true, loc);
+    auto mod = Module::Create(ctx, module_name, true, loc);
     mgr = new clang::FileManager {clang.getFileSystemOpts(), file_system};
 
     std::string code;

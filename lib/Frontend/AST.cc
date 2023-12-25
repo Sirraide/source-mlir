@@ -50,13 +50,13 @@ constinit const Type Type::Nil = &NilInstance;
 src::ProcDecl::ProcDecl(
     Module* mod,
     ProcDecl* parent,
-    std::string name,
+    String name,
     Type type,
     SmallVector<ParamDecl*> param_decls,
     Linkage linkage,
     Mangling mangling,
     Location loc
-) : ObjectDecl(Kind::ProcDecl, mod, std::move(name), type, linkage, mangling, loc),
+) : ObjectDecl(Kind::ProcDecl, mod, name, type, linkage, mangling, loc),
     parent(parent),
     params(std::move(param_decls)),
     body(nullptr) {
@@ -81,11 +81,11 @@ src::LocalRefExpr::LocalRefExpr(ProcDecl* parent, LocalDecl* decl, Location loc)
 
 src::LabelExpr::LabelExpr(
     ProcDecl* in_procedure,
-    std::string label,
+    String label,
     Expr* expr,
     Location loc
 ) : Expr(Kind::LabelExpr, loc),
-    label(std::move(label)),
+    label(label),
     expr(expr) {
     in_procedure->add_label(this->label, this);
 }
@@ -162,7 +162,7 @@ auto src::Expr::_scope_name() -> std::string {
             return "<?>";
 
         case Kind::ModuleRefExpr:
-            return cast<ModuleRefExpr>(this)->module->name;
+            return std::string{cast<ModuleRefExpr>(this)->module->name.sv()};
 
         case Kind::ExportExpr:
             return cast<ExportExpr>(this)->expr->scope_name;
@@ -184,7 +184,7 @@ auto src::Expr::_scope_name() -> std::string {
             auto s = cast<StructType>(this);
             if (s->name.empty()) return "<anonymous>";
             if (s->module->is_logical_module) return fmt::format("{}::{}", s->module->name, s->name);
-            return s->name;
+            return std::string{s->name.sv()};
         }
 
         case Kind::ProcDecl: {
@@ -192,7 +192,7 @@ auto src::Expr::_scope_name() -> std::string {
             if (p->name.empty()) return "<anonymous>";
             if (p->parent != p->module->top_level_func) return fmt::format("{}::{}", p->parent->scope_name, p->name);
             if (p->module->is_logical_module) return fmt::format("{}::{}", p->module->name, p->name);
-            return p->name;
+            return std::string{p->name.sv()};
         }
     }
 }
@@ -247,7 +247,7 @@ bool src::ProcDecl::_takes_static_chain() {
 /// ===========================================================================
 src::StructType::StructType(
     Module* mod,
-    std::string sname,
+    String sname,
     SmallVector<FieldDecl*> fields,
     SmallVector<ProcDecl*> inits,
     MemberProcedures member_procs,
@@ -256,7 +256,7 @@ src::StructType::StructType(
     Mangling mangling,
     Location loc
 ) : RecordType(Kind::StructType, std::move(fields), loc),
-    Named(mod, std::move(sname), mangling),
+    Named(mod, sname, mangling),
     initialisers(std::move(inits)),
     member_procs(std::move(member_procs)),
     deleter(deleter),
@@ -483,7 +483,7 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
 
         case Expr::Kind::SugaredType: {
             out += C(Yellow);
-            out += cast<SugaredType>(ptr)->name;
+            out += cast<SugaredType>(ptr)->name.sv();
         } break;
 
         case Expr::Kind::ScopedType: {
@@ -777,7 +777,7 @@ auto src::TypeBase::DenseMapInfo::getHashValue(const Expr* t) -> usz {
     usz hash = 0;
 
     /// Hash names for structs.
-    if (auto d = dyn_cast<StructType>(t)) hash = llvm::hash_combine(hash, d->name);
+    if (auto d = dyn_cast<StructType>(t)) hash = llvm::hash_combine(hash, d->name.value());
 
     /// Include element types for types that have them.
     else if (auto* s = dyn_cast<SingleElementTypeBase>(t)) {

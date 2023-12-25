@@ -187,7 +187,7 @@ auto src::Parser::ParseAlias() -> Result<AliasExpr*> {
     if (not Consume(Tk::Assign)) Error("Expected '='");
     auto value = ParseExpr();
     if (IsError(value)) return value.diag;
-    return new (mod) AliasExpr(std::move(name), *value, {start, value->location});
+    return new (mod) AliasExpr(name, *value, {start, value->location});
 }
 
 /// <expr-assert> ::= ASSERT <expr> [ ","  <expr> ]
@@ -228,7 +228,7 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
     /// Create a variable declaration, but don’t add it to any scope.
     return new (mod) LocalDecl(
         curr_func,
-        std::move(name),
+        name,
         *ty,
         {},
         LocalKind::Variable,
@@ -302,14 +302,14 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
             auto start = Next();
 
             /// Parse optional label.
-            std::string label;
+            String label;
             if (At(Tk::Identifier)) {
                 label = tok.text;
                 start = {start, tok.location};
                 Next();
             }
 
-            lhs = new (mod) LoopControlExpr(std::move(label), is_continue, {start, curr_loc});
+            lhs = new (mod) LoopControlExpr(label, is_continue, {start, curr_loc});
         } break;
 
         case Tk::Integer:
@@ -711,9 +711,9 @@ void src::Parser::ParseFile() {
     mod = Module::CreateUninitialised(ctx);
 
     /// Initialise tokens.
-    mod->tokens = Lexer::LexEntireFile(ctx, main_file);
-    Assert(not mod->tokens.empty(), "Token stream must always contain end-of-file token");
-    current_token_it = mod->tokens.begin();
+    Lexer::LexEntireFile(ctx, *mod->tokens, main_file);
+    Assert(mod->tokens->size() > 0, "Token stream must always contain end-of-file token");
+    current_token_it = mod->tokens->begin();
 
     /// Create the module.
     if (At(Tk::Identifier) and tok.text == "module") {
@@ -722,7 +722,7 @@ void src::Parser::ParseFile() {
         auto module_name = tok.text;
         Next();
         if (not Consume(Tk::Semicolon)) Error("Expected ';'");
-        mod->init(std::move(module_name), false, loc);
+        mod->init(module_name, false, loc);
     } else {
         mod->init("");
     }
@@ -730,7 +730,7 @@ void src::Parser::ParseFile() {
     /// Parse imports.
     while (At(Tk::Import)) {
         auto start = Next();
-        std::string name;
+        String name;
         bool is_header = false;
 
         /// C++ header.
@@ -946,7 +946,7 @@ auto src::Parser::ParseParamDeclList(
             param_types.push_back(sig.type);
             param_decls.push_back(new (mod) ParamDecl(
                 nullptr,
-                std::move(sig.name),
+                sig.name,
                 sig.type,
                 with,
                 sig.loc
@@ -963,7 +963,7 @@ auto src::Parser::ParseParamDeclList(
             }
 
             /// Name is optional.
-            std::string name;
+            String name;
             if (At(Tk::Identifier)) {
                 name = tok.text;
                 Next();
@@ -973,7 +973,7 @@ auto src::Parser::ParseParamDeclList(
             param_types.push_back(Type(*param_type));
             param_decls.push_back(new (mod) ParamDecl(
                 nullptr,
-                std::move(name),
+                name,
                 *param_type,
                 with,
                 tok.location
@@ -1139,7 +1139,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
     auto start = Next();
 
     /// Parse name if there is one.
-    std::string name;
+    String name;
     if (At(Tk::Identifier)) {
         name = tok.text;
         Next();
@@ -1250,7 +1250,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
     /// Create the struct type.
     auto s = new (mod) StructType(
         mod,
-        std::move(name),
+        name,
         std::move(fields),
         std::move(initialisers),
         std::move(member_procs),

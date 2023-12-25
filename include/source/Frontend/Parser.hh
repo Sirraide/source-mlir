@@ -124,7 +124,7 @@ private:
 
     struct Signature {
         ProcType* type;
-        std::string name;
+        String name;
         SmallVector<ParamDecl*> param_decls;
         Location loc{};
         bool is_extern{};
@@ -165,8 +165,8 @@ private:
     /// Lookahead tokens are 1-based. LookAhead(0) returns the
     /// current token.
     auto LookAhead(usz n) -> Token& {
-        return current_token_it + isz(n) >= std::prev(mod->tokens.end())
-                 ? *std::prev(mod->tokens.end())
+        return current_token_it + isz(n) >= std::prev(mod->tokens->end())
+                 ? *std::prev(mod->tokens->end())
                  : *(current_token_it + isz(n));
     }
 
@@ -174,7 +174,7 @@ private:
     ///
     /// \return The location of the previous token.
     auto Next() -> Location {
-        if (current_token_it == std::prev(mod->tokens.end())) return curr_loc;
+        if (current_token_it == std::prev(mod->tokens->end())) return curr_loc;
         auto loc = curr_loc;
         ++current_token_it;
         return loc;

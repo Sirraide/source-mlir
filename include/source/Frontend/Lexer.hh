@@ -5,13 +5,10 @@
 #include <source/Frontend/Token.hh>
 
 namespace src {
-/// Stringify a token type.
-auto Spelling(Tk t) -> std::string_view;
-
 /// A lexer that reads a source file and provides tokens from it.
 class Lexer {
     struct Macro {
-        std::string name{};
+        StringRef name{};
         Location location{};
         SmallVector<Token> parameter_list{};
         SmallVector<Token> expansion{};
@@ -43,10 +40,10 @@ class Lexer {
     char lastc = ' ';
 
     /// Tokens that we’re lexing.
-    TokenStream tokens;
+    TokenStream& tokens;
 
     /// Get the current token.
-    readonly(Token&, tok, return tokens.back());
+    readonly(Token&, tok, return *tokens.back());
 
     /// Current position in the source code.
     const char* curr{};
@@ -67,11 +64,11 @@ class Lexer {
 
 public:
     /// Read all tokens in a file.
-    static auto LexEntireFile(Context* ctx, File&) -> TokenStream;
+    static void LexEntireFile(Context* ctx, TokenStream& into, File&);
 
 private:
     /// Construct a lexer to lex a file.
-    explicit Lexer(Context* ctx, File& f);
+    explicit Lexer(Context* ctx, TokenStream& into, File& f);
 
     /// Copying/Moving is disallowed.
     Lexer(const Lexer&) = delete;
@@ -80,7 +77,7 @@ private:
     Lexer& operator=(Lexer&&) = delete;
 
     auto AllocateMacroDefinition(
-        std::string name,
+        StringRef name,
         Location location,
         SmallVector<Token>&& expansion = {}
     ) -> Macro&;

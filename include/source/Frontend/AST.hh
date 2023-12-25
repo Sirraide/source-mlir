@@ -427,7 +427,7 @@ public:
 class LoopControlExpr : public UnwindExpr {
 public:
     /// Label to jump to.
-    std::string label;
+    String label;
 
     /// Resolved expression. This is set to the parent
     /// if there is no label. This is resolved in Sema.
@@ -437,9 +437,9 @@ public:
     bool is_continue;
     readonly(bool, is_break, return not is_continue);
 
-    LoopControlExpr(std::string label, bool is_continue, Location loc)
+    LoopControlExpr(String label, bool is_continue, Location loc)
         : UnwindExpr(Kind::LoopControlExpr, loc),
-          label(std::move(label)),
+          label(label),
           is_continue(is_continue) {}
 
     /// RTTI.
@@ -449,7 +449,7 @@ public:
 class LabelExpr : public Expr {
 public:
     /// The label of this expression.
-    std::string label;
+    String label;
 
     /// The expression labelled by this label.
     Expr* expr;
@@ -469,7 +469,7 @@ public:
 
     LabelExpr(
         ProcDecl* in_procedure,
-        std::string label,
+        String label,
         Expr* expr,
         Location loc
     );
@@ -481,14 +481,14 @@ public:
 class GotoExpr : public UnwindExpr {
 public:
     /// The label to jump to.
-    std::string label;
+    String label;
 
     /// The resolved labelled expression.
     LabelExpr* target{};
 
-    GotoExpr(std::string label, Location loc)
+    GotoExpr(String label, Location loc)
         : UnwindExpr(Kind::GotoExpr, loc),
-          label(std::move(label)) {}
+          label(label) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::GotoExpr; }
@@ -800,12 +800,12 @@ public:
 class AliasExpr : public Expr {
 public:
     /// The name of the alias.
-    std::string alias;
+    String alias;
 
     /// The aliased expression.
     Expr* expr;
 
-    AliasExpr(std::string alias, Expr* expr, Location loc)
+    AliasExpr(String alias, Expr* expr, Location loc)
         : Expr(Kind::AliasExpr, loc),
           alias(std::move(alias)),
           expr(expr) {}
@@ -939,13 +939,13 @@ public:
           implicit(implicit) {}
 
     /// Declare a symbol in this scope.
-    void declare(StringRef name, Expr* value) {
-        symbol_table[name].push_back(value);
+    void declare(String name, Expr* value) {
+        symbol_table[name.value()].push_back(value);
     }
 
     /// Find a (vector of) symbol(s) in this scope.
-    auto find(StringRef name, bool this_scope_only) -> Symbols* {
-        if (auto sym = symbol_table.find(name); sym != symbol_table.end())
+    auto find(String name, bool this_scope_only) -> Symbols* {
+        if (auto sym = symbol_table.find(name.value()); sym != symbol_table.end())
             return &sym->second;
         if (parent and not this_scope_only) return parent->find(name, false);
         return nullptr;
@@ -1131,7 +1131,7 @@ public:
 class ScopeAccessExpr : public TypedExpr {
 public:
     /// The name of the element being accessed.
-    std::string element;
+    String element;
 
     /// The object being accessed.
     Expr* object;
@@ -1139,9 +1139,9 @@ public:
     /// The resolved reference.
     Expr* resolved{};
 
-    ScopeAccessExpr(Expr* object, std::string element, Location loc)
+    ScopeAccessExpr(Expr* object, String element, Location loc)
         : TypedExpr(Kind::ScopeAccessExpr, Type::Unknown, loc),
-          element(std::move(element)),
+          element(element),
           object(object) {}
 
     /// RTTI.
@@ -1151,7 +1151,7 @@ public:
 class DeclRefExpr : public TypedExpr {
 public:
     /// The name of the declaration this refers to.
-    std::string name;
+    String name;
 
     /// The scope in which this name was found. May be null
     /// iff `ok` returns true (that is, if the scope is no
@@ -1161,9 +1161,9 @@ public:
     /// The declaration this refers to.
     Expr* decl;
 
-    DeclRefExpr(std::string name, BlockExpr* sc, Location loc)
+    DeclRefExpr(String name, BlockExpr* sc, Location loc)
         : TypedExpr(Kind::DeclRefExpr, Type::Unknown, loc),
-          name(std::move(name)),
+          name(name),
           scope(sc),
           decl(nullptr) {}
 
@@ -1287,10 +1287,10 @@ public:
 class Decl : public TypedExpr {
 public:
     /// The name of this declaration.
-    std::string name;
+    String name;
 
-    Decl(Kind k, std::string name, Type type, Location loc)
-        : TypedExpr(k, type, loc), name(std::move(name)) {}
+    Decl(Kind k, String name, Type type, Location loc)
+        : TypedExpr(k, type, loc), name(name) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind >= Kind::LocalDecl; }
@@ -1320,12 +1320,12 @@ public:
     ObjectDecl(
         Kind k,
         Module* mod,
-        std::string name,
+        String name,
         Type type,
         Linkage linkage,
         Mangling mangling,
         Location loc
-    ) : Decl(k, std::move(name), type, loc),
+    ) : Decl(k, name, type, loc),
         module(mod),
         linkage(linkage),
         mangling(mangling) {}
@@ -1347,13 +1347,13 @@ public:
     bool padding{};
 
     FieldDecl(
-        std::string name,
+        String name,
         Type type,
         Location loc,
         Size offset = Size::Bits(0),
         u32 index = 0,
         bool padding = false
-    ) : Decl(Kind::FieldDecl, std::move(name), type, loc),
+    ) : Decl(Kind::FieldDecl, name, type, loc),
         offset(offset),
         index(index),
         padding(padding) {}
@@ -1403,12 +1403,12 @@ protected:
     LocalDecl(
         Kind k,
         ProcDecl* parent,
-        std::string name,
+        String name,
         Type type,
         SmallVector<Expr*> init,
         LocalKind kind,
         Location loc
-    ) : Decl(k, std::move(name), type, loc),
+    ) : Decl(k, name, type, loc),
         parent(parent),
         init_args(std::move(init)),
         local_kind(kind) {
@@ -1417,7 +1417,7 @@ protected:
 public:
     LocalDecl(
         ProcDecl* parent,
-        std::string name,
+        String name,
         Type type,
         SmallVector<Expr*> init,
         LocalKind kind,
@@ -1425,7 +1425,7 @@ public:
     ) : LocalDecl( //
             Kind::LocalDecl,
             parent,
-            std::move(name),
+            name,
             type,
             std::move(init),
             kind,
@@ -1451,14 +1451,14 @@ public:
 
     ParamDecl(
         ProcDecl* parent,
-        std::string name,
+        String name,
         Type type,
         bool with,
         Location loc
     ) : LocalDecl( //
             Kind::ParamDecl,
             parent,
-            std::move(name),
+            name,
             type,
             {},
             LocalKind::Parameter,
@@ -1482,13 +1482,13 @@ public:
     /// TODO: Maybe use a different FieldDecl class for that?
     GlobalDecl(
         ProcDecl* parent,
-        std::string name,
+        String name,
         Expr* type,
         Expr* init,
         Linkage linkage,
         Mangling mangling,
         Location loc
-    ) : ObjectDecl(Kind::LocalDecl, std::move(name), type, linkage, mangling, loc),
+    ) : ObjectDecl(Kind::LocalDecl, name type, linkage, mangling, loc),
         parent(parent),
         init(init) {
     }
@@ -1528,7 +1528,7 @@ public:
     ProcDecl(
         Module* mod,
         ProcDecl* parent,
-        std::string name,
+        String name,
         Type type,
         SmallVector<ParamDecl*> params,
         Linkage linkage,
@@ -1542,15 +1542,15 @@ public:
     /// \param label The label to register.
     /// \param expr The expression that the label points at.
     /// \return The expression, or an error.
-    auto add_label(std::string label, LabelExpr* expr) {
-        if (labels.contains(label)) Diag::Error(
+    auto add_label(String label, LabelExpr* expr) {
+        if (labels.contains(label.value())) Diag::Error(
             module->context,
             expr->location,
             "Label '{}' is already defined",
             label
         );
 
-        labels[label] = expr;
+        labels[label.value()] = expr;
     }
 
     /// Whether this is a nested procedure.
@@ -1736,13 +1736,13 @@ public:
     Module* module;
 
     /// The name of this type.
-    std::string name;
+    String name;
 
     /// The mangling scheme of this type.
     Mangling mangling;
 
 protected:
-    Named(Module* mod, std::string name, Mangling mangling)
+    Named(Module* mod, String name, Mangling mangling)
         : module(mod), name(std::move(name)), mangling(mangling) {}
 };
 
@@ -1811,7 +1811,7 @@ public:
 
     StructType(
         Module* mod,
-        std::string name,
+        String name,
         SmallVector<FieldDecl*> fields,
         SmallVector<ProcDecl*> initialisers,
         MemberProcedures member_procs,
@@ -1829,7 +1829,7 @@ public:
         Location loc = {}
     ) : StructType( //
             mod,
-            "",
+            String(),
             std::move(fields),
             {},
             {},
@@ -1858,7 +1858,7 @@ public:
 private:
     static auto GetFields(Module* mod, auto&& types) -> SmallVector<FieldDecl*> {
         SmallVector<FieldDecl*> fields;
-        for (auto&& t : FWD(types)) fields.push_back(new (mod) FieldDecl("", t, {}));
+        for (auto&& t : FWD(types)) fields.push_back(new (mod) FieldDecl(String(), t, {}));
         return fields;
     }
 };
@@ -1867,7 +1867,7 @@ class OpaqueType
     : public TypeBase
     , public Named {
 public:
-    OpaqueType(Module* mod, std::string name, Mangling mangling, Location loc)
+    OpaqueType(Module* mod, String name, Mangling mangling, Location loc)
         : TypeBase(Kind::OpaqueType, loc),
           Named(mod, std::move(name), mangling) {
         sema.set_done();
@@ -1987,11 +1987,11 @@ public:
 class SugaredType : public SingleElementTypeBase {
 public:
     /// The name of the type this was looked up as.
-    std::string name;
+    String name;
 
-    SugaredType(std::string name, Type underlying, Location loc)
+    SugaredType(String name, Type underlying, Location loc)
         : SingleElementTypeBase(Kind::SugaredType, underlying, loc),
-          name(std::move(name)) {
+          name(name) {
         sema.set_done();
     }
 
@@ -2006,12 +2006,12 @@ public:
     Expr* object;
 
     /// The name of the type this was looked up as.
-    std::string name;
+    String name;
 
-    ScopedType(std::string name, Expr* object, Type resolved, Location loc)
+    ScopedType(String name, Expr* object, Type resolved, Location loc)
         : SingleElementTypeBase(Kind::ScopedType, resolved, loc),
           object(object),
-          name(std::move(name)) {
+          name(name) {
         sema.set_done();
     }
 
@@ -2075,7 +2075,7 @@ public:
 class MemberAccessExpr : public TypedExpr {
 public:
     /// The name of the member being accessed.
-    std::string member;
+    String member;
 
     /// The object being accessed.
     Expr* object;
@@ -2083,9 +2083,9 @@ public:
     /// The member (function) being accessed if this is a field access.
     Expr* field{};
 
-    MemberAccessExpr(Expr* object, std::string member, Location loc)
+    MemberAccessExpr(Expr* object, String member, Location loc)
         : TypedExpr(Kind::MemberAccessExpr, Type::Unknown, loc),
-          member(std::move(member)),
+          member(member),
           object(object) {}
 
     /// RTTI.
