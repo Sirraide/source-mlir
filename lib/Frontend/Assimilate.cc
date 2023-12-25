@@ -35,14 +35,14 @@ class Assimilator {
     void AssimilateChildren(Expr* e) {
         if (auto te = dyn_cast<TypedExpr>(e)) Assimilate(te->stored_type);
         switch (e->kind) {
-            case Expr::Kind::BoolLiteralExpr:
+            case Expr::Kind::BoolLitExpr:
             case Expr::Kind::BuiltinType:
             case Expr::Kind::EmptyExpr:
             case Expr::Kind::FieldDecl:
             case Expr::Kind::IntType:
-            case Expr::Kind::IntegerLiteralExpr:
+            case Expr::Kind::IntLitExpr:
             case Expr::Kind::Nil:
-            case Expr::Kind::StringLiteralExpr:
+            case Expr::Kind::StrLitExpr:
                 break;
 
             case Expr::Kind::ArrayType:
@@ -276,7 +276,7 @@ class Assimilator {
                 Assimilate(s->index);
             } break;
 
-            case Expr::Kind::ArrayLiteralExpr: {
+            case Expr::Kind::ArrayLitExpr: {
                 auto a = cast<ArrayLitExpr>(e);
                 for (auto& elem : a->elements) Assimilate(elem);
                 Assimilate(a->result_object);

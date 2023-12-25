@@ -1464,12 +1464,12 @@ bool src::Sema::Analyse(Expr*& e) {
         } break;
 
         /// Bools are of type bool.
-        case Expr::Kind::BoolLiteralExpr:
+        case Expr::Kind::BoolLitExpr:
             cast<BoolLitExpr>(e)->stored_type = BuiltinType::Bool(mod, e->location);
             break;
 
         /// Integers are of type int.
-        case Expr::Kind::IntegerLiteralExpr: {
+        case Expr::Kind::IntLitExpr: {
             auto i = cast<IntLitExpr>(e);
             if (i->value.getBitWidth() > 64) Diag::ICE(
                 mod->context,
@@ -1492,7 +1492,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
         /// Array literals are weird because we can’t really do much with
         /// them until we get to the context that they’re used in.
-        case Expr::Kind::ArrayLiteralExpr: {
+        case Expr::Kind::ArrayLitExpr: {
             auto a = cast<ArrayLitExpr>(e);
             for (auto& elem : a->elements)
                 if (not Analyse(elem))
@@ -1500,7 +1500,7 @@ bool src::Sema::Analyse(Expr*& e) {
         } break;
 
         /// String literals are u8 slices.
-        case Expr::Kind::StringLiteralExpr: {
+        case Expr::Kind::StrLitExpr: {
             auto str = cast<StrLitExpr>(e);
             auto loc = str->location;
 

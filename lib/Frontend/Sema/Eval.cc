@@ -23,7 +23,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
             return true;
 
         case Expr::Kind::AliasExpr:
-        case Expr::Kind::ArrayLiteralExpr:
+        case Expr::Kind::ArrayLitExpr:
         case Expr::Kind::AssertExpr:
         case Expr::Kind::ConstructExpr:
         case Expr::Kind::DeclRefExpr:
@@ -46,7 +46,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::ProcDecl:
         case Expr::Kind::ReturnExpr:
         case Expr::Kind::ScopeAccessExpr:
-        case Expr::Kind::StringLiteralExpr:
+        case Expr::Kind::StrLitExpr:
         case Expr::Kind::SubscriptExpr:
         case Expr::Kind::TupleExpr:
         case Expr::Kind::TupleIndexExpr:
@@ -72,13 +72,13 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
             out = cast<OverloadSetExpr>(e);
             return true;
 
-        case Expr::Kind::BoolLiteralExpr: {
+        case Expr::Kind::BoolLitExpr: {
             auto i = cast<BoolLitExpr>(e);
             out = {APInt(1, i->value), Type::Bool};
             return true;
         }
 
-        case Expr::Kind::IntegerLiteralExpr: {
+        case Expr::Kind::IntLitExpr: {
             auto i = cast<IntLitExpr>(e);
             out = {i->value, i->stored_type};
             return true;

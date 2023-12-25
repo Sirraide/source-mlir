@@ -1313,7 +1313,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             return yield;
         }
 
-        case Expr::Kind::StringLiteralExpr: {
+        case Expr::Kind::StrLitExpr: {
             auto str = cast<StrLitExpr>(expr);
 
             /// Create a global ref to the string data. This returns
@@ -1348,7 +1348,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         }
 
         /// Create a bool constant.
-        case Expr::Kind::BoolLiteralExpr: {
+        case Expr::Kind::BoolLitExpr: {
             auto e = cast<BoolLitExpr>(expr);
             return Create<mlir::arith::ConstantIntOp>(
                 Loc(e->location),
@@ -1358,13 +1358,13 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         }
 
         /// Create an integer constant.
-        case Expr::Kind::IntegerLiteralExpr: {
+        case Expr::Kind::IntLitExpr: {
             auto e = cast<IntLitExpr>(expr);
             return CreateInt(Loc(e->location), e->value, e->type);
         }
 
         case Expr::Kind::TupleExpr: Unreachable("Cannot emit tuple literals w/o a result object");
-        case Expr::Kind::ArrayLiteralExpr: Unreachable("Cannot emit array literals w/o a result object");
+        case Expr::Kind::ArrayLitExpr: Unreachable("Cannot emit array literals w/o a result object");
 
         case Expr::Kind::TupleIndexExpr: Todo();
 

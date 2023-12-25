@@ -110,9 +110,10 @@ private:
     }
 
 public:
-    virtual ~Expr() = default;
-
     Expr(Kind k, Location loc) : kind(k), location(loc) {}
+
+    /// This requires invoking the destructor of a derived class.
+    void operator delete(Expr* e, std::destroying_delete_t);
 
     /// Only allow allocating nodes in a module.
     void* operator new(size_t sz, Module* mod) noexcept {
@@ -824,11 +825,11 @@ public:
     Expr* result_object{};
 
     ArrayLitExpr(SmallVector<Expr*> elements, Location loc)
-        : Expr(Kind::ArrayLiteralExpr, loc),
+        : Expr(Kind::ArrayLitExpr, loc),
           elements(std::move(elements)) {}
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::ArrayLiteralExpr; }
+    static bool classof(const Expr* e) { return e->kind == Kind::ArrayLitExpr; }
 };
 
 /// ===========================================================================
@@ -1248,11 +1249,11 @@ public:
     APInt value;
 
     IntLitExpr(APInt value, Location loc)
-        : TypedExpr(Kind::IntegerLiteralExpr, Type::Unknown, loc),
+        : TypedExpr(Kind::IntLitExpr, Type::Unknown, loc),
           value(std::move(value)) {}
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::IntegerLiteralExpr; }
+    static bool classof(const Expr* e) { return e->kind == Kind::IntLitExpr; }
 };
 
 class BoolLitExpr : public TypedExpr {
@@ -1261,11 +1262,11 @@ public:
     bool value;
 
     BoolLitExpr(bool value, Location loc)
-        : TypedExpr(Kind::BoolLiteralExpr, Type::Unknown, loc),
+        : TypedExpr(Kind::BoolLitExpr, Type::Unknown, loc),
           value(value) {}
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::BoolLiteralExpr; }
+    static bool classof(const Expr* e) { return e->kind == Kind::BoolLitExpr; }
 };
 
 class StrLitExpr : public TypedExpr {
@@ -1274,11 +1275,11 @@ public:
     u32 index;
 
     StrLitExpr(u32 index, Location loc)
-        : TypedExpr(Kind::StringLiteralExpr, Type::Unknown, loc),
+        : TypedExpr(Kind::StrLitExpr, Type::Unknown, loc),
           index(index) {}
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::StringLiteralExpr; }
+    static bool classof(const Expr* e) { return e->kind == Kind::StrLitExpr; }
 };
 
 /// ===========================================================================
@@ -2105,6 +2106,10 @@ struct THCastImpl {
         return doCast(t);
     }
 };
+
+/// Check that we’ve actually defined all the types.
+#define SOURCE_AST_EXPR(name) static_assert(sizeof(class name));
+#include "source/Frontend/AST.def"
 } // namespace src
 
 namespace llvm {

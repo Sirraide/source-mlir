@@ -47,6 +47,17 @@ constinit const Type Type::Nil = &NilInstance;
 /// ===========================================================================
 ///  Expressions
 /// ===========================================================================
+void src::Expr::operator delete(Expr* e, std::destroying_delete_t) {
+    switch (e->kind) {
+#define SOURCE_AST_EXPR(name)         \
+    case Kind::name:                  \
+        cast<name>(e)->~name();       \
+        __builtin_operator_delete(e); \
+        return;
+#include <source/Frontend/AST.def>
+    }
+}
+
 src::ProcDecl::ProcDecl(
     Module* mod,
     ProcDecl* parent,
@@ -207,7 +218,7 @@ auto src::Expr::_type() -> Type {
         case Kind::OverloadSetExpr:
             return Type::OverloadSet;
 
-        case Kind::ArrayLiteralExpr:
+        case Kind::ArrayLitExpr:
             return Type::ArrayLiteral;
 
         case Kind::AliasExpr:
@@ -227,7 +238,7 @@ auto src::Expr::_type() -> Type {
 #include <source/Frontend/AST.def>
             return cast<TypedExpr>(this)->stored_type;
 
-        /// Already a type.
+            /// Already a type.
 #define SOURCE_AST_TYPE(name) case Kind::name:
 #include <source/Frontend/AST.def>
             return Type(this);
@@ -954,7 +965,7 @@ struct ASTPrinter {
                 return;
             }
 
-            case K::BoolLiteralExpr: {
+            case K::BoolLitExpr: {
                 auto i = cast<BoolLitExpr>(e);
                 PrintBasicHeader("BoolLiteral", e);
                 out += fmt::format(
@@ -966,7 +977,7 @@ struct ASTPrinter {
                 return;
             }
 
-            case K::IntegerLiteralExpr: {
+            case K::IntLitExpr: {
                 auto i = cast<IntLitExpr>(e);
                 PrintBasicHeader("IntegerLiteral", e);
                 out += fmt::format(
@@ -978,7 +989,7 @@ struct ASTPrinter {
                 return;
             }
 
-            case K::StringLiteralExpr: {
+            case K::StrLitExpr: {
                 auto i = cast<StrLitExpr>(e);
                 PrintBasicHeader("StringLiteral", e);
                 if (mod) {
@@ -1195,7 +1206,7 @@ struct ASTPrinter {
                 return;
             }
 
-            case K::ArrayLiteralExpr: PrintBasicNode("ArrayLiteralExpr", e, nullptr); return;
+            case K::ArrayLitExpr: PrintBasicNode("ArrayLitExpr", e, nullptr); return;
             case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
             case K::Nil: PrintBasicNode("Nil", e, nullptr); return;
@@ -1325,12 +1336,12 @@ struct ASTPrinter {
         using K = Expr::Kind;
         switch (e->kind) {
             /// These don’t have children.
-            case K::BoolLiteralExpr:
+            case K::BoolLitExpr:
             case K::EmptyExpr:
             case K::FieldDecl:
-            case K::IntegerLiteralExpr:
+            case K::IntLitExpr:
             case K::ModuleRefExpr:
-            case K::StringLiteralExpr:
+            case K::StrLitExpr:
                 break;
 
             /// We don’t print children of most types here.
@@ -1517,7 +1528,7 @@ struct ASTPrinter {
                 PrintChildren(c->args_and_init(), leading_text);
             } break;
 
-            case K::ArrayLiteralExpr:
+            case K::ArrayLitExpr:
                 PrintChildren(cast<ArrayLitExpr>(e)->elements, leading_text);
                 break;
 
