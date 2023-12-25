@@ -4,6 +4,7 @@
 #include <clang/Frontend/CompilerInstance.h>
 #include <llvm/IR/Module.h>
 #include <mlir/IR/MLIRContext.h>
+#include <source/Frontend/Token.hh>
 #include <source/Support/StringTable.hh>
 #include <source/Support/Utils.hh>
 
@@ -224,106 +225,6 @@ private:
     File& MakeFile(fs::path name, std::unique_ptr<llvm::MemoryBuffer> contents);
 };
 
-/// A decoded source location.
-struct LocInfo {
-    usz line;
-    usz col;
-    const char* line_start;
-    const char* line_end;
-};
-
-/// A short decoded source location.
-struct LocInfoShort {
-    usz line;
-    usz col;
-};
-
-/// A source range in a file.
-struct Location {
-    u32 pos{};
-    u16 len{};
-    u16 file_id{};
-
-    constexpr Location() = default;
-    constexpr Location(u32 pos, u16 len, u16 file_id)
-        : pos(pos), len(len), file_id(file_id) {}
-
-    /// Create a new location that spans two locations.
-    constexpr Location(Location a, Location b) {
-        if (a.file_id != b.file_id) return;
-        if (not a.is_valid() or not b.is_valid()) return;
-        pos = std::min<u32>(a.pos, b.pos);
-        len = u16(std::max<u32>(a.pos + a.len, b.pos + b.len) - pos);
-    }
-
-    /// Shift a source location to the left.
-    [[nodiscard]] constexpr auto operator<<(isz amount) const -> Location {
-        Location l = *this;
-        l.pos = u32(pos - u32(amount));
-        return l;
-    }
-
-    /// Shift a source location to the right.
-    [[nodiscard]] constexpr auto operator>>(isz amount) const -> Location {
-        Location l = *this;
-        l.pos = u32(pos + u32(amount));
-        return l;
-    }
-
-    /// Extend a source location to the left.
-    [[nodiscard]] constexpr auto operator<<=(isz amount) const -> Location {
-        Location l = *this << amount;
-        l.len = u16(l.len + amount);
-        return l;
-    }
-
-    /// Extend a source location to the right.
-    [[nodiscard]] constexpr auto operator>>=(isz amount) const -> Location {
-        Location l = *this;
-        l.len = u16(l.len + amount);
-        return l;
-    }
-
-    /// Contract a source location to the left.
-    [[nodiscard]] constexpr auto contract_left(isz amount) const -> Location {
-        if (amount > len) return {};
-        Location l = *this;
-        l.len = u16(l.len - amount);
-        return l;
-    }
-
-    /// Contract a source location to the right.
-    [[nodiscard]] constexpr auto contract_right(isz amount) const -> Location {
-        if (amount > len) return {};
-        Location l = *this;
-        l.pos = u32(l.pos + u32(amount));
-        l.len = u16(l.len - amount);
-        return l;
-    }
-
-    /// Encode a location as a 64-bit number.
-    [[nodiscard]] constexpr u64 encode() { return std::bit_cast<u64>(*this); }
-
-    [[nodiscard]] constexpr bool is_valid() const { return len != 0; }
-
-    /// Seek to a source location.
-    [[nodiscard]] auto seek(const Context* ctx) const -> LocInfo;
-
-    /// Seek to a source location, but only return the line and column.
-    [[nodiscard]] auto seek_line_column(const Context* ctx) const -> LocInfoShort;
-
-    /// Check if the source location is seekable.
-    [[nodiscard]] bool seekable(const Context* ctx) const;
-
-    /// Get the text pointed to by this source location.
-    [[nodiscard]] auto text(const Context* ctx) const -> std::string_view;
-
-    /// Decode a source location from a 64-bit number.
-    static constexpr auto Decode(u64 loc) -> Location {
-        return std::bit_cast<Location>(loc);
-    }
-};
-
 /// Reference to an imported module.
 struct ImportedModuleRef {
     /// The actual name of the module for linkage purposes.
@@ -364,6 +265,9 @@ class Module {
 public:
     Context* const context;
 
+    /// Tokens from which this module was parsed.
+    TokenStream tokens;
+
     /// Modules imported by this module.
     SmallVector<ImportedModuleRef> imports;
 
@@ -374,7 +278,7 @@ public:
     SmallVector<StructType*, 64> named_structs;
 
     /// Top-level module function.
-    ProcDecl* top_level_func;
+    ProcDecl* top_level_func{};
 
     /// Module string table.
     StringTable strtab;
@@ -416,12 +320,7 @@ public:
     std::unique_ptr<llvm::Module> llvm;
 
 private:
-    explicit Module(
-        Context* ctx,
-        std::string name,
-        bool is_cxx_header,
-        Location module_decl_location
-    );
+    explicit Module(Context* ctx);
 
 public:
     Module(const Module&) = delete;
@@ -437,6 +336,11 @@ public:
         bool is_cxx_header = false,
         Location module_decl_location = {}
     ) -> Module*;
+
+    /// Create a new, uninitialised module. The module must be initialised
+    /// with a call to init() and cannot be used for anything else until that
+    /// has happened.
+    static auto CreateUninitialised(Context* ctx) -> Module*;
 
     /// Add a function to this module.
     void add_function(ProcDecl* func) { functions.push_back(func); }
@@ -464,6 +368,10 @@ public:
 
     /// Emit code to an object file. Implemented in Emit.cc
     void emit_object_file(int opt_level, const fs::path& location);
+
+    /// Initialise an uninitialised module. It is illegal to call this more
+    /// than once or on a module not created with CreateUninitialised().
+    void init(std::string name, bool is_cxx_header = false, Location module_decl_location = {});
 
     /// Get the name to use for the guard variable for this module’s initialiser.
     [[nodiscard]] auto init_guard_name() const -> std::string {

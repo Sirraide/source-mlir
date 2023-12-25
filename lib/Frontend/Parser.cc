@@ -3,7 +3,7 @@
 
 #define bind SRC_BIND Parser::
 
-src::Parser::Parser(Context* ctx, File& f) : Lexer(ctx, f) {}
+src::Parser::Parser(Context* ctx, File& f) : ctx(ctx), main_file(f) {}
 
 /// ===========================================================================
 ///  Helpers
@@ -708,44 +708,35 @@ auto src::Parser::ParseStmts(Tk until, SmallVector<Expr*>& into) -> Result<void>
 /// <import-name> ::= IDENTIFIER [ "." "*" ] | <header-name>
 /// <header-name> ::= "<" TOKENS ">"
 void src::Parser::ParseFile() {
-    /// Parse preamble; this also creates the module.
+    mod = Module::CreateUninitialised(ctx);
+
+    /// Initialise tokens.
+    mod->tokens = Lexer::LexEntireFile(ctx, main_file);
+    Assert(not mod->tokens.empty(), "Token stream must always contain end-of-file token");
+    current_token_it = mod->tokens.begin();
+
+    /// Create the module.
     if (At(Tk::Identifier) and tok.text == "module") {
         auto loc = Next();
         if (not At(Tk::Identifier)) Error("Expected identifier");
         auto module_name = tok.text;
         Next();
         if (not Consume(Tk::Semicolon)) Error("Expected ';'");
-
-        mod = Module::Create(ctx, std::move(module_name), false, loc);
+        mod->init(std::move(module_name), false, loc);
     } else {
-        mod = Module::Create(ctx, "");
+        mod->init("");
     }
 
     /// Parse imports.
-    while (At(Tk::Identifier) and tok.text == "import") {
+    while (At(Tk::Import)) {
         auto start = Next();
         std::string name;
         bool is_header = false;
 
         /// C++ header.
-        if (At(Tk::Lt)) {
-            /// Need to lex manually here.
-            raw_mode = true;
+        if (At(Tk::CXXHeaderName)) {
             is_header = true;
-            while (lastc != '>' and lastc != 0) {
-                name.push_back(lastc);
-                NextChar();
-            }
-
-            if (lastc == 0) {
-                Error("Expected '>'");
-                Next();
-                return;
-            }
-
-            /// Bring the lexer back into sync.
-            raw_mode = false;
-            NextChar();
+            name = tok.text;
         }
 
         /// Regular module name.
@@ -754,7 +745,7 @@ void src::Parser::ParseFile() {
 
         /// Nonsense.
         else {
-            Error("Expected identifier");
+            Error("Expected identifier or header name");
             Synchronise();
             continue;
         }

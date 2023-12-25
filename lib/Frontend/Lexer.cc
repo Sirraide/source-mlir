@@ -46,6 +46,7 @@ const StringMap<Tk> keywords = {
     {"for", Tk::For},
     {"goto", Tk::Goto},
     {"if", Tk::If},
+    {"import", Tk::Import},
     {"in", Tk::In},
     {"init", Tk::Init},
     {"int", Tk::Int},
@@ -94,7 +95,6 @@ const StringMap<Tk> keywords = {
 src::Lexer::Lexer(Context* ctx, File& f)
     : ctx{ctx}, f{f} {
     /// Init state.
-    tok.location.file_id = u16(f.file_id());
     curr = f.data();
     end = curr + f.size();
 
@@ -116,46 +116,26 @@ src::Lexer::Lexer(Context* ctx, File& f)
     Next();
 }
 
+auto src::Lexer::LexEntireFile(Context* ctx, File& f) -> TokenStream {
+    Lexer L{ctx, f};
+    do L.Next();
+    while (L.tok.type != Tk::Eof);
+    return std::move(L.tokens);
+}
+
 auto src::Lexer::CurrLoc() const -> Location { return {CurrOffs(), 1, u16(f.file_id())}; }
 auto src::Lexer::CurrOffs() const -> u32 { return u32(curr - f.data()) - 1; }
 
-auto src::Lexer::LookAhead(usz n) -> Token& {
-    if (n == 0) return tok;
-
-    /// If we already have enough tokens, just return the nth token.
-    const auto idx = n - 1;
-    if (idx < lookahead_tokens.size()) return lookahead_tokens[idx];
-
-    /// Otherwise, lex enough tokens.
-    tempset looking_ahead = true;
-    auto current = std::move(tok);
-    for (usz i = lookahead_tokens.size(); i < n; i++) {
-        tok = {};
-        Next();
-        lookahead_tokens.push_back(std::move(tok));
-    }
-    tok = std::move(current);
-
-    /// Return the nth token.
-    return lookahead_tokens[idx];
-}
-
-auto src::Lexer::Next() -> Location {
-    auto loc = tok.location;
+void src::Lexer::Next() {
+    tokens.emplace_back();
     NextImpl();
-    return loc;
 }
 
 void src::Lexer::NextImpl() {
+    tok.location.file_id = u16(f.file_id());
+
     /// Tokens are not artificial by default.
     tok.artificial = false;
-
-    /// Pop lookahead tokens if we’re not looking ahead.
-    if (not looking_ahead and not lookahead_tokens.empty()) {
-        tok = std::move(lookahead_tokens.front());
-        lookahead_tokens.pop_front();
-        return;
-    }
 
     /// Pop empty macro expansions off the expansion stack.
     while (not macro_expansion_stack.empty())
@@ -165,7 +145,7 @@ void src::Lexer::NextImpl() {
     /// Insert tokens from macro expansion.
     if (not macro_expansion_stack.empty()) {
         auto& expansion = macro_expansion_stack.back();
-        tok = ++expansion;
+        tokens.back() = ++expansion;
 
         /// If this token is another macro definition, handle it.
         if (tok.type == Tk::Identifier and tok.text == "macro") LexMacroDefinition();
@@ -254,7 +234,7 @@ void src::Lexer::NextImpl() {
         case '#': {
             auto l = CurrLoc();
             NextChar();
-            Next();
+            NextImpl();
 
             /// Validate name.
             if (tok.type == Tk::Identifier or tok.type == Tk::Integer) {
@@ -411,6 +391,27 @@ void src::Lexer::NextImpl() {
 
         case '<':
             NextChar();
+
+            /// Handle C++ header names.
+            if (tokens.size() > 1 and tokens[tokens.size() - 2].type == Tk::Import) {
+                tok.type = Tk::CXXHeaderName;
+                raw_mode = true;
+                while (lastc != '>' and lastc != 0) {
+                    tok.text.push_back(lastc);
+                    NextChar();
+                }
+
+                if (lastc == 0) {
+                    Error(tok.location, "Expected '>'");
+                    break;
+                }
+
+                /// Bring the lexer back into sync.
+                raw_mode = false;
+                NextChar();
+                break;
+            }
+
             if (lastc == '=') {
                 NextChar();
                 tok.type = Tk::Le;
@@ -478,7 +479,7 @@ void src::Lexer::NextImpl() {
             if (IsStart(lastc)) LexIdentifier();
             else {
                 Error(CurrLoc() << 1, "Unexpected <U+{:X}> character in program", lastc);
-                return;
+                break;
             }
     }
 
@@ -535,6 +536,8 @@ void src::Lexer::LexIdentifier() {
     const auto LexSpecialToken = [&] {
         if (auto k = keywords.find(tok.text); k != keywords.end()) {
             tok.type = k->second;
+
+            /// Handle "for~".
             if (tok.type == Tk::For and lastc == '~') {
                 NextChar();
                 tok.type = Tk::ForReverse;
@@ -699,7 +702,7 @@ void src::Lexer::LexEscapedId() {
     /// Yeet backslash.
     tempset raw_mode = true;
     auto start = tok.location;
-    Next();
+    NextImpl();
 
     /// Mark this token as ‘artificial’. This is so we can e.g. nest
     /// macro definitions using `\expands` and `\endmacro`.
@@ -752,14 +755,14 @@ auto src::Lexer::AllocateMacroDefinition(
 void src::Lexer::LexMacroDefinition() {
     tempset raw_mode = true;
     tempset in_macro_definition = true;
-    Next(); /// Yeet 'macro'.
+    NextImpl(); /// Yeet 'macro'.
 
     /// Make sure we can define this macro.
     if (tok.type != Tk::Identifier) {
         Error(tok.location, "Expected identifier");
 
         /// Synchronise on 'endmacro'.
-        while (tok.type != Tk::Eof and (tok.type != Tk::Identifier or tok.text != "endmacro")) Next();
+        while (tok.type != Tk::Eof and (tok.type != Tk::Identifier or tok.text != "endmacro")) NextImpl();
         return;
     }
 
@@ -768,7 +771,7 @@ void src::Lexer::LexMacroDefinition() {
 
     /// Allocate a new macro.
     auto& m = AllocateMacroDefinition(tok.text, tok.location);
-    Next();
+    NextImpl();
 
     /// Helper to issue an error and print the current macro definition.
     auto Err = [&]<typename... arguments>(fmt::format_string<arguments...> fmt, arguments&&... args) {
@@ -799,13 +802,13 @@ void src::Lexer::LexMacroDefinition() {
             default:
             param_list_default_case:
                 m.parameter_list.push_back(tok);
-                Next();
+                NextImpl();
         }
     }
 
     /// Yeet 'expands'.
 expands:
-    Next();
+    NextImpl();
 
     /// Read tokens until we encounter 'endmacro'.
     for (;;) {
@@ -826,7 +829,7 @@ expands:
             default:
             expansion_default_case:
                 m.expansion.push_back(tok);
-                Next();
+                NextImpl();
         }
     }
 
@@ -834,7 +837,7 @@ expands:
 endmacro:
     raw_mode = false;
     in_macro_definition = false;
-    Next();
+    NextImpl();
 }
 
 void src::Lexer::LexMacroExpansion(Lexer::Macro* m) {
@@ -851,7 +854,7 @@ void src::Lexer::LexMacroExpansion(Lexer::Macro* m) {
         /// that we don’t discard past the last token of the param
         /// list, since the next token after that must come from the
         /// expansion itself.
-        Next();
+        NextImpl();
 
         /// EOF is not a token.
         if (tok.type == Tk::Eof) {
@@ -884,7 +887,7 @@ void src::Lexer::LexMacroExpansion(Lexer::Macro* m) {
 
     /// Reënable macro expansion and read the next token.
     raw_mode = false;
-    Next();
+    NextImpl();
 }
 
 auto src::Lexer::MacroExpansion::operator++() -> Token {
@@ -915,6 +918,7 @@ auto src::Spelling(Tk t) -> std::string_view {
         case Tk::Invalid: return "<invalid>";
         case Tk::Eof: return "<eof>";
         case Tk::Identifier: return "<identifier>";
+        case Tk::CXXHeaderName: return "<cxx header name>";
         case Tk::MacroParameter: return "<macro parameter>";
         case Tk::StringLiteral: return "<string literal>";
         case Tk::Integer: return "<integer>";
@@ -947,6 +951,7 @@ auto src::Spelling(Tk t) -> std::string_view {
         case Tk::In: return "in";
         case Tk::Init: return "init";
         case Tk::Int: return "int";
+        case Tk::Import: return "import";
         case Tk::Is: return "is";
         case Tk::Land: return "land";
         case Tk::Lor: return "lor";
@@ -1048,6 +1053,7 @@ bool src::operator==(const Token& a, const Token& b) {
         case Tk::Identifier:
         case Tk::MacroParameter:
         case Tk::StringLiteral:
+        case Tk::CXXHeaderName:
             return a.text == b.text;
 
         case Tk::Integer:
@@ -1086,6 +1092,7 @@ bool src::operator==(const Token& a, const Token& b) {
         case Tk::In:
         case Tk::Init:
         case Tk::Int:
+        case Tk::Import:
         case Tk::Is:
         case Tk::Land:
         case Tk::Lor:

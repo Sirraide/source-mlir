@@ -6,15 +6,23 @@
 #include <source/Support/Result.hh>
 
 namespace src {
-class Parser : Lexer {
+class Parser {
     template <typename T>
     using SVI = SmallVectorImpl<T>;
 
+    Context* ctx{};
     Module* mod{};
+    File& main_file;
     std::vector<BlockExpr*> scope_stack;
 
     /// Current function.
     ProcDecl* curr_func{};
+
+    /// Current position in the token stream.
+    TokenStream::iterator current_token_it;
+
+    /// Get the current token.
+    readonly(Token&, tok, return *current_token_it);
 
     readonly(BlockExpr*, global_scope, return scope_stack[0]);
     readonly(BlockExpr*, curr_scope, return scope_stack.back());
@@ -150,6 +158,26 @@ private:
     template <typename... Args>
     Diag Error(fmt::format_string<Args...> fmt, Args&&... args) {
         return Diag::Error(ctx, curr_loc, fmt, std::forward<Args>(args)...);
+    }
+
+    /// Look ahead in the token list.
+    ///
+    /// Lookahead tokens are 1-based. LookAhead(0) returns the
+    /// current token.
+    auto LookAhead(usz n) -> Token& {
+        return current_token_it + isz(n) >= std::prev(mod->tokens.end())
+                 ? *std::prev(mod->tokens.end())
+                 : *(current_token_it + isz(n));
+    }
+
+    /// Read the next token.
+    ///
+    /// \return The location of the previous token.
+    auto Next() -> Location {
+        if (current_token_it == std::prev(mod->tokens.end())) return curr_loc;
+        auto loc = curr_loc;
+        ++current_token_it;
+        return loc;
     }
 
     /// Parser functions.

@@ -269,24 +269,7 @@ auto src::Location::text(const Context* ctx) const -> std::string_view {
 /// ===========================================================================
 ///  Module
 /// ===========================================================================
-src::Module::Module(Context* ctx, std::string name, bool is_cxx_header, Location module_decl_location)
-    : context(ctx),
-      name(std::move(name)),
-      module_decl_location(module_decl_location),
-      is_cxx_header(is_cxx_header) {
-    top_level_func = new (this) ProcDecl{
-        this,
-        nullptr,
-        is_logical_module ? module_initialiser_name() : "__src_main",
-        new (this) ProcType({}, BuiltinType::Void(this), false, {}),
-        {},
-        Linkage::Exported,
-        Mangling::None,
-        {},
-    };
-
-    top_level_func->body = new (this) BlockExpr{this, {}};
-}
+src::Module::Module(Context* ctx) : context(ctx) {}
 
 src::Module::~Module() {
     for (auto ex : exprs) utils::Deallocate(ex);
@@ -315,10 +298,42 @@ bool src::Module::add_import(
     return false;
 }
 
-auto src::Module::Create(Context* ctx, std::string name, bool is_cxx_header, Location module_decl_location) -> Module* {
-    auto* mod = new Module(ctx, std::move(name), is_cxx_header, module_decl_location);
+auto src::Module::Create(
+    Context* ctx,
+    std::string name,
+    bool is_cxx_header,
+    Location module_decl_location
+) -> Module* {
+    auto* mod = CreateUninitialised(ctx);
+    mod->init(std::move(name), is_cxx_header, module_decl_location);
+    return mod;
+}
+
+auto src::Module::CreateUninitialised(Context* ctx) -> Module* {
+    auto* mod = new Module(ctx);
     ctx->add_module(std::unique_ptr<Module>{mod});
     return mod;
+}
+
+void src::Module::init(std::string _name, bool _is_cxx_header, Location _module_decl_location) {
+    Assert(not top_level_func, "Module already initialised");
+
+    name = std::move(_name);
+    module_decl_location = _module_decl_location;
+    is_cxx_header = _is_cxx_header;
+
+    top_level_func = new (this) ProcDecl{
+        this,
+        nullptr,
+        is_logical_module ? module_initialiser_name() : "__src_main",
+        new (this) ProcType({}, BuiltinType::Void(this), false, {}),
+        {},
+        Linkage::Exported,
+        Mangling::None,
+        {},
+    };
+
+    top_level_func->body = new (this) BlockExpr{this, {}};
 }
 
 auto src::Module::_global_scope() -> BlockExpr* {
@@ -501,7 +516,6 @@ void PrintBacktrace(utils::Colours C) {
 }
 } // namespace
 } // namespace src
-
 
 void src::EnableAssertColours(bool enable) {
     enable_assert_colours.store(enable, std::memory_order_relaxed);

@@ -2,178 +2,9 @@
 #define SOURCE_INCLUDE_FRONTEND_LEXER_HH
 
 #include <source/Core.hh>
+#include <source/Frontend/Token.hh>
 
 namespace src {
-
-/// ===========================================================================
-///  Tokens.
-/// ===========================================================================
-enum struct Tk {
-    Invalid,
-    Eof,
-    Identifier,
-    Integer,
-    StringLiteral,
-    MacroParameter,
-
-    /// Keywords.
-    Alias,
-    And,
-    As,
-    AsBang,
-    Asm,
-    Assert,
-    Bool,
-    Break,
-    Continue,
-    CShort,
-    Defer,
-    Delete,
-    Do,
-    Dynamic,
-    Elif,
-    Else,
-    Enum,
-    Export,
-    F32,
-    F64,
-    Fallthrough,
-    False,
-    For,
-    ForReverse,
-    Goto,
-    If,
-    In,
-    Init,
-    Int,
-    IntegerType,
-    Is,
-    Land,
-    Lor,
-    Match,
-    Nil,
-    NoReturn,
-    Not,
-    Or,
-    Pragma,
-    Proc,
-    Return,
-    Static,
-    Struct,
-    Then,
-    True,
-    Try,
-    Type,
-    Typeof,
-    Unreachable,
-    Val,
-    Var,
-    Variant,
-    Void,
-    While,
-    With,
-    Xor,
-
-    /// Extension keywords.
-    CChar,
-    CChar8T,
-    CChar16T,
-    CChar32T,
-    CInt,
-    CLong,
-    CLongDouble,
-    CLongLong,
-    CSizeT,
-    CWCharT,
-
-    /// Punctuation.
-    Semicolon,
-    Colon,
-    ColonColon,
-    Comma,
-    LParen,
-    RParen,
-    LBrack,
-    RBrack,
-    LBrace,
-    RBrace,
-    Ellipsis,
-    Dot,
-    LArrow,
-    RArrow,
-    RDblArrow,
-    Question,
-
-    /// Operators.
-    Plus,
-    Minus,
-    Star,
-    Slash,
-    Percent,
-    Caret,
-    Ampersand,
-    VBar,
-    Tilde,
-    Bang,
-    Assign,
-    DotDot,
-    DotDotLess,
-    DotDotEq,
-    MinusMinus,
-    PlusPlus,
-    StarStar,
-    Lt,
-    Le,
-    Gt,
-    Ge,
-    EqEq,
-    Neq,
-    PlusEq,
-    MinusEq,
-    StarEq,
-    SlashEq,
-    PercentEq,
-    ShiftLeft,
-    ShiftRight,
-    ShiftRightLogical,
-    ShiftLeftEq,
-    ShiftRightEq,
-    ShiftRightLogicalEq,
-    StarStarEq,
-};
-
-/// A token.
-struct Token {
-    /// The type of the token.
-    Tk type = Tk::Invalid;
-
-    /// Token text.
-    std::string text{};
-
-    /// Number.
-    APInt integer{};
-
-    /// Source location.
-    Location location{};
-
-    /// Whether this token was produced by __id.
-    bool artificial = false;
-
-    /// Get the source code spelling of this token.
-    readonly_decl(std::string, spelling);
-
-    /// Compare two tokens for equality. This only checks if their
-    /// types and values are equal and ignores e.g. whether they are
-    /// artificial
-    friend bool operator==(const Token& a, const Token& b);
-
-    /// Helper to make creating tokens easier.
-    template <typename... arguments>
-    static auto Make(Tk t, arguments&&... args) -> Token {
-        return Token{t, std::forward<arguments>(args)...};
-    }
-};
-
 /// Stringify a token type.
 auto Spelling(Tk t) -> std::string_view;
 
@@ -202,28 +33,24 @@ class Lexer {
         auto operator++() -> Token;
     };
 
-protected:
     /// Source context.
     Context* ctx;
 
-private:
     /// The file being lexed.
     File& f;
 
-protected:
-    /// The current token.
-    Token tok{};
-
-    /// The last character lexer.
+    /// The last character lexed.
     char lastc = ' ';
 
-private:
+    /// Tokens that we’re lexing.
+    TokenStream tokens;
+
+    /// Get the current token.
+    readonly(Token&, tok, return tokens.back());
+
     /// Current position in the source code.
     const char* curr{};
     const char* end{};
-
-    /// Lookahead tokens.
-    std::deque<Token> lookahead_tokens;
 
     /// Macro definitions.
     std::deque<Macro> macro_definitions;
@@ -232,18 +59,17 @@ private:
     /// Macro expansion stack.
     std::vector<MacroExpansion> macro_expansion_stack;
 
-    /// Whether we’re currently looking ahead in the token stream.
-    bool looking_ahead = false;
-
-protected:
     /// Disable special handling for tokens. This is used for lexing __id.
     bool raw_mode = false;
 
-private:
     /// Whether we’re reading a macro definition.
     bool in_macro_definition = false;
 
 public:
+    /// Read all tokens in a file.
+    static auto LexEntireFile(Context* ctx, File&) -> TokenStream;
+
+private:
     /// Construct a lexer to lex a file.
     explicit Lexer(Context* ctx, File& f);
 
@@ -253,30 +79,14 @@ public:
     Lexer& operator=(const Lexer&) = delete;
     Lexer& operator=(Lexer&&) = delete;
 
-    auto CurrLoc() const -> Location;
-    auto CurrOffs() const -> u32;
-
-protected:
-    /// Look ahead in the token list.
-    ///
-    /// Lookahead tokens are 1-based. LookAhead(0) returns the
-    /// current token.
-    auto LookAhead(usz n) -> Token&;
-
-    /// Read the next token.
-    ///
-    /// \return The location of the previous token.
-    auto Next() -> Location;
-
-    /// Read the next character.
-    void NextChar();
-
-private:
     auto AllocateMacroDefinition(
         std::string name,
         Location location,
         SmallVector<Token>&& expansion = {}
     ) -> Macro&;
+
+    auto CurrLoc() const -> Location;
+    auto CurrOffs() const -> u32;
 
     /// Issue a diagnostic.
     template <typename... arguments>
@@ -285,6 +95,8 @@ private:
         return Diag::Error(ctx, l, fmt, std::forward<arguments>(args)...);
     }
 
+    void Next();
+    void NextChar();
     void NextImpl();
     void LexEscapedId();
     void LexIdentifier();
@@ -311,6 +123,5 @@ struct fmt::formatter<src::Token> {
         return format_to(ctx.out(), "{}", Spelling(val.type));
     }
 };
-
 
 #endif // SOURCE_INCLUDE_FRONTEND_LEXER_HH
