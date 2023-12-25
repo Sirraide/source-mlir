@@ -277,6 +277,17 @@ bool src::Sema::ConvertImpl(
         return false;
     }
 
+    /// Array lvalues are convertible to slices.
+    if (
+        ctx.is_lvalue and
+        isa<ArrayType>(from) and
+        isa<SliceType>(to) and
+        cast<ArrayType>(from)->elem == cast<SliceType>(to)->elem
+    ) {
+        from = ctx.cast(CastKind::Implicit, type);
+        return true;
+    }
+
     /// Nil is convertible to any optional type.
     if (from.is_nil and isa<OptionalType>(to)) {
         from = ctx.cast(CastKind::LValueToRValue, from);
@@ -2246,9 +2257,7 @@ bool src::Sema::Analyse(Expr*& e) {
             );
 
             /// Slices can just be loaded whole.
-            /// TODO: Figure out what to do in general w/ rvalue arrays, objects, etc
-            ///       wrt variables, iterations, subscripting, and member access—preferably
-            ///       in a way that doesn’t require the backend to deal w/ all of that again.
+            /// TODO: Temporary Materialisation.
             if (isa<SliceType>(f->range->type)) InsertLValueToRValueConversion(f->range);
             else if (not f->range->is_lvalue) Diag::ICE(
                 mod->context,

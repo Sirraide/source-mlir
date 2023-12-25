@@ -116,6 +116,8 @@ struct CodeGen {
     template <typename Op>
     [[nodiscard]] auto GenerateCmpOp(BinaryExpr*, mlir::arith::CmpIPredicate pred) -> mlir::Value;
 
+    [[nodiscard]] auto GenerateConvertingCast(CastExpr* cast, mlir::Value operand) -> mlir::Value;
+
     [[nodiscard]] auto Generate(Expr* expr) -> mlir::Value;
     void GenerateModule();
     void GenerateProcedure(ProcDecl* proc);
@@ -807,9 +809,9 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
     switch (expr->kind) {
         /// Can’t codegen types.
 #define SOURCE_AST_TYPE(name) case Expr::Kind::name:
-#define SOURCE_AST_NIL(...) /// Better error message for nil.
+#define SOURCE_AST_NIL(...)   /// Better error message for nil.
 #include <source/Frontend/AST.def>
-            Unreachable();
+        Unreachable();
 
         case Expr::Kind::OverloadSetExpr:
             Diag::ICE(ctx, expr->location, "Unresolved overload set in codegen");
@@ -1092,106 +1094,8 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
                 /// Proper casts are all handled the same.
                 case CastKind::Implicit:
                 case CastKind::Soft:
-                case CastKind::Hard: {
-                    /// Create a nil of the target type.
-                    if (isa<Nil>(c->operand)) return Create<hlir::NilOp>(Loc(c->location), Ty(c->type));
-
-                    /// No-op.
-                    if (c->operand->type == c->type) return operand;
-
-                    /// Procedure to closure casts.
-                    if (isa<ProcType>(c->operand->type) and isa<ClosureType>(c->type)) {
-                        auto proc = operand.getDefiningOp<mlir::func::ConstantOp>();
-                        auto proc_type = cast<ProcType>(c->operand->type);
-
-                        /// If the procedure is a nested function that takes a static
-                        /// chain, retrieve the appropriate chain pointer.
-                        if (proc_type->static_chain_parent) {
-                            auto chain = GetStaticChainPointer(proc_type->static_chain_parent);
-                            return Create<hlir::MakeClosureOp>(
-                                Loc(c->location),
-                                proc.getValue(),
-                                Ty(c->type),
-                                chain
-                            );
-                        }
-
-                        /// Otherwise, leave the data pointer empty; the backend will
-                        /// set it to null during lowering.
-                        return Create<hlir::MakeClosureOp>(
-                            Loc(c->location),
-                            proc.getValue(),
-                            Ty(c->type)
-                        );
-                    }
-
-                    /// Integer-to-integer casts.
-                    if (c->operand->type.is_int(true) and c->type.is_int(true)) {
-                        auto from_size = c->operand->type.size(ctx);
-                        auto to_size = c->type.size(ctx);
-
-                        /// Truncation.
-                        if (from_size > to_size) {
-                            /// Casts to bool never actually truncate, but are instead
-                            /// equivalent to != 0. Note that that only applies to bool,
-                            /// not i1!
-                            if (c->type == Type::Bool) {
-                                auto int_type = mlir::IntegerType::get(mctx, unsigned(from_size.bits()));
-                                auto zero = Create<mlir::arith::ConstantOp>(
-                                    Loc(c->location),
-                                    int_type,
-                                    mlir::IntegerAttr::get(int_type, 0)
-                                );
-
-                                return Create<mlir::arith::CmpIOp>(
-                                    Loc(c->location),
-                                    mlir::IntegerType::get(mctx, 1),
-                                    mlir::arith::CmpIPredicate::ne,
-                                    operand,
-                                    zero
-                                );
-                            }
-
-                            return Create<mlir::arith::TruncIOp>(
-                                Loc(c->location),
-                                mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
-                                operand
-                            );
-                        }
-
-                        /// Extension.
-                        if (from_size < to_size) {
-                            /// Since all of our integers are signed, we always use sign
-                            /// extension, except that, if we’re extending an i1, we use
-                            /// zero-extension, as in case of an i1 with the value 1 (true)
-                            /// sign-extension would yield -1 instead of 1.
-                            if (from_size.bits() == 1) {
-                                return Create<mlir::arith::ExtUIOp>(
-                                    Loc(c->location),
-                                    mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
-                                    operand
-                                );
-                            }
-
-                            return Create<mlir::arith::ExtSIOp>(
-                                Loc(c->location),
-                                mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
-                                operand
-                            );
-                        }
-
-                        /// No-op.
-                        return operand;
-                    }
-
-                    Diag::ICE(
-                        ctx,
-                        c->location,
-                        "Unsupported cast from {} to {} in backend",
-                        c->operand->type.str(true),
-                        c->type.str(true)
-                    );
-                }
+                case CastKind::Hard:
+                    return GenerateConvertingCast(c, operand);
             }
 
             Unreachable();
@@ -1881,6 +1785,123 @@ auto src::CodeGen::GenerateCmpOp(BinaryExpr* b, mlir::arith::CmpIPredicate pred)
     auto lhs = Generate(b->lhs);
     auto rhs = Generate(b->rhs);
     return Create<Op>(Loc(b->location), pred, lhs, rhs);
+}
+
+auto src::CodeGen::GenerateConvertingCast(CastExpr* c, mlir::Value operand) -> mlir::Value {
+    /// Create a nil of the target type.
+    if (isa<Nil>(c->operand)) return Create<hlir::NilOp>(Loc(c->location), Ty(c->type));
+
+    /// No-op.
+    if (c->operand->type == c->type) return operand;
+
+    /// Procedure to closure casts.
+    if (isa<ProcType>(c->operand->type) and isa<ClosureType>(c->type)) {
+        auto proc = operand.getDefiningOp<mlir::func::ConstantOp>();
+        auto proc_type = cast<ProcType>(c->operand->type);
+
+        /// If the procedure is a nested function that takes a static
+        /// chain, retrieve the appropriate chain pointer.
+        if (proc_type->static_chain_parent) {
+            auto chain = GetStaticChainPointer(proc_type->static_chain_parent);
+            return Create<hlir::MakeClosureOp>(
+                Loc(c->location),
+                proc.getValue(),
+                Ty(c->type),
+                chain
+            );
+        }
+
+        /// Otherwise, leave the data pointer empty; the backend will
+        /// set it to null during lowering.
+        return Create<hlir::MakeClosureOp>(
+            Loc(c->location),
+            proc.getValue(),
+            Ty(c->type)
+        );
+    }
+
+    /// Integer-to-integer casts.
+    if (c->operand->type.is_int(true) and c->type.is_int(true)) {
+        auto from_size = c->operand->type.size(ctx);
+        auto to_size = c->type.size(ctx);
+
+        /// Truncation.
+        if (from_size > to_size) {
+            /// Casts to bool never actually truncate, but are instead
+            /// equivalent to != 0. Note that that only applies to bool,
+            /// not i1!
+            if (c->type == Type::Bool) {
+                auto int_type = mlir::IntegerType::get(mctx, unsigned(from_size.bits()));
+                auto zero = Create<mlir::arith::ConstantOp>(
+                    Loc(c->location),
+                    int_type,
+                    mlir::IntegerAttr::get(int_type, 0)
+                );
+
+                return Create<mlir::arith::CmpIOp>(
+                    Loc(c->location),
+                    mlir::IntegerType::get(mctx, 1),
+                    mlir::arith::CmpIPredicate::ne,
+                    operand,
+                    zero
+                );
+            }
+
+            return Create<mlir::arith::TruncIOp>(
+                Loc(c->location),
+                mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
+                operand
+            );
+        }
+
+        /// Extension.
+        if (from_size < to_size) {
+            /// Since all of our integers are signed, we always use sign
+            /// extension, except that, if we’re extending an i1, we use
+            /// zero-extension, as in case of an i1 with the value 1 (true)
+            /// sign-extension would yield -1 instead of 1.
+            if (from_size.bits() == 1) {
+                return Create<mlir::arith::ExtUIOp>(
+                    Loc(c->location),
+                    mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
+                    operand
+                );
+            }
+
+            return Create<mlir::arith::ExtSIOp>(
+                Loc(c->location),
+                mlir::IntegerType::get(mctx, unsigned(to_size.bits())),
+                operand
+            );
+        }
+
+        /// No-op.
+        return operand;
+    }
+
+    /// Array-to-slice casts.
+    if (isa<ArrayType>(c->operand->type) and isa<SliceType>(c->type)) {
+        Assert(c->operand->is_lvalue);
+
+        /// Operand is an lvalue, so array decay to retrieve the pointer works.
+        auto loc = Loc(c->location);
+        auto ptr = Create<hlir::ArrayDecayOp>(loc, operand);
+        auto size = CreateInt(loc, cast<ArrayType>(c->operand->type)->dimension(), Type::Int);
+        return Create<hlir::LiteralOp>(
+            loc,
+            cast<hlir::SliceType>(Ty(c->type)),
+            ptr,
+            size
+        );
+    }
+
+    Diag::ICE(
+        ctx,
+        c->location,
+        "Unsupported cast from {} to {} in backend",
+        c->operand->type.str(true),
+        c->type.str(true)
+    );
 }
 
 void src::CodeGen::GenerateModule() {

@@ -1743,7 +1743,7 @@ public:
 
 protected:
     Named(Module* mod, String name, Mangling mangling)
-        : module(mod), name(std::move(name)), mangling(mangling) {}
+        : module(mod), name(name), mangling(mangling) {}
 };
 
 /// Base class for record types (structs and tuples).

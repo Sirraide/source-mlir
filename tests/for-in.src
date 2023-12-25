@@ -1,0 +1,48 @@
+/// R %srcc %s --hlir
+/// R[///O] %srcc %s --llvm -O3
+
+/// d t %[a-zA-Z0-9_]+
+/// d b \^bb[0-9]+
+/// p lit []
+
+module x;
+
+///  * hlir.func external @_SM1x1aPE -> i32
+///O * define i32 @_SM1x1aPE()
+///O *   ret i32 15
+export proc a -> i32 {
+    i32[5] arr = [1, 2, 3, 4, 5];
+    i32[] slice = arr;
+
+    /// * $sum:t = local i32,
+    i32 sum;
+
+    /// * $sz:t = slice_size i32[]
+    /// + $I0:t = index.constant 0
+    /// + cf.br $cond:b($I0 : index)
+    /// + $cond($I:t: index):
+    /// + $cont:t = index.cmp ult($I, $sz)
+    /// + cf.cond_br $cont, $true:b, $false:b
+    /// + $true:
+    /// + $data:t = slice_data i32[]
+    /// + $offs:t = offset i32& $data[$I]
+    /// + scope
+    /// + $val:t = load i32 from $offs
+    /// + $old:t = load i32 from $sum
+    /// + $new:t = arith.addi $old, $val
+    /// + store into $sum, i32 $new
+    /// + yield
+    /// + }
+    /// + cf.br $inc:b
+    /// + $inc:
+    /// + $one:t = index.constant 1
+    /// + $I1:t = index.add $I, $one
+    /// + cf.br $cond($I1 : index)
+    for i in slice do sum += i;
+
+    /// + $false:
+    /// + $final:t = load i32 from $sum
+    /// + return i32 $final
+    return sum;
+}
+
