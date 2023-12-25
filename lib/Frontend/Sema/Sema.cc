@@ -987,13 +987,13 @@ auto src::Sema::UnwindLocal(UnwindContext ctx, BlockExpr* S, Expr* FE, Expr* To)
     for (auto E : rgs::subrange(ToIter, FEIter) | vws::reverse) {
         if (auto expr = ctx.dyn_cast<Expr*>()) {
             /// TODO: `protected_children` is horrible jank; get rid of it somehow.
-            if (not E->protected_children.empty()) {
+            if (E->is_protected) {
                 Error(expr, "Jump is ill-formed");
                 Diag::Note(
                     mod->context,
-                    E->protected_children[0]->location,
+                    E->ignore_labels->location,
                     "Because it would bypass {} here",
-                    isa<DeferExpr>(E->protected_children[0])
+                    isa<DeferExpr>(E->ignore_labels)
                         ? "deferred expression"s
                         : "variable declaration"s
                 );
@@ -1001,7 +1001,7 @@ auto src::Sema::UnwindLocal(UnwindContext ctx, BlockExpr* S, Expr* FE, Expr* To)
             }
         } else {
             auto prot = ctx.get<SmallVectorImpl<Expr*>*>();
-            for (auto P : E->protected_children | vws::reverse) prot->push_back(P);
+            if (E->is_protected) prot->push_back(E->ignore_labels);
         }
     }
     return true;
@@ -1400,7 +1400,15 @@ bool src::Sema::Analyse(Expr*& e) {
     if (e->sema.analysed or e->sema.in_progress) return e->sema.ok;
     if (e->sema.errored) return false;
     e->sema.set_in_progress();
+
+    /// Set this as analysed when we return from here.
     defer { e->sema.set_done(); };
+
+    /// Save whether this is the direct child of a block.
+    const bool direct_child_of_block = at_block_level;
+    at_block_level = false;
+
+    /// Analyse the expression.
     switch (e->kind) {
         /// Marked as type checked in the constructor.
         case Expr::Kind::BuiltinType:
@@ -1569,7 +1577,6 @@ bool src::Sema::Analyse(Expr*& e) {
         /// nested `defer defer` expressions, albeit degenerate, are
         /// accepted.
         case Expr::Kind::DeferExpr: {
-            protected_subexpressions.push_back(e);
             tempset curr_defer = cast<DeferExpr>(e);
             Analyse(curr_defer->expr);
         } break;
@@ -1752,8 +1759,8 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Analyse the block.
             for (auto&& [i, expr] : vws::enumerate(b->exprs)) {
-                tempset protected_subexpressions = SmallVector<Expr*, 1>{};
                 tempset needs_link_to_full_expr = SmallVector<Expr*>{};
+                at_block_level = true;
 
                 if (not Analyse(expr)) {
                     if (i == last) e->sema.set_errored();
@@ -1766,7 +1773,6 @@ bool src::Sema::Analyse(Expr*& e) {
                 }
 
                 /// Update links.
-                expr->protected_children = std::move(protected_subexpressions);
                 for (auto subexpr : needs_link_to_full_expr) {
                     if (auto n = dyn_cast<BlockExpr>(subexpr)) n->parent_full_expression = expr;
                     else if (auto d = dyn_cast<LabelExpr>(subexpr)) d->parent_full_expression = expr;
@@ -1786,7 +1792,7 @@ bool src::Sema::Analyse(Expr*& e) {
         } break;
 
         /// An invoke expression may be a procedure call, or a declaration.
-        case Expr::Kind::InvokeExpr: return AnalyseInvoke(e);
+        case Expr::Kind::InvokeExpr: return AnalyseInvoke(e, direct_child_of_block);
 
         /// Builtins are handled out of line.
         case Expr::Kind::InvokeBuiltinExpr: return AnalyseInvokeBuiltin(e);
@@ -2072,7 +2078,6 @@ bool src::Sema::Analyse(Expr*& e) {
 
         /// Parameter declaration.
         case Expr::Kind::ParamDecl: {
-            protected_subexpressions.push_back(e);
             auto var = cast<ParamDecl>(e);
             if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
             if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
@@ -2088,7 +2093,6 @@ bool src::Sema::Analyse(Expr*& e) {
 
         /// Variable declaration.
         case Expr::Kind::LocalDecl: {
-            protected_subexpressions.push_back(e);
             auto var = cast<LocalDecl>(e);
             if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
 
@@ -2867,7 +2871,7 @@ void src::Sema::AnalyseExplicitCast(Expr*& e, [[maybe_unused]] bool is_hard) {
     );
 }
 
-bool src::Sema::AnalyseInvoke(Expr*& e) {
+bool src::Sema::AnalyseInvoke(Expr*& e, bool direct_child_of_block) {
     /// Analyse the callee first.
     ///
     /// If it is a DeclRefExpr, we recognise builtins here,
@@ -3003,6 +3007,12 @@ bool src::Sema::AnalyseInvoke(Expr*& e) {
     Assert(isa<TypeBase>(ty), "Should be a type");
     if (not MakeDeclType(ty)) e->sema.set_errored();
 
+    /// Check if declarations are even allowed here.
+    if (not direct_child_of_block) return Error(
+        e,
+        "Variable declarations cannot be subexpressions"
+    );
+
     /// The arguments must be DeclRefExprs.
     for (auto& arg : invoke->args) {
         if (not isa<DeclRefExpr>(arg)) {
@@ -3131,11 +3141,6 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
     Assert(not proc->sema.analysed);
     tempset curr_scope = proc->body;
     tempset unwind_entries = decltype(unwind_entries){};
-
-    /// Protected subexpressions never cross a procedure boundary.
-    /// FIXME: Shouldn’t this be a tempset too?
-    /// FIXME: Comment above is irrelevant since this system will be yeeted soon.
-    defer { protected_subexpressions.clear(); };
 
     /// Assign a name to the procedure if it doesn’t have one.
     if (proc->name.empty())

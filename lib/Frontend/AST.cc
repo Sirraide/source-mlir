@@ -105,6 +105,11 @@ void src::LocalDecl::set_captured() {
     parent->captured_locals.push_back(this);
 }
 
+auto src::Expr::_ignore_labels() -> Expr* {
+    if (auto l = dyn_cast<LabelExpr>(this)) return l->expr->ignore_labels;
+    return this;
+}
+
 auto src::Expr::_ignore_lv2rv() -> Expr* {
     if (auto c = dyn_cast<CastExpr>(this); c and c->cast_kind == CastKind::LValueToRValue)
         return c->operand;
@@ -133,6 +138,13 @@ auto src::Expr::_ignore_paren_refs() -> Expr* {
 
 bool src::Expr::_is_nil() {
     return isa<Nil>(this);
+}
+
+bool src::Expr::_is_protected() {
+    return isa<DeferExpr, LocalDecl, ParamDecl>(ignore_labels);
+
+    /// TODO: Assertions and if expressions that act as guards cannot be
+    ///       branched into either.
 }
 
 bool src::Expr::_is_smp() {

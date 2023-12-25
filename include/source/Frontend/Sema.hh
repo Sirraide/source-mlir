@@ -247,9 +247,6 @@ class Sema {
     /// Expressions that need to know what the current full expression is.
     SmallVector<Expr*> needs_link_to_full_expr{};
 
-    /// Set when encountering a protected expression.
-    SmallVector<Expr*, 1> protected_subexpressions{};
-
     /// Expressions eligible for `.x` access.
     SmallVector<Expr*> with_stack;
 
@@ -257,6 +254,9 @@ class Sema {
 
     /// Number of anonymous procedures.
     usz lambda_counter = 0;
+
+    /// Whether we’re currently the direct child of a block.
+    bool at_block_level = false;
 
     /// Whether to print unsupported C++ imports.
     bool debug_cxx = false;
@@ -281,7 +281,7 @@ private:
     bool AnalyseDeclRefExpr(Expr*& e);
 
     void AnalyseExplicitCast(Expr*& e, bool is_hard);
-    bool AnalyseInvoke(Expr*& e);
+    bool AnalyseInvoke(Expr*& e, bool direct_child_of_block = false);
     bool AnalyseInvokeBuiltin(Expr*& e);
     void AnalyseModule();
     void AnalyseProcedure(ProcDecl* proc);

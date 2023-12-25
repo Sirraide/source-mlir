@@ -23,9 +23,6 @@ class Parser : Lexer {
     /// Default mangling scheme.
     Mangling default_mangling = Mangling::Source;
 
-    /// Whether we’re parsing a full expression.
-    bool full_expr_or_export = false;
-
 public:
     /// Parse a file into a module.
     static auto Parse(Context& ctx, File& f) -> Module*;
@@ -127,6 +124,7 @@ private:
     };
 
     static constexpr int NullPrecedence = 0;
+    static constexpr int FullExprPrecedence = 0;
 
     explicit Parser(Context* ctx, File& f);
 
@@ -159,11 +157,9 @@ private:
     auto ParseAssertion() -> Result<Expr*>;
     auto ParseBlock() -> Result<BlockExpr*>;
     auto ParseDecl() -> Result<Decl*>;
-    auto ParseExpr(int curr_prec = 0) -> Result<Expr*>;
-    auto ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>;
+    auto ParseExpr(int curr_prec = FullExprPrecedence, bool full_expression = false) -> Result<Expr*>;
     void ParseFile();
     auto ParseFor() -> Result<Expr*>;
-    auto ParseIdentExpr() -> Result<Expr*>;
     auto ParseIf() -> Result<Expr*>;
     auto ParseImplicitBlock() -> Result<BlockExpr*>;
     auto ParseNakedInvokeExpr(Expr* callee) -> Result<InvokeExpr*>;
@@ -171,6 +167,8 @@ private:
     void ParsePragma();
     auto ParseProc() -> Result<ProcDecl*>;
     auto ParseProcBody() -> Result<BlockExpr*>;
+    auto ParseStmt() -> Result<Expr*>;
+    auto ParseStmts(Tk until, SmallVector<Expr*>& into) -> Result<void>;
     auto ParseSignature() -> Signature;
     auto ParseStruct() -> Result<StructType*>;
     auto ParseType() -> Result<Type>;

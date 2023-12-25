@@ -123,9 +123,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Bool:
         case Tk::Break:
         case Tk::Continue:
-        case Tk::Defer:
         case Tk::Dot:
-        case Tk::Export:
         case Tk::False:
         case Tk::For:
         case Tk::ForReverse:
@@ -204,11 +202,11 @@ auto src::Parser::ParseAssertion() -> Result<Expr*> {
     return new (mod) AssertExpr(*cond, *mess, {start, *mess ? mess->location : cond->location});
 }
 
-/// <expr-block> ::= "{" { <expr> ";" } "}"
+/// <expr-block> ::= "{" <stmts> "}"
 auto src::Parser::ParseBlock() -> Result<BlockExpr*> {
     ScopeRAII sc{this, curr_loc};
     Assert(Consume(Tk::LBrace));
-    if (not ParseExprs(Tk::RBrace, sc.scope->exprs)) return Diag();
+    if (not ParseStmts(Tk::RBrace, sc.scope->exprs)) return Diag();
     sc.scope->location = {sc.scope->location, curr_loc};
     if (not Consume(Tk::RBrace)) Error("Expected '}}'");
     return sc.scope;
@@ -246,12 +244,7 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
 /// <expr-subscript> ::= <expr> "[" <expr> "]"
 /// <expr-tuple>     ::= "(" { <expr> "," } [ <expr> ] ")"
 /// <array-literal>  ::= "[" { <expr>  "," } [ <expr> ] "]"
-auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
-    /// A ProcDecl must be wrapped in DeclRefExpr if it is not a full
-    /// expression or not preceded by 'export'.
-    const bool wrap_procedure_in_decl_ref = not full_expr_or_export;
-    tempset full_expr_or_export = false;
-
+auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*> {
     /// See below.
     const auto start_token = tok.type;
 
@@ -288,9 +281,11 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             lhs = ParseBlock();
             break;
 
-        case Tk::Identifier:
-            lhs = ParseIdentExpr();
-            break;
+        /// <expr-decl-ref> ::= IDENTIFIER
+        case Tk::Identifier: {
+            auto text = tok.text;
+            lhs = new (mod) DeclRefExpr(std::move(text), curr_scope, Next());
+        } break;
 
         /// Member access.
         case Tk::Dot: {
@@ -345,7 +340,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             lhs = ParseProc();
 
             /// The backend doesn’t like ProcDecls that are referenced directly in expressions.
-            if (wrap_procedure_in_decl_ref and lhs and isa<ProcDecl>(*lhs)) {
+            if (not full_expression and lhs and isa<ProcDecl>(*lhs)) {
                 auto dr = new (mod) DeclRefExpr(cast<ProcDecl>(*lhs)->name, curr_scope, lhs->location);
                 dr->decl = *lhs;
                 lhs = dr;
@@ -368,15 +363,6 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
         case Tk::ForReverse:
             lhs = ParseFor();
             break;
-
-        /// <expr-export> ::= EXPORT <expr>
-        case Tk::Export: {
-            tempset full_expr_or_export = true;
-            auto start = Next();
-            lhs = ParseExpr();
-            if (IsError(lhs)) return lhs.diag;
-            lhs = new (mod) ExportExpr(*lhs, {start, lhs->location});
-        } break;
 
         /// <expr-return> ::= RETURN [ <expr> ]
         case Tk::Return: {
@@ -644,8 +630,53 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
     return lhs;
 }
 
-/// <exprs> ::= { <expr> | <pragma> | ";" }
-auto src::Parser::ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void> {
+/// Parse a statement.
+///
+/// Declarations are handled by ParseExpr() since it is in some cases
+/// impossibly to know at parse time whether something is or isn’t a
+/// declaration. We only handle obvious cases here and leave the rest
+/// to Sema.
+auto src::Parser::ParseStmt() -> Result<Expr*> {
+    const auto ParseFullExpr = [&] { return ParseExpr(FullExprPrecedence, true); };
+    switch (tok.type) {
+        default: return ParseFullExpr();
+
+        /// <stmt-defer> ::= DEFER <implicit-block>
+        case Tk::Defer: {
+            auto start = Next();
+            auto block = ParseImplicitBlock();
+            if (IsError(block)) return block.diag;
+            return new (mod) DeferExpr(*block, {start, block->location});
+        }
+
+        /// <stmt-export> ::= EXPORT <stmt>
+        case Tk::Export: {
+            auto start = Next();
+            auto stmt = ParseStmt();
+            if (IsError(stmt)) return stmt.diag;
+            return new (mod) ExportExpr(*stmt, {start, stmt->location});
+        }
+
+        /// <stmt-labelled>  ::= IDENTIFIER ":" <stmt>
+        case Tk::Identifier: {
+            /// If the next token is `:`, then this is a label.
+            if (Is(LookAhead(1), Tk::Colon)) {
+                auto text = tok.text;
+                auto start = curr_loc;
+                Next(), Next();
+                auto stmt = ParseStmt();
+                if (IsError(stmt)) return stmt.diag;
+                return new (mod) LabelExpr(curr_func, std::move(text), *stmt, start);
+            }
+
+            /// Otherwise, this is a regular name.
+            return ParseFullExpr();
+        }
+    }
+}
+
+/// <stmts> ::= { <stmt> | <pragma> }
+auto src::Parser::ParseStmts(Tk until, SmallVector<Expr*>& into) -> Result<void> {
     while (not At(Tk::Eof, until)) {
         /// Yeet excess semicolons.
         while (Consume(Tk::Semicolon)) continue;
@@ -657,9 +688,8 @@ auto src::Parser::ParseExprs(Tk until, SmallVector<Expr*>& into) -> Result<void>
             continue;
         }
 
-        /// Parse an expression.
-        tempset full_expr_or_export = true;
-        auto e = ParseExpr();
+        /// Parse a top-level expression.
+        auto e = ParseStmt();
         if (IsError(e)) {
             Synchronise();
             Consume(Tk::Semicolon);
@@ -776,7 +806,7 @@ void src::Parser::ParseFile() {
     scope_stack.push_back(mod->global_scope);
 
     /// Parse expressions.
-    std::ignore = ParseExprs(Tk::Eof, mod->top_level_func->body->exprs);
+    std::ignore = ParseStmts(Tk::Eof, mod->top_level_func->body->exprs);
 }
 
 /// <expr-for-in> ::= FOR <type> IDENTIFIER IN <expr> <do>
@@ -808,25 +838,6 @@ auto src::Parser::ParseFor() -> Result<Expr*> {
     auto body = ParseImplicitBlock();
     if (IsError(body)) return body.diag;
     return new (mod) ForInExpr(decl, *range, *body, reverse, start);
-}
-
-/// <expr-decl-ref> ::= IDENTIFIER
-/// <expr-labelled> ::= IDENTIFIER ":" <expr>
-auto src::Parser::ParseIdentExpr() -> Result<Expr*> {
-    auto text = tok.text;
-    auto start = Next();
-
-    /// If the next token is `:`, then this is a label.
-    if (Consume(Tk::Colon)) {
-        const auto Label = [&](Expr* e) {
-            return new (mod) LabelExpr(curr_func, std::move(text), e, start);
-        };
-
-        return ParseExpr() >> Label;
-    }
-
-    /// Otherwise, this is a regular name.
-    return new (mod) DeclRefExpr(std::move(text), curr_scope, start);
 }
 
 /// <expr-if> ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]

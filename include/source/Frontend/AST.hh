@@ -103,11 +103,6 @@ public:
     /// Check if this is an lvalue.
     bool is_lvalue : 1 = false;
 
-    /// Protected subexpressions (i.e. defers and local variables).
-    /// Only applicable to full expressions at the block level. This
-    /// may also contain the expression itself if it is protected.
-    SmallVector<Expr*, 1> protected_children{};
-
 private:
     friend Context;
     void* operator new(size_t sz) {
@@ -126,6 +121,9 @@ public:
     /// Iterate over all children of this node.
     auto children() -> utils::Generator<Expr**>;
 
+    /// Strip labels.
+    readonly_decl(Expr*, ignore_labels);
+
     /// Strip lvalue-to-rvalue conversion. This only removes one
     /// level of lvalue-to-rvalue conversion, not lvalue-ref-to-lvalue
     /// conversion.
@@ -142,6 +140,10 @@ public:
 
     /// Check if this is 'nil'.
     readonly_decl(bool, is_nil);
+
+    /// Check if this is an expression that we can not branch
+    /// over forwards (e.g. DeferExpr, LocalDecl).
+    readonly_decl(bool, is_protected);
 
     /// Whether this is an initialiser/deleter of a struct, an
     /// overload set thereof, or a procedure type that is an smp.

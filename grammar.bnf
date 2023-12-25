@@ -1,14 +1,45 @@
-<file> ::= <module-part> <exprs>
+<file> ::= <module-part> <stmts>
 
 <module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT <import-name> [ AS IDENTIFIER ] ";" }
 <import-name> ::= IDENTIFIER [ "." "*" ] | <header-name>
 <header-name> ::= "<" TOKENS ">"
 
 /// ===========================================================================
+///  Statements
+/// ===========================================================================
+/// Note that ‘statement’ in this language is even more of a syntactic concept
+/// than in e.g. C or C++: Whether an expression is a statement has nothing to
+/// do with whether it returns a value; instead, a ‘statement’ is something that
+/// may occur *only* as a direct child of a BlockExpr or at the top-level of the
+/// file. The only reason were even using the term ‘statement’ for this is because
+/// ‘TopLevelExpr’ sounds a bit stupid when there is already a term that conveys
+/// pretty much the same, at least syntactically.
+///
+/// This is to prevent weird edge cases wrt e.g. lifetimes: for example, checking
+/// whether a forward goto is valid becomes substantially more complicated if every
+/// random subexpression of an expression inbetween the goto and the target could
+/// be a defer expression.
+///
+/// Branching into the middle of an expression is similarly problematic, which is
+/// why labels are also statements. Generally, these restrictions will have virtually
+/// no impact on actual code since you’d have to be clinically insane to attempt any
+/// of the things that this syntactic restriction is intended to prevent.
+///
+/// Generally, we prefer to make everything an expression, unless there is an explicit
+/// reason not to do so.
+<stmts> ::= { <stmt> | <pragma> }
+<stmt>  ::= <expr>
+          | <stmt-labelled>
+          | <stmt-export>
+          | <stmt-defer>
+          | <decl>
+
+<stmt-labelled>  ::= IDENTIFIER ":" <stmt>
+<stmt-export>    ::= EXPORT <stmt>
+<stmt-defer>     ::= DEFER <implicit-block>
+/// ===========================================================================
 ///  Expressions
 /// ===========================================================================
-<exprs> ::= { <expr> | <pragma> | ";" }
-
 <expr> ::= <expr-invoke>
          | <expr-proc>
          | <expr-literal>
@@ -20,13 +51,10 @@
          | <expr-binary>
          | <expr-assert>
          | <expr-return>
-         | <expr-defer>
          | <expr-cast>
          | <expr-while>
-         | <expr-labelled>
          | <expr-loop-ctrl>
          | <expr-jump>
-         | <expr-export>
          | <expr-qual-name>
          | <expr-paren>
          | <expr-subscript>
@@ -35,12 +63,11 @@
          | <expr-with>
          | <expr-tuple>
          | <type-struct>
-         | <decl>
 
 <expr-assert>    ::= ASSERT <expr> [ ","  <expr> ]
 <expr-invoke>    ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
 <expr-proc>      ::= <proc-extern> | <proc-named>
-<expr-block>     ::= "{" <exprs> "}"
+<expr-block>     ::= "{" <stmts> "}"
 <expr-decl-ref>  ::= IDENTIFIER
 <expr-access>    ::= [ <expr> ] "." [ IDENTIFIER | INIT ]
 <expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL | <array-literal>
@@ -48,14 +75,11 @@
 <expr-binary>    ::= <expr> <binary-op> <expr>
 <expr-if>        ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
 <expr-return>    ::= RETURN [ <expr> ]
-<expr-defer>     ::= DEFER <implicit-block>
 <expr-cast>      ::= <expr> ( "as" | "as!" ) <type>
 <expr-while>     ::= WHILE <expr> <do>
 <expr-for-in>    ::= FOR IDENTIFIER IN <expr> <do>
-<expr-labelled>  ::= IDENTIFIER ":" <expr>
 <expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
 <expr-jump>      ::= GOTO IDENTIFIER
-<expr-export>    ::= EXPORT <expr>
 <expr-qual-name> ::= <expr> "::" IDENTIFIER
 <expr-paren>     ::= "(" <expr> ")"
 <expr-subscript> ::= <expr> "[" <expr> "]"
@@ -75,7 +99,7 @@
 <then>           ::= [ THEN ] <implicit-block>
 <do>             ::= [ DO ] <implicit-block>
 <array-literal>  ::= "[" { <expr>  "," } [ <expr> ] "]"
-<implicit-block> ::= <expr> /// Syntactically any expression, but wrapped in an implicit block if it isn’t already one.
+<implicit-block> ::= <stmt> /// Syntactically any statement, but wrapped in an implicit block if it isn’t already one.
 <prefix-op>      ::= /// All prefix operators.
 <binary-op>      ::= /// All binary operators.
 
