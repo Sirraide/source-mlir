@@ -50,7 +50,7 @@ enum struct LocalKind : u8 {
 /// ===========================================================================
 ///  Special Expressions
 /// ===========================================================================
-class Expr {
+class alignas(void*) Expr {
 public:
     enum struct Kind : u8 {
 #define SOURCE_AST_EXPR(name) name,
@@ -92,16 +92,16 @@ public:
     };
 
     /// The kind of this expression.
-    const Kind kind;
-
-    /// The location of this expression.
-    Location location;
+    Kind kind;
 
     /// State of semantic analysis
     SemaState sema{};
 
     /// Check if this is an lvalue.
     bool is_lvalue : 1 = false;
+
+    /// The location of this expression.
+    Location location;
 
 private:
     friend Context;
@@ -110,16 +110,14 @@ private:
     }
 
 public:
-    Expr(Kind k, Location loc) : kind(k), location(loc) {}
     virtual ~Expr() = default;
+
+    Expr(Kind k, Location loc) : kind(k), location(loc) {}
 
     /// Only allow allocating nodes in a module.
     void* operator new(size_t sz, Module* mod) noexcept {
         return utils::AllocateAndRegister<Expr>(sz, mod->exprs);
     }
-
-    /// Iterate over all children of this node.
-    auto children() -> utils::Generator<Expr**>;
 
     /// Strip labels.
     readonly_decl(Expr*, ignore_labels);
@@ -833,7 +831,6 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::ArrayLiteralExpr; }
 };
 
-
 /// ===========================================================================
 ///  Typed Expressions
 /// ===========================================================================
@@ -894,7 +891,7 @@ enum struct ScopeKind : u8 {
 
 class BlockExpr : public TypedExpr {
 public:
-    using Symbols = SmallVector<Expr*, 1>;
+    using Symbols = llvm::TinyPtrVector<Expr*>;
 
     /// The expressions that are part of this block.
     SmallVector<Expr*> exprs;
@@ -1797,7 +1794,7 @@ class StructType
     : public RecordType
     , public Named {
 public:
-    using MemberProcedures = StringMap<SmallVector<ProcDecl*, 1>>;
+    using MemberProcedures = StringMap<llvm::TinyPtrVector<ProcDecl*>>;
 
     /// Initialisers of this struct.
     SmallVector<ProcDecl*> initialisers;

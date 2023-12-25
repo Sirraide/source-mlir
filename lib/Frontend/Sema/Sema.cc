@@ -986,7 +986,6 @@ auto src::Sema::UnwindLocal(UnwindContext ctx, BlockExpr* S, Expr* FE, Expr* To)
     /// Handle protected subexpressions.
     for (auto E : rgs::subrange(ToIter, FEIter) | vws::reverse) {
         if (auto expr = ctx.dyn_cast<Expr*>()) {
-            /// TODO: `protected_children` is horrible jank; get rid of it somehow.
             if (E->is_protected) {
                 Error(expr, "Jump is ill-formed");
                 Diag::Note(

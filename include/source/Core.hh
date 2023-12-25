@@ -368,7 +368,7 @@ public:
     SmallVector<ImportedModuleRef> imports;
 
     /// Exported declarations.
-    StringMap<SmallVector<Expr*, 1>> exports;
+    StringMap<llvm::TinyPtrVector<Expr*>> exports;
 
     /// Named structs.
     SmallVector<StructType*, 64> named_structs;

@@ -23,6 +23,7 @@
 #include <llvm/ADT/StringMap.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/StringSwitch.h>
+#include <llvm/ADT/TinyPtrVector.h>
 #include <llvm/IR/Function.h>
 #include <memory>
 #include <mlir/Support/LogicalResult.h>
