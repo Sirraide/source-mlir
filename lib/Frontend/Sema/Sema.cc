@@ -721,7 +721,7 @@ void src::Sema::ReportOverloadResolutionFailure(
 ///
 /// The branch to `label` in this example would skip the initialisation
 /// of `x`, and not only cause the `print` call to use an uninitialised
-/// variable. Even without the `print` call, the destructor of `x` would
+/// variable, but even without that call, the destructor of `x` would
 /// still execute at end of scope and attempt to delete an uninitialised
 /// variable. This branch is therefore ill-formed, and it shows that, in
 /// general, control flow must not ‘jump over’ (that is, move forward
@@ -783,12 +783,12 @@ void src::Sema::ReportOverloadResolutionFailure(
 ///    └─GotoExpr (Source)
 /// \endcode
 ///
-/// In order to handle such branches in a same manner, it helps to
+/// In order to handle such branches in a sane manner, it helps to
 /// operate based on the assumption that control flow never actually
 /// ‘jumps’ around randomly, but instead always flows from a parent
 /// scope to a direct child or vice versa: in this case, we do not
 /// simply jump from the source to the target, but rather, we move
-/// up one scope from the source, to the NCA block, then backwards
+/// up one scope from the source into the NCA block, then backwards
 /// in that block to the block containing the target, and then down
 /// to the target.
 ///
@@ -860,28 +860,22 @@ void src::Sema::ReportOverloadResolutionFailure(
 /// }
 /// \endcode
 ///
-/// While rather deranged, it shows that both protected expressions and scopes
-/// need not occur directly at the top-level of another scope, but may instead
-/// be nested arbitrarily in other expressions; this means that we can’t simply
-/// iterate over each expression in the parent scope to check if e.g. `int y`
-/// precedes or follows `{ goto back; }`.
+/// This is rather problematic since it would involve decomposing arbitrarily
+/// complex subexpressions and searching them for protected expressions; while
+/// potentially doable, it isn’t particularly useful. A deferred expression in
+/// the middle of another expression is a fairly stupid construct; furthermore,
+/// labels in the middle of expressions are similarly problematic, as what would
+/// a branch to `foo` in `x = 3 + foo: 4` even mean?
 ///
-/// To enable this, we introduce the concept of a *full expression* (FE): an
-/// expression is a full expression, iff its parent is a block expression
-/// (= scope). The *parent full expression* `FE(e)` of an expression `e` is the
-/// closest full expression that contains `e` (or `e` itself if it is a full
-/// expression).
+/// A solution to this problem is to forbid certain expressions in any position
+/// except at the top-level of an (implicit) block expression; this is one of
+/// the reasons why we introduced the concept of a Statement in the grammar even
+/// though this language is mainly expression-based. See the grammar for more
+/// information on this.
 ///
-/// This allows us to compare expressions with one another wrt where they
-/// occur in a scope by examining the relative order of their parent full
-/// expressions: here, the FE containing `back:` is second in its parent,
-/// and the FE containing `{ goto back; }` third. Thus, this is an example
-/// of backwards movement in the same scope.
-///
-/// Full expressions also allow us to deal with nested protected expressions:
-/// in this case, the jump would unwind over the *protected subexpression*
-/// `int y`, which means that we need to generate a destructor call here before
-/// performing the jump.
+/// TODO: Once we have temporary materialisation, deal w/ destroying temporaries
+///       properly. Does that influence us being able to branch *out* of the middle
+///       of an expression? What about initialisers? Can we branch out of those?
 ///
 /// Now that we have come to a detailed understanding of how jumps work, let
 /// us consider an actual algorithm for validating jumps (and determining what,
