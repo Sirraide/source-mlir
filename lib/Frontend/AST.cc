@@ -90,6 +90,15 @@ src::LabelExpr::LabelExpr(
     in_procedure->add_label(this->label, this);
 }
 
+src::TupleIndexExpr::TupleIndexExpr(Expr* object, FieldDecl* field, Location loc)
+    : TypedExpr(Kind::TupleIndexExpr, field->type, loc),
+      object(object),
+      field(field) {
+    Assert(object->sema.ok and field->sema.ok);
+    sema.set_done();
+    is_lvalue = object->is_lvalue;
+}
+
 void src::LocalDecl::set_captured() {
     if (is_captured) return;
     is_captured = true;
@@ -179,6 +188,9 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::SliceType:
         case Kind::StringLiteralExpr:
         case Kind::SubscriptExpr:
+        case Kind::TupleExpr:
+        case Kind::TupleIndexExpr:
+        case Kind::TupleType:
         case Kind::UnaryPrefixExpr:
         case Kind::WhileExpr:
         case Kind::WithExpr:
@@ -269,6 +281,8 @@ auto src::Expr::_type() -> Type {
         case Kind::ScopeAccessExpr:
         case Kind::StringLiteralExpr:
         case Kind::SubscriptExpr:
+        case Kind::TupleExpr:
+        case Kind::TupleIndexExpr:
         case Kind::UnaryPrefixExpr:
         case Kind::WithExpr:
             return cast<TypedExpr>(this)->stored_type;
@@ -288,6 +302,7 @@ auto src::Expr::_type() -> Type {
         case Kind::SliceType:
         case Kind::StructType:
         case Kind::SugaredType:
+        case Kind::TupleType:
             return Type(this);
     }
 }
@@ -313,8 +328,8 @@ src::StructType::StructType(
     BlockExpr* scope,
     Mangling mangling,
     Location loc
-) : NamedType(Kind::StructType, mod, std::move(sname), mangling, loc),
-    all_fields(std::move(fields)),
+) : RecordType(Kind::StructType, std::move(fields), loc),
+    Named(mod, std::move(sname), mangling),
     initialisers(std::move(inits)),
     member_procs(std::move(member_procs)),
     deleter(deleter),
@@ -365,7 +380,8 @@ auto src::Type::align(Context* ctx) const -> Align {
             return cast<SingleElementTypeBase>(ptr)->elem->type.align(ctx);
 
         case Expr::Kind::StructType:
-            return cast<StructType>(ptr)->stored_alignment;
+        case Expr::Kind::TupleType:
+            return cast<RecordType>(ptr)->stored_alignment;
 
         case Expr::Kind::OptionalType: {
             auto opt = cast<OptionalType>(ptr);
@@ -491,7 +507,8 @@ auto src::Type::size(Context* ctx) const -> Size {
         }
 
         case Expr::Kind::StructType:
-            return cast<StructType>(ptr)->stored_size;
+        case Expr::Kind::TupleType:
+            return cast<RecordType>(ptr)->stored_size;
 
         case Expr::Kind::OptionalType: {
             auto o = cast<OptionalType>(ptr);
@@ -624,6 +641,16 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
             }
         } break;
 
+        case Expr::Kind::TupleType: {
+            auto s = cast<TupleType>(ptr);
+            out += fmt::format("{}(", C(Red));
+            for (auto [i, elem] : vws::enumerate(s->field_types())) {
+                if (i != 0) out += fmt::format("{}, ", C(Red));
+                out += elem->type.str(use_colour);
+            }
+            out += fmt::format("{})", C(Red));
+        } break;
+
         case Expr::Kind::OpaqueType:
             out += fmt::format("{}{}", C(Cyan), cast<OpaqueType>(ptr)->name);
             break;
@@ -694,6 +721,9 @@ bool src::Type::_trivial() {
 
         case Expr::Kind::ArrayType:
             return cast<ArrayType>(ptr)->elem.trivial;
+
+        case Expr::Kind::TupleType:
+            return rgs::all_of(cast<TupleType>(ptr)->field_types(), std::identity{}, &Type::_trivial);
 
         case Expr::Kind::StructType: {
             auto s = cast<StructType>(ptr);
@@ -771,6 +801,12 @@ bool src::operator==(Type a, Type b) {
             return pa->ret_type == pb->ret_type;
         }
 
+        case Expr::Kind::TupleType: {
+            auto ta = cast<TupleType>(a);
+            auto tb = cast<TupleType>(b);
+            return RecordType::LayoutCompatible(ta, tb);
+        }
+
         case Expr::Kind::StructType: {
             auto sa = cast<StructType>(a);
             auto sb = cast<StructType>(b);
@@ -790,7 +826,7 @@ bool src::operator==(Type a, Type b) {
             if (not sa->initialisers.empty() or not sb->initialisers.empty()) return false;
             if (not sa->member_procs.empty() or not sb->member_procs.empty()) return false;
             if (sa->deleter or sb->deleter) return false;
-            return StructType::LayoutCompatible(sa, sb);
+            return RecordType::LayoutCompatible(sa, sb);
         }
 
         SOURCE_NON_TYPE_EXPRS:
@@ -820,18 +856,12 @@ auto src::TypeBase::DenseMapInfo::getHashValue(const Expr* t) -> usz {
 
 /// This only checks the layout; whether this makes sense
 /// at all is up to the caller.
-bool src::StructType::LayoutCompatible(StructType* a, StructType* b) {
-    using std::get;
-    if (a->all_fields.size() != b->all_fields.size()) return false;
-
-    /// Check if all fields’ types are the same. Note that,
-    /// since padding is explicitly encoded in the form of
-    /// extra fields, this also takes care of checking for
-    /// alignment.
-    return llvm::all_of(
-        llvm::zip_equal(a->field_types(), b->field_types()),
-        [](auto&& t) { return std::get<0>(t) == std::get<1>(t); }
-    );
+bool src::RecordType::LayoutCompatible(RecordType* a, RecordType* b) {
+    /// This also checks for padding and alignment since those
+    /// are encoded as extra padding fields.
+    return a->stored_size == b->stored_size and
+           a->stored_alignment == b->stored_alignment and
+           rgs::equal(a->field_types(), b->field_types());
 }
 
 auto src::BlockExpr::NCAInFunction(BlockExpr* a, BlockExpr* b) -> BlockExpr* {
@@ -1242,6 +1272,8 @@ struct ASTPrinter {
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
             case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::TupleExpr: PrintBasicNode("TupleExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::TupleIndexExpr: PrintBasicNode("TupleIndexExpr", e, static_cast<Expr*>(e->type)); return;
             case K::WithExpr: PrintBasicNode("WithExpr", e, static_cast<Expr*>(e->type)); return;
 
             case K::FieldDecl: {
@@ -1341,6 +1373,7 @@ struct ASTPrinter {
             case K::ScopedType:
             case K::SliceType:
             case K::SugaredType:
+            case K::TupleType:
                 PrintBasicNode("Type", e, e);
                 return;
         }
@@ -1377,6 +1410,7 @@ struct ASTPrinter {
             case K::ScopedType:
             case K::SliceType:
             case K::SugaredType:
+            case K::TupleType:
                 break;
 
             case K::StructType: {
@@ -1480,6 +1514,16 @@ struct ASTPrinter {
                 PrintChildren({b->lhs, b->rhs}, leading_text);
             } break;
 
+            case K::TupleExpr: {
+                auto t = cast<TupleExpr>(e);
+                PrintChildren(t->elements, leading_text);
+            } break;
+
+            case K::TupleIndexExpr: {
+                auto t = cast<TupleIndexExpr>(e);
+                PrintChildren({t->object, t->field}, leading_text);
+            } break;
+
             case K::SubscriptExpr: {
                 auto s = cast<SubscriptExpr>(e);
                 PrintChildren({s->object, s->index}, leading_text);
@@ -1578,6 +1622,11 @@ struct ASTPrinter {
 
     /// Print a node.
     void operator()(Expr* e, std::string leading_text = "") {
+        if (e->sema.errored) {
+            out += "<<<ERROR>>>\n";
+            return;
+        }
+
         PrintHeader(e);
         PrintNodeChildren(e, std::move(leading_text));
     }

@@ -70,6 +70,11 @@ class Assimilator {
                 DoAssimilate(o->module);
             } break;
 
+            case Expr::Kind::TupleType: {
+                auto st = cast<TupleType>(e);
+                for (auto& f : st->all_fields) Assimilate(f);
+            } break;
+
             case Expr::Kind::StructType: {
                 auto st = cast<StructType>(e);
                 for (auto& f : st->all_fields) Assimilate(f);
@@ -235,6 +240,17 @@ class Assimilator {
                 auto b = cast<BinaryExpr>(e);
                 Assimilate(b->lhs);
                 Assimilate(b->rhs);
+            } break;
+
+            case Expr::Kind::TupleExpr: {
+                auto t = cast<TupleExpr>(e);
+                for (auto& elem : t->elements) Assimilate(elem);
+            } break;
+
+            case Expr::Kind::TupleIndexExpr: {
+                auto t = cast<TupleIndexExpr>(e);
+                Assimilate(t->object);
+                Assimilate(t->field);
             } break;
 
             case Expr::Kind::DeclRefExpr: {

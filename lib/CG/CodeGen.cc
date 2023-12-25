@@ -8,7 +8,6 @@
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/IR/Builders.h>
-#include <source/CG/ASTIRInterface.hh>
 #include <source/CG/CodeGen.hh>
 #include <source/Core.hh>
 #include <source/Frontend/AST.hh>
@@ -34,6 +33,12 @@ struct CodeGen {
     /// These should not be emitted multiple times.
     DenseMap<LocalDecl*, mlir::Value> local_vars;
     DenseMap<DeferExpr*, hlir::DeferOp> defers;
+
+    /// Captured locals pointer for procedures.
+    DenseMap<ProcDecl*, mlir::Value> captured_locals_ptrs;
+
+    /// Cached types.
+    DenseMap<RecordType*, mlir::Type> record_types;
 
     /// Procedure we’re currently emitting.
     ProcDecl* curr_proc{};
@@ -175,7 +180,7 @@ void src::CodeGen::AllocateLocalVar(LocalDecl* decl) {
     if (decl->captured) {
         local_vars[decl] = Create<hlir::StructGEPOp>(
             Loc(decl->location),
-            decl->parent->captured_locals_ptr,
+            captured_locals_ptrs.at(decl->parent),
             decl->capture_index
         );
     } else {
@@ -585,7 +590,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
 
     /// Associate it with the procedure and create the vars area.
     proc->captured_locals_type = s;
-    proc->captured_locals_ptr = Create<hlir::LocalOp>(
+    captured_locals_ptrs[proc] = Create<hlir::LocalOp>(
         builder.getUnknownLoc(),
         Ty(s),
         s->stored_alignment.value(),
@@ -599,7 +604,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
         /// Save the pointer.
         Create<hlir::StoreOp>(
             builder.getUnknownLoc(),
-            proc->captured_locals_ptr,
+            captured_locals_ptrs.at(proc),
             func.getExplicitArgument(u32(proc->params.size())), /// (!)
             8                                                   /// FIXME: Get alignment of pointer type from context.
         );
@@ -622,14 +627,14 @@ auto src::CodeGen::GetIntType(Size width) -> mlir::IntegerType {
 auto src::CodeGen::GetStaticChainPointer(ProcDecl* proc) -> mlir::Value {
     /// Current procedure.
     if (curr_proc == proc) {
-        Assert(proc->captured_locals_ptr);
-        return proc->captured_locals_ptr;
+        Assert(captured_locals_ptrs.contains(proc));
+        return captured_locals_ptrs.at(proc);
     }
 
     /// Load the parent’s chain pointer.
     mlir::Value chain = Create<hlir::ChainExtractLocalOp>(
         builder.getUnknownLoc(),
-        curr_proc->captured_locals_ptr,
+        captured_locals_ptrs.at(curr_proc),
         0
     );
 
@@ -734,34 +739,40 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
             Todo();
         }
 
-        case Expr::Kind::StructType: {
-            auto s = cast<StructType>(type);
-            if (s->mlir) return s->mlir;
+        case Expr::Kind::StructType:
+        case Expr::Kind::TupleType: {
+            using mlir::LLVM::LLVMStructType;
+            auto r = cast<RecordType>(type);
+            if (auto it = record_types.find(r); it != record_types.end()) return it->second;
 
             /// Handle recursion.
-            if (not s->name.empty())
-                s->mlir = mlir::LLVM::LLVMStructType::getIdentified(mctx, s->name);
+            if (auto s = dyn_cast<StructType>(r); not s->name.empty())
+                record_types[s] = LLVMStructType::getIdentified(mctx, s->name);
 
             /// Collect element types.
-            auto range = s->field_types() | vws::transform([&](auto t) { return Ty(t); });
+            auto range = r->field_types() | vws::transform([&](auto t) { return Ty(t); });
             SmallVector<mlir::Type> elements{range.begin(), range.end()};
 
             /// Named struct.
-            if (not s->name.empty()) {
-                auto ok = cast<mlir::LLVM::LLVMStructType>(s->mlir).setBody(elements, false);
-                if (mlir::failed(ok)) Diag::ICE(ctx, s->location, "Could not convert struct type to HLIR");
+            if (auto s = dyn_cast<StructType>(r); not s->name.empty()) {
+                auto ok = cast<LLVMStructType>(record_types.at(s)).setBody(elements, false);
+                if (mlir::failed(ok)) Diag::ICE(
+                    ctx,
+                    s->location,
+                    "Could not convert struct type to HLIR"
+                );
             }
 
             /// Literal struct.
             else {
-                s->mlir = mlir::LLVM::LLVMStructType::getLiteral(
+                record_types[r] = LLVMStructType::getLiteral(
                     mctx,
                     elements,
                     false
                 );
             }
 
-            return s->mlir;
+            return record_types.at(r);
         }
 
         case Expr::Kind::Nil:
@@ -804,6 +815,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         case Expr::Kind::ScopedType:
         case Expr::Kind::SliceType:
         case Expr::Kind::SugaredType:
+        case Expr::Kind::TupleType:
             Unreachable();
 
         case Expr::Kind::OverloadSetExpr:
@@ -915,7 +927,6 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
                         hlir::ReferenceType::get(Ty(i->type))
                     );
                 }
-
             }
 
             Unreachable();
@@ -1455,7 +1466,10 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             return CreateInt(Loc(e->location), e->value, e->type);
         }
 
+        case Expr::Kind::TupleExpr: Unreachable("Cannot emit tuple literals w/o a result object");
         case Expr::Kind::ArrayLiteralExpr: Unreachable("Cannot emit array literals w/o a result object");
+
+        case Expr::Kind::TupleIndexExpr: Todo();
 
         case Expr::Kind::LocalDecl:
         case Expr::Kind::ParamDecl: {

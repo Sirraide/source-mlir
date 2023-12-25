@@ -22,7 +22,14 @@
 /// ===========================================================================
 ///  Context
 /// ===========================================================================
-src::Context::~Context() = default;
+src::Context::~Context() {
+    delete ffi_char;
+    delete ffi_short;
+    delete ffi_int;
+    delete ffi_long;
+    delete ffi_long_long;
+    delete ffi_size_t;
+}
 
 src::Context::Context() {
     Initialise();

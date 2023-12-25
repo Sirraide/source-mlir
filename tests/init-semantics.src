@@ -1,0 +1,39 @@
+
+struct trivial {
+    i32 a;
+    i32 b;
+}
+
+struct default_ctor {
+    i32 a;
+    i32 b;
+
+    init {
+        .a = 1;
+        .b = 2;
+    }
+}
+
+struct no_default_ctor {
+    i32 a;
+    i32 b;
+
+    init (i32 a, i32 b) {
+        .a = a;
+        .b = b;
+    }
+}
+
+/// Default-initialised on declaration.
+trivial x;
+
+/// Must be constructed on declaration because it
+/// has a non-trivial default constructor.
+default_ctor y;
+
+/// Has no default constructor, so this is uninitialised;
+/// it has to be constructed before it can be used.
+no_default_ctor z;
+
+/// Use z.
+z = (3, 4);

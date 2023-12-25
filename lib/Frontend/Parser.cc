@@ -244,6 +244,7 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
 /// <expr-invoke>    ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
 /// <expr-paren>     ::= "(" <expr> ")"
 /// <expr-subscript> ::= <expr> "[" <expr> "]"
+/// <expr-tuple>     ::= "(" { <expr> "," } [ <expr> ] ")"
 /// <array-literal>  ::= "[" { <expr>  "," } [ <expr> ] "]"
 auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
     /// A ProcDecl must be wrapped in DeclRefExpr if it is not a full
@@ -419,13 +420,28 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             }
         } break;
 
-        /// Parenthesised expression.
+        /// Parenthesised expression or tuple.
         case Tk::LParen: {
             auto start = Next();
             auto expr = ParseExpr();
-            if (not At(Tk::RParen)) return Error("Expected ')'");
             if (IsError(expr)) return expr.diag;
-            lhs = new (mod) ParenExpr(*expr, {start, curr_loc});
+
+            /// At least one comma means this is a tuple.
+            if (Consume(Tk::Comma)) {
+                SmallVector<Expr*> exprs{*expr};
+                while (not At(Tk::RParen, Tk::Eof)) {
+                    expr = ParseExpr();
+                    if (IsError(expr)) return expr.diag;
+                    exprs.push_back(*expr);
+                    if (not Consume(Tk::Comma)) break;
+                }
+
+                lhs = new (mod) TupleExpr(std::move(exprs), {start, curr_loc});
+            } else {
+                lhs = new (mod) ParenExpr(*expr, {start, curr_loc});
+            }
+
+            if (not At(Tk::RParen)) return Error("Expected ')'");
             Next();
         } break;
 
@@ -467,6 +483,7 @@ auto src::Parser::ParseExpr(int curr_prec) -> Result<Expr*> {
             MemberAccessExpr,
             ScopeAccessExpr,
             ParenExpr,
+            TupleExpr,
             SubscriptExpr
         >(e);
     }; // clang-format on
@@ -1246,9 +1263,9 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
     return s;
 }
 
-/// <type>           ::= <type-prim> | <type-qualified> | <type-named> | <type-struct> | <struct-anon>
 /// <type-prim>      ::= INTEGER_TYPE | INT | BOOL | NIL | VOID | NORETURN | VAR
 /// <type-named>     ::= IDENTIFIER
+/// <type-tuple>     ::= "(" { <type> "," } [ <type> ] ")"
 /// <type-qualified> ::= <type> { <type-qual> }
 /// <type-qual>      ::= "&" | "^" | "?" | "[" [ <expr> ] "]"
 auto src::Parser::ParseType() -> Result<Type> {
@@ -1261,6 +1278,21 @@ auto src::Parser::ParseType() -> Result<Type> {
             auto ty = ParseStruct();
             if (IsError(ty)) return ty.diag;
             base_type = *ty;
+        } break;
+
+        /// Tuple type.
+        case Tk::LParen: {
+            auto start = Next();
+            SmallVector<FieldDecl*> types;
+            while (not At(Tk::RParen, Tk::Eof)) {
+                auto ty = ParseType();
+                if (IsError(ty)) return ty;
+                types.push_back(new (mod) FieldDecl("", *ty, ty->location));
+                if (not Consume(Tk::Comma)) break;
+            }
+
+            base_type = new (mod) TupleType(std::move(types), {start, curr_loc});
+            if (not Consume(Tk::RParen)) Error("Expected ')'");
         } break;
 
         case Tk::Identifier:

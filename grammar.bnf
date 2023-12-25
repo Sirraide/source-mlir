@@ -1,5 +1,4 @@
-\usepackage{ulem}
-\usepackage{ulem}<file> ::= <module-part> <exprs>
+<file> ::= <module-part> <exprs>
 
 <module-part> ::= [ MODULE IDENTIFIER ";" ] { IMPORT <import-name> [ AS IDENTIFIER ] ";" }
 <import-name> ::= IDENTIFIER [ "." "*" ] | <header-name>
@@ -33,6 +32,8 @@
          | <expr-subscript>
          | <expr-for-in>
          | <expr-alias>
+         | <expr-with>
+         | <expr-tuple>
          | <type-struct>
          | <decl>
 
@@ -60,6 +61,7 @@
 <expr-subscript> ::= <expr> "[" <expr> "]"
 <expr-alias>     ::= ALIAS IDENTIFIER "=" <expr>
 <expr-with>      ::= WITH <expr> [ <do> ]
+<expr-tuple>     ::= "(" { <expr> "," } [ <expr> ] ")"
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
@@ -92,9 +94,15 @@
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
-<type>           ::= <type-prim> | <type-qualified> | <type-named> | <type-struct> | <struct-anon>
+<type>           ::= <type-prim>
+                   | <type-qualified>
+                   | <type-named>
+                   | <type-struct>
+                   | <type-tuple>
+                   | <struct-anon>
 <type-prim>      ::= INTEGER_TYPE | INT | BOOL | NIL | VOID | NORETURN | VAR
 <type-named>     ::= IDENTIFIER
+<type-tuple>     ::= "(" { <type> "," } [ <type> ] ")"
 <type-qualified> ::= <type> { <type-qual> }
 <type-qual>      ::= "&" | "^" | "?" | "[" [ <expr> ] "]"
 

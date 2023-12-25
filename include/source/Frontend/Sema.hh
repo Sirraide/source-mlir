@@ -272,7 +272,7 @@ public:
     }
 
     /// Analyse the given expression and issue an error if it is not a type.
-    bool AnalyseAsType(Type& e);
+    bool AnalyseAsType(Type& e, bool diag_if_not_type = true);
 
 private:
     bool Analyse(Expr*& e);
@@ -280,12 +280,13 @@ private:
     template <bool allow_undefined>
     bool AnalyseDeclRefExpr(Expr*& e);
 
+    void AnalyseExplicitCast(Expr*& e, bool is_hard);
     bool AnalyseInvoke(Expr*& e);
     bool AnalyseInvokeBuiltin(Expr*& e);
-    void AnalyseExplicitCast(Expr*& e, bool is_hard);
+    void AnalyseModule();
     void AnalyseProcedure(ProcDecl* proc);
     bool AnalyseProcedureType(ProcDecl* proc);
-    void AnalyseModule();
+    void AnalyseRecord(RecordType* r);
 
     /// Apply a conversion sequence to an expression.
     void ApplyConversionSequence(Expr*& e, std::same_as<ConversionSequence> auto&& seq);

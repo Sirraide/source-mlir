@@ -119,6 +119,11 @@ public:
     requires std::is_pointer_v<ValueType>
     { return value(); }
 
+    /// Access the underlying value.
+    [[nodiscard]] auto operator->() -> ValueType&
+    requires (not std::is_pointer_v<ValueType>)
+    { return value(); }
+
     /// \brief Monad bind operator for results.
     ///
     /// If you know Haskell, then you already know what this does. If

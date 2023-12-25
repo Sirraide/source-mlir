@@ -18,6 +18,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::SliceType:
         case Expr::Kind::StructType:
         case Expr::Kind::SugaredType:
+        case Expr::Kind::TupleType:
             out = Type(e);
             return true;
 
@@ -47,6 +48,8 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::ScopeAccessExpr:
         case Expr::Kind::StringLiteralExpr:
         case Expr::Kind::SubscriptExpr:
+        case Expr::Kind::TupleExpr:
+        case Expr::Kind::TupleIndexExpr:
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::WhileExpr:
         case Expr::Kind::WithExpr:

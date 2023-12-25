@@ -20,20 +20,6 @@ class Type;
 }
 
 namespace src {
-/// This is to avoid having to include Value.h everywhere.
-inline constexpr usz AlignOfMLIRType = 8;
-inline constexpr usz AlignOfMLIRValue = 8;
-inline constexpr usz SizeOfMLIRType = 8;
-inline constexpr usz SizeOfMLIRValue = 8;
-
-#define SOURCE_MLIR_VALUE_MEMBER(name)                                          \
-    alignas(::src::AlignOfMLIRValue) char _##name##_[::src::SizeOfMLIRValue]{}; \
-    property_decl(mlir::Value, name)
-
-#define SOURCE_MLIR_TYPE_MEMBER(name)                                         \
-    alignas(::src::AlignOfMLIRType) char _##name##_[::src::SizeOfMLIRType]{}; \
-    property_decl(mlir::Type, name)
-
 class DriverImpl;
 class Context;
 class Module;

@@ -49,7 +49,7 @@ auto Type::_mangled_name() -> std::string {
         return fmt::format("{}{}", prefix, se->elem.mangled_name);
     };
 
-    auto MangleNamedType = [&](NamedType* s, std::string_view prefix) {
+    auto MangleNamedType = [&](Named* s, std::string_view prefix) {
         if (s->mangled_name.empty()) {
             if (not s->module or not s->module->is_logical_module) {
                 s->mangled_name = fmt::format("{}{}{}", prefix, s->name.size(), s->name);
@@ -120,10 +120,12 @@ auto Type::_mangled_name() -> std::string {
         }
 
         case Expr::Kind::OpaqueType:
-            return MangleNamedType(cast<NamedType>(ptr), "Q");
+            return MangleNamedType(cast<OpaqueType>(ptr), "Q");
 
         case Expr::Kind::StructType:
-            return MangleNamedType(cast<NamedType>(ptr), "S");
+            return MangleNamedType(cast<StructType>(ptr), "S");
+
+        case Expr::Kind::TupleType: Todo("Mangle tuple type");
 
         SOURCE_NON_TYPE_EXPRS:
             Unreachable("Not a type");
