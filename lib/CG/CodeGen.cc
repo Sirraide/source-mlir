@@ -97,6 +97,13 @@ struct CodeGen {
     /// Create an external function.
     void CreateExternalProcedure(mlir::FunctionType type, StringRef name);
 
+    /// Create a slice from an array lvalue.
+    auto CreateSliceFromArray(
+        mlir::Location loc,
+        ArrayType* type,
+        mlir::Value array
+    ) -> hlir::LiteralOp;
+
     /// Destroy an object at an address.
     auto Destroy(mlir::Location loc, mlir::Value addr, Type type) -> mlir::Value;
 
@@ -252,6 +259,22 @@ void src::CodeGen::CreateExternalProcedure(mlir::FunctionType type, StringRef na
         proc.setPrivate();
         declared_procedures[proc.getName()] = proc;
     });
+}
+
+auto src::CodeGen::CreateSliceFromArray(
+    mlir::Location loc,
+    ArrayType* type,
+    mlir::Value array
+) -> hlir::LiteralOp {
+    /// Operand is an lvalue, so array decay to retrieve the pointer works.
+    auto ptr = Create<hlir::ArrayDecayOp>(loc, array);
+    auto size = CreateInt(loc, type->dimension(), Type::Int);
+    return Create<hlir::LiteralOp>(
+        loc,
+        hlir::SliceType::get(ptr.getType().getElem()),
+        ptr,
+        size
+    );
 }
 
 bool src::CodeGen::Closed(mlir::Block* block) {
@@ -1484,18 +1507,32 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         /// \endcode
         case Expr::Kind::ForInExpr: {
             auto f = cast<ForInExpr>(expr);
-            if (not isa<SliceType>(f->range->type)) Diag::ICE(
-                ctx,
-                f->range->location,
-                "Sorry, we only support iterating over slices for now."
-            );
+            mlir::Value range;
 
             /// Emit the range, but not the iteration variable, since that
             /// one requires special handling as it’s not actually a variable.
-            auto range = Generate(f->range);
+            if (isa<SliceType>(f->range->type)) {
+                range = Generate(f->range);
+            }
+
+            /// Emit the array. It must be an lvalue.
+            else if (auto arr = dyn_cast<ArrayType>(f->range->type)) {
+                Assert(f->range->is_lvalue);
+                range = CreateSliceFromArray(Loc(f->range->location), arr, Generate(f->range));
+            }
+
+            /// Don’t know what to do w/ this.
+            else {
+                Diag::ICE(
+                    ctx,
+                    f->range->location,
+                    "Type '{}' is not iterable",
+                    f->range->type.str(ctx->use_colours)
+                );
+            }
 
             /// Get the size of the range.
-            auto size = Create<hlir::SliceSizeOp>(
+            mlir::Value size = Create<hlir::SliceSizeOp>(
                 builder.getUnknownLoc(),
                 mlir::IndexType::get(mctx),
                 range
@@ -1512,7 +1549,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             Create<mlir::cf::BranchOp>(
                 Loc(f->location),
                 cond_block,
-                mlir::ValueRange{f->reverse ? size.getRes() : zero}
+                mlir::ValueRange{f->reverse ? size : zero}
             );
 
             /// Test the condition.
@@ -1522,7 +1559,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
                 builder.getUnknownLoc(),
                 f->reverse ? Pred::UGT : Pred::ULT,
                 cond_block->getArgument(0),
-                f->reverse ? zero : size.getRes()
+                f->reverse ? zero : size
             );
 
             /// Branch depending on the condition. Also creat, but do not insert,
@@ -1882,16 +1919,10 @@ auto src::CodeGen::GenerateConvertingCast(CastExpr* c, mlir::Value operand) -> m
     /// Array-to-slice casts.
     if (isa<ArrayType>(c->operand->type) and isa<SliceType>(c->type)) {
         Assert(c->operand->is_lvalue);
-
-        /// Operand is an lvalue, so array decay to retrieve the pointer works.
-        auto loc = Loc(c->location);
-        auto ptr = Create<hlir::ArrayDecayOp>(loc, operand);
-        auto size = CreateInt(loc, cast<ArrayType>(c->operand->type)->dimension(), Type::Int);
-        return Create<hlir::LiteralOp>(
-            loc,
-            cast<hlir::SliceType>(Ty(c->type)),
-            ptr,
-            size
+        return CreateSliceFromArray(
+            Loc(c->location),
+            cast<ArrayType>(c->operand->type),
+            operand
         );
     }
 
