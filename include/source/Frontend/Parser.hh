@@ -129,6 +129,7 @@ private:
         Location loc{};
         bool is_extern{};
         bool is_nomangle{};
+        bool attr___srcc_external__{};
     };
 
     static constexpr int NullPrecedence = 0;

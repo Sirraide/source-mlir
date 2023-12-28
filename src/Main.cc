@@ -9,10 +9,12 @@ using options = clopts< // clang-format off
     option<"--colour", "Enable coloured output (default: auto)", values<"always", "auto", "never">>,
     option<"--dir", "Set module output directory">,
     option<"-o", "Output file name. Ignored for modules">,
+    option<"--target-features", "Set a feature flag for the backend (e.g. +avx2)">,
     multiple<option<"-I", "Add module import directory">>,
     experimental::short_option<"-O", "Optimisation level", values<0, 1, 2, 3, 4>>,
     experimental::short_option<"-j", "Number of threads to use for compilation", std::int64_t>,
     flag<"-r", "JIT-compile and run the program after compiling">,
+    flag<"-s", "Emit assembly code">,
     flag<"--ast", "Print the AST of the module after parsing">,
     flag<"--lowered", "Print lowered HLIR">,
     flag<"--debug-llvm", "Debug LLVM lowering process">,
@@ -59,12 +61,33 @@ int main(int argc, char** argv) {
         );
     }
 
+    /// -o - is only valid for assembly.
+    if (opts.get_or<"-o">("") == "-" and not opts.get<"-s">())
+        src::Diag::Fatal("'-o -' is only valid in combination with '-s'");
+
+    /// Parse target features.
+    llvm::StringMap<bool> target_features;
+    if (auto features = opts.get<"--target-features">()) {
+        for (auto feature : src::rgs::subrange(*features) | src::vws::split(',')) {
+            if (
+                feature.size() < 2 or
+                (feature.front() != '+' and feature.front() != '-')
+            ) src::Diag::Fatal(
+                "Argument to '--target-features' must be a comma-separated list of "
+                "strings, each starting with either '+' or '-'"
+            );
+
+            auto f = feature | src::vws::drop(1);
+            target_features[{f.data(), f.size()}] = feature.front() == '+';
+        }
+    }
+
     /// Create driver.
     using Action = src::CompileOptions::Action;
     auto driver = src::Driver::Create({
         .module_output_dir = opts.get_or<"--dir">(src::fs::current_path()),
         .executable_output_name = opts.get_or<"-o">("a.out"),
-        .opt_level = src::u8(opts.get_or<"-O">(0)),
+        .target_features = std::move(target_features),
         .action = opts.get<"--ast">()        ? Action::PrintAST
                 : opts.get<"--debug-llvm">() ? Action::PrintLLVMLowering
                 : opts.get<"--exports">()    ? Action::PrintExports
@@ -72,9 +95,11 @@ int main(int argc, char** argv) {
                 : opts.get<"--llvm">()       ? Action::PrintLLVM
                 : opts.get<"--lowered">()    ? Action::PrintLoweredHLIR
                 : opts.get<"-r">()           ? Action::Execute
+                : opts.get<"-s">()           ? Action::EmitASM
                 : opts.get<"--sema">()       ? Action::Sema
                                              : Action::Compile,
 
+        .opt_level = src::u8(opts.get_or<"-O">(0)),
         .threads = src::u16(opts.get_or<"-j">(0)),
         .debug_cxx = opts.get<"--debug-cxx">(),
         .include_runtime = not opts.get<"--nostdrt">(),

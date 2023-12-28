@@ -654,7 +654,7 @@ auto src::Parser::ParseStmt() -> Result<Expr*> {
             auto start = Next();
             auto stmt = ParseStmt();
             if (IsError(stmt)) return stmt.diag;
-            return new (mod) ExportExpr(*stmt, {start, stmt->location});
+            return new (mod) ExportExpr(*stmt, start);
         }
 
         /// <stmt-labelled>  ::= IDENTIFIER ":" <stmt>
@@ -808,7 +808,7 @@ auto src::Parser::ParseFor() -> Result<Expr*> {
     Assert(Consume(Tk::For, Tk::ForReverse));
 
     /// Helper to create an artificial variable.
-    auto CreateVar = [&] (LocalKind k) {
+    auto CreateVar = [&](LocalKind k) {
         auto var = new (mod) LocalDecl(
             curr_func,
             tok.text,
@@ -1053,6 +1053,16 @@ auto src::Parser::ParseProc() -> Result<ProcDecl*> {
         sig.loc
     );
 
+    /// Internal attribute used for testing to prevent functions from being
+    /// optimised away even though they are not used. Should not be used for
+    /// anything other than that.
+    if (sig.attr___srcc_external__) {
+        curr_func->linkage =
+            curr_func->linkage == Linkage::Imported
+                ? Linkage::Reexported
+                : Linkage::Exported;
+    }
+
     /// Parse the body if the procedure is not external.
     bool infer_return_type = false;
     if (not sig.is_extern) {
@@ -1131,9 +1141,10 @@ auto src::Parser::ParseSignature() -> Signature {
     /// Parse attributes.
     bool variadic = false;
     while (At(Tk::Identifier) and ( // clang-format off
-        ParseAttr("nomangle", sig.is_nomangle) or
         ParseAttr("extern", sig.is_extern) or
-        ParseAttr("variadic", variadic)
+        ParseAttr("nomangle", sig.is_nomangle) or
+        ParseAttr("variadic", variadic) or
+        ParseAttr("__srcc_external__", sig.attr___srcc_external__)
     )); // clang-format on
 
     /// Finally, parse the return type.

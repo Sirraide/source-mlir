@@ -2,49 +2,31 @@
 #include <llvm/MC/MCContext.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/PassBuilder.h>
-#include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Program.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/TargetParser/Host.h>
+#include <source/CG/CodeGen.hh>
 #include <source/Core.hh>
 
-void src::Module::emit_executable(int opt_level, const fs::path& location) {
-    Assert(not is_logical_module, "Cannot emit logical module as executable");
-
-    /// Emit object file to a temporary path.
-    auto ofile = File::TempPath(".o");
-    emit_object_file(opt_level, ofile);
-    defer { fs::remove(ofile); };
-
-#ifdef LLVM_ON_UNIX
-    /// Find linker.
-    auto link = llvm::sys::findProgramByName(__SRCC_CLANG_EXE);
-    if (link.getError()) link = llvm::sys::findProgramByName("clang");
-    if (auto e = link.getError()) Diag::Fatal("Could not find linker: {}", e.message());
-
-    /// Add the object file as well as all imported modules.
-    SmallVector<std::string> args;
-    args.push_back(link.get());
-    args.push_back(fs::absolute(ofile).string());
-    args.push_back("-o");
-    args.push_back(fs::absolute(location).string());
-    for (auto& m : imports) args.push_back(fs::absolute(m.resolved_path).string());
-    SmallVector<llvm::StringRef> args_ref;
-    for (auto& a : args) args_ref.push_back(a);
-
-    /// Run the linker.
-    auto ret = llvm::sys::ExecuteAndWait(link.get(), args_ref);
-    if (ret != 0) Diag::Fatal("Linker returned non-zero exit code: {}", ret);
-
-#else
-#    error Sorry, unsupported platform
-#endif
-}
-
-void src::Module::emit_object_file(int opt_level, const fs::path& location) {
-    GenerateLLVMIR(opt_level);
+void src::EmitModule(
+    Module* mod,
+    int opt_level,
+    ObjectFormat fmt,
+    const StringMap<bool>& target_features,
+    const fs::path& location
+) {
+    /// FIXME: Don’t think I need to explain what needs fixing here...
+    static std::once_flag init;
+    std::call_once(init, [] {
+        const char* args[]{
+            "srcc",
+            "-x86-asm-syntax=intel",
+            nullptr,
+        };
+        llvm::cl::ParseCommandLineOptions(2, args, "", &llvm::errs(), nullptr);
+    });
 
     /// Get target.
     llvm::InitializeAllTargetInfos();
@@ -61,17 +43,6 @@ void src::Module::emit_object_file(int opt_level, const fs::path& location) {
         error
     );
 
-    /// Set target triple for the module.
-    llvm->setTargetTriple(triple);
-
-    /// Target options.
-    llvm::TargetOptions opts;
-
-    /// Enable PIC.
-    auto reloc = llvm::Reloc::PIC_;
-    llvm->setPICLevel(llvm::PICLevel::Level::BigPIC);
-    llvm->setPIELevel(llvm::PIELevel::Level::Large);
-
     /// Get feature flags.
     std::string features;
     if (opt_level == 4) {
@@ -80,15 +51,20 @@ void src::Module::emit_object_file(int opt_level, const fs::path& location) {
         for (auto& [feature, enabled] : feature_map)
             if (enabled)
                 features += fmt::format("+{},", feature.str());
-        if (not features.empty()) features.pop_back();
     }
 
+    /// User-specified features are applied last.
+    for (auto& [feature, enabled] : target_features)
+        features += fmt::format("{}{},", enabled ? '+' : '-', feature.str());
+    if (not features.empty()) features.pop_back();
+
     /// Get CPU.
-    std::string cpu = "generic";
-    if (opt_level) {
-        cpu = llvm::sys::getHostCPUName();
-        if (cpu.empty()) cpu = "generic";
-    }
+    std::string cpu;
+    if (opt_level == 4) cpu = llvm::sys::getHostCPUName();
+    if (cpu.empty()) cpu = "generic";
+
+    /// Target options.
+    llvm::TargetOptions opts;
 
     /// Get opt level.
     llvm::CodeGenOptLevel opt;
@@ -99,9 +75,10 @@ void src::Module::emit_object_file(int opt_level, const fs::path& location) {
         default: opt = llvm::CodeGenOptLevel::Aggressive; break;
     }
 
-    /// Emit to object file.
+    /// Create machine.
+    auto reloc = llvm::Reloc::PIC_;
     auto machine = target->createTargetMachine(
-        llvm->getTargetTriple(),
+        triple,
         cpu,          /// Target CPU
         features,     /// Features.
         opts,         /// Options.
@@ -111,22 +88,90 @@ void src::Module::emit_object_file(int opt_level, const fs::path& location) {
         false         /// JIT?
     );
 
-    /// Set data layout for module.
-    Assert(machine);
-    llvm->setDataLayout(machine->createDataLayout());
+    Assert(machine, "Failed to create target machine");
+    GenerateLLVMIR(mod, opt_level, machine);
 
-    /*/// Run optimisation pipeline if optimisations are enabled.
-    if (opt_level) optimise(src_mod, opt_level);
-    */
+    /// Set target triple for the module.
+    mod->llvm->setTargetTriple(triple);
 
+    /// Set PIC level and DL.
+    mod->llvm->setPICLevel(llvm::PICLevel::Level::BigPIC);
+    mod->llvm->setPIELevel(llvm::PIELevel::Level::Large);
+    mod->llvm->setDataLayout(machine->createDataLayout());
+
+    /// Helper to emit an object/assembly file.
+    auto EmitFile = [&](llvm::raw_pwrite_stream& stream) {
+        /// No idea how or if the new pass manager can be used for this, so...
+        llvm::legacy::PassManager pass;
+        if (
+            machine->addPassesToEmitFile(
+                pass,
+                stream,
+                nullptr,
+                fmt == ObjectFormat::Assembly
+                    ? llvm::CodeGenFileType::AssemblyFile
+                    : llvm::CodeGenFileType::ObjectFile
+            )
+        ) Diag::ICE("LLVM backend rejected object code emission passes");
+        pass.run(*mod->llvm);
+        stream.flush();
+    };
+
+    /// Write to stdout.
+    if (location == "-") {
+        /// '-' as the output file designates stdout. Only valid if we’re
+        /// not emitting an executable.
+        if (fmt != ObjectFormat::Assembly)
+            Diag::Fatal("Can only emit assembly to stdout");
+        EmitFile(llvm::outs());
+        return;
+    }
+
+    /// Write to a file.
+    auto temp = File::TempPath(__SRCC_OBJ_FILE_EXT);
     std::error_code ec;
-    llvm::raw_fd_ostream dest{location.native(), ec, llvm::sys::fs::OF_None};
-    if (ec) Diag::Fatal("Could not open file '{}': {}", location.native(), ec.message());
+    llvm::raw_fd_ostream stream{
+        fmt == ObjectFormat::Executable ? temp.string() : location.string(),
+        ec,
+        llvm::sys::fs::OF_None,
+    };
 
-    /// No idea how or if the new pass manager can be used for this, so...
-    llvm::legacy::PassManager pass;
-    if (machine->addPassesToEmitFile(pass, dest, nullptr, llvm::CodeGenFileType::ObjectFile))
-        Diag::ICE("LLVM backend rejected object code emission passes");
-    pass.run(*llvm);
-    dest.flush();
+    if (ec) Diag::Fatal(
+        "Could not open file '{}': {}",
+        location.string(),
+        ec.message()
+    );
+
+    EmitFile(stream);
+
+    /// Stop here if we are not supposed to emit an executable.
+    if (fmt != ObjectFormat::Executable) return;
+    Assert(not mod->is_logical_module, "Cannot emit logical module as executable");
+
+    /// Yeet object file when we’re done.
+    defer { fs::remove(temp); };
+
+#ifdef LLVM_ON_UNIX
+    /// Find linker.
+    auto link = llvm::sys::findProgramByName(__SRCC_CLANG_EXE);
+    if (link.getError()) link = llvm::sys::findProgramByName("clang");
+    if (auto e = link.getError()) Diag::Fatal("Could not find linker: {}", e.message());
+
+    /// Add the object file as well as all imported modules.
+    SmallVector<std::string> args;
+    args.push_back(link.get());
+    args.push_back(fs::absolute(temp).string());
+    args.push_back("-o");
+    args.push_back(fs::absolute(location).string());
+    for (auto& m : mod->imports) args.push_back(fs::absolute(m.resolved_path).string());
+    SmallVector<llvm::StringRef> args_ref;
+    for (auto& a : args) args_ref.push_back(a);
+
+    /// Run the linker.
+    auto ret = llvm::sys::ExecuteAndWait(link.get(), args_ref);
+    if (ret != 0) Diag::Fatal("Linker returned non-zero exit code: {}", ret);
+
+#else
+#    error Sorry, unsupported platform
+#endif
 }

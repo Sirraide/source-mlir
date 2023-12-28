@@ -1,0 +1,19 @@
+/// R %srcc %s -O3 --target-features +avx512f -s -o -
+
+/// d zmm zmm[0-9]+
+/// p lit []+
+
+/// * copy:
+/// + vmovups $r1:zmm, zmmword ptr [rdi]
+/// + vmovups $r2:zmm, zmmword ptr [rdi + 64]
+/// + vmovups $r3:zmm, zmmword ptr [rdi + 128]
+/// + vmovups $r4:zmm, zmmword ptr [rdi + 192]
+/// + vmovups zmmword ptr [rsi], $r1
+/// + vmovups zmmword ptr [rsi + 64], $r2
+/// + vmovups zmmword ptr [rsi + 128], $r3
+/// + vmovups zmmword ptr [rsi + 192], $r4
+/// + vzeroupper
+/// + ret
+proc copy(i8[256]& from, i8[256]& to) __srcc_external__ nomangle {
+	to = from;
+}

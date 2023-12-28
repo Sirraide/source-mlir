@@ -260,10 +260,9 @@ struct ImportedModuleRef {
 /// Unlike the context, a module is NOT thread-safe; it may only be
 /// accessed from one thread at a time.
 class Module {
-    llvm::LLVMContext llvm_context;
-
 public:
     Context* const context;
+    llvm::LLVMContext llvm_context;
 
     /// Allocator for AST nodes, strings, etc.
     std::unique_ptr<llvm::BumpPtrAllocator> alloc = std::make_unique<llvm::BumpPtrAllocator>();
@@ -374,12 +373,6 @@ public:
         return fmt::format(".__src_module__description__.{}", name);
     }
 
-    /// Emit an executable. Implemented in Emit.cc.
-    void emit_executable(int opt_level, const fs::path& location);
-
-    /// Emit code to an object file. Implemented in Emit.cc
-    void emit_object_file(int opt_level, const fs::path& location);
-
     /// Initialise an uninitialised module. It is illegal to call this more
     /// than once or on a module not created with CreateUninitialised().
     void init(StringRef name, bool is_cxx_header = false, Location module_decl_location = {});
@@ -433,9 +426,6 @@ public:
         bool debug_cxx,
         Location loc
     ) -> Module*;
-private:
-    /// Generate LLVM IR for this module.
-    void GenerateLLVMIR(int opt_level);
 };
 
 /// A diagnostic. The diagnostic is issued when the destructor is called.

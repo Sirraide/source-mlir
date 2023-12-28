@@ -361,6 +361,7 @@ add_compile_definitions(
     "__SRCC_CLANG_EXE=\"${LLVM_TOOLS_BINARY_DIR}/clang\""
     "__SRCC_PROJECT_DIR_NAME=\"Source-MLIR\""
     "__SRCC_OBJ_FILE_EXT=\".o\""
+    "__SRCC_ASM_FILE_EXT=\".s\""
     "__LLVM_DEBUG_METADATA_VERSION=3"
 )
 

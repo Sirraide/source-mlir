@@ -296,13 +296,31 @@ auto src::DriverImpl::Compile(FileSource& source) -> int {
         if (mod->is_logical_module) {
             Assert(not mod->name.empty());
             auto name = opts.module_output_dir / mod->name.sv();
-            name += __SRCC_OBJ_FILE_EXT;
-            mod->emit_object_file(int(opts.opt_level), name);
+            name += opts.action == Action::EmitASM
+                      ? __SRCC_ASM_FILE_EXT
+                      : __SRCC_OBJ_FILE_EXT;
+            EmitModule(
+                mod,
+                int(opts.opt_level),
+                opts.action == Action::EmitASM
+                    ? ObjectFormat::Assembly
+                    : ObjectFormat::ObjectFile,
+                opts.target_features,
+                name
+            );
         }
 
         /// Emit executables in the cwd.
         else {
-            mod->emit_executable(int(opts.opt_level), opts.executable_output_name);
+            EmitModule(
+                mod,
+                int(opts.opt_level),
+                opts.action == Action::EmitASM
+                    ? ObjectFormat::Assembly
+                    : ObjectFormat::Executable,
+                opts.target_features,
+                opts.executable_output_name
+            );
         }
     });
 

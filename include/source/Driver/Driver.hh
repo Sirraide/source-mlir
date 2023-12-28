@@ -13,6 +13,9 @@ struct CompileOptions {
         /// Execute the code. Any modules will still be emitted to disk.
         Execute,
 
+        /// Print the assembly output for every module/executable.
+        EmitASM,
+
         /// Print the AST of every module/executable.
         PrintAST,
 
@@ -41,11 +44,15 @@ struct CompileOptions {
     /// Output name of the executable.
     fs::path executable_output_name = "a.out";
 
-    /// Optimisation level.
-    u8 opt_level = 0;
+    /// Features to enable/disable for the target. These are applied
+    /// after any host features if the opt level is set to -O4.
+    StringMap<bool> target_features;
 
     /// The action to perform.
     Action action = Action::Compile;
+
+    /// Optimisation level.
+    u8 opt_level = 0;
 
     /// Number of threads to use for compilation. If this is 0, the
     /// number of threads will be determined automatically.

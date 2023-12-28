@@ -983,51 +983,49 @@ void src::LowerToLLVM(mlir::MLIRContext* ctx, Module* mod, bool debug_llvm_lower
         Diag::ICE(mod->context, mod->module_decl_location, "Module lowering failed");
 }
 
-void src::Module::GenerateLLVMIR(int opt_level) {
-    if (not llvm) {
-        llvm = mlir::translateModuleToLLVMIR(
-            mlir,
-            llvm_context,
-            is_logical_module ? name : "Source Executable"
+void src::GenerateLLVMIR(Module* mod, int opt_level, llvm::TargetMachine* machine) {
+    if (mod->llvm) return;
+    mod->llvm = mlir::translateModuleToLLVMIR(
+        mod->mlir,
+        mod->llvm_context,
+        mod->is_logical_module ? mod->name : "Source Executable"
+    );
+
+    /// Optimise the module, if requested.
+    auto xfrm = mlir::makeOptimizingTransformer(unsigned(std::min(opt_level, 3)), 0, machine);
+    if (auto res = xfrm(mod->llvm.get()))
+        Diag::ICE(mod->context, {}, "Failed to optimise Module: {}", llvm::toString(std::move(res)));
+
+    /// Write module description.
+    if (mod->is_logical_module) {
+        auto md = mod->serialise();
+        auto nm = mod->description_section_name();
+        auto ty = llvm::ArrayType::get(llvm::IntegerType::getInt8Ty(mod->llvm->getContext()), md.size());
+        auto cst = llvm::ConstantDataArray::get(mod->llvm_context, md);
+        mod->llvm->getOrInsertGlobal(
+            nm,
+            ty,
+            [&] {
+                auto var = new llvm::GlobalVariable(
+                    *mod->llvm,
+                    ty,
+                    true,
+                    llvm::GlobalValue::PrivateLinkage,
+                    cst,
+                    nm
+                );
+
+                var->setSection(nm);
+                var->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
+                var->setVisibility(llvm::GlobalValue::VisibilityTypes::DefaultVisibility);
+                return var;
+            }
         );
-
-        /// Optimise the module, if requested.
-        /// TODO: -O4, aka -march=native.
-        auto xfrm = mlir::makeOptimizingTransformer(unsigned(std::min(opt_level, 3)), 0, nullptr);
-        if (auto res = xfrm(llvm.get()))
-            Diag::ICE(context, {}, "Failed to optimise Module: {}", llvm::toString(std::move(res)));
-
-        /// Write module description.
-        if (is_logical_module) {
-            auto md = serialise();
-            auto nm = description_section_name();
-            auto ty = llvm::ArrayType::get(llvm::IntegerType::getInt8Ty(llvm->getContext()), md.size());
-            auto cst = llvm::ConstantDataArray::get(llvm_context, md);
-            llvm->getOrInsertGlobal(
-                nm,
-                ty,
-                [&] {
-                    auto var = new llvm::GlobalVariable(
-                        *llvm,
-                        ty,
-                        true,
-                        llvm::GlobalValue::PrivateLinkage,
-                        cst,
-                        nm
-                    );
-
-                    var->setSection(nm);
-                    var->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
-                    var->setVisibility(llvm::GlobalValue::VisibilityTypes::DefaultVisibility);
-                    return var;
-                }
-            );
-        }
     }
 }
 
 void src::Module::print_llvm(int opt_level) {
-    GenerateLLVMIR(opt_level);
+    GenerateLLVMIR(this, opt_level, nullptr);
     llvm->print(llvm::outs(), nullptr);
 }
 
