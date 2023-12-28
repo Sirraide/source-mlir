@@ -28,10 +28,10 @@ export proc a -> i64 {
     /// + $offs:t = offset i64& $data[$I]
     /// + scope
     /// + $val:t = load i64 from $offs
-    /// + $mul:t = arith.muli $I, $val
-    /// + $add:t = arith.addi $I, $mul
+    /// + $mul:t = mul i64 $I, $val
+    /// + $add:t = add i64 $I, $mul
     /// + $old:t = load i64 from $sum
-    /// + $new:t = arith.addi $old, $add
+    /// + $new:t = add i64 $old, $add
     /// + store into $sum, i64 $new
     /// + yield
     /// + }

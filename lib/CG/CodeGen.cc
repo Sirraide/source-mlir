@@ -1,12 +1,9 @@
 #include <llvm/Support/OptimizedStructLayout.h>
-#include <mlir/AsmParser/AsmParser.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlow.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Index/IR/IndexOps.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
-#include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/IR/Builders.h>
 #include <source/CG/CodeGen.hh>
 #include <source/Core.hh>
@@ -122,7 +119,7 @@ struct CodeGen {
     [[nodiscard]] auto GenerateBinOp(BinaryExpr* b) -> mlir::Value;
 
     template <typename Op>
-    [[nodiscard]] auto GenerateCmpOp(BinaryExpr*, mlir::arith::CmpIPredicate pred) -> mlir::Value;
+    [[nodiscard]] auto GenerateCmpOp(BinaryExpr* b) -> mlir::Value;
 
     [[nodiscard]] auto GenerateConvertingCast(CastExpr* cast, mlir::Value operand) -> mlir::Value;
 
@@ -1736,42 +1733,42 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             }
 
             switch (b->op) {
-                using namespace mlir::arith;
+                using mlir::arith::CmpIPredicate;
                 using namespace hlir;
                 default: Unreachable("Invalid binary operator: {}", Spelling(b->op));
 
                 /// Arithmetic and bitwise operators.
-                case Tk::Land: return GenerateBinOp<AndIOp>(b);
-                case Tk::Lor: return GenerateBinOp<OrIOp>(b);
-                case Tk::Minus: return GenerateBinOp<SubIOp>(b);
-                case Tk::Percent: return GenerateBinOp<RemSIOp>(b);
-                case Tk::Plus: return GenerateBinOp<AddIOp>(b);
-                case Tk::ShiftLeft: return GenerateBinOp<ShLIOp>(b);
-                case Tk::ShiftRight: return GenerateBinOp<ShRSIOp>(b);
-                case Tk::ShiftRightLogical: return GenerateBinOp<ShRUIOp>(b);
-                case Tk::Slash: return GenerateBinOp<DivSIOp>(b);
-                case Tk::Star: return GenerateBinOp<MulIOp>(b);
-                case Tk::StarStar: return GenerateBinOp<mlir::math::IPowIOp>(b);
-                case Tk::Xor: return GenerateBinOp<XOrIOp>(b);
+                case Tk::Land: return GenerateBinOp<AndOp>(b);
+                case Tk::Lor: return GenerateBinOp<OrOp>(b);
+                case Tk::Minus: return GenerateBinOp<SubOp>(b);
+                case Tk::Percent: return GenerateBinOp<RemOp>(b);
+                case Tk::Plus: return GenerateBinOp<AddOp>(b);
+                case Tk::ShiftLeft: return GenerateBinOp<ShlOp>(b);
+                case Tk::ShiftRight: return GenerateBinOp<SarOp>(b);
+                case Tk::ShiftRightLogical: return GenerateBinOp<ShrOp>(b);
+                case Tk::Slash: return GenerateBinOp<DivOp>(b);
+                case Tk::Star: return GenerateBinOp<MulOp>(b);
+                case Tk::StarStar: return GenerateBinOp<ExpOp>(b);
+                case Tk::Xor: return GenerateBinOp<XorOp>(b);
 
                 /// Comparison operators.
-                case Tk::EqEq: return GenerateCmpOp<CmpIOp>(b, CmpIPredicate::eq);
-                case Tk::Ge: return GenerateCmpOp<CmpIOp>(b, CmpIPredicate::sge);
-                case Tk::Gt: return GenerateCmpOp<CmpIOp>(b, CmpIPredicate::sgt);
-                case Tk::Le: return GenerateCmpOp<CmpIOp>(b, CmpIPredicate::sle);
-                case Tk::Lt: return GenerateCmpOp<CmpIOp>(b, CmpIPredicate::slt);
-                case Tk::Neq: return GenerateCmpOp<CmpIOp>(b, CmpIPredicate::ne);
+                case Tk::EqEq: return GenerateCmpOp<EqOp>(b);
+                case Tk::Ge: return GenerateCmpOp<GeOp>(b);
+                case Tk::Gt: return GenerateCmpOp<GtOp>(b);
+                case Tk::Le: return GenerateCmpOp<LeOp>(b);
+                case Tk::Lt: return GenerateCmpOp<LtOp>(b);
+                case Tk::Neq: return GenerateCmpOp<NeOp>(b);
 
                 /// Compound assignment.
-                case Tk::MinusEq: return GenerateAssignBinOp<SubIOp>(b);
-                case Tk::PercentEq: return GenerateAssignBinOp<RemSIOp>(b);
-                case Tk::PlusEq: return GenerateAssignBinOp<AddIOp>(b);
-                case Tk::ShiftLeftEq: return GenerateAssignBinOp<ShLIOp>(b);
-                case Tk::ShiftRightEq: return GenerateAssignBinOp<ShRSIOp>(b);
-                case Tk::ShiftRightLogicalEq: return GenerateAssignBinOp<ShRUIOp>(b);
-                case Tk::SlashEq: return GenerateAssignBinOp<DivSIOp>(b);
-                case Tk::StarEq: return GenerateAssignBinOp<MulIOp>(b);
-                case Tk::StarStarEq: return GenerateAssignBinOp<mlir::math::IPowIOp>(b);
+                case Tk::MinusEq: return GenerateAssignBinOp<SubOp>(b);
+                case Tk::PercentEq: return GenerateAssignBinOp<RemOp>(b);
+                case Tk::PlusEq: return GenerateAssignBinOp<AddOp>(b);
+                case Tk::ShiftLeftEq: return GenerateAssignBinOp<ShlOp>(b);
+                case Tk::ShiftRightEq: return GenerateAssignBinOp<SarOp>(b);
+                case Tk::ShiftRightLogicalEq: return GenerateAssignBinOp<ShrOp>(b);
+                case Tk::SlashEq: return GenerateAssignBinOp<DivOp>(b);
+                case Tk::StarEq: return GenerateAssignBinOp<MulOp>(b);
+                case Tk::StarStarEq: return GenerateAssignBinOp<ExpOp>(b);
 
                 /// Assignment and reference binding.
                 case Tk::Assign:
@@ -1825,17 +1822,17 @@ auto src::CodeGen::GenerateAssignBinOp(src::BinaryExpr* b) -> mlir::Value {
 }
 
 template <typename Op>
-auto src::CodeGen::GenerateBinOp(src::BinaryExpr* b) -> mlir::Value {
+auto src::CodeGen::GenerateBinOp(BinaryExpr* b) -> mlir::Value {
     auto lhs = Generate(b->lhs);
     auto rhs = Generate(b->rhs);
     return Create<Op>(Loc(b->location), lhs, rhs);
 }
 
 template <typename Op>
-auto src::CodeGen::GenerateCmpOp(BinaryExpr* b, mlir::arith::CmpIPredicate pred) -> mlir::Value {
+auto src::CodeGen::GenerateCmpOp(BinaryExpr* b) -> mlir::Value {
     auto lhs = Generate(b->lhs);
     auto rhs = Generate(b->rhs);
-    return Create<Op>(Loc(b->location), pred, lhs, rhs);
+    return Create<Op>(Loc(b->location), Ty(b->type), lhs, rhs);
 }
 
 auto src::CodeGen::GenerateConvertingCast(CastExpr* c, mlir::Value operand) -> mlir::Value {

@@ -488,6 +488,36 @@ auto hlir::ZeroinitialiserOp::parse(OpAsmParser&, OperationState&) -> ParseResul
     Todo();
 }
 
+template <typename Op>
+void PrintArithOp(Op* op, mlir::OpAsmPrinter& p) {
+    p << " ";
+    PrintType(op->getLhs().getType(), p);
+    p << " " << op->getLhs() << ", " << op->getRhs();
+}
+
+#define BINOP(name) \
+void hlir::name::print(OpAsmPrinter& p) { PrintArithOp(this, p); } \
+auto hlir::name::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); } \
+
+BINOP(AddOp)
+BINOP(SubOp)
+BINOP(MulOp)
+BINOP(DivOp)
+BINOP(RemOp)
+BINOP(ExpOp)
+BINOP(AndOp)
+BINOP(OrOp)
+BINOP(XorOp)
+BINOP(ShlOp)
+BINOP(ShrOp)
+BINOP(SarOp)
+BINOP(EqOp)
+BINOP(NeOp)
+BINOP(LtOp)
+BINOP(LeOp)
+BINOP(GtOp)
+BINOP(GeOp)
+
 /// Copied from mlir::CallOp::verifySymbolUses().
 auto hlir::CallOp::verifySymbolUses(SymbolTableCollection& symbolTable) -> LogicalResult {
     // Check that the callee attribute was specified.

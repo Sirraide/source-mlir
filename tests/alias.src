@@ -25,7 +25,7 @@ alias d = b;
 /// + (?<lhs>$t) = call @_S3barPI64_E($c)
 /// + (?<d>$t) = load i64 from $b
 /// + (?<rhs>$t) = call @_S3barPI64_E($d)
-/// + (?<e>$t) = arith.addi $lhs, $rhs
+/// + (?<e>$t) = add i64 $lhs, $rhs
 /// + call @_S4sinkPI64_E($e)
 sink bar(c) + quux(d);
 
@@ -34,7 +34,7 @@ sink bar(c) + quux(d);
 /// + store into $n, i64
 /// + (?<m1>$t) = load i64 from $n
 /// + (?<m2>$t) = load i64 from $n
-/// + (?<m3>$t) = arith.addi $m1, $m2
+/// + (?<m3>$t) = add i64 $m1, $m2
 /// + return i64 $m3
 proc sink (baz) extern;
 proc bar (foo n) -> baz {

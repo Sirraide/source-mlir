@@ -2,6 +2,7 @@
 #include <mlir/Dialect/Index/IR/IndexDialect.h>
 #include <mlir/Dialect/Index/IR/IndexOps.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/IR/Dominance.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/Operation.h>
@@ -222,6 +223,27 @@ struct MandatoryInliningXfrm : public OpRewritePattern<CallOp> {
 
         rewriter.eraseOp(call);
         return success();
+    }
+};
+
+struct ExpOpLowering : public OpRewritePattern<ExpOp> {
+    explicit ExpOpLowering(MLIRContext* ctx)
+        : OpRewritePattern<hlir::ExpOp>(ctx, 1) {
+    }
+
+    auto matchAndRewrite(
+        ExpOp op,
+        PatternRewriter& r
+    ) const -> LogicalResult override {
+        auto b = cast<hlir::ExpOp>(op);
+
+        /// If the arguments are not arrays, just lower to LLVM ops.
+        if (not isa<hlir::ArrayType>(b.getRes().getType())) {
+            r.replaceOpWithNewOp<math::IPowIOp>(op, op.getLhs(), op.getRhs());
+            return success();
+        }
+
+        Todo("Lowering arithmetic operations on arrays");
     }
 };
 
@@ -511,10 +533,9 @@ struct ConstructOpLowering : public ConversionPattern {
         SmallVector<mlir::Value> ctor_args;
         ctor_args.insert(ctor_args.end(), args.begin(), args.end());
 
-
         mlir::Value base = args[0];
         auto loc = c->getLoc();
-        auto EmitBase = [&] { /*args[0].dump(); base = rewriter.create<hlir::ArrayDecayOp>(loc, args[0]); */};
+        auto EmitBase = [&] { /*args[0].dump(); base = rewriter.create<hlir::ArrayDecayOp>(loc, args[0]); */ };
         auto EmitBody = [&](mlir::Value index) {
             auto addr = rewriter.create<OffsetOp>(
                 loc,
@@ -598,8 +619,8 @@ struct HLIRXfrmPass
         ConversionTarget target{*ctx};
         RewritePatternSet patterns{ctx};
         AddLegalDialects(target);
-        target.addIllegalOp<ConstructOp, DestroyOp>();
-        patterns.add<ConstructOpLowering, DestroyOpLowering>(ctx);
+        target.addIllegalOp<ConstructOp, DestroyOp, ExpOp>();
+        patterns.add<ConstructOpLowering, DestroyOpLowering, ExpOpLowering>(ctx);
 
         auto module = getOperation();
         if (failed(applyFullConversion(module, target, std::move(patterns)))) signalPassFailure();

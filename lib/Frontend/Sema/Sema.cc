@@ -1395,7 +1395,7 @@ auto src::Sema::Construct(
                     Error(
                         loc,
                         "Cannot initialise an object of type '{}' with a value of type '{}'",
-                        type,
+                        base,
                         init_args[0]->type
                     );
                     return nullptr;
@@ -2568,6 +2568,39 @@ bool src::Sema::Analyse(Expr*& e) {
             auto b = cast<BinaryExpr>(e);
             if (not Analyse(b->lhs) or not Analyse(b->rhs))
                 return e->sema.set_errored();
+
+            /// Common checks for arithmetic operators.
+            auto CheckArithOperands = [&] {
+                /// Both types must be (arrays of) integers.
+                auto info_lhs = b->lhs->type.strip_arrays;
+                auto info_rhs = b->rhs->type.strip_arrays;
+                if (
+                    not info_lhs.base_type.is_int(false) or
+                    not info_rhs.base_type.is_int(false)
+                ) return Error( //
+                    b,
+                    "Operands of '{}' must be (arrays of) integers, but got '{}' and '{}'",
+                    Spelling(b->op),
+                    b->lhs->type,
+                    b->rhs->type
+                );
+
+                /// If either one is an array, the types must be the same.
+                if (
+                    (isa<ArrayType>(b->lhs->type) or isa<ArrayType>(b->rhs->type)) and
+                    b->lhs->type != b->rhs->type
+                ) return Error( //
+                    b,
+                    "Operator '{}' is only valid for arrays if both operands "
+                    "have the same type, but got '{}' and '{}'",
+                    Spelling(b->op),
+                    b->lhs->type,
+                    b->rhs->type
+                );
+
+                return true;
+            };
+
             switch (b->op) {
                 default: Unreachable("Invalid binary operator");
 
@@ -2627,18 +2660,7 @@ bool src::Sema::Analyse(Expr*& e) {
                     /// Operands are rvalues of non-reference type.
                     InsertLValueToRValueConversion(b->lhs);
                     InsertLValueToRValueConversion(b->rhs);
-
-                    /// Both types must be integers.
-                    if (
-                        not b->lhs->type.is_int(false) or
-                        not b->rhs->type.is_int(false)
-                    ) return Error( //
-                        b,
-                        "Operands of '{}' must be integers, but got '{}' and '{}'",
-                        Spelling(b->op),
-                        b->lhs->type,
-                        b->rhs->type
-                    );
+                    if (not CheckArithOperands()) return false;
 
                     /// The smaller integer is cast to the larger type if they
                     /// don’t have the same size. Integer conversions from a
@@ -2679,8 +2701,24 @@ bool src::Sema::Analyse(Expr*& e) {
                         b->rhs->type
                     );
 
+                    /// If we’re comparing arrays, the result is an array of bools.
+                    Type res = BuiltinType::Bool(mod, b->location);
+                    if (auto l = dyn_cast<ArrayType>(b->lhs->type.desugared)) {
+                        SmallVector<Expr*> dims;
+                        do {
+                            dims.push_back(l->dim_expr);
+                            l = dyn_cast<ArrayType>(l->elem.desugared);
+                        } while (l);
+
+                        /// Build an array of the same shape.
+                        for (auto d : vws::reverse(dims)) {
+                            res = new (mod) ArrayType(res, d, b->location);
+                            AnalyseAsType(res);
+                        }
+                    }
+
                     /// The type of a comparison is bool.
-                    b->stored_type = BuiltinType::Bool(mod, b->location);
+                    b->stored_type = res;
                 } break;
 
                 /// Value assignment. The LHS has to be an lvalue.
@@ -2706,18 +2744,7 @@ bool src::Sema::Analyse(Expr*& e) {
                     /// Compound assignment.
                     if (b->op != Tk::Assign) {
                         InsertLValueToRValueConversion(b->rhs);
-
-                        /// Both types must be integers.
-                        if (
-                            not b->lhs->type.is_int(false) or
-                            not b->rhs->type.is_int(false)
-                        ) return Error( //
-                            b,
-                            "Operands of '{}' must be integers, but got '{}' and '{}'",
-                            Spelling(b->op),
-                            b->lhs->type,
-                            b->rhs->type
-                        );
+                        if (not CheckArithOperands()) return false;
                     }
 
                     /// The RHS must be convertible to the LHS.

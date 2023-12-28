@@ -35,7 +35,7 @@ struct S {
     /// + $a:t = load i32 from $aref
     /// + $bref:t = structgep $s[1]
     /// + $b:t = load i32 from $bref
-    /// + $sum:t = arith.addi $a, $b
+    /// + $sum:t = add i32 $a, $b
     /// + yield i32 $sum
     /// + }
     /// + return i32 $ret

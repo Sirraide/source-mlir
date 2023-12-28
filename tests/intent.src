@@ -2,17 +2,6 @@
 
 /// d t %[a-zA-Z0-9_]+
 
-///proc big (
-///          i64[100] a,
-///    in    i64[100] b,
-///    out   i64[100] c,
-///    copy  i64[100] d,
-///    inout i64[100] e,
-///) {
-///    i64 ins = a + b + d + e;
-///    c = e;
-///    e = ins;
-///}
 ///i64[100] c;
 ///i64[100] d = 5;
 ///big 1, 2, c, 4, d
@@ -74,5 +63,19 @@ proc small (
 
     /// + $ins1:t = load i64 from $ins
     /// + store into %arg5, i64 $ins1
+    f = ins;
+}
+
+/// b
+proc big (
+          i64[100] a,
+    in    i64[100] b,
+    out   i64[100] c,
+    copy  i64[100] d,
+    move  i64[100] e,
+    inout i64[100] f,
+) {
+    i64[100] ins = a + b + d + e + f;
+    c = e;
     f = ins;
 }

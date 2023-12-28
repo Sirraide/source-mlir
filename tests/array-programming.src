@@ -1,0 +1,37 @@
+
+pragma nomangle;
+
+proc consume (i64[100]) extern;
+proc consumeb (bool[100]) extern;
+
+i64[100] a;
+i64[100] b;
+
+consume a + b;
+consume a - b;
+consume a * b;
+consume a ** b;
+consume a / b;
+consume a % b;
+consume a land b;
+consume a lor b;
+consume a xor b;
+consume a << b;
+consume a >> b;
+consume a >>> b;
+consumeb a == b;
+consumeb a != b;
+consumeb a < b;
+consumeb a <= b;
+consumeb a > b;
+consumeb a >= b;
+
+a += b;
+a -= b;
+a *= b;
+a **= b;
+a /= b;
+a %= b;
+a <<= b;
+a >>= b;
+a >>>= b;

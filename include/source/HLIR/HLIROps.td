@@ -771,4 +771,44 @@ def BitCastOp : HLIR_Op<"bitcast"> {
     let hasVerifier = 0;
 }
 
+class BinOpBase<string name, list<Trait> traits = []> : HLIR_Op<
+    name, traits
+> {
+    let summary = "Arithmetic operation";
+    let arguments = (ins HLIR_Type:$lhs, HLIR_Type:$rhs);
+    let results = (outs HLIR_Type:$res);
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 0;
+}
+
+class ArithOp<string name, list<Trait> traits = []> : BinOpBase<
+    name, traits # [SameOperandsAndResultType]
+>;
+
+class CmpOp<string name, list<Trait> traits = []> : BinOpBase<
+    name, traits
+>;
+
+
+def AddOp : ArithOp<"add">;
+def SubOp : ArithOp<"sub">;
+def MulOp : ArithOp<"mul">;
+def DivOp : ArithOp<"div">;
+def RemOp : ArithOp<"rem">;
+def ExpOp : ArithOp<"exp">;
+def AndOp : ArithOp<"and">;
+def OrOp  : ArithOp<"or">;
+def XorOp : ArithOp<"xor">;
+def ShlOp : ArithOp<"shl">;
+def ShrOp : ArithOp<"shr">;
+def SarOp : ArithOp<"sar">;
+def EqOp  : CmpOp<"eq">;
+def NeOp  : CmpOp<"ne">;
+def LtOp  : CmpOp<"lt">;
+def LeOp  : CmpOp<"le">;
+def GtOp  : CmpOp<"gt">;
+def GeOp  : CmpOp<"ge">;
+
+
+
 #endif // HLIR_OPS_TD

@@ -57,7 +57,7 @@ struct foo {
     /// + (?<x>$t) = structgep $t[0] -> i64&
     /// + (?<val1>$t) = load i64 from $param1
     /// + (?<val2>$t) = load i64 from $param2
-    /// + (?<sum>$t) = arith.addi $val1, $val2
+    /// + (?<sum>$t) = add i64 $val1, $val2
     /// + store into $x, i64 $sum
     init (i64 x, i64 y) {
         .x = x + y;

@@ -859,6 +859,52 @@ struct ReturnOpLowering : public ConversionPattern {
     }
 };
 
+template <typename Op, typename LLVMOp>
+struct ArithOpLowering : public ConversionPattern {
+    explicit ArithOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, Op::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> arguments,
+        ConversionPatternRewriter& r
+    ) const -> LogicalResult override {
+        Op b = cast<Op>(op);
+
+        /// If the arguments are not arrays, just lower to LLVM ops.
+        if (not isa<hlir::ArrayType>(b.getRes().getType())) {
+            r.replaceOpWithNewOp<LLVMOp>(op, arguments[0], arguments[1]);
+            return success();
+        }
+
+        Todo("Lowering arithmetic operations on arrays");
+    }
+};
+
+template <typename Op, LLVM::ICmpPredicate pred>
+struct CmpOpLowering : public ConversionPattern {
+    explicit CmpOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, Op::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value> arguments,
+        ConversionPatternRewriter& r
+    ) const -> LogicalResult override {
+        Op b = cast<Op>(op);
+
+        /// If the arguments are not arrays, just lower to LLVM ops.
+        if (not isa<hlir::ArrayType>(b.getRes().getType())) {
+            r.replaceOpWithNewOp<LLVM::ICmpOp>(op, pred, arguments[0], arguments[1]);
+            return success();
+        }
+
+        Todo("Lowering arithmetic operations on arrays");
+    }
+};
+
 struct HLIRToLLVMLoweringPass
     : public PassWrapper<HLIRToLLVMLoweringPass, OperationPass<ModuleOp>> {
     void getDependentDialects(DialectRegistry& registry) const override {
@@ -936,10 +982,27 @@ struct HLIRToLLVMLoweringPass
 
         // clang-format off
         patterns.add<
+            ArithOpLowering<hlir::AddOp, LLVM::AddOp>,
+            ArithOpLowering<hlir::AndOp, LLVM::AndOp>,
+            ArithOpLowering<hlir::DivOp, LLVM::SDivOp>,
+            ArithOpLowering<hlir::MulOp, LLVM::MulOp>,
+            ArithOpLowering<hlir::OrOp, LLVM::OrOp>,
+            ArithOpLowering<hlir::RemOp, LLVM::SRemOp>,
+            ArithOpLowering<hlir::SarOp, LLVM::AShrOp>,
+            ArithOpLowering<hlir::ShlOp, LLVM::ShlOp>,
+            ArithOpLowering<hlir::ShrOp, LLVM::LShrOp>,
+            ArithOpLowering<hlir::SubOp, LLVM::SubOp>,
+            ArithOpLowering<hlir::XorOp, LLVM::XOrOp>,
             ArrayDecayOpLowering,
             BitCastOpLowering,
             CallOpLowering,
             ChainExtractLocalOpLowering,
+            CmpOpLowering<hlir::EqOp, LLVM::ICmpPredicate::eq>,
+            CmpOpLowering<hlir::GeOp, LLVM::ICmpPredicate::sge>,
+            CmpOpLowering<hlir::GtOp, LLVM::ICmpPredicate::sgt>,
+            CmpOpLowering<hlir::LeOp, LLVM::ICmpPredicate::sle>,
+            CmpOpLowering<hlir::LtOp, LLVM::ICmpPredicate::slt>,
+            CmpOpLowering<hlir::NeOp, LLVM::ICmpPredicate::ne>,
             DeleteOpLowering,
             FuncOpLowering,
             GlobalRefOpLowering,

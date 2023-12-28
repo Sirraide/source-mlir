@@ -30,7 +30,7 @@ export proc a -> i32 {
     /// + scope
     /// + $val:t = load i32 from $offs
     /// + $old:t = load i32 from $sum
-    /// + $new:t = arith.addi $old, $val
+    /// + $new:t = add i32 $old, $val
     /// + store into $sum, i32 $new
     /// + yield
     /// + }
@@ -69,7 +69,7 @@ export proc b -> i32 {
     /// + scope
     /// + $val:t = load i32 from $offs
     /// + $old:t = load i32 from $sum
-    /// + $new:t = arith.addi $old, $val
+    /// + $new:t = add i32 $old, $val
     /// + store into $sum, i32 $new
     /// + yield
     /// + }

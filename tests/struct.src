@@ -40,7 +40,7 @@ foo s, s;
 /// + (?<AA>$t) = load i8 from $AAref
 /// + (?<BCref>$t) = structgep $B[3]
 /// + (?<BC>$t) = load i8 from $BCref
-/// + (?<Sum>$t) = arith.addi $AA, $BC
+/// + (?<Sum>$t) = add i8 $AA, $BC
 /// + yield i8 $Sum
 /// + }
 /// + return i8 $ret

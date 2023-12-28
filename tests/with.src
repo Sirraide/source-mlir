@@ -33,7 +33,7 @@ foo a;
 /// + $axval:t = load i32 from $axref
 /// + $ayref:t = structgep $a[1] -> i32&
 /// + $ayval:t = load i32 from $ayref
-/// + $sum:t = arith.addi $axval, $ayval
+/// + $sum:t = add i32 $axval, $ayval
 /// + yield i32 $sum
 i32 x = with a do .x + .y;
 /// + }

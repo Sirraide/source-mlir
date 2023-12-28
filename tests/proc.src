@@ -13,7 +13,7 @@ proc takes_int (int a) {
     /// + scope
     /// + (?<A1>$t) = load i64 from $A
     /// + (?<A2>$t) = load i64 from $A
-    /// + (?<SUM>$t) = arith.addi $A1, $A2
+    /// + (?<SUM>$t) = add i64 $A1, $A2
     /// + call @discard($SUM)
     discard a + a;
 }
