@@ -540,11 +540,12 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
             auto p = cast<ProcType>(ptr);
             out += fmt::format("{}proc", C(Red));
 
-            if (not p->param_types.empty()) {
+            if (not p->parameters.empty()) {
                 out += " (";
-                for (usz i = 0; i < p->param_types.size(); i++) {
-                    out += p->param_types[i]->type.str(use_colour);
-                    if (i != p->param_types.size() - 1) out += fmt::format("{}, ", C(Red));
+                for (auto [i, param] : vws::enumerate(p->parameters)) {
+                    if (param.intent != Intent::Default) out += stringify(param.intent);
+                    out += param.type.str(use_colour);
+                    if (usz(i) != p->parameters.size() - 1) out += fmt::format("{}, ", C(Red));
                 }
                 out += C(Red);
                 out += ")";
@@ -738,9 +739,9 @@ bool src::operator==(Type a, Type b) {
             auto pa = cast<ProcType>(a);
             auto pb = cast<ProcType>(b);
 
-            if (pa->param_types.size() != pb->param_types.size()) return false;
+            if (pa->parameters.size() != pb->parameters.size()) return false;
             if (pa->variadic != pb->variadic) return false;
-            for (auto [p1, p2] : llvm::zip_equal(pa->param_types, pb->param_types))
+            for (auto [p1, p2] : llvm::zip_equal(pa->parameters, pb->parameters))
                 if (p1 != p2)
                     return false;
 
@@ -960,7 +961,8 @@ struct ASTPrinter {
                 );
 
                 if (auto p = dyn_cast<ParamDecl>(v)) {
-                    if (p->with) out += fmt::format(" with");
+                    if (p->info->with) out += fmt::format(" with");
+                    out += stringify(p->info->intent);
                 }
 
                 out += "\n";
@@ -1195,7 +1197,8 @@ struct ASTPrinter {
                     using enum ConstructKind;
                     case Uninitialised: out += " uninit"; break;
                     case Zeroinit: out += " zero"; break;
-                    case MoveParameter: out += " move"; break;
+                    case ByValParam: out += " byval"; break;
+                    case ByRefParam: out += " byref"; break;
                     case TrivialCopy: out += " trivial"; break;
                     case SliceFromParts: out += " slice"; break;
                     case InitialiserCall: out += " init"; break;

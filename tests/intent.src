@@ -3,25 +3,29 @@ proc small (
     in    int b,
     out   int c,
     copy  int d,
-    inout int e,
+    move  int e,
+    inout int f,
 ) {
-    int ins = a + b + d + e;
+    int ins = a + b + d + e + f;
     c = e;
-    e = ins;
+    f = ins;
 }
 
-proc big (
-          int[100] a,
-    in    int[100] b,
-    out   int[100] c,
-    copy  int[100] d,
-    inout int[100] e,
-) {
-    int ins = a + b + d + e;
-    c = e;
-    e = ins;
-}
+///proc big (
+///          int[100] a,
+///    in    int[100] b,
+///    out   int[100] c,
+///    copy  int[100] d,
+///    inout int[100] e,
+///) {
+///    int ins = a + b + d + e;
+///    c = e;
+///    e = ins;
+///}
 
 int a;
 int b = 5;
-small 1, 2, a, 4, 5
+small 1, 2, a, 4, 5, b
+///int[100] c;
+///int[100] d = 5;
+///big 1, 2, c, 4, d

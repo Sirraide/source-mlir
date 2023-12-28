@@ -131,6 +131,9 @@ class Sema {
         /// Emit a cast.
         Type cast(CastKind k, Type to);
 
+        /// Emit lvalue-to-rvalue conversion.
+        void lvalue_to_rvalue();
+
         /// Emit a conversion from an overload set to a procedure.
         Type overload_set_to_proc(ProcDecl* proc);
 
@@ -291,6 +294,10 @@ private:
     /// Apply a conversion sequence to an expression.
     void ApplyConversionSequence(Expr*& e, std::same_as<ConversionSequence> auto&& seq);
 
+    /// Determine whether a parameter should be passed by value and check its type.
+    /// \return False on error.
+    bool ClassifyParameter(ParamInfo* info);
+
     /// Get a constructor for a type and a set of arguments.
     ///
     /// \param loc Location to use for errors.
@@ -365,6 +372,15 @@ private:
     /// if the type of the expression is actually OverloadSet.
     auto EvaluateAsOverloadSet(Expr* e) -> OverloadSetExpr*;
 
+    /// Perform any final operations (after type conversion) required to
+    /// pass an expression an an argument to a call.
+    ///
+    /// \param arg The argument to finalise.
+    /// \param param The parameter to which the argument is being passed, or
+    ///        nullptr if this is a variadic argument.
+    /// \return False on error.
+    bool FinaliseInvokeArgument(Expr*& arg, const ParamInfo* param);
+
     /// Dereference a reference, yielding an lvalue.
     ///
     /// This automatically handles dereferencing both references that
@@ -416,7 +432,11 @@ private:
 
     /// Like Convert(), but does not perform the conversion, and does not
     /// issue any diagnostics on conversion failure.
-    bool TryConvert(ConversionSequence& out, Expr* e, Type to);
+
+    /// This  *will* perform lvalue-to-rvalue conversion if
+    /// the type conversion requires it and also in any case unless \p
+    /// lvalue is true.
+    bool TryConvert(ConversionSequence& out, Expr* e, Type to, bool lvalue = false);
 
     /// Strip references and optionals (if they’re active) from the expression
     /// to yield the underlying value.

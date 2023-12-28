@@ -114,7 +114,7 @@ auto Type::_mangled_name() -> std::string {
             /// overload on that anyway.
             std::string name{"P"};
             if (p->variadic) name += "q";
-            for (auto a : p->param_types) name += a.mangled_name;
+            for (auto& a : p->parameters) name += a.type.mangled_name;
             name += "E";
             return name;
         }
@@ -213,6 +213,14 @@ enum struct SerialisedMangling : u8 {
     Source,
 };
 
+enum struct SerialisedIntent : u8 {
+    Copy,
+    In,
+    Inout,
+    Move,
+    Out,
+};
+
 enum struct SerialisedTypeTag : u8 {
     Struct,
     SizedInteger,
@@ -242,8 +250,9 @@ enum struct SerialisedTypeTag : u8 {
 template <typename T>
 concept serialisable_enum = is_same<
     T,
-    SerialisedMangling,
     SerialisedDeclTag,
+    SerialisedIntent,
+    SerialisedMangling,
     SerialisedTypeTag>;
 
 constexpr u8 current_version = 0;
@@ -430,11 +439,11 @@ struct Serialiser {
 
                 auto ret = SerialiseType(cast<TypeBase>(p->ret_type));
                 std::vector<TD> params;
-                for (auto a : p->param_types) params.push_back(SerialiseType(cast<TypeBase>(a)));
+                for (auto& a : p->parameters) params.push_back(SerialiseType(cast<TypeBase>(a.type)));
 
                 *this << SerialisedTypeTag::Procedure;
                 *this << ret << params.size() << p->variadic;
-                for (auto td : params) *this << td;
+                for (auto [td, a] : llvm::zip_equal(params, p->parameters)) *this << td << ConvertIntent(a.intent);
                 return type_map[t] = TD{hdr.type_count++};
             }
 
@@ -503,6 +512,19 @@ struct Serialiser {
         switch (m) {
             case Mangling::None: return SerialisedMangling::None;
             case Mangling::Source: return SerialisedMangling::Source;
+        }
+
+        Unreachable();
+    }
+
+    /// Convert intent to serialised intent.
+    auto ConvertIntent(Intent i) -> SerialisedIntent {
+        switch (i) {
+            case Intent::Copy: return SerialisedIntent::Copy;
+            case Intent::In: return SerialisedIntent::In;
+            case Intent::Inout: return SerialisedIntent::Inout;
+            case Intent::Move: return SerialisedIntent::Move;
+            case Intent::Out: return SerialisedIntent::Out;
         }
 
         Unreachable();
@@ -743,9 +765,14 @@ struct Deserialiser {
                 u64 params = rd<u64>();
                 bool variadic = rd<bool>();
 
-                SmallVector<Type> param_types{};
-                for (u64 i = 0; i < params; i++) param_types.push_back(Map(rd<TD>()));
-                return new (&*mod) ProcType(std::move(param_types), ret, variadic, {});
+                std::deque<ParamInfo> parameters{};
+                for (u64 i = 0; i < params; i++) {
+                    auto type = Map(rd<TD>());
+                    auto intent = ConvertIntent(rd<SerialisedIntent>());
+                    parameters.emplace_back(type, intent);
+                }
+
+                return new (&*mod) ProcType(std::move(parameters), ret, variadic, {});
             }
 
             case SerialisedTypeTag::Struct: {
@@ -848,6 +875,19 @@ struct Deserialiser {
         switch (m) {
             case SerialisedMangling::None: return Mangling::None;
             case SerialisedMangling::Source: return Mangling::Source;
+        }
+
+        Unreachable();
+    }
+
+    /// Convert serialised intent to intent.
+    auto ConvertIntent(SerialisedIntent i) -> Intent {
+        switch (i) {
+            case SerialisedIntent::Copy: return Intent::Copy;
+            case SerialisedIntent::In: return Intent::In;
+            case SerialisedIntent::Inout: return Intent::Inout;
+            case SerialisedIntent::Move: return Intent::Move;
+            case SerialisedIntent::Out: return Intent::Out;
         }
 
         Unreachable();

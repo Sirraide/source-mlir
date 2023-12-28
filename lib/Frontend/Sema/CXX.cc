@@ -90,11 +90,11 @@ struct ImportContext {
 
         auto ret = f->isNoReturn() ? Type::NoReturn : TranslateType(f->getReturnType());
         if (not ret.has_value()) return;
-        SmallVector<Type> param_types;
+        std::deque<ParamInfo> param_types;
         for (auto p : f->parameters()) {
             auto t = TranslateType(p->getType());
             if (not t.has_value()) return;
-            param_types.push_back(*t);
+            param_types.emplace_back(*t, Intent::Copy);
         }
 
         auto type = new (out) ProcType(

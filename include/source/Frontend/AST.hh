@@ -48,6 +48,40 @@ enum struct LocalKind : u8 {
     SynthesisedValue, /// Named *rvalue* that denotes some value.
 };
 
+class SemaState {
+    enum struct St : u8 {
+        NotAnalysed,
+        InProgress,
+        Errored,
+        Ok,
+    };
+
+    St state = St::NotAnalysed;
+
+public:
+    readonly_const(bool, analysed, return state == St::Errored or state == St::Ok);
+    readonly_const(bool, errored, return state == St::Errored);
+    readonly_const(bool, in_progress, return state == St::InProgress);
+    readonly_const(bool, ok, return state == St::Ok);
+
+    void set_done() {
+        if (state != St::Errored) state = St::Ok;
+    }
+
+    /// Returns false for convenience.
+    bool set_errored() {
+        state = St::Errored;
+        return false;
+    }
+
+    void set_in_progress() {
+        if (state == St::NotAnalysed) state = St::InProgress;
+    }
+
+    /// Reset the state.
+    void unset() { state = St::NotAnalysed; }
+};
+
 /// ===========================================================================
 ///  Special Expressions
 /// ===========================================================================
@@ -58,39 +92,6 @@ public:
 #include <source/Frontend/AST.def>
     };
 
-    class SemaState {
-        enum struct St : u8 {
-            NotAnalysed,
-            InProgress,
-            Errored,
-            Ok,
-        };
-
-        St state = St::NotAnalysed;
-
-    public:
-        readonly_const(bool, analysed, return state == St::Errored or state == St::Ok);
-        readonly_const(bool, errored, return state == St::Errored);
-        readonly_const(bool, in_progress, return state == St::InProgress);
-        readonly_const(bool, ok, return state == St::Ok);
-
-        void set_done() {
-            if (state != St::Errored) state = St::Ok;
-        }
-
-        /// Returns false for convenience.
-        bool set_errored() {
-            state = St::Errored;
-            return false;
-        }
-
-        void set_in_progress() {
-            if (state == St::NotAnalysed) state = St::InProgress;
-        }
-
-        /// Reset the state.
-        void unset() { state = St::NotAnalysed; }
-    };
 
     /// The kind of this expression.
     Kind kind;
@@ -566,9 +567,19 @@ enum struct ConstructKind {
     /// a memset with the size of the type. No arguments.
     Zeroinit,
 
-    /// Currently only used for parameters and handled
-    /// specially. No arguments.
-    MoveParameter,
+    /// Parameter that is passed by value, i.e. value passed
+    /// to the function is a value that should be stored in
+    /// a local variable.
+    ByValParam,
+
+    /// Parameter that is passed by value, i.e. value passed
+    /// to the function is an address that can be used directly
+    /// as the address of a ‘local variable’.
+    ///
+    /// This has nothing to do with whether a parameter is of
+    /// reference *type* or not. References can be passed by value
+    /// or by reference themselves.
+    ByRefParam,
 
     /// Trivial memcpy/store. One argument.
     TrivialCopy,
@@ -671,7 +682,8 @@ private:
         switch (ctor_kind) {
             case K::Uninitialised:
             case K::Zeroinit:
-            case K::MoveParameter:
+            case K::ByValParam:
+            case K::ByRefParam:
             case K::ArrayZeroinit:
                 return 0;
 
@@ -695,7 +707,8 @@ private:
         switch (k) {
             case K::Uninitialised:
             case K::Zeroinit:
-            case K::MoveParameter:
+            case K::ByValParam:
+            case K::ByRefParam:
             case K::TrivialCopy:
             case K::SliceFromParts:
             case K::ArrayBroadcast:
@@ -715,7 +728,8 @@ private:
         switch (k) {
             case K::Uninitialised:
             case K::Zeroinit:
-            case K::MoveParameter:
+            case K::ByValParam:
+            case K::ByRefParam:
             case K::TrivialCopy:
             case K::SliceFromParts:
             case K::InitialiserCall:
@@ -737,7 +751,8 @@ public:
         switch (ctor_kind) {
             case K::Uninitialised:
             case K::Zeroinit:
-            case K::MoveParameter:
+            case K::ByValParam:
+            case K::ByRefParam:
             case K::TrivialCopy:
             case K::SliceFromParts:
             case K::InitialiserCall:
@@ -781,7 +796,7 @@ public:
 
     static auto CreateUninitialised(Module* m) { return new (m) ConstructExpr(K::Uninitialised); }
     static auto CreateZeroinit(Module* m) { return new (m) ConstructExpr(K::Zeroinit); }
-    static auto CreateMoveParam(Module* m) { return new (m) ConstructExpr(K::MoveParameter); }
+    static auto CreateParam(Module* m, bool byref) { return new (m) ConstructExpr(byref ? K::ByRefParam : K::ByValParam); }
     static auto CreateTrivialCopy(Module* m, Expr* expr) { return Create(m, K::TrivialCopy, expr); }
     static auto CreateSliceFromParts(Module* m, Expr* ptr, Expr* size) { return Create(m, K::SliceFromParts, {ptr, size}); }
     static auto CreateArrayListInit(Module* m, ArrayRef<Expr*> args) { return Create(m, K::ArrayListInit, args); }
@@ -1457,27 +1472,81 @@ public:
     }
 };
 
+enum struct Intent : u8 {
+    Move = 0b0001,
+    Copy = 0b0010,
+    In = 0b0100,
+    Out = 0b1000,
+    Inout = In | Out,
+    Default = Move, ///< Default intent for parameters.
+
+    LLVM_MARK_AS_BITMASK_ENUM(Inout)
+};
+
+constexpr auto stringify(Intent i) -> std::string_view {
+    switch (i) {
+        case Intent::Move: return "move";
+        case Intent::Copy: return "copy";
+        case Intent::In: return "in";
+        case Intent::Out: return "out";
+        case Intent::Inout: return "inout";
+    }
+
+    Unreachable();
+}
+
+/// Parameter information used by both ProcTypes and ParamDecls.
+class ParamInfo {
+    friend Sema;
+
+public:
+    Type type;
+    Intent intent;
+
+private:
+    /// Whether Sema is already done with this.
+    SemaState sema{};
+
+public:
+    /// Whether this is passed by reference. This can be inferred
+    /// directly from the type and is computed and cached by Sema.
+    bool byref : 1 {};
+
+    /// Whether this is a `with` parameter. This is only relevant
+    /// if the corresponding procedure has a body and can be left
+    /// unset otherwise.
+    bool with  : 1 {};
+
+    ParamInfo(const ParamInfo&) = delete;
+    ParamInfo& operator=(const ParamInfo&) = delete;
+    ParamInfo(ParamInfo&&) = delete;
+    ParamInfo& operator=(ParamInfo&&) = delete;
+    ParamInfo(Type type, Intent intent, bool with = false)
+        : type{type}, intent{intent}, with{with} {}
+
+    [[nodiscard]] bool operator==(const ParamInfo& other) const {
+        return std::tie(type, intent) == std::tie(other.type, other.intent);
+    }
+};
+
 class ParamDecl : public LocalDecl {
 public:
-    /// Modifiers.
-    bool with : 1 = false;
-
+    ParamInfo* info{};
     ParamDecl(
         ProcDecl* parent,
+        ParamInfo* info,
         String name,
-        Type type,
-        bool with,
         Location loc
     ) : LocalDecl( //
             Kind::ParamDecl,
             parent,
             name,
-            type,
+            info->type,
             {},
             LocalKind::Parameter,
             loc
         ),
-        with(with) {}
+        info(info) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ParamDecl; }
@@ -2040,7 +2109,7 @@ enum struct SpecialMemberKind {
 class ProcType : public TypeBase {
 public:
     /// The parameter types.
-    SmallVector<Type> param_types;
+    std::deque<ParamInfo> parameters;
 
     /// The return type.
     Type ret_type;
@@ -2057,9 +2126,9 @@ public:
     /// Whether this type is variadic.
     bool variadic{};
 
-    ProcType(SmallVector<Type> param_types, Type ret_type, bool variadic, Location loc)
+    ProcType(std::deque<ParamInfo> parameters, Type ret_type, bool variadic, Location loc)
         : TypeBase(Kind::ProcType, loc),
-          param_types(std::move(param_types)),
+          parameters(std::move(parameters)),
           ret_type(ret_type),
           variadic(variadic) {}
 

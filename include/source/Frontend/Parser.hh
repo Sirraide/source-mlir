@@ -192,7 +192,7 @@ private:
     auto ParseIf() -> Result<Expr*>;
     auto ParseImplicitBlock() -> Result<BlockExpr*>;
     auto ParseNakedInvokeExpr(Expr* callee) -> Result<InvokeExpr*>;
-    auto ParseParamDeclList(SVI<ParamDecl*>& param_decls, SVI<Type>& param_types) -> Location;
+    auto ParseParamDeclList(SVI<ParamDecl*>& param_decls, std::deque<ParamInfo>& param_types) -> Location;
     void ParsePragma();
     auto ParseProc() -> Result<ProcDecl*>;
     auto ParseProcBody() -> Result<BlockExpr*>;

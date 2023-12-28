@@ -92,6 +92,12 @@ auto src::Sema::ConversionContext<perform_conversion>::cast(CastKind kind, Type 
 }
 
 template <bool perform_conversion>
+void src::Sema::ConversionContext<perform_conversion>::lvalue_to_rvalue() {
+    /// Type of LValueToRValue casts is set later.
+    std::ignore = cast(CastKind::LValueToRValue, Type::Unknown);
+}
+
+template <bool perform_conversion>
 auto src::Sema::ConversionContext<perform_conversion>::overload_set_to_proc(ProcDecl* proc) -> Type {
     if constexpr (perform_conversion) ConversionSequence::ApplyOverloadSetToProc(S, *e, proc);
     else seq->entries.push_back(ConversionSequence::OverloadSetToProc{proc});
@@ -128,6 +134,42 @@ bool src::Sema::ConversionContext<perform_conversion>::try_evaluate(EvalResult& 
 
     /// Not a constant expression.
     return false;
+}
+
+bool src::Sema::ClassifyParameter(ParamInfo* info) {
+    if (info->sema.analysed) return info->sema.ok;
+    if (not AnalyseAsType(info->type) or not MakeDeclType(info->type))
+        return info->sema.set_errored();
+
+    /// Cannot perform type inference on parameters.
+    if (info->type == Type::Unknown) {
+        info->sema.set_errored();
+        return Error(info->type.ptr, "Type inference is not permitted here");
+    }
+
+    /// Determine whether this should be passed by value or by reference.
+    switch (info->intent) {
+        /// Always by value.
+        case Intent::Copy:
+        case Intent::Move:
+            info->byref = false;
+            return true;
+
+        /// Always by reference.
+        case Intent::Inout:
+        case Intent::Out:
+            info->byref = true;
+            return true;
+
+        /// By value if trivially copyable and small.
+        case Intent::In:
+            info->byref =
+                not info->type.trivial or
+                info->type.size(ctx) > Size::Bits(128); /// FIXME: Target-dependent.
+            return true;
+    }
+
+    Unreachable();
 }
 
 template <bool perform_conversion>
@@ -221,7 +263,7 @@ bool src::Sema::ConvertImpl(
     /// Procedures are convertible to closures, but *not* the other way around.
     if (isa<ProcType>(from) and isa<ClosureType>(to)) {
         if (from != cast<ClosureType>(to)->proc_type) return false;
-        ctx.cast(CastKind::LValueToRValue, from);
+        ctx.lvalue_to_rvalue();
         ctx.cast(CastKind::Implicit, type);
         return true;
     }
@@ -238,7 +280,7 @@ bool src::Sema::ConvertImpl(
 
                 /// ... and make it a closure, if need be.
                 if (isa<ClosureType>(to)) {
-                    from = ctx.cast(CastKind::LValueToRValue, from);
+                    ctx.lvalue_to_rvalue();
                     from = ctx.cast(CastKind::Implicit, type);
                 }
 
@@ -268,7 +310,7 @@ bool src::Sema::ConvertImpl(
 
         /// Smaller integer types can be converted to larger integer types.
         if (from_size <= to_size) {
-            from = ctx.cast(CastKind::LValueToRValue, from);
+            ctx.lvalue_to_rvalue();
             from = ctx.cast(CastKind::Implicit, type);
             return true;
         }
@@ -290,14 +332,14 @@ bool src::Sema::ConvertImpl(
 
     /// Nil is convertible to any optional type.
     if (from.is_nil and isa<OptionalType>(to)) {
-        from = ctx.cast(CastKind::LValueToRValue, from);
+        ctx.lvalue_to_rvalue();
         from = ctx.cast(CastKind::Implicit, type);
         return true;
     }
 
     /// Any type is convertible to the optional type of that type.
     if (auto opt = dyn_cast<OptionalType>(to); opt and from == opt->elem) {
-        from = ctx.cast(CastKind::LValueToRValue, from);
+        ctx.lvalue_to_rvalue();
         from = ctx.cast(CastKind::OptionalWrap, opt);
         return true;
     }
@@ -348,6 +390,40 @@ bool src::Sema::EnsureCondition(Expr*& e) {
     );
 }
 
+bool src::Sema::FinaliseInvokeArgument(Expr*& arg, const ParamInfo* param) {
+    /// Variadic argument.
+    if (not param) {
+        /// Variadic arguments cannot be overload sets.
+        if (arg->type == Type::OverloadSet) return Error(
+            arg,
+            "Cannot pass an overload set as a variadic argument"
+        );
+
+        /// Variadic arguments are always rvalues.
+        InsertLValueToRValueConversion(arg);
+        return true;
+    }
+
+    /// Apply lvalue-to-rvalue conversion if the parameter should be passed
+    /// by value. If overload resolution selects an overload that would require
+    /// binding a non-lvalue argument to a byref parameter, the program is
+    /// ill-formed.
+    if (not param->byref) InsertLValueToRValueConversion(arg);
+    else if (not arg->is_lvalue) {
+        /// TODO: Allow temporary materialisation if the parameter intent is "in",
+        ///       since in that case, copying by value would be possible, but we
+        ///       simply chose not to do so.
+        return Error(
+            arg,
+            "rvalue argument cannot bind to a parameter with intent '{}'. "
+            "Try passing a variable instead.",
+            stringify(param->intent)
+        );
+    }
+
+    return true;
+}
+
 void src::Sema::InsertImplicitDereference(Expr*& e, isz depth) {
     e = CreateImplicitDereference(e, depth);
 }
@@ -384,10 +460,11 @@ bool src::Sema::MakeDeclType(Type& e) {
     return true;
 }
 
-bool src::Sema::TryConvert(ConversionSequence& seq, Expr* e, Type to) {
+bool src::Sema::TryConvert(ConversionSequence& seq, Expr* e, Type to, bool lvalue) {
     ConversionContext<false> ctx(*this, seq, &e);
     bool ok = ConvertImpl(ctx, e->type, to);
     seq.score = ok ? ctx.score : Candidate::InvalidScore;
+    if (ok and not lvalue) ctx.lvalue_to_rvalue();
     return ok;
 }
 
@@ -563,8 +640,6 @@ auto src::Sema::OptionalState::MatchNilTest(Expr* test) -> Expr* {
 /// ===========================================================================
 ///  Overload Resolution
 /// ===========================================================================
-/// Refer to [expr.overload] in the manual for a detailed description of
-/// the algorithm implemented below.
 auto src::Sema::PerformOverloadResolution(
     Location where,
     ArrayRef<ProcDecl*> overloads,
@@ -576,31 +651,39 @@ auto src::Sema::PerformOverloadResolution(
         if (not Analyse(a))
             return nullptr;
 
-    /// 1.
+    /// Create a candidate for each element of the overload set; each
+    /// candidate is initially viable.
     SmallVector<Candidate> candidates;
     candidates.reserve(overloads.size());
     for (auto p : overloads) candidates.emplace_back(p);
 
-    /// 2.
+    /// Determine which candidates are viable.
     for (auto& ci : candidates) {
-        auto& params = ci.type->param_types;
+        auto& params = ci.type->parameters;
         ci.arg_convs.resize(args.size());
 
-        /// 2a.
+        /// If there are not enough arguments, the candidate is not viable.
         if (params.size() > args.size()) {
             ci.s = Candidate::Status::ArgumentCountMismatch;
             continue;
         }
 
-        /// 2b.
+        /// If there are too many arguments, and the candidate is not a variadic
+        /// procedure, the candidate is not viable.
         if (not ci.type->variadic and params.size() < args.size()) {
             ci.s = Candidate::Status::ArgumentCountMismatch;
             continue;
         }
 
-        /// 2c/2d.
+        /// Otherwise, check that all non-variadic arguments (i.e. arguments that
+        /// actually bind to parameters) are convertible to the corresponding
+        /// parameter, noting the conversion sequence for each argument.
+        ///
+        /// If an argument cannot be converted to a parameter, the candidate is
+        /// not viable. Otherwise, a candidate’s score is the sum of the scores
+        /// of all its argument conversions.
         for (usz j = 0; j < params.size(); j++) {
-            if (not TryConvert(ci.arg_convs[j], args[j], params[j])) {
+            if (not TryConvert(ci.arg_convs[j], args[j], params[j].type)) {
                 ci.s = Candidate::Status::ArgumentTypeMismatch;
                 ci.mismatch_index = j;
                 break;
@@ -610,30 +693,28 @@ auto src::Sema::PerformOverloadResolution(
         }
     }
 
-    /// 3/4.
+    /// Find the viable candidate with the minimum score.
     auto min = utils::UniqueMin(
         candidates,
         [](auto& c) { return c.s == Candidate::Status::Viable; },
         &Candidate::score
     );
 
+    /// If there are no viable candidates, or there is more than one
+    /// candidate with the minimum score, the program is ill-formed.
     if (min == candidates.end()) {
         if (required) ReportOverloadResolutionFailure(where, candidates, args);
         return nullptr;
     }
 
-    /// 5/6/7.
+    /// Apply conversions from arguments to parameter types.
     auto proc = min->proc;
-    auto& params = cast<ProcType>(proc->type)->param_types;
+    auto& params = cast<ProcType>(proc->type)->parameters;
     for (usz i = 0; i < args.size(); i++) {
-        if (i < params.size()) ApplyConversionSequence(args[i], std::move(min->arg_convs[i]));
-        else {
-            if (args[i]->type == Type::OverloadSet) {
-                Error(args[i], "Cannot pass an overload set as a variadic argument");
-                return nullptr;
-            }
-        }
-        InsertLValueToRValueConversion(args[i]);
+        const bool variadic = i >= params.size();
+        if (not variadic) ApplyConversionSequence(args[i], std::move(min->arg_convs[i]));
+        if (not FinaliseInvokeArgument(args[i], variadic ? nullptr : &params[i]))
+            return nullptr;
     }
 
     return proc;
@@ -682,7 +763,7 @@ void src::Sema::ReportOverloadResolutionFailure(
         fmt::print(stderr, "       ");
         switch (o.s) {
             case Candidate::Status::ArgumentCountMismatch:
-                fmt::print(stderr, "Requires {} arguments\n", o.type->param_types.size());
+                fmt::print(stderr, "Requires {} arguments\n", o.type->parameters.size());
                 break;
 
             case Candidate::Status::NoViableArgOverload:
@@ -1558,15 +1639,9 @@ bool src::Sema::Analyse(Expr*& e) {
         /// Parameters and return type must be complete.
         case Expr::Kind::ProcType: {
             auto type = cast<ProcType>(e);
-
-            for (auto& param : type->param_types) {
-                if (not AnalyseAsType(param) or not MakeDeclType(param)) e->sema.set_errored();
-                else if (param == Type::Unknown) {
+            for (auto& param : type->parameters)
+                if (not ClassifyParameter(&param))
                     e->sema.set_errored();
-                    Error(param.ptr, "Type inference is not permitted here");
-                }
-            }
-
             if (not AnalyseAsType(type->ret_type)) e->sema.set_errored();
         } break;
 
@@ -2083,13 +2158,13 @@ bool src::Sema::Analyse(Expr*& e) {
         /// Parameter declaration.
         case Expr::Kind::ParamDecl: {
             auto var = cast<ParamDecl>(e);
-            if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
-            if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
-            var->ctor = ConstructExpr::CreateMoveParam(mod);
+            if (not ClassifyParameter(var->info)) return e->sema.set_errored();
+            var->stored_type = var->info->type;
+            var->ctor = ConstructExpr::CreateParam(mod, var->info->byref);
 
             /// Add the variable to the current scope.
             if (not var->sema.errored) {
-                if (var->with) with_stack.push_back(var);
+                if (var->info->with) with_stack.push_back(var);
                 curr_scope->declare(var->name, var);
                 var->is_lvalue = true;
             }
@@ -2737,7 +2812,7 @@ bool src::Sema::AnalyseAsType(Type& e, bool diag_if_not_type) {
 
     if (auto t = dyn_cast<TupleExpr>(e.ptr)) {
         SmallVector<FieldDecl*> ts;
-        for (auto& el : t->elements){
+        for (auto& el : t->elements) {
             ts.emplace_back(new (mod) FieldDecl(String(), Type{el}, el->location));
             if (not AnalyseAsType(ts.back()->stored_type)) return false;
         }
@@ -2951,31 +3026,36 @@ bool src::Sema::AnalyseInvoke(Expr*& e, bool direct_child_of_block) {
 
         /// Make sure the types match.
         for (usz i = 0; i < invoke->args.size(); i++) {
-            if (i < ptype->param_types.size()) {
-                if (not Convert(invoke->args[i], ptype->param_types[i])) {
+            const bool variadic = i >= ptype->parameters.size();
+            if (not variadic) {
+                /// Keep lvalues here. We’ll handle them below.
+                if (not Convert(invoke->args[i], ptype->parameters[i].type, true)) {
                     Error(
                         invoke->args[i],
                         "Argument type '{}' is not convertible to parameter type '{}'",
                         invoke->args[i]->type,
-                        ptype->param_types[i]
+                        ptype->parameters[i].type
                     );
                     e->sema.set_errored();
+                    continue;
                 }
             }
 
-            /// Variadic arguments only undergo lvalue-to-rvalue conversion.
-            else { InsertLValueToRValueConversion(invoke->args[i]); }
+            FinaliseInvokeArgument(
+                invoke->args[i],
+                variadic ? nullptr : &ptype->parameters[i]
+            );
         }
 
         /// Make sure there are as many arguments as parameters.
         if (
-            invoke->args.size() < ptype->param_types.size() or
-            (invoke->args.size() != ptype->param_types.size() and not ptype->variadic)
+            invoke->args.size() < ptype->parameters.size() or
+            (invoke->args.size() != ptype->parameters.size() and not ptype->variadic)
         ) {
             Error(
                 e,
                 "Expected {} arguments, but got {}",
-                ptype->param_types.size(),
+                ptype->parameters.size(),
                 invoke->args.size()
             );
         }

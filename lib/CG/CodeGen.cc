@@ -302,7 +302,9 @@ void src::CodeGen::Construct(
 
     switch (ctor->ctor_kind) {
         /// Handled elsewhere. No-op here.
-        case ConstructKind::MoveParameter: break;
+        case ConstructKind::ByValParam:
+        case ConstructKind::ByRefParam:
+            break;
 
         /// Perform no initialisation at all.
         case ConstructKind::Uninitialised: break;
@@ -747,7 +749,10 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
             if (ty->is_smp) params.push_back(hlir::ReferenceType::get(Ty(ty->smp_parent)));
 
             /// Add regular parameters.
-            for (auto p : ty->param_types) params.push_back(Ty(p));
+            for (auto& p : ty->parameters) {
+                if (p.byref) Todo("Handle byref");
+                params.push_back(Ty(p.type));
+            }
 
             /// Add an extra parameter for the static chain pointer, unless
             /// this is for a closure type, in which case the environment
@@ -2141,6 +2146,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
 
     /// Create local variables for parameters.
     for (auto [i, p] : llvm::enumerate(proc->params)) {
+        if (p->info->byref) Todo("Handle byref");
         AllocateLocalVar(p);
 
         /// TODO: What was this todo about again?

@@ -943,12 +943,13 @@ auto src::Parser::ParseNakedInvokeExpr(Expr* callee) -> Result<InvokeExpr*> {
     );
 }
 
-/// <proc-params> ::= "(" <parameter> { "," <parameter> } ")"
-/// <parameter>   ::= [ WITH ] <param-decl>
+/// <proc-params> ::= "(" <parameter> { "," <parameter> } [ "," ] ")"
+/// <parameter>   ::= [ WITH ] [ <intent> ] <param-decl>
 /// <param-decl>  ::= <type> [ IDENTIFIER ] | PROC [ IDENTIFIER ] <proc-signature>
+/// <intent>      ::= MOVE | COPY | IN | OUT | INOUT
 auto src::Parser::ParseParamDeclList(
     SVI<ParamDecl*>& param_decls,
-    SVI<Type>& param_types
+    std::deque<ParamInfo>& parameters
 ) -> Location {
     auto loc = curr_loc;
     Assert(Consume(Tk::LParen));
@@ -961,19 +962,35 @@ auto src::Parser::ParseParamDeclList(
         /// Modifiers.
         const bool with = Consume(Tk::With);
 
+        /// Intent.
+        auto intent = Intent::Default;
+        if (Consume(Tk::In)) intent = Intent::In;
+        else if (At(Tk::Identifier)) {
+            using enum Intent;
+            static constexpr Intent Invalid = Intent(~0);
+            auto i = llvm::StringSwitch<Intent>(tok.text)
+                         .Case("copy", Copy)
+                         .Case("in", In)
+                         .Case("inout", Inout)
+                         .Case("move", Move)
+                         .Case("out", Out)
+                         .Default(Invalid);
+            if (i != Invalid) {
+                intent = i;
+                Next();
+            }
+        }
+
         /// Procedure.
         if (At(Tk::Proc)) {
             auto sig = ParseSignature();
 
             /// Return type defaults to void.
             if (sig.type->ret_type == Type::Unknown) sig.type->ret_type = Type::Void;
-
-            param_types.push_back(sig.type);
             param_decls.push_back(new (mod) ParamDecl(
                 nullptr,
+                &parameters.emplace_back(sig.type, intent, with),
                 sig.name,
-                sig.type,
-                with,
                 sig.loc
             ));
         }
@@ -995,16 +1012,14 @@ auto src::Parser::ParseParamDeclList(
             }
 
             /// TODO: Default values go in their own scope.
-            param_types.push_back(Type(*param_type));
             param_decls.push_back(new (mod) ParamDecl(
                 nullptr,
+                &parameters.emplace_back(Type(*param_type), intent, with),
                 name,
-                *param_type,
-                with,
                 tok.location
             ));
         }
-    } while (Consume(Tk::Comma));
+    } while (Consume(Tk::Comma) and not At(Tk::RParen));
 
     /// Parse closing paren.
     loc = {loc, curr_loc};
@@ -1118,8 +1133,8 @@ auto src::Parser::ParseSignature() -> Signature {
 
     /// Parse the arguments if there are any. The argument
     /// list may be omitted altogether.
-    SmallVector<Type> param_types;
-    if (At(Tk::LParen)) ParseParamDeclList(sig.param_decls, param_types);
+    std::deque<ParamInfo> parameters;
+    if (At(Tk::LParen)) ParseParamDeclList(sig.param_decls, parameters);
 
     /// Helper to parse attributes.
     const auto ParseAttr = [&](std::string_view attr_name, bool& flag) {
@@ -1157,7 +1172,7 @@ auto src::Parser::ParseSignature() -> Signature {
 
     /// Create the procedure type.
     sig.type = new (mod) ProcType(
-        std::move(param_types),
+        std::move(parameters),
         ret_type,
         variadic,
         sig.loc

@@ -60,7 +60,7 @@ class Assimilator {
             case Expr::Kind::ProcType: {
                 auto p = cast<ProcType>(e);
                 Assimilate(p->ret_type);
-                for (auto& t : p->param_types) Assimilate(t);
+                for (auto& t : p->parameters) Assimilate(t.type);
                 Assimilate(p->static_chain_parent);
                 Assimilate(p->smp_parent);
             } break;
