@@ -37,6 +37,7 @@
 /// - n
 /// - q
 /// - r
+/// - s
 /// - v
 
 namespace src {
@@ -114,7 +115,10 @@ auto Type::_mangled_name() -> std::string {
             /// overload on that anyway.
             std::string name{"P"};
             if (p->variadic) name += "q";
-            for (auto& a : p->parameters) name += a.type.mangled_name;
+            for (auto& a : p->parameters) {
+                if (a.byref) name += 's';
+                name += a.type.mangled_name;
+            }
             name += "E";
             return name;
         }

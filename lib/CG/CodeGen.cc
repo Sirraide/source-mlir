@@ -750,8 +750,9 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
 
             /// Add regular parameters.
             for (auto& p : ty->parameters) {
-                if (p.byref) Todo("Handle byref");
-                params.push_back(Ty(p.type));
+                auto param_type = Ty(p.type);
+                if (p.byref) param_type = hlir::ReferenceType::get(param_type);
+                params.push_back(param_type);
             }
 
             /// Add an extra parameter for the static chain pointer, unless
@@ -2146,7 +2147,19 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
 
     /// Create local variables for parameters.
     for (auto [i, p] : llvm::enumerate(proc->params)) {
-        if (p->info->byref) Todo("Handle byref");
+        /// For by-reference parameters, we simply use that reference
+        /// as the address of the variable instead of creating a stack
+        /// variable for it.
+        ///
+        /// Similarly, 'in' parameters can also just be used directly
+        /// since they are rvalues, not lvalues.
+        if (p->info->byref or p->info->intent == Intent::In) {
+            if (p->captured) Diag::ICE("Sorry, capturing by-reference parameters is not yet supported");
+            local_vars[p] = func.getExplicitArgument(u32(i));
+            continue;
+        }
+
+        /// By-value parameter.
         AllocateLocalVar(p);
 
         /// TODO: What was this todo about again?

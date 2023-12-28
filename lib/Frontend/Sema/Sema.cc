@@ -442,6 +442,11 @@ void src::Sema::InsertLValueToRValueConversion(Expr*& e) {
     }
 }
 
+bool src::Sema::IsInParameter(Expr* e) {
+    auto p = dyn_cast<ParamDecl>(e->ignore_paren_refs);
+    return p and p->info->intent == Intent::In;
+}
+
 template <bool in_array>
 bool src::Sema::MakeDeclType(Type& e) {
     if (not AnalyseAsType(e)) return false;
@@ -2145,11 +2150,19 @@ bool src::Sema::Analyse(Expr*& e) {
             auto var = cast<LocalRefExpr>(e);
             if (var->parent != var->decl->parent) {
                 /// Synthesised variables (e.g. loop variables) should never be captured.
-                if (not var->decl->is_legal_to_capture) return Error(
-                    var,
-                    "Cannot capture synthesised variable '{}'",
-                    var->decl->name
-                );
+                if (not var->decl->is_legal_to_capture) {
+                    if (IsInParameter(var->decl)) return Error(
+                        var,
+                        "Cannot capture 'in' parameter '{}'",
+                        var->decl->name
+                    );
+
+                    return Error(
+                        var,
+                        "Cannot capture synthesised variable '{}'",
+                        var->decl->name
+                    );
+                }
 
                 var->decl->set_captured();
             }
@@ -2166,7 +2179,9 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not var->sema.errored) {
                 if (var->info->with) with_stack.push_back(var);
                 curr_scope->declare(var->name, var);
-                var->is_lvalue = true;
+
+                /// 'in' parameters behave like rvalues.
+                var->is_lvalue = var->info->intent != Intent::In;
             }
         } break;
 
@@ -2682,10 +2697,11 @@ bool src::Sema::Analyse(Expr*& e) {
                     /// These operators never perform reference reassignment, which
                     /// means the LHS must not be of reference type.
                     UnwrapInPlace(b->lhs, true);
-                    if (not b->lhs->is_lvalue) return Error(
-                        b,
-                        "Left-hand side of `=` must be an lvalue"
-                    );
+                    if (not b->lhs->is_lvalue) {
+                        /// Nicer error message for parameters.
+                        if (IsInParameter(b->lhs)) return Error(b, "Cannot assign to an 'in' parameter");
+                        return Error(b, "Left-hand side of `=` must be an lvalue");
+                    }
 
                     /// Compound assignment.
                     if (b->op != Tk::Assign) {

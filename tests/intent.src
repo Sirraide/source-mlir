@@ -1,31 +1,78 @@
-proc small (
-          int a,
-    in    int b,
-    out   int c,
-    copy  int d,
-    move  int e,
-    inout int f,
-) {
-    int ins = a + b + d + e + f;
-    c = e;
-    f = ins;
-}
+/// R %srcc %s --hlir
+
+/// d t %[a-zA-Z0-9_]+
 
 ///proc big (
-///          int[100] a,
-///    in    int[100] b,
-///    out   int[100] c,
-///    copy  int[100] d,
-///    inout int[100] e,
+///          i64[100] a,
+///    in    i64[100] b,
+///    out   i64[100] c,
+///    copy  i64[100] d,
+///    inout i64[100] e,
 ///) {
-///    int ins = a + b + d + e;
+///    i64 ins = a + b + d + e;
 ///    c = e;
 ///    e = ins;
 ///}
-
-int a;
-int b = 5;
-small 1, 2, a, 4, 5, b
-///int[100] c;
-///int[100] d = 5;
+///i64[100] c;
+///i64[100] d = 5;
 ///big 1, 2, c, 4, d
+
+/// b
+/// * hlir.func external @__src_main
+/// + call
+/// + scope
+/// + $a:t = local i64,
+/// + construct $a zeroinit
+i64 a;
+
+/// + $b:t = local i64,
+/// + $three:t = arith.constant 3
+/// + construct $b trivial i64 $three
+i64 b = 3;
+
+/// + $one:t = arith.constant 1
+/// + $two:t = arith.constant 2
+/// + $four:t = arith.constant 4
+/// + $five:t = arith.constant 5
+/// + call @_S5smallPI64_I64_sI64_I64_I64_sI64_E($one, $two, $a, $four, $five, $b)
+small 1, 2, a, 4, 5, b;
+
+/// b
+/// * hlir.func private @_S5smallPI64_I64_sI64_I64_I64_sI64_E(i64, i64, i64&, i64, i64, i64&)
+proc small (
+    /// + $a:t = local i64,
+    /// + store into $a, i64 %arg0
+          i64 a,
+    in    i64 b,
+    out   i64 c,
+
+    /// + $d:t = local i64,
+    /// + store into $d, i64 %arg3
+    copy  i64 d,
+
+    /// + $e:t = local i64,
+    /// + store into $e, i64 %arg4
+    move  i64 e,
+    inout i64 f,
+) {
+    /// + scope
+    /// + $ins:t = local i64,
+    /// + $a1:t = load i64 from $a
+    /// + $add1:t = arith.addi $a1, %arg1
+    /// + $d1:t = load i64 from $d
+    /// + $add2:t = arith.addi $add1, $d1
+    /// + $e1:t = load i64 from $e
+    /// + $add3:t = arith.addi $add2, $e1
+    /// + $f1:t = load i64 from %arg5
+    /// + $add4:t = arith.addi $add3, $f1
+    /// + construct $ins trivial i64 $add4
+    i64 ins = a + b + d + e + f;
+
+    /// + $e2:t = load i64 from $e
+    /// + store into %arg2, i64 $e2
+    c = e;
+
+    /// + $ins1:t = load i64 from $ins
+    /// + store into %arg5, i64 $ins1
+    f = ins;
+}

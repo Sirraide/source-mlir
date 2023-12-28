@@ -92,7 +92,6 @@ public:
 #include <source/Frontend/AST.def>
     };
 
-
     /// The kind of this expression.
     Kind kind;
 
@@ -1424,7 +1423,8 @@ public:
         bool,
         is_legal_to_capture,
         return local_kind != LocalKind::Synthesised and
-               local_kind != LocalKind::SynthesisedValue
+               local_kind != LocalKind::SynthesisedValue and
+               is_lvalue /// Also handles 'in' parameters.
     );
 
 protected:
@@ -1515,7 +1515,7 @@ public:
     /// Whether this is a `with` parameter. This is only relevant
     /// if the corresponding procedure has a body and can be left
     /// unset otherwise.
-    bool with  : 1 {};
+    bool with : 1 {};
 
     ParamInfo(const ParamInfo&) = delete;
     ParamInfo& operator=(const ParamInfo&) = delete;

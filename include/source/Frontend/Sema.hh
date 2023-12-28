@@ -393,6 +393,9 @@ private:
     /// in C++, expressions of reference type can be rvalues or lvalues.
     void InsertLValueToRValueConversion(Expr*& e);
 
+    /// Check if this is an 'in' parameter.
+    bool IsInParameter(Expr* e);
+
     template <bool in_array = false>
     bool MakeDeclType(Type& e);
 

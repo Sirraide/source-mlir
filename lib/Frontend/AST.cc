@@ -543,7 +543,7 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
             if (not p->parameters.empty()) {
                 out += " (";
                 for (auto [i, param] : vws::enumerate(p->parameters)) {
-                    if (param.intent != Intent::Default) out += stringify(param.intent);
+                    if (param.byref) out += "ref ";
                     out += param.type.str(use_colour);
                     if (usz(i) != p->parameters.size() - 1) out += fmt::format("{}, ", C(Red));
                 }
@@ -962,6 +962,7 @@ struct ASTPrinter {
 
                 if (auto p = dyn_cast<ParamDecl>(v)) {
                     if (p->info->with) out += fmt::format(" with");
+                    out += " ";
                     out += stringify(p->info->intent);
                 }
 

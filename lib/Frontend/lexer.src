@@ -66,6 +66,12 @@ dynamic struct Expr {
 ///
 ///   - `copy`  = Pass by value; the object behaves like a local variable in the callee.
 ///
+///   - `ref`   = Pass by reference; this is only valid in procedure *types* and indicates whether
+///               a parameter ends up being passed by reference. This is a very low-level (and sometimes
+///               platform-dependent) feature that should generally not be used. Maybe only allow this in
+///               printouts or internally? This is basically what `out`, `inout` and large `in` parameters
+///               are lowered to internally.
+///
 /// Additional parameter modifiers. These are optional and *precede* the intent. A parameter
 /// can have any number of these, but each one only once:
 ///
