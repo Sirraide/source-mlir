@@ -908,8 +908,8 @@ struct ArithOpLowering : public ConversionPattern {
         /// possible for power-of-two integers, though, so we can simply reinterpret those
         /// as vectors and let the vector dialect do the rest.
         Assert(
-            llvm::isPowerOf2_64(elem.getWidth()),
-            "We currently only support arithmetic on arrays of power-of-two integers"
+            llvm::isPowerOf2_64(elem.getWidth()) and elem.getWidth() >= 8,
+            "We currently only support arithmetic on arrays of power-of-two integers of at least 8 bits"
         );
 
         /// Convert to vectors.
@@ -949,8 +949,8 @@ struct CmpOpLowering : public ConversionPattern {
         auto elem = dyn_cast<IntegerType>(arr.getElem());
         Assert(elem, "We currently only support arithmetic on arrays of integers");
         Assert(
-            llvm::isPowerOf2_64(elem.getWidth()),
-            "We currently only support arithmetic on arrays of power-of-two integers"
+            llvm::isPowerOf2_64(elem.getWidth()) and elem.getWidth() >= 8,
+            "We currently only support arithmetic on arrays of power-of-two integers of at least 8 bits"
         );
 
         /// Convert to vectors.

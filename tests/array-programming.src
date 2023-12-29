@@ -17,113 +17,167 @@ proc consumeb (bool[100]) extern;
 i64[100] a;
 i64[100] b;
 
+
 /// b
+/// + $tmp:t = local i64[100]
 /// + (?<A1>$t) = load i64[100] from $A
 /// + (?<B1>$t) = load i64[100] from $B
-/// + (?<ADD>$t) = add i64[100] $A1, $B1
-/// + call @consume($ADD)
+/// + (?<res>$t) = add i64[100] $A1, $B1
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a + b;
 
+/// b
+/// + $tmp:t = local i64[100]
 /// + (?<A2>$t) = load i64[100] from $A
 /// + (?<B2>$t) = load i64[100] from $B
-/// + (?<SUB>$t) = sub i64[100] $A2, $B2
-/// + call @consume($SUB)
+/// + (?<res>$t) = sub i64[100] $A2, $B2
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a - b;
 
+/// b
+/// + $tmp:t = local i64[100]
 /// + (?<A3>$t) = load i64[100] from $A
 /// + (?<B3>$t) = load i64[100] from $B
-/// + (?<MUL>$t) = mul i64[100] $A3, $B3
-/// + call @consume($MUL)
+/// + (?<res>$t) = mul i64[100] $A3, $B3
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a * b;
 
+/// b
+/// + $tmp:t = local i64[100]
 /// + (?<A4>$t) = load i64[100] from $A
 /// + (?<B4>$t) = load i64[100] from $B
-/// + (?<POW>$t) = exp i64[100] $A4, $B4
-/// + call @consume($POW)
+/// + (?<res>$t) = exp i64[100] $A4, $B4
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a ** b;
 
+/// b
+/// + $tmp:t = local i64[100]
 /// + (?<A5>$t) = load i64[100] from $A
 /// + (?<B5>$t) = load i64[100] from $B
-/// + (?<DIV>$t) = div i64[100] $A5, $B5
-/// + call @consume($DIV)
+/// + (?<res>$t) = div i64[100] $A5, $B5
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a / b;
 
+/// b
+/// + $tmp:t = local i64[100]
 /// + (?<A6>$t) = load i64[100] from $A
 /// + (?<B6>$t) = load i64[100] from $B
-/// + (?<REM>$t) = rem i64[100] $A6, $B6
-/// + call @consume($REM)
+/// + (?<res>$t) = rem i64[100] $A6, $B6
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a % b;
 
+/// b
+/// + $tmp:t = local i64[100]
 /// + (?<A7>$t) = load i64[100] from $A
 /// + (?<B7>$t) = load i64[100] from $B
-/// + (?<AND>$t) = and i64[100] $A7, $B7
-/// + call @consume($AND)
+/// + (?<res>$t) = and i64[100] $A7, $B7
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a land b;
 
+/// b
+/// + $tmp:t = local i64[100]
 /// + (?<A8>$t) = load i64[100] from $A
 /// + (?<B8>$t) = load i64[100] from $B
-/// + (?<OR>$t) = or i64[100] $A8, $B8
-/// + call @consume($OR)
+/// + (?<res>$t) = or i64[100] $A8, $B8
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a lor b;
 
+/// b
+/// + $tmp:t = local i64[100]
 /// + (?<A9>$t) = load i64[100] from $A
 /// + (?<B9>$t) = load i64[100] from $B
-/// + (?<XOR>$t) = xor i64[100] $A9, $B9
-/// + call @consume($XOR)
+/// + (?<res>$t) = xor i64[100] $A9, $B9
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a xor b;
 
+/// b
+/// + $tmp:t = local i64[100]
 /// + (?<A10>$t) = load i64[100] from $A
 /// + (?<B10>$t) = load i64[100] from $B
-/// + (?<SHL>$t) = shl i64[100] $A10, $B10
-/// + call @consume($SHL)
+/// + (?<res>$t) = shl i64[100] $A10, $B10
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a << b;
 
+/// b
+/// + $tmp:t = local i64[100]
 /// + (?<A11>$t) = load i64[100] from $A
 /// + (?<B11>$t) = load i64[100] from $B
-/// + (?<SHRS>$t) = sar i64[100] $A11, $B11
-/// + call @consume($SHRS)
+/// + (?<res>$t) = sar i64[100] $A11, $B11
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a >> b;
 
+/// b
+/// + $tmp:t = local i64[100]
 /// + (?<A12>$t) = load i64[100] from $A
 /// + (?<B12>$t) = load i64[100] from $B
-/// + (?<SHRUS>$t) = shr i64[100] $A12, $B12
-/// + call @consume($SHRUS)
+/// + (?<res>$t) = shr i64[100] $A12, $B12
+/// + construct $tmp trivial i64[100] $res
+/// + call @consume($tmp)
 consume a >>> b;
 
+/// b
+/// + $tmp:t = local i1[100]
 /// + (?<A13>$t) = load i64[100] from $A
 /// + (?<B13>$t) = load i64[100] from $B
-/// + (?<CMP>$t) = eq i64[100] $A13, $B13
-/// + call @consumeb($CMP)
+/// + (?<res>$t) = eq i64[100] $A13, $B13
+/// + construct $tmp trivial i1[100] $res
+/// + call @consumeb($tmp)
 consumeb a == b;
 
+/// b
+/// + $tmp:t = local i1[100]
 /// + (?<A14>$t) = load i64[100] from $A
 /// + (?<B14>$t) = load i64[100] from $B
-/// + (?<CMP1>$t) = ne i64[100] $A14, $B14
-/// + call @consumeb($CMP1)
+/// + (?<res>$t) = ne i64[100] $A14, $B14
+/// + construct $tmp trivial i1[100] $res
+/// + call @consumeb($tmp)
 consumeb a != b;
 
+/// b
+/// + $tmp:t = local i1[100]
 /// + (?<A15>$t) = load i64[100] from $A
 /// + (?<B15>$t) = load i64[100] from $B
-/// + (?<CMP2>$t) = lt i64[100] $A15, $B15
-/// + call @consumeb($CMP2)
+/// + (?<res>$t) = lt i64[100] $A15, $B15
+/// + construct $tmp trivial i1[100] $res
+/// + call @consumeb($tmp)
 consumeb a < b;
 
+/// b
+/// + $tmp:t = local i1[100]
 /// + (?<A16>$t) = load i64[100] from $A
 /// + (?<B16>$t) = load i64[100] from $B
-/// + (?<CMP3>$t) = le i64[100] $A16, $B16
-/// + call @consumeb($CMP3)
+/// + (?<res>$t) = le i64[100] $A16, $B16
+/// + construct $tmp trivial i1[100] $res
+/// + call @consumeb($tmp)
 consumeb a <= b;
 
+/// b
+/// + $tmp:t = local i1[100]
 /// + (?<A17>$t) = load i64[100] from $A
 /// + (?<B17>$t) = load i64[100] from $B
-/// + (?<CMP4>$t) = gt i64[100] $A17, $B17
-/// + call @consumeb($CMP4)
+/// + (?<res>$t) = gt i64[100] $A17, $B17
+/// + construct $tmp trivial i1[100] $res
+/// + call @consumeb($tmp)
 consumeb a > b;
 
+/// b
+/// + $tmp:t = local i1[100]
 /// + (?<A18>$t) = load i64[100] from $A
 /// + (?<B18>$t) = load i64[100] from $B
-/// + (?<CMP5>$t) = ge i64[100] $A18, $B18
-/// + call @consumeb($CMP5)
+/// + (?<res>$t) = ge i64[100] $A18, $B18
+/// + construct $tmp trivial i1[100] $res
+/// + call @consumeb($tmp)
 consumeb a >= b;
 
 /// b

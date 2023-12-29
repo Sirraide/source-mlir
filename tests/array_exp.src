@@ -3,8 +3,6 @@
 /// d t %[a-zA-Z0-9_]+
 /// p lit []
 
-proc consume (i64[100]) extern nomangle;
-
 /// FIXME: This should also test --lowered.
 /// * $a:t = local i64[100]
 /// + construct $a zeroinit
@@ -13,10 +11,12 @@ proc consume (i64[100]) extern nomangle;
 i64[100] a;
 i64[100] b;
 
+/// + $tmp:t = local i64[100]
 /// + $a1:t = load i64[100] from $a
 /// + $b1:t = load i64[100] from $b
 /// + $exp1:t = exp i64[100] $a1, $b1
-/// + call @consume($exp1)
+/// + construct $tmp trivial i64[100] $exp1
+/// + call @consume($tmp)
 consume a ** b;
 
 /// + $b2:t = load i64[100] from $b
@@ -24,3 +24,6 @@ consume a ** b;
 /// + $exp2:t = exp i64[100] $a2, $b2
 /// + store into $a, i64[100] $exp2
 a **= b;
+
+/// * hlir.func external @consume(i64[100]&)
+proc consume (i64[100]) extern nomangle;

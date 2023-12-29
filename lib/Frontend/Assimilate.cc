@@ -93,7 +93,6 @@ class Assimilator {
                 Assimilate(w->cond);
             } break;
 
-
             case Expr::Kind::WithExpr: {
                 auto w = cast<WithExpr>(e);
                 Assimilate(w->object);
@@ -141,6 +140,11 @@ class Assimilator {
             case Expr::Kind::AliasExpr: {
                 auto a = cast<AliasExpr>(e);
                 Assimilate(a->expr);
+            } break;
+
+            case Expr::Kind::MaterialiseTemporaryExpr: {
+                auto a = cast<MaterialiseTemporaryExpr>(e);
+                Assimilate(a->ctor);
             } break;
 
             case Expr::Kind::ConstructExpr: {

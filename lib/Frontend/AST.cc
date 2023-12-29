@@ -443,7 +443,7 @@ auto src::Type::size(Context* ctx) const -> Size {
         case Expr::Kind::ArrayType: {
             if (not ptr->sema.ok) return {};
             auto a = cast<ArrayType>(ptr);
-            return a->elem->type.size(ctx) * a->dimension().getZExtValue();
+            return Size::Bytes(a->elem->type.size(ctx).bytes()) * a->dimension().getZExtValue();
         }
 
         case Expr::Kind::StructType:
@@ -543,7 +543,7 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
             if (not p->parameters.empty()) {
                 out += " (";
                 for (auto [i, param] : vws::enumerate(p->parameters)) {
-                    if (param.byref) out += "ref ";
+                    if (param.passed_by_reference) out += "ref ";
                     out += param.type.str(use_colour);
                     if (usz(i) != p->parameters.size() - 1) out += fmt::format("{}, ", C(Red));
                 }
@@ -670,6 +670,47 @@ bool src::Type::_trivial() {
         case Expr::Kind::TupleType:
             return rgs::all_of(cast<TupleType>(ptr)->field_types(), std::identity{}, &Type::_trivial);
 
+        case Expr::Kind::StructType: {
+            auto s = cast<StructType>(ptr);
+            return s->initialisers.empty() and not s->deleter;
+        }
+
+#define SOURCE_AST_EXPR(name) case Expr::Kind::name:
+#define SOURCE_AST_TYPE(...)
+#include <source/Frontend/AST.def>
+            Unreachable("Not a type");
+    }
+}
+
+bool src::Type::_trivially_copyable() {
+    Assert(ptr->sema.ok);
+    switch (ptr->kind) {
+        case Expr::Kind::BuiltinType:
+        case Expr::Kind::IntType:
+        case Expr::Kind::Nil:
+        case Expr::Kind::OptionalType:
+        case Expr::Kind::SliceType:
+        case Expr::Kind::ClosureType:
+        case Expr::Kind::ProcType:
+        case Expr::Kind::OpaqueType:
+        case Expr::Kind::ReferenceType:
+            return true;
+
+        case Expr::Kind::ScopedPointerType:
+            return false;
+
+        case Expr::Kind::SugaredType:
+        case Expr::Kind::ScopedType:
+            return desugared.trivial;
+
+        case Expr::Kind::ArrayType:
+            return cast<ArrayType>(ptr)->elem.trivial;
+
+        case Expr::Kind::TupleType:
+            return rgs::all_of(cast<TupleType>(ptr)->field_types(), std::identity{}, &Type::_trivial);
+
+        /// TODO: Attribute similar to Rust’s #[derive(Copy)] for cases where
+        /// a type has an initialiser, but is still trivially copyable.
         case Expr::Kind::StructType: {
             auto s = cast<StructType>(ptr);
             return s->initialisers.empty() and not s->deleter;
@@ -1198,8 +1239,7 @@ struct ASTPrinter {
                     using enum ConstructKind;
                     case Uninitialised: out += " uninit"; break;
                     case Zeroinit: out += " zero"; break;
-                    case ByValParam: out += " byval"; break;
-                    case ByRefParam: out += " byref"; break;
+                    case Parameter: out += " parameter"; break;
                     case TrivialCopy: out += " trivial"; break;
                     case SliceFromParts: out += " slice"; break;
                     case InitialiserCall: out += " init"; break;
@@ -1225,6 +1265,7 @@ struct ASTPrinter {
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, static_cast<Expr*>(e->type)); return;
             case K::IfExpr: PrintBasicNode("IfExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::MaterialiseTemporaryExpr: PrintBasicNode("MaterialiseTemporaryExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
             case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, static_cast<Expr*>(e->type)); return;
             case K::TupleExpr: PrintBasicNode("TupleExpr", e, static_cast<Expr*>(e->type)); return;
@@ -1542,6 +1583,11 @@ struct ASTPrinter {
             case K::LabelExpr:
                 PrintChildren(cast<LabelExpr>(e)->expr, leading_text);
                 break;
+
+            case K::MaterialiseTemporaryExpr:
+                PrintChildren(cast<MaterialiseTemporaryExpr>(e)->ctor, leading_text);
+                break;
+
 
             case K::ExportExpr:
                 PrintChildren(cast<ExportExpr>(e)->expr, leading_text);

@@ -9,8 +9,7 @@ proc sink (i32) extern;
 /// * scope
 /// + $s:t = local @S
 /// + construct $s init @_SXS1SPE
-/// + $copy:t = load @S from $s
-/// + $sum:t = call @_SWS1S3sumPS1SE($copy) -> i32
+/// + $sum:t = call @_SWS1S3sumPsS1SE($s) -> i32
 /// + call @_S4sinkPI32_E($sum)
 S s;
 sink s.sum();
@@ -24,16 +23,14 @@ struct S {
         .b = 20;
     }
 
-    /// ‘this’ is passed by value here.
+    /// TODO: ‘this’ should be passed by value here.
     ///
     /// b
-    /// * hlir.func private @_SWS1S3sumPS1SE
-    /// + $s:t = local @S
-    /// + store into $s, @S %arg0
+    /// * hlir.func private @_SWS1S3sumPsS1SE
     /// + $ret:t = scope i32 {
-    /// + $aref:t = structgep $s[0]
+    /// + $aref:t = structgep %arg0[0]
     /// + $a:t = load i32 from $aref
-    /// + $bref:t = structgep $s[1]
+    /// + $bref:t = structgep %arg0[1]
     /// + $b:t = load i32 from $bref
     /// + $sum:t = add i32 $a, $b
     /// + yield i32 $sum

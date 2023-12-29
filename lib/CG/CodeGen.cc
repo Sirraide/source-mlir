@@ -299,8 +299,7 @@ void src::CodeGen::Construct(
 
     switch (ctor->ctor_kind) {
         /// Handled elsewhere. No-op here.
-        case ConstructKind::ByValParam:
-        case ConstructKind::ByRefParam:
+        case ConstructKind::Parameter:
             break;
 
         /// Perform no initialisation at all.
@@ -748,7 +747,7 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
             /// Add regular parameters.
             for (auto& p : ty->parameters) {
                 auto param_type = Ty(p.type);
-                if (p.byref) param_type = hlir::ReferenceType::get(param_type);
+                if (p.passed_by_reference) param_type = hlir::ReferenceType::get(param_type);
                 params.push_back(param_type);
             }
 
@@ -955,6 +954,15 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             }
 
             Unreachable();
+        }
+
+        case Expr::Kind::MaterialiseTemporaryExpr: {
+            auto m = cast<MaterialiseTemporaryExpr>(expr);
+            auto loc = Loc(m->location);
+            auto align = m->type.align(ctx);
+            auto tmp = Create<hlir::LocalOp>(loc, Ty(m->type), align.value());
+            Construct(loc, tmp, align, m->ctor);
+            return tmp;
         }
 
         case Expr::Kind::ParenExpr: {
@@ -2150,7 +2158,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         ///
         /// Similarly, 'in' parameters can also just be used directly
         /// since they are rvalues, not lvalues.
-        if (p->info->byref or p->info->intent == Intent::In) {
+        if (p->info->passed_by_reference or p->info->intent == Intent::In) {
             if (p->captured) Diag::ICE("Sorry, capturing by-reference parameters is not yet supported");
             local_vars[p] = func.getExplicitArgument(u32(i));
             continue;

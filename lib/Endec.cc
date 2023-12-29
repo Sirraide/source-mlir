@@ -101,7 +101,7 @@ auto Type::_mangled_name() -> std::string {
 
         case Expr::Kind::ArrayType: {
             auto a = cast<ArrayType>(ptr);
-            return fmt::format("A{}{}", a->dimension(), a->elem.mangled_name);
+            return fmt::format("A{}_{}", a->dimension(), a->elem.mangled_name);
         }
 
         case Expr::Kind::SugaredType:
@@ -116,7 +116,7 @@ auto Type::_mangled_name() -> std::string {
             std::string name{"P"};
             if (p->variadic) name += "q";
             for (auto& a : p->parameters) {
-                if (a.byref) name += 's';
+                if (a.passed_by_reference) name += 's';
                 name += a.type.mangled_name;
             }
             name += "E";
@@ -223,6 +223,14 @@ enum struct SerialisedIntent : u8 {
     Inout,
     Move,
     Out,
+    CXXByValue,
+};
+
+enum struct SerialisedClass : u8 {
+    AnyRef,
+    LValueRef,
+    ByVal,
+    CopyAsRef,
 };
 
 enum struct SerialisedTypeTag : u8 {
@@ -254,6 +262,7 @@ enum struct SerialisedTypeTag : u8 {
 template <typename T>
 concept serialisable_enum = is_same<
     T,
+    SerialisedClass,
     SerialisedDeclTag,
     SerialisedIntent,
     SerialisedMangling,
@@ -447,7 +456,8 @@ struct Serialiser {
 
                 *this << SerialisedTypeTag::Procedure;
                 *this << ret << params.size() << p->variadic;
-                for (auto [td, a] : llvm::zip_equal(params, p->parameters)) *this << td << ConvertIntent(a.intent);
+                for (auto [td, a] : llvm::zip_equal(params, p->parameters))
+                    *this << td << ConvertIntent(a.intent) << ConvertClass(a.cls);
                 return type_map[t] = TD{hdr.type_count++};
             }
 
@@ -524,11 +534,24 @@ struct Serialiser {
     /// Convert intent to serialised intent.
     auto ConvertIntent(Intent i) -> SerialisedIntent {
         switch (i) {
+            case Intent::CXXByValue: return SerialisedIntent::CXXByValue;
             case Intent::Copy: return SerialisedIntent::Copy;
             case Intent::In: return SerialisedIntent::In;
             case Intent::Inout: return SerialisedIntent::Inout;
             case Intent::Move: return SerialisedIntent::Move;
             case Intent::Out: return SerialisedIntent::Out;
+        }
+
+        Unreachable();
+    }
+
+    /// Convert class to serialised class.
+    auto ConvertClass(ParamInfo::Class c) -> SerialisedClass {
+        switch (c) {
+            case ParamInfo::Class::AnyRef: return SerialisedClass::AnyRef;
+            case ParamInfo::Class::ByVal: return SerialisedClass::ByVal;
+            case ParamInfo::Class::CopyAsRef: return SerialisedClass::CopyAsRef;
+            case ParamInfo::Class::LValueRef: return SerialisedClass::LValueRef;
         }
 
         Unreachable();
@@ -773,7 +796,8 @@ struct Deserialiser {
                 for (u64 i = 0; i < params; i++) {
                     auto type = Map(rd<TD>());
                     auto intent = ConvertIntent(rd<SerialisedIntent>());
-                    parameters.emplace_back(type, intent);
+                    auto param_class = ConvertClass(rd<SerialisedClass>());
+                    parameters.emplace_back(type, intent).cls = param_class;
                 }
 
                 return new (&*mod) ProcType(std::move(parameters), ret, variadic, {});
@@ -887,11 +911,24 @@ struct Deserialiser {
     /// Convert serialised intent to intent.
     auto ConvertIntent(SerialisedIntent i) -> Intent {
         switch (i) {
+            case SerialisedIntent::CXXByValue: return Intent::CXXByValue;
             case SerialisedIntent::Copy: return Intent::Copy;
             case SerialisedIntent::In: return Intent::In;
             case SerialisedIntent::Inout: return Intent::Inout;
             case SerialisedIntent::Move: return Intent::Move;
             case SerialisedIntent::Out: return Intent::Out;
+        }
+
+        Unreachable();
+    }
+
+    /// Convert serialised class to class.
+    auto ConvertClass(SerialisedClass c) -> ParamInfo::Class {
+        switch (c) {
+            case SerialisedClass::AnyRef: return ParamInfo::Class::AnyRef;
+            case SerialisedClass::ByVal: return ParamInfo::Class::ByVal;
+            case SerialisedClass::CopyAsRef: return ParamInfo::Class::CopyAsRef;
+            case SerialisedClass::LValueRef: return ParamInfo::Class::LValueRef;
         }
 
         Unreachable();

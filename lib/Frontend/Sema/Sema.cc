@@ -147,25 +147,37 @@ bool src::Sema::ClassifyParameter(ParamInfo* info) {
         return Error(info->type.ptr, "Type inference is not permitted here");
     }
 
+    /// Determine whether this type is cheap to copy (and whether it can
+    /// be copied trivially).
+    auto CheapToCopy = [&] {
+        return info->type.trivially_copyable and
+               info->type.size(ctx) <= Size::Bits(128); /// FIXME: Target-dependent.
+    };
+
     /// Determine whether this should be passed by value or by reference.
     switch (info->intent) {
-        /// Always by value.
+        /// By value if cheap to copy; by reference otherwise.
         case Intent::Copy:
-        case Intent::Move:
-            info->byref = false;
+            info->cls = CheapToCopy() ? ParamInfo::Class::ByVal : ParamInfo::Class::CopyAsRef;
+            return true;
+
+        /// Always by value. We let LLVM take care of what this actually
+        /// means. This is different from Copy because we may not agree
+        /// with C++ as to what is considered cheap to copy.
+        case Intent::CXXByValue:
+            info->cls = ParamInfo::Class::ByVal;
             return true;
 
         /// Always by reference.
         case Intent::Inout:
         case Intent::Out:
-            info->byref = true;
+            info->cls = ParamInfo::Class::LValueRef;
             return true;
 
         /// By value if trivially copyable and small.
+        case Intent::Move:
         case Intent::In:
-            info->byref =
-                not info->type.trivial or
-                info->type.size(ctx) > Size::Bits(128); /// FIXME: Target-dependent.
+            info->cls = CheapToCopy() ? ParamInfo::Class::ByVal : ParamInfo::Class::AnyRef;
             return true;
     }
 
@@ -404,24 +416,43 @@ bool src::Sema::FinaliseInvokeArgument(Expr*& arg, const ParamInfo* param) {
         return true;
     }
 
-    /// Apply lvalue-to-rvalue conversion if the parameter should be passed
-    /// by value. If overload resolution selects an overload that would require
-    /// binding a non-lvalue argument to a byref parameter, the program is
-    /// ill-formed.
-    if (not param->byref) InsertLValueToRValueConversion(arg);
-    else if (not arg->is_lvalue) {
-        /// TODO: Allow temporary materialisation if the parameter intent is "in",
-        ///       since in that case, copying by value would be possible, but we
-        ///       simply chose not to do so.
-        return Error(
-            arg,
-            "rvalue argument cannot bind to a parameter with intent '{}'. "
-            "Try passing a variable instead.",
-            stringify(param->intent)
-        );
+    /// Check value category and perform temporary materialisation
+    /// or copying if need be.
+    switch (param->cls) {
+        /// Only lvalues are allowed here.
+        case ParamInfo::Class::LValueRef:
+            if (not arg->is_lvalue) return Error(
+                arg,
+                "rvalue argument cannot bind to a parameter with intent '{}'. "
+                "Try passing a variable instead.",
+                stringify(param->intent)
+            );
+            return true;
+
+        /// Lvalues are passed as-is. Rvalues undergo temporary materialisation.
+        case ParamInfo::Class::AnyRef:
+            if (not arg->is_lvalue) {
+                auto ctor = Construct(arg->location, param->type, {arg}, nullptr);
+                if (not ctor) return false;
+                arg = new (mod) MaterialiseTemporaryExpr(param->type, ctor, arg->location);
+            }
+            return true;
+
+        /// Requires an rvalue.
+        case ParamInfo::Class::ByVal:
+            InsertLValueToRValueConversion(arg);
+            return true;
+
+        /// Create a copy on the stack and pass it by reference.
+        case ParamInfo::Class::CopyAsRef: {
+            auto ctor = Construct(arg->location, param->type, {arg}, nullptr);
+            if (not ctor) return false;
+            arg = new (mod) MaterialiseTemporaryExpr(param->type, ctor, arg->location);
+            return true;
+        }
     }
 
-    return true;
+    Unreachable("Invalid param class");
 }
 
 void src::Sema::InsertImplicitDereference(Expr*& e, isz depth) {
@@ -1519,6 +1550,7 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::ConstExpr:
         case Expr::Kind::ConstructExpr:
         case Expr::Kind::ImplicitThisExpr:
+        case Expr::Kind::MaterialiseTemporaryExpr:
             Unreachable();
 
         /// Handled by the code that type checks structs.
@@ -2176,7 +2208,7 @@ bool src::Sema::Analyse(Expr*& e) {
             auto var = cast<ParamDecl>(e);
             if (not ClassifyParameter(var->info)) return e->sema.set_errored();
             var->stored_type = var->info->type;
-            var->ctor = ConstructExpr::CreateParam(mod, var->info->byref);
+            var->ctor = ConstructExpr::CreateParam(mod);
 
             /// Add the variable to the current scope.
             if (not var->sema.errored) {
@@ -3075,12 +3107,13 @@ bool src::Sema::AnalyseInvoke(Expr*& e, bool direct_child_of_block) {
             const bool variadic = i >= ptype->parameters.size();
             if (not variadic) {
                 /// Keep lvalues here. We’ll handle them below.
-                if (not Convert(invoke->args[i], ptype->parameters[i].type, true)) {
+                auto info = &ptype->parameters[i];
+                if (not Convert(invoke->args[i], info->type, true)) {
                     Error(
                         invoke->args[i],
                         "Argument type '{}' is not convertible to parameter type '{}'",
                         invoke->args[i]->type,
-                        ptype->parameters[i].type
+                        info->type
                     );
                     e->sema.set_errored();
                     continue;

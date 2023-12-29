@@ -94,7 +94,7 @@ struct ImportContext {
         for (auto p : f->parameters()) {
             auto t = TranslateType(p->getType());
             if (not t.has_value()) return;
-            param_types.emplace_back(*t, Intent::Copy);
+            param_types.emplace_back(*t, Intent::CXXByValue);
         }
 
         auto type = new (out) ProcType(

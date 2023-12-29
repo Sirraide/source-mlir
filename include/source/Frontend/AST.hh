@@ -258,6 +258,10 @@ public:
     /// construction is zero-initialisation, and there is no destructor.
     readonly_decl(bool, trivial);
 
+    /// Check whether this type is trivial to copy, i.e. whether it can be copied
+    /// via a memcpy.
+    readonly_decl(bool, trivially_copyable);
+
     /// Check if this type logically yields a value, i.e. is not
     /// void or noreturn.
     readonly_decl(bool, yields_value);
@@ -566,19 +570,9 @@ enum struct ConstructKind {
     /// a memset with the size of the type. No arguments.
     Zeroinit,
 
-    /// Parameter that is passed by value, i.e. value passed
-    /// to the function is a value that should be stored in
-    /// a local variable.
-    ByValParam,
-
-    /// Parameter that is passed by value, i.e. value passed
-    /// to the function is an address that can be used directly
-    /// as the address of a ‘local variable’.
-    ///
-    /// This has nothing to do with whether a parameter is of
-    /// reference *type* or not. References can be passed by value
-    /// or by reference themselves.
-    ByRefParam,
+    /// Function parameter. This is handled separately and is a
+    /// no-op in constructor codegen.
+    Parameter,
 
     /// Trivial memcpy/store. One argument.
     TrivialCopy,
@@ -681,8 +675,7 @@ private:
         switch (ctor_kind) {
             case K::Uninitialised:
             case K::Zeroinit:
-            case K::ByValParam:
-            case K::ByRefParam:
+            case K::Parameter:
             case K::ArrayZeroinit:
                 return 0;
 
@@ -706,8 +699,7 @@ private:
         switch (k) {
             case K::Uninitialised:
             case K::Zeroinit:
-            case K::ByValParam:
-            case K::ByRefParam:
+            case K::Parameter:
             case K::TrivialCopy:
             case K::SliceFromParts:
             case K::ArrayBroadcast:
@@ -727,8 +719,7 @@ private:
         switch (k) {
             case K::Uninitialised:
             case K::Zeroinit:
-            case K::ByValParam:
-            case K::ByRefParam:
+            case K::Parameter:
             case K::TrivialCopy:
             case K::SliceFromParts:
             case K::InitialiserCall:
@@ -750,8 +741,7 @@ public:
         switch (ctor_kind) {
             case K::Uninitialised:
             case K::Zeroinit:
-            case K::ByValParam:
-            case K::ByRefParam:
+            case K::Parameter:
             case K::TrivialCopy:
             case K::SliceFromParts:
             case K::InitialiserCall:
@@ -795,7 +785,7 @@ public:
 
     static auto CreateUninitialised(Module* m) { return new (m) ConstructExpr(K::Uninitialised); }
     static auto CreateZeroinit(Module* m) { return new (m) ConstructExpr(K::Zeroinit); }
-    static auto CreateParam(Module* m, bool byref) { return new (m) ConstructExpr(byref ? K::ByRefParam : K::ByValParam); }
+    static auto CreateParam(Module* m) { return new (m) ConstructExpr(K::Parameter); }
     static auto CreateTrivialCopy(Module* m, Expr* expr) { return Create(m, K::TrivialCopy, expr); }
     static auto CreateSliceFromParts(Module* m, Expr* ptr, Expr* size) { return Create(m, K::SliceFromParts, {ptr, size}); }
     static auto CreateArrayListInit(Module* m, ArrayRef<Expr*> args) { return Create(m, K::ArrayListInit, args); }
@@ -1477,6 +1467,7 @@ enum struct Intent : u8 {
     Copy = 0b0010,
     In = 0b0100,
     Out = 0b1000,
+    CXXByValue = 0b10000, /// A C++ value parameter.
     Inout = In | Out,
     Default = Move, ///< Default intent for parameters.
 
@@ -1490,6 +1481,7 @@ constexpr auto stringify(Intent i) -> std::string_view {
         case Intent::In: return "in";
         case Intent::Out: return "out";
         case Intent::Inout: return "inout";
+        case Intent::CXXByValue: return "cxx-by-value";
     }
 
     Unreachable();
@@ -1500,6 +1492,14 @@ class ParamInfo {
     friend Sema;
 
 public:
+    /// How this parameter is passed. See also Sema::ClassifyParameter().
+    enum struct Class : u8 {
+        AnyRef,    ///< Passed by reference. Temporary materialisation is allowed.
+        LValueRef, ///< Must be an lvalue. Passed by reference.
+        ByVal,     ///< RValue. Passed by value.
+        CopyAsRef, ///< A copy is created on the stack and then passed by reference.
+    };
+
     Type type;
     Intent intent;
 
@@ -1508,9 +1508,8 @@ private:
     SemaState sema{};
 
 public:
-    /// Whether this is passed by reference. This can be inferred
-    /// directly from the type and is computed and cached by Sema.
-    bool byref : 1 {};
+    /// Computed by sema.
+    Class cls{};
 
     /// Whether this is a `with` parameter. This is only relevant
     /// if the corresponding procedure has a body and can be left
@@ -1523,6 +1522,9 @@ public:
     ParamInfo& operator=(ParamInfo&&) = delete;
     ParamInfo(Type type, Intent intent, bool with = false)
         : type{type}, intent{intent}, with{with} {}
+
+    /// Whether this is, in any way, shape, or form, passed by reference.
+    readonly_const(bool, passed_by_reference, return cls != Class::ByVal);
 
     [[nodiscard]] bool operator==(const ParamInfo& other) const {
         return std::tie(type, intent) == std::tie(other.type, other.intent);
@@ -1680,6 +1682,22 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::WithExpr; }
+};
+
+class MaterialiseTemporaryExpr : public TypedExpr {
+public:
+    /// The expression constructing this temporary.
+    ConstructExpr* ctor;
+
+    MaterialiseTemporaryExpr(Type type, ConstructExpr* ctor, Location loc)
+        : TypedExpr(Kind::MaterialiseTemporaryExpr, type, loc),
+          ctor(ctor) {
+        sema.set_done();
+        is_lvalue = true;
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::MaterialiseTemporaryExpr; }
 };
 
 /// ===========================================================================

@@ -40,6 +40,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::LocalDecl:
         case Expr::Kind::LocalRefExpr:
         case Expr::Kind::LoopControlExpr:
+        case Expr::Kind::MaterialiseTemporaryExpr:
         case Expr::Kind::MemberAccessExpr:
         case Expr::Kind::ModuleRefExpr:
         case Expr::Kind::ParamDecl:

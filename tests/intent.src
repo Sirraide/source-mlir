@@ -2,10 +2,6 @@
 
 /// d t %[a-zA-Z0-9_]+
 
-///i64[100] c;
-///i64[100] d = 5;
-///big 1, 2, c, 4, d
-
 /// b
 /// * hlir.func external @__src_main
 /// + call
@@ -25,6 +21,11 @@ i64 b = 3;
 /// + $five:t = arith.constant 5
 /// + call @_S5smallPI64_I64_sI64_I64_I64_sI64_E($one, $two, $a, $four, $five, $b)
 small 1, 2, a, 4, 5, b;
+
+i64[100] c;
+i64[100] d = 5;
+big 1, 2, c, 4, 5, d;
+
 
 /// b
 /// * hlir.func private @_S5smallPI64_I64_sI64_I64_I64_sI64_E(i64, i64, i64&, i64, i64, i64&)
@@ -47,13 +48,13 @@ proc small (
     /// + scope
     /// + $ins:t = local i64,
     /// + $a1:t = load i64 from $a
-    /// + $add1:t = arith.addi $a1, %arg1
+    /// + $add1:t = add i64 $a1, %arg1
     /// + $d1:t = load i64 from $d
-    /// + $add2:t = arith.addi $add1, $d1
+    /// + $add2:t = add i64 $add1, $d1
     /// + $e1:t = load i64 from $e
-    /// + $add3:t = arith.addi $add2, $e1
+    /// + $add3:t = add i64 $add2, $e1
     /// + $f1:t = load i64 from %arg5
-    /// + $add4:t = arith.addi $add3, $f1
+    /// + $add4:t = add i64 $add3, $f1
     /// + construct $ins trivial i64 $add4
     i64 ins = a + b + d + e + f;
 
@@ -67,10 +68,14 @@ proc small (
 }
 
 /// b
+/// * hlir.func private @_S3bigPsA100_I64_sA100_I64_sA100_I64_A100_I64_sA100_I64_sA100_I64_E(i64[100]&, i64[100]&, i64[100]&, i64[100], i64[100]&, i64[100]&)
 proc big (
           i64[100] a,
     in    i64[100] b,
     out   i64[100] c,
+
+    /// + $d:t = local i64[100],
+    /// + store into $d, i64[100] %arg3
     copy  i64[100] d,
     move  i64[100] e,
     inout i64[100] f,

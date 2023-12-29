@@ -19,8 +19,7 @@ struct S {
 /// + $t = scope i8 {
 /// + (?<S>$t) = local
 /// + construct $S zeroinit
-/// + (?<S1>$t) = load $any from $S
-/// + $t = call @foo($S, $S1)
+/// + $t = call @foo($S, $S)
 /// + yield
 /// + }
 /// + return
@@ -32,13 +31,11 @@ foo s, s;
 /// * hlir.func private @foo
 /// + (?<A>$t) = local
 /// + store into $A
-/// + (?<B>$t) = local
-/// + store into $B
 /// + (?<ret>$t) = scope i8 {
 /// + (?<Aref>$t) = load $any from $A
 /// + (?<AAref>$t) = structgep $Aref[0]
 /// + (?<AA>$t) = load i8 from $AAref
-/// + (?<BCref>$t) = structgep $B[3]
+/// + (?<BCref>$t) = structgep %arg1[3]
 /// + (?<BC>$t) = load i8 from $BCref
 /// + (?<Sum>$t) = add i8 $AA, $BC
 /// + yield i8 $Sum
