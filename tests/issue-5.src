@@ -1,0 +1,5 @@
+/// R %srcc %s --sema
+/// !* Error
+
+i32[4] a;
+i32[4] b = a;

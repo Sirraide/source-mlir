@@ -1386,6 +1386,9 @@ auto src::Sema::Construct(
                 return ConstructExpr::CreateArrayListInit(mod, ctors);
             }
 
+            /// If the argument is an array, simply copy/move it.
+            if (init_args[0]->type == ty) return TrivialCopy(ty);
+
             /// Otherwise, attempt to broadcast a single value. If the
             /// value is simply convertible to the target type, then
             /// just copy it.
