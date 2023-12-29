@@ -11,7 +11,9 @@
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
 #include <mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/Dialect/Vector/IR/VectorOps.h>
 #include <mlir/ExecutionEngine/ExecutionEngine.h>
 #include <mlir/ExecutionEngine/OptUtils.h>
 #include <mlir/Pass/PassManager.h>
@@ -20,6 +22,7 @@
 #include <source/CG/CodeGen.hh>
 #include <source/Core.hh>
 #include <source/HLIR/HLIRDialect.hh>
+#include <source/HLIR/HLIRUtils.hh>
 #include <source/Support/Utils.hh>
 
 using namespace mlir;
@@ -28,6 +31,20 @@ namespace src {
 namespace {
 constexpr llvm::StringLiteral LibCFree = "free";
 } // namespace
+
+/// Perform an ‘in-memory cast’, i.e. store to memory and load as the other type.
+auto CreateInMemoryCast(
+    ConversionPatternRewriter& r,
+    const LLVMTypeConverter& tc,
+    Type to,
+    Value val
+) {
+    to = tc.convertType(to);
+    auto one = r.create<LLVM::ConstantOp>(val.getLoc(), tc.getIndexType(), r.getI32IntegerAttr(1));
+    auto local = r.create<LLVM::AllocaOp>(val.getLoc(), LLVM::LLVMPointerType::get(r.getContext()), to, one);
+    r.create<LLVM::StoreOp>(val.getLoc(), val, local);
+    return r.create<LLVM::LoadOp>(val.getLoc(), to, local);
+}
 
 /// Lowering for string literals.
 struct StringOpLowering : public ConversionPattern {
@@ -859,7 +876,7 @@ struct ReturnOpLowering : public ConversionPattern {
     }
 };
 
-template <typename Op, typename LLVMOp>
+template <typename Op, typename ArithOp>
 struct ArithOpLowering : public ConversionPattern {
     explicit ArithOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
         : ConversionPattern(tc, Op::getOperationName(), 1, ctx) {
@@ -874,15 +891,41 @@ struct ArithOpLowering : public ConversionPattern {
 
         /// If the arguments are not arrays, just lower to LLVM ops.
         if (not isa<hlir::ArrayType>(b.getRes().getType())) {
-            r.replaceOpWithNewOp<LLVMOp>(op, arguments[0], arguments[1]);
+            r.replaceOpWithNewOp<ArithOp>(op, arguments[0], arguments[1]);
             return success();
         }
 
-        Todo("Lowering arithmetic operations on arrays");
+        /// Arrays of i8, i16 etc are easy to lower because the element alignments
+        /// line up with the alignments of the corresponding vector types.
+        auto arr = cast<hlir::ArrayType>(b.getRes().getType());
+        auto elem = dyn_cast<IntegerType>(arr.getElem());
+        Assert(elem, "We currently only support arithmetic on arrays of integers");
+
+        /// The semantics of a vector of integer types whose bit width is not a power
+        /// of two aren’t entirely clear wrt vectors vs arrays; e.g. an array of i17s
+        /// is really an array of i32s, but a vector of i17s may consist of packed i17s,
+        /// in which case we can’t simply treat one as the other. That should always be
+        /// possible for power-of-two integers, though, so we can simply reinterpret those
+        /// as vectors and let the vector dialect do the rest.
+        Assert(
+            llvm::isPowerOf2_64(elem.getWidth()),
+            "We currently only support arithmetic on arrays of power-of-two integers"
+        );
+
+        /// Convert to vectors.
+        auto tc = getTypeConverter<LLVMTypeConverter>();
+        auto vector_type = VectorType::get(i64(arr.getSize()), elem);
+        auto lhs = CreateInMemoryCast(r, *tc, vector_type, arguments[0]);
+        auto rhs = CreateInMemoryCast(r, *tc, vector_type, arguments[1]);
+        auto res = r.create<ArithOp>(op->getLoc(), lhs, rhs);
+        auto conv = CreateInMemoryCast(r, *tc, arr, res);
+        r.replaceAllUsesWith(op->getResult(0), conv);
+        r.eraseOp(op);
+        return success();
     }
 };
 
-template <typename Op, LLVM::ICmpPredicate pred>
+template <typename Op, arith::CmpIPredicate pred>
 struct CmpOpLowering : public ConversionPattern {
     explicit CmpOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
         : ConversionPattern(tc, Op::getOperationName(), 1, ctx) {
@@ -897,11 +940,29 @@ struct CmpOpLowering : public ConversionPattern {
 
         /// If the arguments are not arrays, just lower to LLVM ops.
         if (not isa<hlir::ArrayType>(b.getRes().getType())) {
-            r.replaceOpWithNewOp<LLVM::ICmpOp>(op, pred, arguments[0], arguments[1]);
+            r.replaceOpWithNewOp<arith::CmpIOp>(op, pred, arguments[0], arguments[1]);
             return success();
         }
 
-        Todo("Lowering arithmetic operations on arrays");
+        /// See ArithOpLowering for more info on this.
+        auto arr = cast<hlir::ArrayType>(b.getLhs().getType());
+        auto elem = dyn_cast<IntegerType>(arr.getElem());
+        Assert(elem, "We currently only support arithmetic on arrays of integers");
+        Assert(
+            llvm::isPowerOf2_64(elem.getWidth()),
+            "We currently only support arithmetic on arrays of power-of-two integers"
+        );
+
+        /// Convert to vectors.
+        auto tc = getTypeConverter<LLVMTypeConverter>();
+        auto vector_type = VectorType::get(i64(arr.getSize()), elem);
+        auto lhs = CreateInMemoryCast(r, *tc, vector_type, arguments[0]);
+        auto rhs = CreateInMemoryCast(r, *tc, vector_type, arguments[1]);
+        auto res = r.create<arith::CmpIOp>(op->getLoc(), pred, lhs, rhs);
+        auto conv = CreateInMemoryCast(r, *tc, b.getRes().getType(), res);
+        r.replaceAllUsesWith(op->getResult(0), conv);
+        r.eraseOp(op);
+        return success();
     }
 };
 
@@ -982,27 +1043,27 @@ struct HLIRToLLVMLoweringPass
 
         // clang-format off
         patterns.add<
-            ArithOpLowering<hlir::AddOp, LLVM::AddOp>,
-            ArithOpLowering<hlir::AndOp, LLVM::AndOp>,
-            ArithOpLowering<hlir::DivOp, LLVM::SDivOp>,
-            ArithOpLowering<hlir::MulOp, LLVM::MulOp>,
-            ArithOpLowering<hlir::OrOp, LLVM::OrOp>,
-            ArithOpLowering<hlir::RemOp, LLVM::SRemOp>,
-            ArithOpLowering<hlir::SarOp, LLVM::AShrOp>,
-            ArithOpLowering<hlir::ShlOp, LLVM::ShlOp>,
-            ArithOpLowering<hlir::ShrOp, LLVM::LShrOp>,
-            ArithOpLowering<hlir::SubOp, LLVM::SubOp>,
-            ArithOpLowering<hlir::XorOp, LLVM::XOrOp>,
+            ArithOpLowering<hlir::AddOp, arith::AddIOp>,
+            ArithOpLowering<hlir::AndOp, arith::AndIOp>,
+            ArithOpLowering<hlir::DivOp, arith::DivSIOp>,
+            ArithOpLowering<hlir::MulOp, arith::MulIOp>,
+            ArithOpLowering<hlir::OrOp, arith::OrIOp>,
+            ArithOpLowering<hlir::RemOp, arith::RemSIOp>,
+            ArithOpLowering<hlir::SarOp, arith::ShRSIOp>,
+            ArithOpLowering<hlir::ShlOp, arith::ShLIOp>,
+            ArithOpLowering<hlir::ShrOp, arith::ShRUIOp>,
+            ArithOpLowering<hlir::SubOp, arith::SubIOp>,
+            ArithOpLowering<hlir::XorOp, arith::XOrIOp>,
             ArrayDecayOpLowering,
             BitCastOpLowering,
             CallOpLowering,
             ChainExtractLocalOpLowering,
-            CmpOpLowering<hlir::EqOp, LLVM::ICmpPredicate::eq>,
-            CmpOpLowering<hlir::GeOp, LLVM::ICmpPredicate::sge>,
-            CmpOpLowering<hlir::GtOp, LLVM::ICmpPredicate::sgt>,
-            CmpOpLowering<hlir::LeOp, LLVM::ICmpPredicate::sle>,
-            CmpOpLowering<hlir::LtOp, LLVM::ICmpPredicate::slt>,
-            CmpOpLowering<hlir::NeOp, LLVM::ICmpPredicate::ne>,
+            CmpOpLowering<hlir::EqOp, arith::CmpIPredicate::eq>,
+            CmpOpLowering<hlir::NeOp, arith::CmpIPredicate::ne>,
+            CmpOpLowering<hlir::LtOp, arith::CmpIPredicate::slt>,
+            CmpOpLowering<hlir::LeOp, arith::CmpIPredicate::sle>,
+            CmpOpLowering<hlir::GtOp, arith::CmpIPredicate::sgt>,
+            CmpOpLowering<hlir::GeOp, arith::CmpIPredicate::sge>,
             DeleteOpLowering,
             FuncOpLowering,
             GlobalRefOpLowering,

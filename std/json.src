@@ -1,0 +1,9 @@
+/// Rather unfinished idea for a JSON parser.
+
+/// Use like this:
+json j;
+j.foo.bar.baz; /// This returns a reference to this key
+               /// if it exists, and `nil` otherwise. You
+               /// can also assign to it to create the keys.
+
+/// Allow overloading the `.` operator for this.

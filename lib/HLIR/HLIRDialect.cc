@@ -207,6 +207,16 @@ void hlir::DirectBrOp::print(OpAsmPrinter& p) {
 
 auto hlir::DirectBrOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
 
+
+void hlir::ExtractOp::print(OpAsmPrinter& p) {
+    p << " ";
+    PrintType(getRes().getType(), p);
+    p << " " << getOperand() << "[" << getIndex() << "]";
+}
+
+auto hlir::ExtractOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+
 auto hlir::FuncOp::parse(
     [[maybe_unused]] OpAsmParser& parser,
     [[maybe_unused]] OperationState& result

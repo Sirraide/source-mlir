@@ -13,6 +13,7 @@
 #include <source/CG/CodeGen.hh>
 #include <source/Frontend/AST.hh>
 #include <source/HLIR/HLIRDialect.hh>
+#include <source/HLIR/HLIRUtils.hh>
 #include <source/Support/Utils.hh>
 
 namespace rgs = src::rgs;
@@ -243,7 +244,35 @@ struct ExpOpLowering : public OpRewritePattern<ExpOp> {
             return success();
         }
 
-        Todo("Lowering arithmetic operations on arrays");
+        /// If it is an array, then we need to emit a loop.
+        /// TODO: Support multi-dimensional arrays.
+        auto ty = op.getRes().getType();
+        auto arr = dyn_cast<hlir::ArrayType>(ty);
+        auto elem = arr.getElem();
+        auto align = DataLayout::closest(op).getTypeABIAlignment(ty);
+        if (isa<ArrayType>(elem)) src::Diag::ICE("Sorry, we only support ** on one-dimensional arrays for now");
+
+        /// Create a local variable to store the result.
+        mlir::Value array, ptr;
+        auto CreateVar = [&] {
+            array = r.create<hlir::LocalOp>(op->getLoc(), ty, align);
+            ptr = r.create<hlir::ArrayDecayOp>(op->getLoc(), array);
+        };
+
+        /// Perform the calculation for each element.
+        auto ComputeElementValue = [&](mlir::Value index) {
+            auto offs = r.create<OffsetOp>(op->getLoc(), ptr, index);
+            auto lhs = r.create<ExtractOp>(op->getLoc(), elem, op.getLhs(), index);
+            auto rhs = r.create<ExtractOp>(op->getLoc(), elem, op.getRhs(), index);
+            auto res = r.create<math::IPowIOp>(op->getLoc(), lhs, rhs);
+            r.create<StoreOp>(op->getLoc(), offs, res, align);
+        };
+
+        /// Emit the loop and replace the operation with the local variable.
+        CreateLoop(r, op, arr.getSize(), CreateVar, ComputeElementValue);
+        r.setInsertionPoint(op);
+        r.replaceOpWithNewOp<LoadOp>(op, array);
+        return success();
     }
 };
 

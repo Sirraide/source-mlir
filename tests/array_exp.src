@@ -1,0 +1,26 @@
+/// R %srcc %s --hlir
+
+/// d t %[a-zA-Z0-9_]+
+/// p lit []
+
+proc consume (i64[100]) extern nomangle;
+
+/// FIXME: This should also test --lowered.
+/// * $a:t = local i64[100]
+/// + construct $a zeroinit
+/// + $b:t = local i64[100]
+/// + construct $b zeroinit
+i64[100] a;
+i64[100] b;
+
+/// + $a1:t = load i64[100] from $a
+/// + $b1:t = load i64[100] from $b
+/// + $exp1:t = exp i64[100] $a1, $b1
+/// + call @consume($exp1)
+consume a ** b;
+
+/// + $b2:t = load i64[100] from $b
+/// + $a2:t = load i64[100] from $a
+/// + $exp2:t = exp i64[100] $a2, $b2
+/// + store into $a, i64[100] $exp2
+a **= b;

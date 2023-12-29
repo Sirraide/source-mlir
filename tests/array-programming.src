@@ -1,37 +1,182 @@
+/// R %srcc %s --hlir
+
+
+/// d t %[0-9a-zA-Z_]+
+/// p lit []
 
 pragma nomangle;
 
 proc consume (i64[100]) extern;
 proc consumeb (bool[100]) extern;
 
+/// FIXME: Should test --lowered as well.
+/// * $A:t = local i64[100]
+/// + construct $A zeroinit
+/// + $B:t = local i64[100]
+/// + construct $B zeroinit
 i64[100] a;
 i64[100] b;
 
+/// b
+/// + (?<A1>$t) = load i64[100] from $A
+/// + (?<B1>$t) = load i64[100] from $B
+/// + (?<ADD>$t) = add i64[100] $A1, $B1
+/// + call @consume($ADD)
 consume a + b;
+
+/// + (?<A2>$t) = load i64[100] from $A
+/// + (?<B2>$t) = load i64[100] from $B
+/// + (?<SUB>$t) = sub i64[100] $A2, $B2
+/// + call @consume($SUB)
 consume a - b;
+
+/// + (?<A3>$t) = load i64[100] from $A
+/// + (?<B3>$t) = load i64[100] from $B
+/// + (?<MUL>$t) = mul i64[100] $A3, $B3
+/// + call @consume($MUL)
 consume a * b;
+
+/// + (?<A4>$t) = load i64[100] from $A
+/// + (?<B4>$t) = load i64[100] from $B
+/// + (?<POW>$t) = exp i64[100] $A4, $B4
+/// + call @consume($POW)
 consume a ** b;
+
+/// + (?<A5>$t) = load i64[100] from $A
+/// + (?<B5>$t) = load i64[100] from $B
+/// + (?<DIV>$t) = div i64[100] $A5, $B5
+/// + call @consume($DIV)
 consume a / b;
+
+/// + (?<A6>$t) = load i64[100] from $A
+/// + (?<B6>$t) = load i64[100] from $B
+/// + (?<REM>$t) = rem i64[100] $A6, $B6
+/// + call @consume($REM)
 consume a % b;
+
+/// + (?<A7>$t) = load i64[100] from $A
+/// + (?<B7>$t) = load i64[100] from $B
+/// + (?<AND>$t) = and i64[100] $A7, $B7
+/// + call @consume($AND)
 consume a land b;
+
+/// + (?<A8>$t) = load i64[100] from $A
+/// + (?<B8>$t) = load i64[100] from $B
+/// + (?<OR>$t) = or i64[100] $A8, $B8
+/// + call @consume($OR)
 consume a lor b;
+
+/// + (?<A9>$t) = load i64[100] from $A
+/// + (?<B9>$t) = load i64[100] from $B
+/// + (?<XOR>$t) = xor i64[100] $A9, $B9
+/// + call @consume($XOR)
 consume a xor b;
+
+/// + (?<A10>$t) = load i64[100] from $A
+/// + (?<B10>$t) = load i64[100] from $B
+/// + (?<SHL>$t) = shl i64[100] $A10, $B10
+/// + call @consume($SHL)
 consume a << b;
+
+/// + (?<A11>$t) = load i64[100] from $A
+/// + (?<B11>$t) = load i64[100] from $B
+/// + (?<SHRS>$t) = sar i64[100] $A11, $B11
+/// + call @consume($SHRS)
 consume a >> b;
+
+/// + (?<A12>$t) = load i64[100] from $A
+/// + (?<B12>$t) = load i64[100] from $B
+/// + (?<SHRUS>$t) = shr i64[100] $A12, $B12
+/// + call @consume($SHRUS)
 consume a >>> b;
+
+/// + (?<A13>$t) = load i64[100] from $A
+/// + (?<B13>$t) = load i64[100] from $B
+/// + (?<CMP>$t) = eq i64[100] $A13, $B13
+/// + call @consumeb($CMP)
 consumeb a == b;
+
+/// + (?<A14>$t) = load i64[100] from $A
+/// + (?<B14>$t) = load i64[100] from $B
+/// + (?<CMP1>$t) = ne i64[100] $A14, $B14
+/// + call @consumeb($CMP1)
 consumeb a != b;
+
+/// + (?<A15>$t) = load i64[100] from $A
+/// + (?<B15>$t) = load i64[100] from $B
+/// + (?<CMP2>$t) = lt i64[100] $A15, $B15
+/// + call @consumeb($CMP2)
 consumeb a < b;
+
+/// + (?<A16>$t) = load i64[100] from $A
+/// + (?<B16>$t) = load i64[100] from $B
+/// + (?<CMP3>$t) = le i64[100] $A16, $B16
+/// + call @consumeb($CMP3)
 consumeb a <= b;
+
+/// + (?<A17>$t) = load i64[100] from $A
+/// + (?<B17>$t) = load i64[100] from $B
+/// + (?<CMP4>$t) = gt i64[100] $A17, $B17
+/// + call @consumeb($CMP4)
 consumeb a > b;
+
+/// + (?<A18>$t) = load i64[100] from $A
+/// + (?<B18>$t) = load i64[100] from $B
+/// + (?<CMP5>$t) = ge i64[100] $A18, $B18
+/// + call @consumeb($CMP5)
 consumeb a >= b;
 
+/// b
+/// + (?<B1>$t) = load i64[100] from $B
+/// + (?<A1>$t) = load i64[100] from $A
+/// + (?<ADD>$t) = add i64[100] $A1, $B1
+/// + store into $A, i64[100] $ADD
 a += b;
+
+/// + (?<B2>$t) = load i64[100] from $B
+/// + (?<A2>$t) = load i64[100] from $A
+/// + (?<SUB>$t) = sub i64[100] $A2, $B2
+/// + store into $A, i64[100] $SUB
 a -= b;
+
+/// + (?<B3>$t) = load i64[100] from $B
+/// + (?<A3>$t) = load i64[100] from $A
+/// + (?<MUL>$t) = mul i64[100] $A3, $B3
+/// + store into $A, i64[100] $MUL
 a *= b;
+
+/// + (?<B4>$t) = load i64[100] from $B
+/// + (?<A4>$t) = load i64[100] from $A
+/// + (?<POW>$t) = exp i64[100] $A4, $B4
+/// + store into $A, i64[100] $POW
 a **= b;
+
+/// + (?<B5>$t) = load i64[100] from $B
+/// + (?<A5>$t) = load i64[100] from $A
+/// + (?<DIV>$t) = div i64[100] $A5, $B5
+/// + store into $A, i64[100] $DIV
 a /= b;
+
+/// + (?<B6>$t) = load i64[100] from $B
+/// + (?<A6>$t) = load i64[100] from $A
+/// + (?<REM>$t) = rem i64[100] $A6, $B6
+/// + store into $A, i64[100] $REM
 a %= b;
+
+/// + (?<B7>$t) = load i64[100] from $B
+/// + (?<A7>$t) = load i64[100] from $A
+/// + (?<SHL>$t) = shl i64[100] $A7, $B7
+/// + store into $A, i64[100] $SHL
 a <<= b;
+
+/// + (?<B8>$t) = load i64[100] from $B
+/// + (?<A8>$t) = load i64[100] from $A
+/// + (?<SAR>$t) = sar i64[100] $A8, $B8
+/// + store into $A, i64[100] $SAR
 a >>= b;
+
+/// + (?<B9>$t) = load i64[100] from $B
+/// + (?<A9>$t) = load i64[100] from $A
+/// + (?<SHR>$t) = shr i64[100] $A9, $B9
+/// + store into $A, i64[100] $SHR
 a >>>= b;

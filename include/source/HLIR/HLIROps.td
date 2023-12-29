@@ -771,6 +771,14 @@ def BitCastOp : HLIR_Op<"bitcast"> {
     let hasVerifier = 0;
 }
 
+def ExtractOp : HLIR_Op<"extract"> {
+    let summary = "Extract a value from an array";
+    let arguments = (ins HLIR_Type:$operand, HLIR_Type:$index);
+    let results = (outs HLIR_Type:$res);
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 0;
+}
+
 class BinOpBase<string name, list<Trait> traits = []> : HLIR_Op<
     name, traits
 > {
