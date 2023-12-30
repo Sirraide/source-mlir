@@ -1684,6 +1684,8 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::WithExpr; }
 };
 
+/// Create a temporary variable and evaluate a ConstructExpr into it. Yields
+/// that variable as an lvalue.
 class MaterialiseTemporaryExpr : public TypedExpr {
 public:
     /// The expression constructing this temporary.

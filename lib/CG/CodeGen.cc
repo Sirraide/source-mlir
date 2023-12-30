@@ -2156,11 +2156,17 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         /// as the address of the variable instead of creating a stack
         /// variable for it.
         ///
-        /// Similarly, 'in' parameters can also just be used directly
-        /// since they are rvalues, not lvalues.
+        /// Similarly, 'in' parameters that are passed by value can also
+        /// just be used directly since they are rvalues, not lvalues.
+        ///
+        /// However, 'in' parameters that are passed by reference must be
+        /// loaded once.
         if (p->info->passed_by_reference or p->info->intent == Intent::In) {
             if (p->captured) Diag::ICE("Sorry, capturing by-reference parameters is not yet supported");
-            local_vars[p] = func.getExplicitArgument(u32(i));
+            auto arg = func.getExplicitArgument(u32(i));
+            if (p->info->intent == Intent::In and p->info->passed_by_reference)
+                arg = Create<hlir::LoadOp>(Loc(p->location), arg);
+            local_vars[p] = arg;
             continue;
         }
 

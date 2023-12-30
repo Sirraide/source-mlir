@@ -454,9 +454,6 @@ private:
     /// Print a diagnostic with no (valid) location info.
     void PrintDiagWithoutLocation(utils::Colours);
 
-    /// Do not print a stack trace.
-    void NoTrace() { include_stack_trace = false; }
-
 public:
     static constexpr u8 ICEExitCode = 17;
     static constexpr u8 FatalExitCode = 18;
@@ -511,6 +508,9 @@ public:
     template <typename... Args>
     Diag(Kind kind, fmt::format_string<Args...> fmt, Args&&... args)
         : Diag{kind, fmt::format(fmt, std::forward<Args>(args)...)} {}
+
+    /// Do not print a stack trace.
+    void no_trace() { include_stack_trace = false; }
 
     /// Print this diagnostic now. This resets the diagnostic.
     void print();
@@ -579,6 +579,16 @@ public:
         Args&&... args
     ) {
         Diag{Kind::ICError, fmt::format(fmt.fmt, std::forward<Args>(args)...), fmt.sloc};
+        std::terminate(); /// Should never be reached.
+    }
+
+    /// Raise an internal compiler error and exit.
+    template <typename... Args>
+    [[noreturn]] static void ICENoTrace(
+        utils::FStringWithSrcLoc<Args...> fmt,
+        Args&&... args
+    ) {
+        Diag{Kind::ICError, fmt::format(fmt.fmt, std::forward<Args>(args)...), fmt.sloc}.no_trace();
         std::terminate(); /// Should never be reached.
     }
 

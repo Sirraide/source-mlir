@@ -1,6 +1,7 @@
 /// R %srcc %s --hlir
 
 /// d t %[a-zA-Z0-9_]+
+/// p lit []
 
 /// b
 /// * hlir.func external @__src_main
@@ -22,10 +23,36 @@ i64 b = 3;
 /// + call @_S5smallPI64_I64_sI64_I64_I64_sI64_E($one, $two, $a, $four, $five, $b)
 small 1, 2, a, 4, 5, b;
 
+/// b
+/// + $c:t = local i64[100],
+/// + construct $c zeroinit
 i64[100] c;
-i64[100] d = 5;
-big 1, 2, c, 4, 5, d;
 
+/// + $d:t = local i64[100],
+/// + $ptr:t = array_decay $d to i64&
+/// + $three:t = arith.constant 3
+/// + construct $ptr trivial i64 $three, elems 100
+i64[100] d = 3;
+
+/// + $tmp1:t = local i64[100],
+/// + $ptr1:t = array_decay $tmp1 to i64&
+/// + $one:t = arith.constant 1
+/// + construct $ptr1 trivial i64 $one, elems 100
+/// + $tmp2:t = local i64[100],
+/// + $ptr2:t = array_decay $tmp2 to i64&
+/// + $two:t = arith.constant 2
+/// + construct $ptr2 trivial i64 $two, elems 100
+/// + $tmp4:t = local i64[100],
+/// + $ptr4:t = array_decay $tmp4 to i64&
+/// + $four:t = arith.constant 4
+/// + construct $ptr4 trivial i64 $four, elems 100
+/// + $tmp5:t = local i64[100],
+/// + $ptr5:t = array_decay $tmp5 to i64&
+/// + $five:t = arith.constant 5
+/// + construct $ptr5 trivial i64 $five, elems 100
+/// + call @_S3bigPsA100_I64_sA100_I64_sA100_I64_sA100_I64_sA100_I64_sA100_I64_E($tmp1, $tmp2, $c, $tmp4, $tmp5, $d)
+
+big 1, 2, c, 4, 5, d;
 
 /// b
 /// * hlir.func private @_S5smallPI64_I64_sI64_I64_I64_sI64_E(i64, i64, i64&, i64, i64, i64&)
@@ -68,19 +95,34 @@ proc small (
 }
 
 /// b
-/// * hlir.func private @_S3bigPsA100_I64_sA100_I64_sA100_I64_A100_I64_sA100_I64_sA100_I64_E(i64[100]&, i64[100]&, i64[100]&, i64[100], i64[100]&, i64[100]&)
+/// * hlir.func private @_S3bigPsA100_I64_sA100_I64_sA100_I64_sA100_I64_sA100_I64_sA100_I64_E(i64[100]&, i64[100]&, i64[100]&, i64[100]&, i64[100]&, i64[100]&)
 proc big (
           i64[100] a,
     in    i64[100] b,
     out   i64[100] c,
-
-    /// + $d:t = local i64[100],
-    /// + store into $d, i64[100] %arg3
     copy  i64[100] d,
     move  i64[100] e,
     inout i64[100] f,
 ) {
+    /// + $b:t = load i64[100] from %arg1
+    /// + scope
+    /// + $ins:t = local i64[100],
+    /// + $a1:t = load i64[100] from %arg0
+    /// + $add1:t = add i64[100] $a1, $b
+    /// + $d1:t = load i64[100] from %arg3
+    /// + $add2:t = add i64[100] $add1, $d1
+    /// + $e1:t = load i64[100] from %arg4
+    /// + $add3:t = add i64[100] $add2, $e1
+    /// + $f1:t = load i64[100] from %arg5
+    /// + $add4:t = add i64[100] $add3, $f1
+    /// + construct $ins trivial i64[100] $add4
     i64[100] ins = a + b + d + e + f;
+
+    /// + $e2:t = load i64[100] from %arg4
+    /// + store into %arg2, i64[100] $e2
     c = e;
+
+    /// + $ins1:t = load i64[100] from $ins
+    /// + store into %arg5, i64[100] $ins1
     f = ins;
 }

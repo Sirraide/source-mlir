@@ -25,6 +25,9 @@
 #include <source/HLIR/HLIRUtils.hh>
 #include <source/Support/Utils.hh>
 
+/// This is broken in some way, shape, or form. Use replaceOp() instead.
+#pragma clang poison replaceAllUsesWith
+
 using namespace mlir;
 
 namespace src {
@@ -40,10 +43,12 @@ auto CreateInMemoryCast(
     Value val
 ) {
     to = tc.convertType(to);
+    auto dl = DataLayout::closest(val.getDefiningOp());
+    auto align = std::max(dl.getTypePreferredAlignment(to), dl.getTypePreferredAlignment(val.getType()));
     auto one = r.create<LLVM::ConstantOp>(val.getLoc(), tc.getIndexType(), r.getI32IntegerAttr(1));
-    auto local = r.create<LLVM::AllocaOp>(val.getLoc(), LLVM::LLVMPointerType::get(r.getContext()), to, one);
-    r.create<LLVM::StoreOp>(val.getLoc(), val, local);
-    return r.create<LLVM::LoadOp>(val.getLoc(), to, local);
+    auto local = r.create<LLVM::AllocaOp>(val.getLoc(), LLVM::LLVMPointerType::get(r.getContext()), to, one, unsigned(align));
+    r.create<LLVM::StoreOp>(val.getLoc(), val, local, unsigned(align));
+    return r.create<LLVM::LoadOp>(val.getLoc(), to, local, unsigned(align));
 }
 
 /// Lowering for string literals.
@@ -919,8 +924,8 @@ struct ArithOpLowering : public ConversionPattern {
         auto rhs = CreateInMemoryCast(r, *tc, vector_type, arguments[1]);
         auto res = r.create<ArithOp>(op->getLoc(), lhs, rhs);
         auto conv = CreateInMemoryCast(r, *tc, arr, res);
-        r.replaceAllUsesWith(op->getResult(0), conv);
-        r.eraseOp(op);
+        auto block = op->getBlock();
+        r.replaceOp(op, conv);
         return success();
     }
 };
@@ -960,8 +965,7 @@ struct CmpOpLowering : public ConversionPattern {
         auto rhs = CreateInMemoryCast(r, *tc, vector_type, arguments[1]);
         auto res = r.create<arith::CmpIOp>(op->getLoc(), pred, lhs, rhs);
         auto conv = CreateInMemoryCast(r, *tc, b.getRes().getType(), res);
-        r.replaceAllUsesWith(op->getResult(0), conv);
-        r.eraseOp(op);
+        r.replaceOp(op, conv);
         return success();
     }
 };
@@ -1103,8 +1107,11 @@ void src::LowerToLLVM(mlir::MLIRContext* ctx, Module* mod, bool debug_llvm_lower
     if (no_verify) pm.enableVerifier(false);
     pm.addPass(std::make_unique<HLIRToLLVMLoweringPass>());
     if (debug_llvm_lowering) pm.enableIRPrinting();
-    if (mlir::failed(pm.run(mod->mlir)))
-        Diag::ICE(mod->context, mod->module_decl_location, "Module lowering failed");
+    if (mlir::failed(pm.run(mod->mlir))) {
+        Diag::Note(mod->context, mod->module_decl_location, "IR after lowering");
+        mod->mlir_module_op->dump();
+        Diag::ICENoTrace("Module lowering failed");
+    }
 }
 
 void src::GenerateLLVMIR(Module* mod, int opt_level, llvm::TargetMachine* machine) {

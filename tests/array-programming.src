@@ -17,7 +17,6 @@ proc consumeb (bool[100]) extern;
 i64[100] a;
 i64[100] b;
 
-
 /// b
 /// + $tmp:t = local i64[100]
 /// + (?<A1>$t) = load i64[100] from $A

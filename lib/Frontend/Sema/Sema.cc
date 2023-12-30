@@ -194,7 +194,7 @@ bool src::Sema::ConvertImpl(
     if (ctx.expr and (ctx.expr->sema.errored or type->sema.errored)) return false;
     Assert(from_ty->sema.ok and type->sema.ok, "Cannot convert to unanalysed type");
     Assert(isa<TypeBase>(type));
-    auto to = type;
+    auto to = type.desugared;
     auto from = from_ty;
 
     /// If the types are equal, then they’re convertible to one another.
@@ -356,6 +356,18 @@ bool src::Sema::ConvertImpl(
         return true;
     }
 
+    /// If we need to construct an array or struct, try temporary materialisation.
+    /// TODO: Actually support this w/ TryConvert()...
+    if constexpr (perform_conversion) {
+        if (isa<StructType, ArrayType>(to.desugared)) {
+            auto ctor = Construct(ctx.expr->location, to, {*ctx.e}, nullptr);
+            if (not ctor) return false;
+            *ctx.e = new (mod) MaterialiseTemporaryExpr(to, ctor, ctx.expr->location);
+            ctx.score++;
+            return true;
+        }
+    }
+
     /// No other conversions are supported.
     return false;
 }
@@ -443,8 +455,10 @@ bool src::Sema::FinaliseInvokeArgument(Expr*& arg, const ParamInfo* param) {
             InsertLValueToRValueConversion(arg);
             return true;
 
-        /// Create a copy on the stack and pass it by reference.
+        /// Create a copy on the stack and pass it by reference. If this is already
+        /// a temporary, use it instead of creating *another* copy.
         case ParamInfo::Class::CopyAsRef: {
+            if (isa<MaterialiseTemporaryExpr>(arg) and arg->type == param->type) return true;
             auto ctor = Construct(arg->location, param->type, {arg}, nullptr);
             if (not ctor) return false;
             arg = new (mod) MaterialiseTemporaryExpr(param->type, ctor, arg->location);
