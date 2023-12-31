@@ -105,7 +105,8 @@ src::TupleIndexExpr::TupleIndexExpr(Expr* object, FieldDecl* field, Location loc
     : TypedExpr(Kind::TupleIndexExpr, field->type, loc),
       object(object),
       field(field) {
-    Assert(object->sema.ok and field->sema.ok);
+    Assert(object->sema.ok, "Cannot index into unanalysed or dependent tuple");
+    Assert(field->sema.ok, "Cannot index unanalysed or dependent field");
     sema.set_done();
     is_lvalue = object->is_lvalue;
 }
@@ -1247,6 +1248,7 @@ struct ASTPrinter {
                     case ArrayBroadcast: out += " broadcast"; break;
                     case ArrayListInit: out += " list-init"; break;
                     case ArrayZeroinit: out += " array-zero"; break;
+                    case RecordListInit: out += " record-list-init"; break;
                 }
                 if (auto els = c->elems(); els != 1) out += fmt::format("{}:{}{}", C(Red), C(Yellow), els);
                 out += '\n';

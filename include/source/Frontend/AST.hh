@@ -286,11 +286,16 @@ struct ArrayInfo {
 };
 
 class EvalResult {
+public:
+    using TupleElements = std::vector<EvalResult>;
+
+private:
     std::variant< // clang-format off
         std::monostate,
         APInt,
         Type,
         OverloadSetExpr*,
+        TupleElements,
         std::nullptr_t
     > value{}; // clang-format on
 
@@ -302,8 +307,10 @@ public:
     EvalResult(APInt value, Type type) : value(std::move(value)), type(type) {}
     EvalResult(OverloadSetExpr* os) : value(os), type(Type::OverloadSet) {}
     EvalResult(Type type) : value(type), type(type) {} /// FIXME: should be the `type` type.
+    EvalResult(TupleElements elems, TupleType* type);
 
     auto as_int() -> APInt& { return std::get<APInt>(value); }
+    auto as_tuple_elems() -> TupleElements& { return std::get<TupleElements>(value); }
     auto as_type() -> Type { return std::get<Type>(value); }
     auto as_overload_set() -> OverloadSetExpr* { return std::get<OverloadSetExpr*>(value); }
 
@@ -596,6 +603,11 @@ enum struct ConstructKind {
 
     /// Initialise an array from a series of nested constructors.
     ArrayListInit,
+
+    /// Initialise a record from a series of constructors. Note that
+    /// padding fields are left uninitialised; no constructors
+    /// will be provided for them in this list.
+    RecordListInit,
 };
 
 /// This expression stores all information required to construct a value.
@@ -689,6 +701,7 @@ private:
             case K::InitialiserCall:
             case K::ArrayListInit:
             case K::ArrayInitialiserCall:
+            case K::RecordListInit:
                 return usz(getTrailingObjects<NumExprs>()[0]);
         }
 
@@ -709,6 +722,7 @@ private:
             case K::InitialiserCall:
             case K::ArrayListInit:
             case K::ArrayInitialiserCall:
+            case K::RecordListInit:
                 return true;
         }
 
@@ -724,6 +738,7 @@ private:
             case K::SliceFromParts:
             case K::InitialiserCall:
             case K::ArrayListInit:
+            case K::RecordListInit:
                 return false;
 
             case K::ArrayZeroinit:
@@ -745,6 +760,7 @@ public:
             case K::TrivialCopy:
             case K::SliceFromParts:
             case K::InitialiserCall:
+            case K::RecordListInit:
                 return false;
 
             case K::ArrayListInit:
@@ -808,6 +824,11 @@ public:
         ProcDecl* init,
         usz total_array_size
     ) { return Create(m, K::ArrayInitialiserCall, exprs, init, total_array_size); }
+
+    static auto CreateRecordListInit(
+        Module* m,
+        ArrayRef<Expr*> exprs
+    ) { return Create(m, K::RecordListInit, exprs); }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ConstructExpr; }
@@ -1467,7 +1488,7 @@ enum struct Intent : u8 {
     Copy = 0b0010,
     In = 0b0100,
     Out = 0b1000,
-    CXXByValue = 0b10000, /// A C++ value parameter.
+    CXXByValue = 0b1'0000, /// A C++ value parameter.
     Inout = In | Out,
     Default = Move, ///< Default intent for parameters.
 
@@ -1833,19 +1854,22 @@ class Named {
     /// Cached so we don’t need to recompute it.
     std::string mangled_name;
 
+    /// Avoid race condition on mangled name.
+    std::once_flag name_mangling_flag;
+
 public:
+    /// The mangling scheme of this type.
+    Mangling mangling;
+
     /// The parent module.
     Module* module;
 
     /// The name of this type.
     String name;
 
-    /// The mangling scheme of this type.
-    Mangling mangling;
-
 protected:
     Named(Module* mod, String name, Mangling mangling)
-        : module(mod), name(name), mangling(mangling) {}
+        : mangling(mangling), module(mod), name(name) {}
 };
 
 /// Base class for record types (structs and tuples).
@@ -1863,19 +1887,19 @@ protected:
         : TypeBase(k, loc), all_fields(std::move(fields)) {}
 
 public:
-    /// Get the non-padding fields of this struct.
-    auto fields() {
-        return vws::filter(all_fields, [](FieldDecl* f) { return not f->padding; });
-    }
-
     /// Get the fields of this struct, including all padding fields.
     auto field_types() {
         return vws::transform(all_fields, [](FieldDecl* f) { return f->stored_type; });
     }
 
+    /// Get the non-padding fields of this struct.
+    auto non_padding_fields() {
+        return vws::filter(all_fields, [](FieldDecl* f) { return not f->padding; });
+    }
+
     /// Get a field by *logical* index (i.e. ignoring non-padding fields).
     auto nth_non_padding(u32 n) -> FieldDecl* {
-        for (auto f : fields()) {
+        for (auto f : non_padding_fields()) {
             if (n == 0) return f;
             n--;
         }
@@ -1959,9 +1983,9 @@ public:
 
 private:
     static auto GetFields(Module* mod, auto&& types) -> SmallVector<FieldDecl*> {
-        SmallVector<FieldDecl*> fields;
-        for (auto&& t : FWD(types)) fields.push_back(new (mod) FieldDecl(String(), t, {}));
-        return fields;
+        SmallVector<FieldDecl*> non_padding_fields;
+        for (auto&& t : FWD(types)) non_padding_fields.push_back(new (mod) FieldDecl(String(), t, {}));
+        return non_padding_fields;
     }
 };
 
@@ -2207,6 +2231,10 @@ struct THCastImpl {
         return doCast(t);
     }
 };
+
+inline EvalResult::EvalResult(std::nullptr_t) : value(nullptr), type(Type::Nil) {}
+inline EvalResult::EvalResult(TupleElements elems, TupleType* type)
+    : value(std::move(elems)), type(type) {}
 
 /// Check that we’ve actually defined all the types.
 #define SOURCE_AST_EXPR(name) static_assert(sizeof(class name));

@@ -1352,7 +1352,68 @@ auto src::Sema::Construct(
             return ConstructExpr::CreateInitialiserCall(mod, ctor, init_args);
         }
 
-        case Expr::Kind::TupleType: Todo("Initialise tuples");
+        case Expr::Kind::TupleType: {
+            auto t = cast<TupleType>(ty);
+
+            /// If there are no arguments, perform default-construction.
+            if (init_args.empty()) {
+                /// If all elements of the tuple are trivial, this is zero-initialisation.
+                if (Type(t).trivial) return ConstructExpr::CreateZeroinit(mod);
+
+                /// Otherwise, all types must be default-constructible.
+                SmallVector<Expr*, 16> ctors;
+                for (auto elem : t->non_padding_fields()) {
+                    auto ctor = Construct(loc, elem->type, {});
+                    if (not ctor) return nullptr;
+                    ctors.push_back(ctor);
+                }
+
+                return ConstructExpr::CreateRecordListInit(mod, ctors);
+            }
+
+            /// If there is one argument that is also a tuple with the
+            /// exact same type as this, just use it.
+            if (init_args[0]->type == ty) return TrivialCopy(ty);
+
+            /// If there is one argument that is a tuple, take its elements.
+            SmallVector<Expr*, 16> args_storage;
+            if (
+                auto tuple = dyn_cast<TupleType>(init_args[0]->type.desugared);
+                init_args.size() == 1 and tuple
+            ) {
+                for (auto f : tuple->non_padding_fields()) {
+                    auto idx = new (mod) TupleIndexExpr(init_args[0], f, loc);
+                    args_storage.push_back(idx);
+                }
+
+                /// The unwrapped tuple is now the argument list.
+                init_args = args_storage;
+            }
+
+            /// If there are more arguments than elements, this is an error.
+            if (init_args.size() > usz(rgs::distance(t->non_padding_fields()))) {
+                auto ToStr = [&](Expr* e) { return e->type.str(ctx->use_colours, true); };
+                Error(
+                    loc,
+                    "Too many arguments in construction of '{}' from [{}]",
+                    type,
+                    fmt::join(init_args | vws::transform(ToStr), ", ")
+                );
+            }
+
+            /// Same loop as earlier, but this time with one argument each
+            /// time. If there are fewer arguments than elements, default
+            /// construct the rest.
+            SmallVector<Expr*, 16> ctors;
+            for (auto [i, elem] : t->non_padding_fields() | vws::enumerate) {
+                auto args = usz(i) < init_args.size() ? init_args[usz(i)] : MutableArrayRef<Expr*>{};
+                auto ctor = Construct(loc, elem->type, args);
+                if (not ctor) return nullptr;
+                ctors.push_back(ctor);
+            }
+
+            return ConstructExpr::CreateRecordListInit(mod, ctors);
+        }
 
         /// This is the complicated one.
         case Expr::Kind::ArrayType: {
@@ -1660,6 +1721,8 @@ bool src::Sema::Analyse(Expr*& e) {
                 tuple->elements | vws::transform([](Expr* e) { return e->type; }),
                 e->location
             );
+
+            Assert(AnalyseAsType(tuple->stored_type));
         } break;
 
         /// Handled out of line because it’s too complicated.
@@ -2089,7 +2152,7 @@ bool src::Sema::Analyse(Expr*& e) {
                     }
 
                     /// Search fields.
-                    auto fields = s->fields();
+                    auto fields = s->non_padding_fields();
                     auto f = rgs::find(fields, m->member, [](auto* f) { return f->name; });
                     if (f != fields.end()) {
                         UnwrapInPlace(object, true);
@@ -2590,7 +2653,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// Index must be an integer and in range.
                 if (not EvaluateAsIntegerInPlace(s->index, true)) break;
                 auto idx = cast<ConstExpr>(s->index)->value.as_int().getZExtValue();
-                if (idx >= u64(rgs::distance(t->fields()))) return Error(
+                if (idx >= u64(rgs::distance(t->non_padding_fields()))) return Error(
                     e,
                     "Index {} out of range for tuple type '{}'",
                     idx,

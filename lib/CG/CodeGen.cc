@@ -374,6 +374,8 @@ void src::CodeGen::Construct(
                 cast<ConstructExpr>(c)
             );
         } break;
+
+        case ConstructKind::RecordListInit: Todo();
     }
 }
 

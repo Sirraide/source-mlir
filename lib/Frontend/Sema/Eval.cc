@@ -1,7 +1,5 @@
 #include <source/Frontend/Sema.hh>
 
-src::EvalResult::EvalResult(std::nullptr_t) : value(nullptr), type(Type::Nil) {}
-
 bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
     Assert(e->sema.ok, "Refusing evaluate broken or unanalysed expression");
     switch (e->kind) {
@@ -49,8 +47,6 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::ScopeAccessExpr:
         case Expr::Kind::StrLitExpr:
         case Expr::Kind::SubscriptExpr:
-        case Expr::Kind::TupleExpr:
-        case Expr::Kind::TupleIndexExpr:
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::WhileExpr:
         case Expr::Kind::WithExpr:
@@ -82,6 +78,31 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::IntLitExpr: {
             auto i = cast<IntLitExpr>(e);
             out = {i->value, i->stored_type};
+            return true;
+        }
+
+        case Expr::Kind::TupleExpr: {
+            auto t = cast<TupleExpr>(e);
+            out = {EvalResult::TupleElements{}, cast<TupleType>(t->type.desugared)};
+            auto& elems = out.as_tuple_elems();
+            for (auto expr : t->elements)
+                if (not Evaluate(expr, elems.emplace_back(), must_succeed))
+                    return false;
+            return true;
+        }
+
+        case Expr::Kind::TupleIndexExpr: {
+            auto t = cast<TupleIndexExpr>(e);
+            if (not Evaluate(t->object, out, must_succeed)) return false;
+
+            /// TupleIndexExprs are only constructed by sema and as such are
+            /// always valid. Assert that that is actually the case.
+            auto& elems = out.as_tuple_elems();
+            Assert(t->field->index < elems.size(), "Tuple index out of bounds");
+
+            /// We can’t simply assign here as that would be UB due to `out`’s
+            /// destructor being called before we can move the field value out.
+            std::exchange(out, std::move(elems.at(t->field->index)));
             return true;
         }
 

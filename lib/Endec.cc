@@ -18,6 +18,7 @@
 /// - A
 /// - C
 /// - E
+/// - G
 /// - I
 /// - J
 /// - L
@@ -51,7 +52,7 @@ auto Type::_mangled_name() -> std::string {
     };
 
     auto MangleNamedType = [&](Named* s, std::string_view prefix) {
-        if (s->mangled_name.empty()) {
+        std::call_once(s->name_mangling_flag, [&] {
             if (not s->module or not s->module->is_logical_module) {
                 s->mangled_name = fmt::format("{}{}{}", prefix, s->name.size(), s->name);
             } else {
@@ -64,7 +65,7 @@ auto Type::_mangled_name() -> std::string {
                     s->name
                 );
             }
-        }
+        });
 
         return s->mangled_name;
     };
@@ -129,7 +130,13 @@ auto Type::_mangled_name() -> std::string {
         case Expr::Kind::StructType:
             return MangleNamedType(cast<StructType>(ptr), "S");
 
-        case Expr::Kind::TupleType: Todo("Mangle tuple type");
+        case Expr::Kind::TupleType: {
+            auto t = cast<TupleType>(ptr);
+            auto fields = t->non_padding_fields();
+            std::string name = fmt::format("G{}", rgs::distance(fields));
+            for (auto f : fields) name += f->type.mangled_name;
+            return name;
+        }
 
 #define SOURCE_AST_EXPR(name) case Expr::Kind::name:
 #define SOURCE_AST_TYPE(...)
