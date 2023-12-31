@@ -1,0 +1,53 @@
+
+
+/// Trailing comma is allowed.
+enum E1 { A, B, C, D, };
+enum E2 { E, F, G, H  };
+enum E3 { I, J, K, L, };
+
+/// You can specify the underlying type.
+enum E4 : i32 {
+    M = 17,
+    N = M + 3, /// Enumerator defined in terms of previous one.
+};
+
+/// Enums can ‘extend’ other enums.
+enum E5 : E4 {
+    O = N, /// Enumerators from the parent enum are in scope here.
+    P = O,
+    Q,
+};
+
+/// Enums can also have no enumerators at all; this is
+/// basically just a strong typedef.
+enum E6;
+
+/// Initialise an enum from an integer. This is fine,
+/// so long as the integer is in range (which means it
+/// must be a constant expression), though it requires
+/// a cast.
+E1 a = 1 as E1;
+
+/// Initialise an enum from an enumerator. Enumerator values
+/// are in scope here.
+E4 b = N;
+
+/// As well as here.
+b = N;
+
+/// Explicitly specify the enum and enumerator.
+var c = E5::M;
+
+/// Enumerators of the parent enum are implicitly convertible
+/// to any derived enum; furthermore, enumerators of the parent
+/// enum are also in scope here.
+c = N;
+
+/// Converting an out-of-bounds integer to an enum requires
+/// a hard cast.
+E6 d = 2 as! E6;
+
+/// Casting an enum to an integer is fine.
+sink a as i32 + b as i32 + c as i32 + d as i32 + E3::K as i32;
+
+proc sink (i32) extern nomangle;
