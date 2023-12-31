@@ -615,12 +615,11 @@ enum struct ConstructKind {
 /// This expression stores all information required to construct a value.
 class ConstructExpr final
     : public Expr
-    , llvm::TrailingObjects<ConstructExpr, isz, Expr*, llvm::PointerUnion<ProcDecl*, RecordType*>, usz> {
+    , llvm::TrailingObjects<ConstructExpr, isz, Expr*, usz> {
     friend TrailingObjects;
     using K = ConstructKind;
     using NumExprs = isz;
     using NumArrayElems = usz;
-    using ProcOrRecordPtr = llvm::PointerUnion<ProcDecl*, RecordType*>;
     enum : NumArrayElems { DefaultParamNoArrayElements = ~usz(0) };
 
     template <typename T>
@@ -642,11 +641,11 @@ private:
         ProcOrRecordPtrType proc = nullptr,
         usz array_elems = DefaultParamNoArrayElements
     ) -> ConstructExpr* {
+        auto num_exprs = args.size() + (proc != nullptr);
         auto raw = utils::AllocateAndRegister<Expr>(
-            totalSizeToAlloc<NumExprs, Expr*, ProcOrRecordPtr, NumArrayElems>(
+            totalSizeToAlloc<NumExprs, Expr*, NumArrayElems>(
                 HasArgumentsSize(k),
-                args.size(),
-                proc != nullptr,
+                num_exprs,
                 array_elems != DefaultParamNoArrayElements
             ),
             mod->exprs
@@ -658,16 +657,13 @@ private:
         /// These have to be initialised first as they are used in the
         /// initialisation of the other ones below.
         if (HasArgumentsSize(k))
-            e->getTrailingObjects<NumExprs>()[0] = NumExprs(args.size());
+            e->getTrailingObjects<NumExprs>()[0] = NumExprs(num_exprs);
         if (array_elems != DefaultParamNoArrayElements)
             e->getTrailingObjects<NumArrayElems>()[0] = array_elems;
 
         /// Do *not* move these up!
         std::uninitialized_copy(args.begin(), args.end(), e->getTrailingObjects<Expr*>());
-        if (proc != nullptr) {
-            auto ptr = e->getTrailingObjects<ProcOrRecordPtr>();
-            ptr[0] = proc;
-        }
+        if (proc != nullptr) e->getTrailingObjects<Expr*>()[args.size()] = proc;
         return e;
     }
 
@@ -681,12 +677,6 @@ private:
     /// default-construct.
     usz numTrailingObjects(OT<NumArrayElems>) const {
         return HasArrayElemCount(ctor_kind);
-    }
-
-    usz numTrailingObjects(OT<ProcOrRecordPtr>) const {
-        return ctor_kind == K::InitialiserCall or
-               ctor_kind == K::ArrayInitialiserCall or
-               ctor_kind == K::RecordListInit;
     }
 
     usz numTrailingObjects(OT<Expr*>) const {
@@ -708,6 +698,7 @@ private:
             case K::ArrayListInit:
             case K::ArrayInitialiserCall:
             case K::RecordListInit:
+                /// This includes the trailing proc/record type.
                 return usz(getTrailingObjects<NumExprs>()[0]);
         }
 
@@ -756,6 +747,13 @@ private:
         Unreachable();
     }
 
+    static bool HasTrailingProcedureOrRecordType(ConstructKind k) {
+        return k == K::InitialiserCall or
+               k == K::ArrayInitialiserCall or
+               k == K::RecordListInit;
+    }
+
+
 public:
     /// Whether this is an array constructor.
     auto array_ctor() -> bool {
@@ -781,7 +779,7 @@ public:
     auto args() -> MutableArrayRef<Expr*> {
         return {
             getTrailingObjects<Expr*>(),
-            numTrailingObjects(OT<Expr*>{}),
+            numTrailingObjects(OT<Expr*>{}) - HasTrailingProcedureOrRecordType(ctor_kind),
         };
     }
 
@@ -789,7 +787,7 @@ public:
     auto args_and_init() -> MutableArrayRef<Expr*> {
         return {
             getTrailingObjects<Expr*>(),
-            numTrailingObjects(OT<Expr*>{}) + numTrailingObjects(OT<ProcOrRecordPtr>{}),
+            numTrailingObjects(OT<Expr*>{}),
         };
     }
 
@@ -801,14 +799,14 @@ public:
 
     /// Get the initialiser to call.
     auto init() -> ProcDecl* {
-        if (numTrailingObjects(OT<ProcOrRecordPtr>{}) == 0) return nullptr;
-        return getTrailingObjects<ProcOrRecordPtr>()[0].get<ProcDecl*>();
+        if (not HasTrailingProcedureOrRecordType(ctor_kind)) return nullptr;
+        return cast<ProcDecl>(getTrailingObjects<Expr*>()[numTrailingObjects(OT<Expr*>{}) - 1]);
     }
 
     /// Get the record type for RecordListInit.
     auto record_type() -> RecordType* {
-        if (numTrailingObjects(OT<ProcOrRecordPtr>{}) == 0) return nullptr;
-        return getTrailingObjects<ProcOrRecordPtr>()[0].get<RecordType*>();
+        if (not HasTrailingProcedureOrRecordType(ctor_kind)) return nullptr;
+        return cast<RecordType>(getTrailingObjects<Expr*>()[numTrailingObjects(OT<Expr*>{}) - 1]);
     }
 
     static auto CreateUninitialised(Module* m) { return new (m) ConstructExpr(K::Uninitialised); }

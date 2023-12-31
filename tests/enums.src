@@ -1,22 +1,26 @@
 
 
 /// Trailing comma is allowed.
-enum E1 { A, B, C, D, };
-enum E2 { E, F, G, H  };
-enum E3 { I, J, K, L, };
+enum E1 { A, B, C, D, }
+enum E2 { E, F, G, H  }
+enum E3 { I, J, K, L, }
 
 /// You can specify the underlying type.
 enum E4 : i32 {
     M = 17,
     N = M + 3, /// Enumerator defined in terms of previous one.
-};
+}
 
 /// Enums can ‘extend’ other enums.
 enum E5 : E4 {
     O = N, /// Enumerators from the parent enum are in scope here.
     P = O,
     Q,
-};
+}
+
+/// TODO: `mask` enums (`enum foo mask`); mask enums can only
+///        extend other mask enums. Furthermore, all values of
+///        a mask enum must be powers of two.
 
 /// Enums can also have no enumerators at all; this is
 /// basically just a strong typedef.
