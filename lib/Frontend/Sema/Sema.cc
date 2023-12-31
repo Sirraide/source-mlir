@@ -1368,7 +1368,7 @@ auto src::Sema::Construct(
                     ctors.push_back(ctor);
                 }
 
-                return ConstructExpr::CreateRecordListInit(mod, ctors);
+                return ConstructExpr::CreateRecordListInit(mod, ctors, t);
             }
 
             /// If there is one argument that is also a tuple with the
@@ -1412,7 +1412,7 @@ auto src::Sema::Construct(
                 ctors.push_back(ctor);
             }
 
-            return ConstructExpr::CreateRecordListInit(mod, ctors);
+            return ConstructExpr::CreateRecordListInit(mod, ctors, t);
         }
 
         /// This is the complicated one.

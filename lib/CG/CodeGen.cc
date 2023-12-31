@@ -375,7 +375,22 @@ void src::CodeGen::Construct(
             );
         } break;
 
-        case ConstructKind::RecordListInit: Todo();
+        case ConstructKind::RecordListInit: {
+            for (auto [f, c] : vws::zip(ctor->record_type()->non_padding_fields(), ctor->args())) {
+                auto ptr = Create<hlir::StructGEPOp>(
+                    loc,
+                    addr,
+                    f->index
+                );
+
+                Construct(
+                    loc,
+                    ptr,
+                    f->type.align(ctx),
+                    cast<ConstructExpr>(c)
+                );
+            }
+        } break;
     }
 }
 
@@ -780,7 +795,7 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
             if (auto it = record_types.find(r); it != record_types.end()) return it->second;
 
             /// Handle recursion.
-            if (auto s = dyn_cast<StructType>(r); not s->name.empty())
+            if (auto s = dyn_cast<StructType>(r); s and not s->name.empty())
                 record_types[s] = LLVMStructType::getIdentified(mctx, s->name);
 
             /// Collect element types.
@@ -788,7 +803,7 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
             SmallVector<mlir::Type> elements{range.begin(), range.end()};
 
             /// Named struct.
-            if (auto s = dyn_cast<StructType>(r); not s->name.empty()) {
+            if (auto s = dyn_cast<StructType>(r); s and not s->name.empty()) {
                 auto ok = cast<LLVMStructType>(record_types.at(s)).setBody(elements, false);
                 if (mlir::failed(ok)) Diag::ICE(
                     ctx,
@@ -1407,7 +1422,16 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         case Expr::Kind::TupleExpr: Unreachable("Cannot emit tuple literals w/o a result object");
         case Expr::Kind::ArrayLitExpr: Unreachable("Cannot emit array literals w/o a result object");
 
-        case Expr::Kind::TupleIndexExpr: Todo();
+        case Expr::Kind::TupleIndexExpr: {
+            auto t = cast<TupleIndexExpr>(expr);
+            Assert(t->object->is_lvalue, "TODO: Emit tuple index on rvalue");
+            auto obj = Generate(t->object);
+            return Create<hlir::StructGEPOp>(
+                Loc(t->location),
+                obj,
+                t->field->index
+            );
+        }
 
         case Expr::Kind::LocalDecl:
         case Expr::Kind::ParamDecl: {

@@ -1,4 +1,33 @@
+/// R %srcc %s --hlir
 
-proc foo((i32, i32) a) = a[0] + a[1];
+/// d t %[a-zA-Z0-9_]+
+/// p lit []
+
+/// b
+/// * $tuple:t = local { i32, i32 }
+/// + $fst:t = structgep $tuple[0] -> i32&
+/// + $one:t = arith.constant 1
+/// + construct $fst trivial i32 $one
+/// + $snd:t = structgep $tuple[1] -> i32&
+/// + $two:t = arith.constant 2
+/// + construct $snd trivial i32 $two
 (i32, i32) x = (1, 2);
+
+/// + $val:t = load { i32, i32 } from $tuple
+/// + call @_S3fooPG2I32_I32_E($val) -> i32
 foo(x);
+
+/// b
+/// * hlir.func private @_S3fooPG2I32_I32_E({ i32, i32 }) -> i32
+/// + $a:t = local { i32, i32 }
+/// + store into $a, { i32, i32 } %arg0
+/// + $ret:t = scope i32 {
+/// + $fst:t = structgep $a[0] -> i32&
+/// + $a0:t = load i32 from $fst
+/// + $snd:t = structgep $a[1] -> i32&
+/// + $a1:t = load i32 from $snd
+/// + $sum:t = add i32 $a0, $a1
+/// + yield i32 $sum
+/// + }
+/// + return i32 $ret
+proc foo((i32, i32) a) = a[0] + a[1];

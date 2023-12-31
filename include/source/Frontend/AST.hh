@@ -15,6 +15,7 @@ class Expr;
 class Sema;
 class Type;
 class TypeBase;
+class RecordType;
 
 struct ArrayInfo;
 
@@ -605,19 +606,21 @@ enum struct ConstructKind {
     ArrayListInit,
 
     /// Initialise a record from a series of constructors. Note that
-    /// padding fields are left uninitialised; no constructors
-    /// will be provided for them in this list.
+    /// padding fields are left uninitialised; no constructors will
+    /// be provided for them in this list. The tuple type is added at
+    /// the end of the list.
     RecordListInit,
 };
 
 /// This expression stores all information required to construct a value.
 class ConstructExpr final
     : public Expr
-    , llvm::TrailingObjects<ConstructExpr, isz, Expr*, ProcDecl*, usz> {
+    , llvm::TrailingObjects<ConstructExpr, isz, Expr*, llvm::PointerUnion<ProcDecl*, RecordType*>, usz> {
     friend TrailingObjects;
     using K = ConstructKind;
     using NumExprs = isz;
     using NumArrayElems = usz;
+    using ProcOrRecordPtr = llvm::PointerUnion<ProcDecl*, RecordType*>;
     enum : NumArrayElems { DefaultParamNoArrayElements = ~usz(0) };
 
     template <typename T>
@@ -631,15 +634,16 @@ private:
     ConstructExpr(ConstructKind k)
         : Expr(Kind::ConstructExpr, Location{}), ctor_kind(k) {}
 
+    template <utils::is<ProcDecl*, RecordType*, std::nullptr_t> ProcOrRecordPtrType = std::nullptr_t>
     static auto Create(
         Module* mod,
         ConstructKind k,
         ArrayRef<Expr*> args,
-        ProcDecl* proc = nullptr,
+        ProcOrRecordPtrType proc = nullptr,
         usz array_elems = DefaultParamNoArrayElements
     ) -> ConstructExpr* {
         auto raw = utils::AllocateAndRegister<Expr>(
-            totalSizeToAlloc<NumExprs, Expr*, ProcDecl*, NumArrayElems>(
+            totalSizeToAlloc<NumExprs, Expr*, ProcOrRecordPtr, NumArrayElems>(
                 HasArgumentsSize(k),
                 args.size(),
                 proc != nullptr,
@@ -660,8 +664,8 @@ private:
 
         /// Do *not* move these up!
         std::uninitialized_copy(args.begin(), args.end(), e->getTrailingObjects<Expr*>());
-        if (proc) {
-            auto ptr = e->getTrailingObjects<ProcDecl*>();
+        if (proc != nullptr) {
+            auto ptr = e->getTrailingObjects<ProcOrRecordPtr>();
             ptr[0] = proc;
         }
         return e;
@@ -679,8 +683,10 @@ private:
         return HasArrayElemCount(ctor_kind);
     }
 
-    usz numTrailingObjects(OT<ProcDecl*>) const {
-        return ctor_kind == K::InitialiserCall or ctor_kind == K::ArrayInitialiserCall;
+    usz numTrailingObjects(OT<ProcOrRecordPtr>) const {
+        return ctor_kind == K::InitialiserCall or
+               ctor_kind == K::ArrayInitialiserCall or
+               ctor_kind == K::RecordListInit;
     }
 
     usz numTrailingObjects(OT<Expr*>) const {
@@ -783,7 +789,7 @@ public:
     auto args_and_init() -> MutableArrayRef<Expr*> {
         return {
             getTrailingObjects<Expr*>(),
-            numTrailingObjects(OT<Expr*>{}) + numTrailingObjects(OT<ProcDecl*>{}),
+            numTrailingObjects(OT<Expr*>{}) + numTrailingObjects(OT<ProcOrRecordPtr>{}),
         };
     }
 
@@ -795,8 +801,14 @@ public:
 
     /// Get the initialiser to call.
     auto init() -> ProcDecl* {
-        if (numTrailingObjects(OT<ProcDecl*>{}) == 0) return nullptr;
-        return getTrailingObjects<ProcDecl*>()[0];
+        if (numTrailingObjects(OT<ProcOrRecordPtr>{}) == 0) return nullptr;
+        return getTrailingObjects<ProcOrRecordPtr>()[0].get<ProcDecl*>();
+    }
+
+    /// Get the record type for RecordListInit.
+    auto record_type() -> RecordType* {
+        if (numTrailingObjects(OT<ProcOrRecordPtr>{}) == 0) return nullptr;
+        return getTrailingObjects<ProcOrRecordPtr>()[0].get<RecordType*>();
     }
 
     static auto CreateUninitialised(Module* m) { return new (m) ConstructExpr(K::Uninitialised); }
@@ -827,8 +839,9 @@ public:
 
     static auto CreateRecordListInit(
         Module* m,
-        ArrayRef<Expr*> exprs
-    ) { return Create(m, K::RecordListInit, exprs); }
+        ArrayRef<Expr*> exprs,
+        RecordType* type
+    ) { return Create(m, K::RecordListInit, exprs, type); }
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ConstructExpr; }
