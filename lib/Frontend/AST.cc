@@ -1258,7 +1258,6 @@ struct ASTPrinter {
             }
 
             case K::ArrayLitExpr: PrintBasicNode("ArrayLitExpr", e, nullptr); return;
-            case K::AssertExpr: PrintBasicNode("AssertExpr", e, nullptr); return;
             case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
             case K::Nil: PrintBasicNode("Nil", e, nullptr); return;
             case K::OverloadSetExpr: PrintBasicNode("OverloadSetExpr", e, nullptr); return;
@@ -1274,6 +1273,17 @@ struct ASTPrinter {
             case K::TupleExpr: PrintBasicNode("TupleExpr", e, static_cast<Expr*>(e->type)); return;
             case K::TupleIndexExpr: PrintBasicNode("TupleIndexExpr", e, static_cast<Expr*>(e->type)); return;
             case K::WithExpr: PrintBasicNode("WithExpr", e, static_cast<Expr*>(e->type)); return;
+
+            case K::AssertExpr: {
+                auto a = cast<AssertExpr>(e);
+                PrintBasicHeader("AssertExpr", e);
+                out += fmt::format(
+                    "{}{}\n",
+                    C(Yellow),
+                    a->is_static ? " static" : ""
+                );
+                return;
+            }
 
             case K::IfExpr: {
                 auto i = cast<IfExpr>(e);

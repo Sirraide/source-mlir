@@ -183,7 +183,7 @@ private:
 
     /// Parser functions.
     auto ParseAlias() -> Result<AliasExpr*>;
-    auto ParseAssertion() -> Result<Expr*>;
+    auto ParseAssertion() -> Result<AssertExpr*>;
     auto ParseBlock() -> Result<BlockExpr*>;
     auto ParseDecl() -> Result<Decl*>;
     auto ParseExpr(int curr_prec = FullExprPrecedence, bool full_expression = false) -> Result<Expr*>;

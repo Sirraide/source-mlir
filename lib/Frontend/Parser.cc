@@ -192,7 +192,7 @@ auto src::Parser::ParseAlias() -> Result<AliasExpr*> {
 }
 
 /// <expr-assert> ::= ASSERT <expr> [ ","  <expr> ]
-auto src::Parser::ParseAssertion() -> Result<Expr*> {
+auto src::Parser::ParseAssertion() -> Result<AssertExpr*> {
     auto start = curr_loc;
     Assert(Consume(Tk::Assert));
 
@@ -200,7 +200,7 @@ auto src::Parser::ParseAssertion() -> Result<Expr*> {
     auto cond = ParseExpr();
     auto mess = Consume(Tk::Comma) ? ParseExpr() : Result<Expr*>::Null();
     if (IsError(cond, mess)) return Diag();
-    return new (mod) AssertExpr(*cond, *mess, {start, *mess ? mess->location : cond->location});
+    return new (mod) AssertExpr(*cond, *mess, false, {start, *mess ? mess->location : cond->location});
 }
 
 /// <expr-block> ::= "{" <stmts> "}"
@@ -355,6 +355,15 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
                 case Tk::If:
                     lhs = ParseIf(start, true);
                     break;
+
+                case Tk::Assert: {
+                    lhs = ParseAssertion();
+                    if (lhs) {
+                        lhs->location = {start, lhs->location};
+                        cast<AssertExpr>(*lhs)->is_static = true;
+                    }
+                    break;
+                }
             }
         } break;
 

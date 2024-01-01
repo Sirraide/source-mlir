@@ -301,6 +301,7 @@ private:
         APInt,
         Type,
         OverloadSetExpr*,
+        String,
         TupleElements,
         std::nullptr_t
     > value{}; // clang-format on
@@ -312,15 +313,19 @@ public:
     EvalResult(std::nullptr_t); /// Nil.
     EvalResult(APInt value, Type type) : value(std::move(value)), type(type) {}
     EvalResult(OverloadSetExpr* os) : value(os), type(Type::OverloadSet) {}
+    EvalResult(String s) : value(s), type(Type::OverloadSet) {}
     EvalResult(Type type) : value(type), type(type) {} /// FIXME: should be the `type` type.
     EvalResult(TupleElements elems, TupleType* type);
 
     auto as_int() -> APInt& { return std::get<APInt>(value); }
+    auto as_str() -> String& { return std::get<String>(value); }
     auto as_tuple_elems() -> TupleElements& { return std::get<TupleElements>(value); }
     auto as_type() -> Type { return std::get<Type>(value); }
     auto as_overload_set() -> OverloadSetExpr* { return std::get<OverloadSetExpr*>(value); }
 
     bool is_int() const { return std::holds_alternative<APInt>(value); }
+    bool is_nil() const { return std::holds_alternative<std::nullptr_t>(value); }
+    bool is_str() const { return std::holds_alternative<String>(value); }
     bool is_type() const { return std::holds_alternative<Type>(value); }
 };
 
@@ -336,10 +341,14 @@ public:
     Expr* cond_str{};
     Expr* file_str{};
 
-    AssertExpr(Expr* cond, Expr* msg, Location loc)
+    /// Whether this is a static assertion.
+    bool is_static;
+
+    AssertExpr(Expr* cond, Expr* msg, bool is_static, Location loc)
         : Expr(Kind::AssertExpr, loc),
           cond(cond),
-          msg(msg) {}
+          msg(msg),
+          is_static(is_static) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::AssertExpr; }

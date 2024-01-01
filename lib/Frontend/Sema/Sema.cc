@@ -1904,6 +1904,40 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::AssertExpr: {
             Assert(e->location.seekable(mod->context), "Assertion requires location information");
             auto a = cast<AssertExpr>(e);
+
+            /// Handle static assertions.
+            if (a->is_static) {
+                if (not Analyse(a->cond) or (a->msg and not Analyse(a->msg)))
+                    return e->sema.set_errored();
+
+                /// Condition and message must be constant expressions.
+                EvalResult msg;
+                if (not EvaluateAsBoolInPlace(a->cond, true)) return e->sema.set_errored();
+                if (a->msg) {
+                    if (not Evaluate(a->msg, msg, true)) return e->sema.set_errored();
+                    if (not msg.is_str()) return Error(
+                        a->msg->location,
+                        "Static assert message must be a string"
+                    );
+                }
+
+                /// If the condition is false, emit an error.
+                if (not cast<ConstExpr>(a->cond)->value.as_int().getBoolValue()) {
+                    e->sema.set_errored();
+                    return Error(
+                        a->cond->location,
+                        "Static assertion failed{}{}",
+                        a->msg ? ": " : "",
+                        a->msg ? msg.as_str() : ""
+                    );
+                }
+
+                /// No need to do anything else here since this is never
+                /// going to be emitted anyway.
+                break;
+            }
+
+            /// Condition must be a bool.
             if (Analyse(a->cond) and EnsureCondition(a->cond)) {
                 /// If this asserts that an optional is not nil, mark it as active.
                 if (auto o = Optionals.MatchNilTest(a->cond)) Optionals.Activate(o);
@@ -1918,6 +1952,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 i8slice,
                 a->msg->type
             );
+
 
             /// Create string literals for the condition and file name.
             a->cond_str = new (mod) StrLitExpr(

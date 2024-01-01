@@ -1,0 +1,12 @@
+/// R       %srcc %s --sema
+/// R[///H] %srcc %s --hlir
+
+/// Check that there are no errors.
+///  !  Error
+
+/// Check that no calls (other than runtime initialisation) are emitted.
+///H  * call @__src_static_init
+///H !* call
+static assert true; /// No message.
+static assert true, "True should be true";
+static assert 2 + 2 == 4, "Arithmetic is working";

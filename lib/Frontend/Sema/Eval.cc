@@ -45,7 +45,6 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::ProcDecl:
         case Expr::Kind::ReturnExpr:
         case Expr::Kind::ScopeAccessExpr:
-        case Expr::Kind::StrLitExpr:
         case Expr::Kind::SubscriptExpr:
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::WhileExpr:
@@ -56,6 +55,10 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
 
         case Expr::Kind::Nil:
             out = nullptr;
+            return true;
+
+        case Expr::Kind::StrLitExpr:
+            out = mod->save(mod->strtab[cast<StrLitExpr>(e)->index]);
             return true;
 
         case Expr::Kind::ParenExpr:

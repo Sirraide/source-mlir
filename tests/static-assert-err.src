@@ -1,0 +1,24 @@
+/// R %srcc %s --sema |& cat
+
+int x;
+
+/// * static-assert-err.src:6:15: Error: Static assertion failed
+static assert false;
+
+/// * static-assert-err.src:9:15: Error: Static assertion failed: True should be true
+static assert false, "True should be true";
+
+/// * static-assert-err.src:12:15: Error: Static assertion failed: Arithmetic is working
+static assert 2 + 2 == 5, "Arithmetic is working";
+
+/// * static-assert-err.src:15:15: Error: Constant condition must be of type bool, but was int
+static assert 4;
+
+/// * static-assert-err.src:18:21: Error: Static assert message must be a string
+static assert true, 42;
+
+/// * static-assert-err.src:21:15: Error: Not a constant expression
+static assert x;
+
+/// * static-assert-err.src:24:21: Error: Not a constant expression
+static assert true, x;

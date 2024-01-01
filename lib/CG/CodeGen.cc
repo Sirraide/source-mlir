@@ -1274,9 +1274,12 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         /// There is no AssertOp in HLIR since assertions require control flow.
         case Expr::Kind::AssertExpr: {
             auto a = cast<AssertExpr>(expr);
-            auto cond = Generate(a->cond);
+
+            /// Ignore static assertions.
+            if (a->is_static) return {};
 
             /// Only emit assertion message if the assertion fails.
+            auto cond = Generate(a->cond);
             auto r = builder.getBlock()->getParent();
             auto loc = Loc(a->location);
             auto fail = new mlir::Block;

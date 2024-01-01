@@ -62,11 +62,13 @@
          | <expr-tuple>
          | <expr-while>
          | <expr-with>
+         | <static-assert>
          | <type-struct>
 
 <expr-access>    ::= [ <expr> ] "." [ IDENTIFIER | INIT ]
 <expr-alias>     ::= ALIAS IDENTIFIER "=" <expr>
 <expr-assert>    ::= ASSERT <expr> [ ","  <expr> ]
+<static-assert>  ::= STATIC <expr-assert>
 <expr-binary>    ::= <expr> <binary-op> <expr>
 <expr-block>     ::= "{" <stmts> "}"
 <expr-cast>      ::= <expr> ( "as" | "as!" ) <type>
