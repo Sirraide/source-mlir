@@ -1956,12 +1956,12 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Create string literals for the condition and file name.
             a->cond_str = new (mod) StrLitExpr(
-                mod->strtab.intern(a->cond->location.text(mod->context)),
+                mod->save(a->cond->location.text(mod->context)),
                 a->location
             );
 
             a->file_str = new (mod) StrLitExpr(
-                mod->strtab.intern(mod->context->file(a->location.file_id)->path().string()),
+                mod->save(mod->context->file(a->location.file_id)->path().string()),
                 a->location
             );
 

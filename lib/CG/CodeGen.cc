@@ -37,6 +37,9 @@ struct CodeGen {
     /// Cached types.
     DenseMap<RecordType*, mlir::Type> record_types;
 
+    /// Emitted string literals.
+    StringMap<hlir::StringOp> string_literals;
+
     /// Procedure we’re currently emitting.
     ProcDecl* curr_proc{};
 
@@ -1400,14 +1403,27 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         case Expr::Kind::StrLitExpr: {
             auto str = cast<StrLitExpr>(expr);
 
+            /// Create the string if it doesn’t already exist.
+            hlir::StringOp op;
+            if (auto it = string_literals.find(str->string); it != string_literals.end()) {
+                op = string_literals.at(str->string.value());
+            } else {
+                mlir::OpBuilder::InsertionGuard _{builder};
+                builder.setInsertionPointToStart(mod->mlir.getBody());
+                op = string_literals[str->string.value()] = Create<hlir::StringOp>(
+                    builder.getUnknownLoc(),
+                    str->string.value_with_null(),
+                    APInt(64, u64(string_literals.size()))
+                );
+            }
+
             /// Create a global ref to the string data. This returns
             /// a reference to an array of chars.
-            auto str_value = mod->strtab[str->index];
             auto i8 = mlir::IntegerType::get(mctx, 8);
             auto str_arr = Create<hlir::GlobalRefOp>(
                 Loc(str->location),
-                hlir::ReferenceType::get(hlir::ArrayType::get(i8, str_value.size())),
-                mlir::SymbolRefAttr::get(mctx, fmt::format(".str.data.{}", str->index))
+                hlir::ReferenceType::get(hlir::ArrayType::get(i8, str->string.value_with_null().size())),
+                mlir::SymbolRefAttr::get(mctx, fmt::format(".str.data.{}", op.getIndex().getZExtValue()))
             );
 
             /// Insert a conversion from i8[size]& to i8&.
@@ -1419,7 +1435,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             /// Create an integer holding the string size.
             auto str_size = CreateInt(
                 Loc(str->location),
-                mod->strtab[str->index].size() - 1 /// Exclude null terminator.
+                str->string.size() /// Exclude null terminator.
             );
 
             /// Create a slice.
@@ -2037,16 +2053,6 @@ void src::CodeGen::GenerateModule() {
             mlir::DLTIDialect::kDataLayoutAttrName,
             mlir::DataLayoutSpecAttr::get(mctx, {ptr_size})
         );*/
-
-    /// Codegen string literals.
-    builder.setInsertionPointToEnd(mod->mlir.getBody());
-    for (auto [i, s] : llvm::enumerate(mod->strtab)) {
-        Create<hlir::StringOp>(
-            builder.getUnknownLoc(),
-            StringRef(s.data(), s.size()),
-            APInt(64, u64(i))
-        );
-    }
 
     /// Codegen imports.
     builder.setInsertionPointToEnd(mod->mlir.getBody());

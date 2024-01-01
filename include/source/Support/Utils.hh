@@ -516,6 +516,7 @@ constexpr auto operator+(T val) -> std::underlying_type_t<T> {
 }
 
 class Context;
+class File;
 class TokenStream;
 
 /// Used to represent the size of a type.
@@ -559,7 +560,7 @@ public:
     [[nodiscard]] friend constexpr auto operator<=>(Size lhs, Size rhs) = default;
 };
 
-/// A string that is saved somewhere.
+/// A zero-terminated string that is saved somewhere.
 ///
 /// This is used for strings that are guaranteed to ‘live long
 /// enough’ to be passed around without having to worry about who
@@ -576,7 +577,9 @@ public:
 
     /// Construct from a string literal.
     template <usz size>
-    consteval String(const char (&arr)[size]) : val{arr} {}
+    consteval String(const char (&arr)[size]) : val{arr} {
+        Assert(arr[size - 1] == '\0', "Strings must be null-terminated!");
+    }
 
     /// Construct from a string literal.
     consteval String(llvm::StringLiteral lit) : val{lit} {}
@@ -611,6 +614,11 @@ public:
 
     /// Get the string value.
     [[nodiscard]] constexpr auto value() const -> StringRef { return val; }
+
+    /// Get the string value, including the null terminator.
+    [[nodiscard]] constexpr auto value_with_null() const -> StringRef {
+        return StringRef{val.data(), val.size() + 1};
+    }
 
     /// Get a character at a given index.
     [[nodiscard]] constexpr auto operator[](usz idx) const -> char { return val[idx]; }

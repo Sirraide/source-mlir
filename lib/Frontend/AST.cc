@@ -1041,16 +1041,12 @@ struct ASTPrinter {
             case K::StrLitExpr: {
                 auto i = cast<StrLitExpr>(e);
                 PrintBasicHeader("StringLiteral", e);
-                if (mod) {
-                    out += fmt::format(
-                        " {}\"{}\" {}\n",
-                        C(Yellow),
-                        utils::Escape(mod->strtab[i->index].drop_back(1)),
-                        i->type.str(use_colour)
-                    );
-                } else {
-                    out += fmt::format(" {}\n", i->type.str(use_colour));
-                }
+                out += fmt::format(
+                    " {}\"{}\" {}\n",
+                    C(Yellow),
+                    utils::Escape(i->string),
+                    i->type.str(use_colour)
+                );
                 return;
             }
 

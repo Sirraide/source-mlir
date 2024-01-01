@@ -58,7 +58,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
             return true;
 
         case Expr::Kind::StrLitExpr:
-            out = mod->save(mod->strtab[cast<StrLitExpr>(e)->index]);
+            out = cast<StrLitExpr>(e)->string;
             return true;
 
         case Expr::Kind::ParenExpr:

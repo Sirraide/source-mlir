@@ -359,8 +359,6 @@ void src::Module::assimilate(Module* other) {
     for (auto& [k, v] : other->exports) utils::append(exports[k], v);
     utils::append(named_structs, other->named_structs);
     utils::append(exprs, other->exprs);
-    utils::append(static_assertions, other->static_assertions);
-    strtab.assimilate(std::move(other->strtab));
     a.finalise();
 
     /// Move over identifier table and allocator.

@@ -1336,12 +1336,12 @@ public:
 
 class StrLitExpr : public TypedExpr {
 public:
-    /// The index of this literal in the string table.
-    u32 index;
+    /// The string data.
+    String string;
 
-    StrLitExpr(u32 index, Location loc)
+    StrLitExpr(String string, Location loc)
         : TypedExpr(Kind::StrLitExpr, Type::Unknown, loc),
-          index(index) {}
+          string(string) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::StrLitExpr; }

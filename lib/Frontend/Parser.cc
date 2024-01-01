@@ -325,7 +325,7 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
             break;
 
         case Tk::StringLiteral:
-            lhs = new (mod) StrLitExpr(mod->strtab.intern(tok.text), tok.location);
+            lhs = new (mod) StrLitExpr(tok.text, tok.location);
             Next();
             break;
 

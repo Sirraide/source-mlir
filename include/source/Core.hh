@@ -5,7 +5,6 @@
 #include <llvm/IR/Module.h>
 #include <mlir/IR/MLIRContext.h>
 #include <source/Frontend/Token.hh>
-#include <source/Support/StringTable.hh>
 #include <source/Support/Utils.hh>
 
 namespace llvm {
@@ -286,17 +285,11 @@ public:
     /// Top-level module function.
     ProcDecl* top_level_func{};
 
-    /// Module string table for string literals.
-    StringTable strtab;
-
     /// AST nodes in this module.
     SmallVector<Expr*> exprs;
 
     /// Functions that are part of this module.
     SmallVector<ProcDecl*> functions;
-
-    /// Static assertions that are not part of a template go here.
-    SmallVector<Expr*, 32> static_assertions;
 
     /// Module name.
     String name;

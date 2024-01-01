@@ -926,7 +926,6 @@ struct ArithOpLowering : public ConversionPattern {
         auto rhs = CreateInMemoryCast(r, *tc, vector_type, arguments[1]);
         auto res = r.create<ArithOp>(op->getLoc(), lhs, rhs);
         auto conv = CreateInMemoryCast(r, *tc, arr, res);
-        auto block = op->getBlock();
         r.replaceOp(op, conv);
         return success();
     }
