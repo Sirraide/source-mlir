@@ -1,0 +1,17 @@
+/// R %srcc %s --hlir
+
+/// * call @_S4add1PI32_I32_E
+/// * call @add2
+/// * call ccc @add3
+add1 1, 2;
+add2 3, 4;
+add3 5, 6;
+
+/// * hlir.func private @_S4add1PI32_I32_E
+proc add1 (i32 a, i32 b)          = a + b;
+
+/// * hlir.func private @add2
+proc add2 (i32 a, i32 b) nomangle = a + b;
+
+/// * hlir.func private ccc @add3
+proc add3 (i32 a, i32 b) native   = a + b;

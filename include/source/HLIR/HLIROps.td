@@ -639,6 +639,7 @@ def InvokeClosureOp : HLIR_Op<"invokeclosure"> {
     let results = (outs HLIR_Type);
     let arguments = (ins
         HLIR_ClosureType:$closure,
+        CConv:$cc,
         Variadic<HLIR_Type>:$args
     );
 }

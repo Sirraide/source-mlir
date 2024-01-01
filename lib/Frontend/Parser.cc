@@ -1113,7 +1113,7 @@ auto src::Parser::ParseProc() -> Result<ProcDecl*> {
 ///
 /// <proc-signature> ::= [ <proc-args> ] [ <proc-ret> ] { <proc-attrs> }
 /// <proc-ret>       ::= "->" <type>
-/// <proc-attrs>     ::= EXTERN | NOMANGLE
+/// <proc-attrs>     ::= EXTERN | NOMANGLE | VARIADIC | NATIVE
 auto src::Parser::ParseSignature() -> Signature {
     Signature sig;
     sig.loc = curr_loc;
@@ -1155,12 +1155,25 @@ auto src::Parser::ParseSignature() -> Signature {
 
     /// Parse attributes.
     bool variadic = false;
+    bool native = false;
     while (At(Tk::Identifier) and ( // clang-format off
         ParseAttr("extern", sig.is_extern) or
         ParseAttr("nomangle", sig.is_nomangle) or
+        ParseAttr("native", native) or
         ParseAttr("variadic", variadic) or
         ParseAttr("__srcc_external__", sig.attr___srcc_external__)
     )); // clang-format on
+
+    /// Native implies nomangle.
+    if (native) {
+        if (sig.is_nomangle) Diag::Warning(
+            ctx,
+            sig.loc,
+            "'nomangle' is unnecessary here as 'native' implies 'nomangle'."
+        );
+
+        sig.is_nomangle = true;
+    }
 
     /// Finally, parse the return type.
     Type ret_type = init or del ? Type::Void : Type::Unknown;
@@ -1174,6 +1187,7 @@ auto src::Parser::ParseSignature() -> Signature {
     sig.type = new (mod) ProcType(
         std::move(parameters),
         ret_type,
+        native ? CallConv::Native : CallConv::Source,
         variadic,
         sig.loc
     );

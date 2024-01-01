@@ -31,6 +31,11 @@ enum struct Linkage : u8 {
     LinkOnceODR, ///< Merge definitions across different TUs. Used mainly for compiler-generated code.
 };
 
+enum struct CallConv : u8 {
+    Native, ///< OS calling convention. Compatible with C.
+    Source, ///< Our calling convention.
+};
+
 enum struct Mangling : u8 {
     None,   ///< Do not mangle.
     Source, ///< Use Source mangling.
@@ -2178,13 +2183,17 @@ public:
     /// Get what kind of smf this is.
     SpecialMemberKind smp_kind{};
 
+    /// The calling convention of the procedure.
+    CallConv call_conv{};
+
     /// Whether this type is variadic.
     bool variadic{};
 
-    ProcType(std::deque<ParamInfo> parameters, Type ret_type, bool variadic, Location loc)
+    ProcType(std::deque<ParamInfo> parameters, Type ret_type, CallConv cc, bool variadic, Location loc)
         : TypeBase(Kind::ProcType, loc),
           parameters(std::move(parameters)),
           ret_type(ret_type),
+          call_conv(cc),
           variadic(variadic) {}
 
     /// RTTI.

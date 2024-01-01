@@ -112,8 +112,9 @@ auto Type::_mangled_name() -> std::string {
         case Expr::Kind::ProcType: {
             auto p = cast<ProcType>(ptr);
 
-            /// We don’t include the return type since you can’t
-            /// overload on that anyway.
+            /// We don’t include the return type since you can’t overload on
+            /// that anyway. Similarly, native functions are not mangled at
+            /// all, so no need to care about the calling convention here.
             std::string name{"P"};
             if (p->variadic) name += "q";
             for (auto& a : p->parameters) {
@@ -214,6 +215,10 @@ struct CompressedHeaderV0 {
 /// These are part of the format and must *not* be changed. Adding
 /// a new enum member here requires incrementing the format version
 /// number.
+///
+/// The reason why these are separate is so we can change the enum
+/// values or internal representation of these in the compiler without
+/// breaking the binary format.
 enum struct SerialisedDeclTag : u8 {
     StructType,
     Procedure,
@@ -238,6 +243,11 @@ enum struct SerialisedClass : u8 {
     LValueRef,
     ByVal,
     CopyAsRef,
+};
+
+enum struct SerialisedCallConv : u8 {
+    Native,
+    Source,
 };
 
 enum struct SerialisedTypeTag : u8 {
@@ -269,6 +279,7 @@ enum struct SerialisedTypeTag : u8 {
 template <typename T>
 concept serialisable_enum = is_same<
     T,
+    SerialisedCallConv,
     SerialisedClass,
     SerialisedDeclTag,
     SerialisedIntent,
@@ -462,7 +473,7 @@ struct Serialiser {
                 for (auto& a : p->parameters) params.push_back(SerialiseType(cast<TypeBase>(a.type)));
 
                 *this << SerialisedTypeTag::Procedure;
-                *this << ret << params.size() << p->variadic;
+                *this << ret << params.size() << ConvertCC(p->call_conv) << p->variadic;
                 for (auto [td, a] : llvm::zip_equal(params, p->parameters))
                     *this << td << ConvertIntent(a.intent) << ConvertClass(a.cls);
                 return type_map[t] = TD{hdr.type_count++};
@@ -523,6 +534,16 @@ struct Serialiser {
             *this << p->name;
             *this << type_map[cast<TypeBase>(p->type)];
             return;
+        }
+
+        Unreachable();
+    }
+
+    /// Convert calling convention to serialised calling convention.
+    auto ConvertCC(CallConv cc) -> SerialisedCallConv {
+        switch (cc) {
+            case CallConv::Native: return SerialisedCallConv::Native;
+            case CallConv::Source: return SerialisedCallConv::Source;
         }
 
         Unreachable();
@@ -797,6 +818,7 @@ struct Deserialiser {
             case SerialisedTypeTag::Procedure: {
                 Type ret = Map(rd<TD>());
                 u64 params = rd<u64>();
+                auto cc = ConvertCC(rd<SerialisedCallConv>());
                 bool variadic = rd<bool>();
 
                 std::deque<ParamInfo> parameters{};
@@ -807,7 +829,7 @@ struct Deserialiser {
                     parameters.emplace_back(type, intent).cls = param_class;
                 }
 
-                return new (&*mod) ProcType(std::move(parameters), ret, variadic, {});
+                return new (&*mod) ProcType(std::move(parameters), ret, cc, variadic, {});
             }
 
             case SerialisedTypeTag::Struct: {
@@ -903,6 +925,16 @@ struct Deserialiser {
         }
 
         Unreachable("Invalid SerialisedDeclTag: {}", +tag);
+    }
+
+    /// Convert serialised calling convention to calling convention.
+    auto ConvertCC(SerialisedCallConv cc) -> CallConv {
+        switch (cc) {
+            case SerialisedCallConv::Native: return CallConv::Native;
+            case SerialisedCallConv::Source: return CallConv::Source;
+        }
+
+        Unreachable();
     }
 
     /// Convert serialised mangling scheme to mangling scheme.

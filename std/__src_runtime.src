@@ -31,7 +31,7 @@ export proc main(
     __srcc_ffi_int argc,
     __srcc_ffi_char&& argv,
     __srcc_ffi_char&& envp
-) nomangle -> __srcc_ffi_int {
+) native -> __srcc_ffi_int {
     __src_main();
     return 0;
 }

@@ -326,7 +326,7 @@ void src::Module::init(StringRef _name, bool _is_cxx_header, Location _module_de
         this,
         nullptr,
         save(is_logical_module ? module_initialiser_name() : "__src_main"sv),
-        new (this) ProcType({}, BuiltinType::Void(this), false, {}),
+        new (this) ProcType({}, BuiltinType::Void(this), CallConv::Source, false, {}),
         {},
         Linkage::Exported,
         Mangling::None,

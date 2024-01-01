@@ -8,8 +8,8 @@
 /// + $len:t = arith.constant 13
 /// + $slc:t = literal i8\[\] $ptr, $len
 /// + $dat:t = slice_data i8\[\] $slc
-/// + $t = call @puts($dat)
+/// + $t = call ccc @puts($dat)
 puts "Hello, world!".data;
 
-/// * hlir.func external @puts
-proc puts (i8&) extern nomangle -> i32;
+/// * hlir.func external ccc @puts
+proc puts (i8&) extern native -> i32;

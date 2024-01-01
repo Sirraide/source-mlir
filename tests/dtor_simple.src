@@ -58,7 +58,7 @@ foo y = x.x;
 /// +   (?<v4>$t) = slice_data i8[] $v3
 /// +   (?<v5>$t) = structgep %arg0[0] -> i32&
 /// +   (?<v6>$t) = load i32 from $v5
-/// +   (?<v7>$t) = call @printf($v4, $v6) -> i32
+/// +   (?<v7>$t) = call ccc @printf($v4, $v6) -> i32
 /// +   yield i32 $v7
 /// + }
 /// + return

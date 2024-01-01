@@ -10,9 +10,9 @@ pragma nomangle;
 proc j extern -> int;
 proc consume(int) extern;
 
-int i = j();    /// * (?<TMP>$t) = tail call (?<INT>i[0-9]+) @j()
+int i = j();    /// * (?<TMP>$t) = tail call fastcc (?<INT>i[0-9]+) @j()
 
-consume i ** 0; /// * call void @consume($INT 1)
-consume i ** 1; /// * call void @consume($INT $TMP)
+consume i ** 0; /// * call fastcc void @consume($INT 1)
+consume i ** 1; /// * call fastcc void @consume($INT $TMP)
 consume i ** 2; /// * (?<PROD>$t) = mul $INT $TMP, $TMP
-                /// * call void @consume($INT $PROD)
+                /// * call fastcc void @consume($INT $PROD)

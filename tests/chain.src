@@ -8,8 +8,8 @@
 /// d t %[a-zA-Z0-9_]+
 /// p lit []
 
-proc exit (i32) extern nomangle -> noreturn;
-///O * define void @__src_main()
+proc exit (i32) extern native -> noreturn;
+///O * define fastcc void @__src_main()
 ///O * tail call void @exit(i32 42)
 
 /// * hlir.func private @_S2p1PE

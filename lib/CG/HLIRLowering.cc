@@ -772,6 +772,7 @@ struct InvokeClosureOpLowering : public ConversionPattern {
             invoke_args
         );
 
+        invoke.setCConv(invoke_closure.getCc());
         rewriter.replaceOp(op, invoke.getResult());
         return success();
     }
@@ -854,6 +855,7 @@ struct CallOpLowering : public ConversionPattern {
             adaptor.getArgs()
         );
 
+        llvm_call.setCConv(call.getCc().getCallingConv());
         if (call.getYield()) r.replaceOp(op, llvm_call.getResult());
         else r.eraseOp(op);
         return success();

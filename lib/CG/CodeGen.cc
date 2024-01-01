@@ -76,6 +76,9 @@ struct CodeGen {
         /// Get the (mangled) name of the constructor of a type.
         auto ScopedPointerCtor(Expr* type) -> std::optional<StringRef>;*/
 
+    /// Convert CC to LLVM CC.
+    auto ConvertCC(CallConv cc) -> mlir::LLVM::CConv;
+
     template <typename T, typename... Args>
     auto Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...));
 
@@ -87,13 +90,14 @@ struct CodeGen {
     auto CreateProcedure(
         mlir::FunctionType type,
         StringRef name,
+        CallConv cc,
         Linkage linkage,
         bool smf,
         Callable callable
     );
 
     /// Create an external function.
-    void CreateExternalProcedure(mlir::FunctionType type, StringRef name);
+    void CreateExternalProcedure(mlir::FunctionType type, StringRef name, CallConv cc);
 
     /// Create a slice from an array lvalue.
     auto CreateSliceFromArray(
@@ -230,6 +234,7 @@ template <typename Callable>
 auto src::CodeGen::CreateProcedure(
     mlir::FunctionType type,
     StringRef name,
+    CallConv cc,
     Linkage linkage,
     bool smf,
     Callable callable
@@ -240,7 +245,7 @@ auto src::CodeGen::CreateProcedure(
         builder.getUnknownLoc(),
         name,
         ConvertLinkage(linkage),
-        mlir::LLVM::CConv::C,
+        ConvertCC(cc),
         type,
         smf,
         false
@@ -250,9 +255,9 @@ auto src::CodeGen::CreateProcedure(
     return std::invoke(std::forward<Callable>(callable), func);
 }
 
-void src::CodeGen::CreateExternalProcedure(mlir::FunctionType type, StringRef name) {
+void src::CodeGen::CreateExternalProcedure(mlir::FunctionType type, StringRef name, CallConv cc) {
     if (declared_procedures.contains(name)) return;
-    CreateProcedure(type, name, Linkage::Imported, false, [&](hlir::FuncOp proc) {
+    CreateProcedure(type, name, cc, Linkage::Imported, false, [&](hlir::FuncOp proc) {
         proc.eraseBody();
         proc.setPrivate();
         declared_procedures[proc.getName()] = proc;
@@ -437,6 +442,15 @@ void src::CodeGen::Construct(
     Unreachable();
 }*/
 
+auto src::CodeGen::ConvertCC(CallConv cc) -> mlir::LLVM::CConv {
+    switch (cc) {
+        case CallConv::Native: return mlir::LLVM::CConv::C;
+        case CallConv::Source: return mlir::LLVM::CConv::Fast;
+    }
+
+    Unreachable();
+}
+
 template <typename T, typename... Args>
 auto src::CodeGen::Create(mlir::Location loc, Args&&... args) -> decltype(builder.create<T>(loc, std::forward<Args>(args)...)) {
     if (auto b = builder.getBlock(); not b->empty() and b->back().hasTrait<mlir::OpTrait::IsTerminator>()) {
@@ -508,7 +522,7 @@ auto src::CodeGen::Destructor(Type type) -> std::optional<StringRef> {
         /// A destructor always takes a reference to the type being destroyed.
         auto fty = mlir::FunctionType::get(mctx, hlir::ReferenceType::get(Ty(sc)), {});
         auto name = fmt::format("_SY{}", Type(sc).mangled_name);
-        auto proc = CreateProcedure(fty, name, Linkage::LinkOnceODR, true, [&](hlir::FuncOp f) {
+        auto EmitBody = [&](hlir::FuncOp f) {
             /// Load the pointer.
             auto ptr = Create<hlir::LoadOp>(builder.getUnknownLoc(), f.getImplicitThis());
 
@@ -521,7 +535,16 @@ auto src::CodeGen::Destructor(Type type) -> std::optional<StringRef> {
             /// Done.
             Create<hlir::ReturnOp>(builder.getUnknownLoc());
             return f;
-        });
+        };
+
+        auto proc = CreateProcedure(
+            fty,
+            name,
+            CallConv::Source,
+            Linkage::LinkOnceODR,
+            true,
+            EmitBody
+        );
 
         /// Save it for later.
         return destructors[sc] = proc.getName();
@@ -883,13 +906,13 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             SmallVector<mlir::Value> args;
 
             /// Helper to create a call to a procedure.
-            auto CreateCall = [&](mlir::Type type, StringRef proc_name) {
+            auto CreateCall = [&](mlir::Type type, mlir::LLVM::CConv cc, StringRef proc_name) {
                 auto call_op = Create<hlir::CallOp>(
                     Loc(e->location),
                     cast<mlir::FunctionType>(type).getResults(),
                     proc_name,
                     false,
-                    mlir::LLVM::CConv::C,
+                    cc,
                     args
                 );
 
@@ -918,16 +941,17 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             /// Handle member function calls.
             if (e->callee->type == Type::MemberProc) {
                 auto proc = dyn_cast<mlir::func::ConstantOp>(callee.getDefiningOp());
-                return CreateCall(Ty(m->field->type), proc.getValue());
+                auto type = cast<ProcType>(m->field->type.desugared);
+                return CreateCall(Ty(type), ConvertCC(type->call_conv), proc.getValue());
             }
 
             /// If the callee is a procedure decl, call it directly.
             if (auto proc = dyn_cast<mlir::func::ConstantOp>(callee.getDefiningOp())) {
                 /// If the callee takes a static chain pointer, retrieve
                 /// it and add it to the argument list.
-                if (auto chain = cast<ProcType>(e->callee->type)->static_chain_parent)
-                    args.push_back(GetStaticChainPointer(chain));
-                return CreateCall(proc.getType(), proc.getValue());
+                auto type = cast<ProcType>(e->callee->type.desugared);
+                if (auto chain = type->static_chain_parent) args.push_back(GetStaticChainPointer(chain));
+                return CreateCall(proc.getType(), ConvertCC(type->call_conv), proc.getValue());
             }
 
             /// If the callee is a closure, then use a special operation for that.
@@ -936,6 +960,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
                     Loc(e->location),
                     e->type.yields_value ? mlir::TypeRange{Ty(e->type)} : mlir::TypeRange{},
                     callee,
+                    ConvertCC(c->proc_type->call_conv),
                     args
                 );
 
@@ -1303,7 +1328,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
                 mlir::TypeRange{},
                 "__src_assert_fail",
                 false,
-                mlir::LLVM::CConv::C,
+                ConvertCC(CallConv::Source),
                 args
             );
 
@@ -2073,7 +2098,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
         Loc(proc->location),
         proc->mangled_name,
         ConvertLinkage(proc->linkage),
-        mlir::LLVM::CConv::C,
+        ConvertCC(ptype->call_conv),
         ty.cast<mlir::FunctionType>(),
         proc->is_smp,
         ptype->variadic
@@ -2162,7 +2187,7 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
                 mlir::TypeRange{},
                 i.mod->module_initialiser_name(),
                 false,
-                mlir::LLVM::CConv::C
+                ConvertCC(CallConv::Source)
             );
         }
     }

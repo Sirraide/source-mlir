@@ -100,6 +100,7 @@ struct ImportContext {
         auto type = new (out) ProcType(
             std::move(param_types),
             *ret,
+            CallConv::Native,
             f->isVariadic(),
             {}
         );

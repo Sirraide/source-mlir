@@ -97,7 +97,7 @@ auto hlir::BitCastOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
 
 void hlir::CallOp::print(OpAsmPrinter& p) {
     if (getInlineCall()) p << " inline";
-    if (auto cc = getCc().getCallingConv(); cc != LLVM::CConv::C)
+    if (auto cc = getCc().getCallingConv(); cc != LLVM::CConv::Fast)
         p << " " << LLVM::cconv::stringifyCConv(cc);
     p << " @" << getCallee();
 
@@ -245,7 +245,7 @@ auto hlir::FuncOp::parse(
 
 void hlir::FuncOp::print(OpAsmPrinter& p) {
     p << " " << getLinkage().getLinkage() << " ";
-    if (getCc() != LLVM::CConv::C) p << getCc() << " ";
+    if (getCc() != LLVM::CConv::Fast) p << getCc() << " ";
 
     p.printSymbolName(getName());
 

@@ -552,6 +552,7 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
                 out += ")";
             }
 
+            if (p->call_conv == CallConv::Native) out += " native";
             if (p->variadic) out += " variadic";
 
             /// Avoid relying on operator==() for this.
@@ -782,6 +783,7 @@ bool src::operator==(Type a, Type b) {
             auto pb = cast<ProcType>(b);
 
             if (pa->parameters.size() != pb->parameters.size()) return false;
+            if (pa->call_conv != pb->call_conv) return false;
             if (pa->variadic != pb->variadic) return false;
             for (auto [p1, p2] : llvm::zip_equal(pa->parameters, pb->parameters))
                 if (p1 != p2)

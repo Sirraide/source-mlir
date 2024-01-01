@@ -3,8 +3,8 @@
 proc should_not_be_called extern nomangle -> bool;
 proc consume (bool) extern nomangle;
 
-/// !* call void @should_not_be_called
-///  * call void @consume(i1 true)
-///  + call void @consume(i1 false)
+/// !* call fastcc void @should_not_be_called
+///  * call fastcc void @consume(i1 true)
+///  + call fastcc void @consume(i1 false)
 consume true  or  should_not_be_called();
 consume false and should_not_be_called();
