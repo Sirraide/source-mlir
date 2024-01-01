@@ -367,6 +367,9 @@ private:
     /// Evaluate an integral constant expression and replace it with the result.
     bool EvaluateAsIntegerInPlace(Expr*& e, bool must_succeed = true);
 
+    /// Evaluate a boolean constant expression and replace it with the result.
+    bool EvaluateAsBoolInPlace(Expr*& e, bool must_succeed = true);
+
     /// Evaluate a constant expression as an overload set. This must always
     /// yield an overload set, so if this fails, it’s an ICE. Only call this
     /// if the type of the expression is actually OverloadSet.

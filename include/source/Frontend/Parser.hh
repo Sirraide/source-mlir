@@ -189,7 +189,7 @@ private:
     auto ParseExpr(int curr_prec = FullExprPrecedence, bool full_expression = false) -> Result<Expr*>;
     void ParseFile();
     auto ParseFor() -> Result<Expr*>;
-    auto ParseIf() -> Result<Expr*>;
+    auto ParseIf(Location start_loc, bool is_static) -> Result<Expr*>;
     auto ParseImplicitBlock() -> Result<BlockExpr*>;
     auto ParseNakedInvokeExpr(Expr* callee) -> Result<InvokeExpr*>;
     auto ParseParamDeclList(SVI<ParamDecl*>& param_decls, std::deque<ParamInfo>& param_types) -> Location;

@@ -1474,8 +1474,17 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
 
         /// If expressions.
         case Expr::Kind::IfExpr: {
-            /// Emit the condition.
             auto e = cast<IfExpr>(expr);
+
+            /// If this is a static if, emit only the branch that was taken.
+            if (e->is_static) {
+                auto cond = cast<ConstExpr>(e->cond)->value.as_int().getBoolValue();
+                if (cond) return Generate(e->then);
+                if (e->else_) return Generate(e->else_);
+                return {};
+            }
+
+            /// Emit the condition.
             auto cond = Generate(e->cond);
 
             /// Create the blocks that we need.

@@ -239,6 +239,20 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
     }
 }
 
+bool src::Sema::EvaluateAsBoolInPlace(Expr*& e, bool must_succeed) {
+    if (not EvaluateAsIntegerInPlace(e, must_succeed)) return false;
+    if (auto type = cast<ConstExpr>(e)->value.type; type != Type::Bool) {
+        if (must_succeed) Error(
+            e,
+            "Constant condition must be of type {}, but was {}",
+            Type::Bool,
+            type
+        );
+        return false;
+    }
+    return true;
+}
+
 bool src::Sema::EvaluateAsIntegerInPlace(Expr*& e, bool must_succeed) {
     EvalResult res;
     if (not Evaluate(e, res, must_succeed)) return false;

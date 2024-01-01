@@ -45,6 +45,9 @@ class Lexer {
     /// Get the current token.
     readonly(Token&, tok, return *tokens.back());
 
+    /// Get the previous token, if there is one.
+    readonly(Token*, prev, return tokens.size() > 1 ? &tokens[tokens.size() - 2] : nullptr);
+
     /// Current position in the source code.
     const char* curr{};
     const char* end{};

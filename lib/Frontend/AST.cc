@@ -1267,7 +1267,6 @@ struct ASTPrinter {
 
             case K::ConstExpr: PrintBasicNode("ConstExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::IfExpr: PrintBasicNode("IfExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
             case K::MaterialiseTemporaryExpr: PrintBasicNode("MaterialiseTemporaryExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
@@ -1275,6 +1274,18 @@ struct ASTPrinter {
             case K::TupleExpr: PrintBasicNode("TupleExpr", e, static_cast<Expr*>(e->type)); return;
             case K::TupleIndexExpr: PrintBasicNode("TupleIndexExpr", e, static_cast<Expr*>(e->type)); return;
             case K::WithExpr: PrintBasicNode("WithExpr", e, static_cast<Expr*>(e->type)); return;
+
+            case K::IfExpr: {
+                auto i = cast<IfExpr>(e);
+                PrintBasicHeader("IfExpr", e);
+                out += fmt::format(
+                    " {}{}{}\n",
+                    i->type.str(use_colour),
+                    C(Yellow),
+                    i->is_static ? " static" : ""
+                );
+                return;
+            }
 
             case K::FieldDecl: {
                 auto f = cast<FieldDecl>(e);

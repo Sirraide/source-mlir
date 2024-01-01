@@ -1150,11 +1150,15 @@ public:
     /// The optional else branch of this if expression.
     Expr* else_;
 
-    IfExpr(Expr* cond, Expr* then, Expr* else_, Location loc)
+    /// Whether this is a static if.
+    bool is_static;
+
+    IfExpr(Expr* cond, Expr* then, Expr* else_, bool is_static, Location loc)
         : TypedExpr(Kind::IfExpr, Type::Unknown, loc),
           cond(cond),
           then(then),
-          else_(else_) {}
+          else_(else_),
+          is_static(is_static) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::IfExpr; }

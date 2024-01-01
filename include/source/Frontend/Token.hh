@@ -415,10 +415,14 @@ constexpr auto Spelling(Tk t) -> String {
     Unreachable();
 }
 
+class Lexer;
 class TokenStream {
     using Storage = std::deque<Token>;
     Storage token_storage;
     llvm::UniqueStringSaver saver;
+
+    /// Lexer may have to coalesce multiple tokens.
+    friend Lexer;
 
 public:
     using iterator = Storage::iterator;

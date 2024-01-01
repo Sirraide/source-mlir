@@ -143,6 +143,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Return:
         case Tk::Star:
         case Tk::StarStar:
+        case Tk::Static:
         case Tk::StringLiteral:
         case Tk::Struct:
         case Tk::True:
@@ -347,8 +348,18 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
             }
         } break;
 
+        case Tk::Static: {
+            auto start = Next();
+            switch (tok.type) {
+                default: return Error(start, "Expected expression");
+                case Tk::If:
+                    lhs = ParseIf(start, true);
+                    break;
+            }
+        } break;
+
         case Tk::If:
-            lhs = ParseIf();
+            lhs = ParseIf(curr_loc, false);
             break;
 
         case Tk::While:
@@ -856,25 +867,36 @@ auto src::Parser::ParseFor() -> Result<Expr*> {
     return new (mod) ForInExpr(*iter, *index, *range, *body, reverse, start);
 }
 
-/// <expr-if> ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
+/// <expr-if> ::= [ STATIC ] IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
 /// <then> ::= [ THEN ] <implicit-block>
-auto src::Parser::ParseIf() -> Result<Expr*> {
-    auto start = curr_loc;
+auto src::Parser::ParseIf(Location start, bool is_static) -> Result<Expr*> {
     Assert(Consume(Tk::If, Tk::Elif));
 
-    /// Parse condition, elif clauses, and else clause.
+    /// Parse condition, and body.
     auto cond = ParseExpr();
     Consume(Tk::Then);
-
     auto then = ParseImplicitBlock();
-    if (Is(LookAhead(1), Tk::Elif, Tk::Else)) Consume(Tk::Semicolon);
-    auto else_ = At(Tk::Elif)      ? ParseIf()
+
+    /// Skip a semicolon here if we have an elif/else clause. Also diagnose
+    /// 'static elif' and 'static else'; just ignore the 'static' in that case.
+    if (Is(LookAhead(1), Tk::Static, Tk::Elif, Tk::Else)) Consume(Tk::Semicolon);
+    if (At(Tk::Static) and Is(LookAhead(1), Tk::Elif, Tk::Else)) {
+        auto loc = Next();
+        Error(
+            {loc, curr_loc},
+            "'static {}' is invalid; remove the 'static' here",
+            Spelling(tok.type)
+        );
+    }
+
+    /// Parse else branch.
+    auto else_ = At(Tk::Elif)      ? ParseIf(curr_loc, is_static)
                : Consume(Tk::Else) ? ParseImplicitBlock()
                                    : Result<Expr*>::Null();
 
     /// Create the expression.
     if (IsError(cond, then, else_)) return Diag();
-    return new (mod) IfExpr(*cond, *then, *else_, {start, curr_loc});
+    return new (mod) IfExpr(*cond, *then, *else_, is_static, {start, curr_loc});
 }
 
 /// Syntactically any expression, but wrapped in an implicit

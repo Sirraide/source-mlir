@@ -2357,7 +2357,34 @@ bool src::Sema::Analyse(Expr*& e) {
             /// condition.
             if (Analyse(i->cond)) EnsureCondition(i->cond);
 
-            /// Analyse the branches.
+            /// Type is void, unless one of the conditions below applies.
+            i->stored_type = Type::Void;
+
+            /// Static if.
+            ///
+            /// The condition must be a constant expression.
+            bool static_condition{};
+            if (i->is_static) {
+                if (not EvaluateAsBoolInPlace(i->cond)) return e->sema.set_errored();
+                static_condition = cast<ConstExpr>(i->cond)->value.as_int().getBoolValue();
+
+                /// Analyse only one branch.
+                Expr** taken{};
+                if (static_condition) taken = &i->then;
+                else if (i->else_) taken = &i->else_;
+
+                /// The type of this is the type of the branch that was taken.
+                if (taken) {
+                    Analyse(*taken);
+                    i->stored_type = (*taken)->type;
+                    i->is_lvalue = (*taken)->is_lvalue;
+                }
+
+                /// Don’t do anything else.
+                break;
+            }
+
+            /// Regular if. Analyse the branches.
             ///
             /// If the condition tests whether an optional is not nil, set
             /// the active state of the optional to true in the branch where
@@ -2394,9 +2421,6 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Otherwise, there is nothing to infer.
             else if (not Analyse(i->then) or (i->else_ and not Analyse(i->else_)))
                 return e->sema.set_errored();
-
-            /// Type is void, unless one of the conditions below applies.
-            i->stored_type = Type::Void;
 
             /// If there is an else clause, then the type of this expression is a bit
             /// more difficult to determine.

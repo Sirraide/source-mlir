@@ -72,7 +72,7 @@
 <expr-cast>      ::= <expr> ( "as" | "as!" ) <type>
 <expr-decl-ref>  ::= IDENTIFIER
 <expr-for-in>    ::= FOR [ <for-loop-vars> ] IN <expr> <do>
-<expr-if>        ::= IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
+<expr-if>        ::= [ STATIC ] IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
 <expr-invoke>    ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
 <expr-jump>      ::= GOTO IDENTIFIER
 <expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL | <array-literal>

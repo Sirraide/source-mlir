@@ -1,0 +1,18 @@
+/// R %srcc %s --lowered
+
+/// ! \^
+/// * call @a
+/// + call @a
+
+/// Obvious semantic error is ignored in discarded branch.
+static if false { 42 = 67; }
+static if true { a(); } else {
+    42 = 67;
+}
+
+static if false { 42 = 67; }
+elif true { a(); }
+elif false { 42 = 67; }
+else { 42 = 67; }
+
+proc a extern nomangle;
