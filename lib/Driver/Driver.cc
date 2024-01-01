@@ -283,7 +283,7 @@ auto src::DriverImpl::Compile(FileSource& source) -> int {
         /// Because the modules are sorted by name, and the empty string
         /// is the first string in lexicographical order, the executable
         /// must be the first module, if any.
-        if (not combined_modules.front()->is_logical_module) {
+        if (combined_modules.front()->is_logical_module) {
             Diag::Error("No executable found");
             return Error;
         }
