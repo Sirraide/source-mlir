@@ -124,6 +124,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Break:
         case Tk::Continue:
         case Tk::Dot:
+        case Tk::Enum:
         case Tk::False:
         case Tk::For:
         case Tk::ForReverse:
@@ -203,6 +204,22 @@ auto src::Parser::ParseAssertion() -> Result<AssertExpr*> {
     return new (mod) AssertExpr(*cond, *mess, false, {start, *mess ? mess->location : cond->location});
 }
 
+bool src::Parser::ParseAttr(std::string_view attr_name, bool& flag) {
+    if (tok.text == attr_name) {
+        if (flag) Diag::Warning(
+            ctx,
+            curr_loc,
+            "Duplicate '{}' attribute ignored",
+            attr_name
+        );
+
+        Next();
+        return flag = true;
+    }
+
+    return false;
+};
+
 /// <expr-block> ::= "{" <stmts> "}"
 auto src::Parser::ParseBlock() -> Result<BlockExpr*> {
     ScopeRAII sc{this, curr_loc};
@@ -237,6 +254,74 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
     );
 }
 
+/// <type-enum>  ::= ENUM IDENTIFIER [ <enum-rest> ]
+/// <enum-anon>  ::= ENUM [ <enum-rest> ]
+/// <enum-rest>  ::= [ ":" <type> ] "{" [ <enumerator> ] { "," <enumerator> } [ "," ] "}"
+/// <enumerator> ::= IDENTIFIER [ "=" <expr> ]
+auto src::Parser::ParseEnum() -> Result<EnumType*> {
+    auto start = curr_loc;
+    Assert(Consume(Tk::Enum));
+
+    /// Name is optional.
+    String name;
+    if (At(Tk::Identifier)) {
+        name = tok.text;
+        Next();
+    }
+
+    /// Parse attributes.
+    bool mask = false;
+    while (At(Tk::Identifier) and ( // clang-format off
+        ParseAttr("mask", mask)
+    )); // clang-format on
+
+    /// Parse underlying type.
+    Type underlying_type = Type::Int;
+    if (Consume(Tk::Colon)) {
+        auto ty = ParseType();
+        if (IsError(ty)) return ty.diag;
+        underlying_type = *ty;
+    }
+
+    /// Body is optional.
+    SmallVector<EnumeratorDecl*> enumerators;
+    if (Consume(Tk::LBrace)) {
+        while (not At(Tk::RBrace, Tk::Eof)) {
+            auto enumerator = tok.text;
+            auto loc = curr_loc;
+            if (not Consume(Tk::Identifier)) Error("Expected identifier");
+
+            /// Optional initialiser.
+            auto init = Result<Expr*>::Null();
+            if (Consume(Tk::Assign)) {
+                init = ParseExpr();
+                if (IsError(init)) {
+                    Synchronise(Tk::Comma, Tk::RBrace);
+                    continue;
+                }
+            }
+
+            enumerators.push_back(new (mod) EnumeratorDecl(
+                enumerator,
+                *init,
+                loc
+            ));
+
+            if (not Consume(Tk::Comma)) break;
+        }
+        if (not Consume(Tk::RBrace)) Error("Expected ',' or '}}'");
+    }
+
+    return new (mod) EnumType(
+        mod,
+        name,
+        std::move(enumerators),
+        underlying_type,
+        mask,
+        start
+    );
+}
+
 /// <expr-decl-ref>  ::= IDENTIFIER
 /// <expr-access>    ::= [ <expr> ] "." IDENTIFIER
 /// <expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL
@@ -267,6 +352,7 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
         case Tk::Semicolon:
             return new (mod) EmptyExpr(curr_loc);
 
+
         /// Struct type or decl.
         ///
         /// Note that a named struct decl cannot be used directly as a type,
@@ -278,6 +364,12 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
             if (lhs.is_value and not cast<StructType>(*lhs)->name.empty()) return lhs;
             break;
 
+        /// Enum type. See the struct case above.
+        case Tk::Enum:
+            lhs = ParseEnum();
+            if (lhs.is_value and not cast<EnumType>(*lhs)->name.empty()) return lhs;
+            break;
+
         case Tk::LBrace:
             lhs = ParseBlock();
             break;
@@ -285,7 +377,7 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
         /// <expr-decl-ref> ::= IDENTIFIER
         case Tk::Identifier: {
             auto text = tok.text;
-            lhs = new (mod) DeclRefExpr(std::move(text), curr_scope, Next());
+            lhs = new (mod) DeclRefExpr(text, curr_scope, Next());
         } break;
 
         /// Member access.
@@ -1167,23 +1259,6 @@ auto src::Parser::ParseSignature() -> Signature {
     std::deque<ParamInfo> parameters;
     if (At(Tk::LParen)) ParseParamDeclList(sig.param_decls, parameters);
 
-    /// Helper to parse attributes.
-    const auto ParseAttr = [&](std::string_view attr_name, bool& flag) {
-        if (tok.text == attr_name) {
-            if (flag) Diag::Warning(
-                ctx,
-                curr_loc,
-                "Duplicate '{}' attribute ignored",
-                attr_name
-            );
-
-            Next();
-            return flag = true;
-        }
-
-        return false;
-    };
-
     /// Parse attributes.
     bool variadic = false;
     bool native = false;
@@ -1374,6 +1449,12 @@ auto src::Parser::ParseType() -> Result<Type> {
 
         case Tk::Struct: {
             auto ty = ParseStruct();
+            if (IsError(ty)) return ty.diag;
+            base_type = *ty;
+        } break;
+
+        case Tk::Enum: {
+            auto ty = ParseEnum();
             if (IsError(ty)) return ty.diag;
             base_type = *ty;
         } break;

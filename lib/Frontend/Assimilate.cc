@@ -247,6 +247,19 @@ class Assimilator {
                 Assimilate(b->rhs);
             } break;
 
+            case Expr::Kind::EnumType: {
+                auto t = cast<EnumType>(e);
+                DoAssimilate(t->module);
+                Assimilate(t->elem);
+                for (auto& elem : t->enumerators) Assimilate(elem);
+            } break;
+
+            case Expr::Kind::EnumeratorDecl: {
+                auto b = cast<EnumeratorDecl>(e);
+                Assimilate(b->stored_type);
+                Assimilate(b->value);
+            } break;
+
             case Expr::Kind::TupleExpr: {
                 auto t = cast<TupleExpr>(e);
                 for (auto& elem : t->elements) Assimilate(elem);

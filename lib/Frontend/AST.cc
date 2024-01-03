@@ -314,6 +314,7 @@ auto src::Type::align(Context* ctx) const -> Align {
             return std::max(Type::VoidRef.align(ctx), Type::Int.align(ctx));
 
         case Expr::Kind::ArrayType:
+        case Expr::Kind::EnumType:
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
             return cast<SingleElementTypeBase>(ptr)->elem->type.align(ctx);
@@ -437,6 +438,7 @@ auto src::Type::size(Context* ctx) const -> Size {
             return (ptr_size.align_to(int_align) + int_size).align_to(std::max(ptr_align, int_align));
         }
 
+        case Expr::Kind::EnumType:
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
             return cast<SingleElementTypeBase>(ptr)->elem->type.size(ctx);
@@ -586,6 +588,27 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
             }
         } break;
 
+        case Expr::Kind::EnumType: {
+            auto s = cast<EnumType>(ptr);
+            out += fmt::format("{}enum ", C(Red));
+            if (not s->name.empty()) {
+                out += fmt::format("{}{}", C(Cyan), s->name);
+            } else {
+                out += fmt::format(
+                    "<anonymous {}{}{} at {}{}{}:{}{}{}>",
+                    C(Blue),
+                    fmt::ptr(ptr),
+                    C(Red),
+                    C(Magenta),
+                    s->location.file_id,
+                    C(Red),
+                    C(Magenta),
+                    s->location.pos,
+                    C(Red)
+                );
+            }
+        } break;
+
         case Expr::Kind::TupleType: {
             auto s = cast<TupleType>(ptr);
             out += fmt::format("{}(", C(Red));
@@ -603,7 +626,7 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
 #define SOURCE_AST_EXPR(name) case Expr::Kind::name:
 #define SOURCE_AST_TYPE(...)
 #include <source/Frontend/AST.def>
-            return ptr->type.str(use_colour);
+            return fmt::format("{}<???>", C(Cyan));
     }
 
 done: // clang-format off
@@ -662,6 +685,13 @@ bool src::Type::_trivial() {
         case Expr::Kind::ReferenceType:
             return false;
 
+        /// Enums are trivial if zero is a valid value.
+        case Expr::Kind::EnumType:
+            return rgs::any_of(
+                cast<EnumType>(ptr)->enumerators,
+                [](auto e) { return cast<ConstExpr>(e->value)->value.as_int().isZero(); }
+            );
+
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
             return desugared.trivial;
@@ -688,14 +718,15 @@ bool src::Type::_trivially_copyable() {
     Assert(ptr->sema.ok);
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
+        case Expr::Kind::ClosureType:
+        case Expr::Kind::EnumType:
         case Expr::Kind::IntType:
         case Expr::Kind::Nil:
-        case Expr::Kind::OptionalType:
-        case Expr::Kind::SliceType:
-        case Expr::Kind::ClosureType:
-        case Expr::Kind::ProcType:
         case Expr::Kind::OpaqueType:
+        case Expr::Kind::OptionalType:
+        case Expr::Kind::ProcType:
         case Expr::Kind::ReferenceType:
+        case Expr::Kind::SliceType:
             return true;
 
         case Expr::Kind::ScopedPointerType:
@@ -820,6 +851,10 @@ bool src::operator==(Type a, Type b) {
             return RecordType::LayoutCompatible(sa, sb);
         }
 
+        /// Different enums are never equal.
+        case Expr::Kind::EnumType:
+            return false;
+
 #define SOURCE_AST_EXPR(name) case Expr::Kind::name:
 #define SOURCE_AST_TYPE(...)
 #include <source/Frontend/AST.def>
@@ -942,7 +977,8 @@ struct ASTPrinter {
     }
 
     /// Print the children of a node.
-    void PrintChildren(ArrayRef<Expr*> exprs, std::string leading_text) {
+    template <std::derived_from<Expr> Expression = Expr>
+    void PrintChildren(std::type_identity_t<ArrayRef<Expression*>> exprs, std::string leading_text) {
         for (usz i = 0; i < exprs.size(); i++) {
             if (exprs[i] == nullptr) continue;
             const bool last = i == exprs.size() - 1;
@@ -1270,6 +1306,30 @@ struct ASTPrinter {
             case K::TupleIndexExpr: PrintBasicNode("TupleIndexExpr", e, static_cast<Expr*>(e->type)); return;
             case K::WithExpr: PrintBasicNode("WithExpr", e, static_cast<Expr*>(e->type)); return;
 
+            case K::EnumType: {
+                auto a = cast<EnumType>(e);
+                PrintBasicHeader("EnumType", e);
+                out += fmt::format(
+                    "{}{} {}: {}\n",
+                    C(Yellow),
+                    a->mask ? " mask" : "",
+                    C(Red),
+                    a->elem.str(use_colour, true)
+                );
+                return;
+            }
+
+            case K::EnumeratorDecl: {
+                auto a = cast<EnumeratorDecl>(e);
+                PrintBasicHeader("EnumeratorDecl", e);
+                out += fmt::format(
+                    " {}{}\n",
+                    C(Blue),
+                    a->name
+                );
+                return;
+            }
+
             case K::AssertExpr: {
                 auto a = cast<AssertExpr>(e);
                 PrintBasicHeader("AssertExpr", e);
@@ -1521,6 +1581,11 @@ struct ASTPrinter {
                 PrintChildren(children, leading_text);
             } break;
 
+            case K::EnumType: {
+                auto n = cast<EnumType>(e);
+                PrintChildren<EnumeratorDecl>(n->enumerators, leading_text);
+            } break;
+
             case K::ScopeAccessExpr: {
                 auto m = cast<ScopeAccessExpr>(e);
                 PrintChildren(m->object, leading_text);
@@ -1539,6 +1604,11 @@ struct ASTPrinter {
             case K::TupleIndexExpr: {
                 auto t = cast<TupleIndexExpr>(e);
                 PrintChildren({t->object, t->field}, leading_text);
+            } break;
+
+            case K::EnumeratorDecl: {
+                auto t = cast<EnumeratorDecl>(e);
+                if (t->value) PrintChildren(t->value, leading_text);
             } break;
 
             case K::SubscriptExpr: {
@@ -1608,7 +1678,6 @@ struct ASTPrinter {
             case K::MaterialiseTemporaryExpr:
                 PrintChildren(cast<MaterialiseTemporaryExpr>(e)->ctor, leading_text);
                 break;
-
 
             case K::ExportExpr:
                 PrintChildren(cast<ExportExpr>(e)->expr, leading_text);

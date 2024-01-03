@@ -119,15 +119,22 @@
 <struct-field>   ::= <var-decl>
 <init-decl>      ::= INIT <proc-signature> <proc-body>
 
+<type-enum>      ::= ENUM IDENTIFIER [ <enum-rest> ]
+<enum-anon>      ::= ENUM [ <enum-rest> ]
+<enum-rest>      ::= [ ":" <type> ] "{" [ <enumerator> ] { "," <enumerator> } [ "," ] "}"
+<enumerator>     ::= IDENTIFIER [ "=" <expr> ]
+
 /// ===========================================================================
 ///  Types
 /// ===========================================================================
 <type>           ::= <type-prim>
                    | <type-qualified>
                    | <type-named>
+                   | <type-enum>
                    | <type-struct>
                    | <type-tuple>
                    | <struct-anon>
+                   | <enum-anon>
 <type-prim>      ::= INTEGER_TYPE | INT | BOOL | NIL | VOID | NORETURN | VAR
 <type-named>     ::= IDENTIFIER
 <type-tuple>     ::= "(" { <type> "," } [ <type> ] ")"

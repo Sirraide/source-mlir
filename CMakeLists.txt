@@ -4,7 +4,7 @@ project(Source VERSION 0.1.0 LANGUAGES C CXX)
 ## ============================================================================
 ##  Global CMake Variables.
 ## ============================================================================
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 ## ============================================================================
@@ -79,6 +79,9 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clan
 
         ## This is typically nonsense if you’re not an idiot.
         -Wno-ctad-maybe-unsupported
+
+        ## This is nonsense in C++26.
+        -Wno-trigraphs
     )
 endif()
 

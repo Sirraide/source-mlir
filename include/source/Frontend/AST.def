@@ -40,6 +40,7 @@ SOURCE_AST_TYPE(OptionalType)
 SOURCE_AST_TYPE(SugaredType)
 SOURCE_AST_TYPE(ScopedType)
 SOURCE_AST_TYPE(ClosureType)
+SOURCE_AST_TYPE(EnumType)
 /// SingleElementType [end]
 /// Type [end]
 
@@ -93,6 +94,7 @@ SOURCE_AST_TYPED_EXPR(StrLitExpr)
 SOURCE_AST_TYPED_EXPR(LocalDecl)
 SOURCE_AST_TYPED_EXPR(ParamDecl)
 SOURCE_AST_TYPED_EXPR(FieldDecl)
+SOURCE_AST_TYPED_EXPR(EnumeratorDecl)
 
 /// ObjectDecl [begin]
 SOURCE_AST_TYPED_EXPR(ProcDecl)

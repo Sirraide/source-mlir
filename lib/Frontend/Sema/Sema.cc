@@ -1768,6 +1768,10 @@ bool src::Sema::Analyse(Expr*& e) {
             AnalyseRecord(cast<RecordType>(e));
             break;
 
+        /// Enumerations.
+        case Expr::Kind::EnumType: Todo();
+        case Expr::Kind::EnumeratorDecl: Todo();
+
         /// Defer expressions have nothing to typecheck really, so
         /// we just check the operand and leave it at that. Even
         /// nested `defer defer` expressions, albeit degenerate, are

@@ -6,6 +6,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::ArrayType:
         case Expr::Kind::BuiltinType:
         case Expr::Kind::ClosureType:
+        case Expr::Kind::EnumType:
         case Expr::Kind::IntType:
         case Expr::Kind::OpaqueType:
         case Expr::Kind::OptionalType:
@@ -71,6 +72,12 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::OverloadSetExpr:
             out = cast<OverloadSetExpr>(e);
             return true;
+
+        case Expr::Kind::EnumeratorDecl: {
+            auto n = cast<EnumeratorDecl>(e);
+            out = {cast<ConstExpr>(n)->value.as_int(), n->type};
+            return true;
+        }
 
         case Expr::Kind::BoolLitExpr: {
             auto i = cast<BoolLitExpr>(e);

@@ -18,6 +18,7 @@
 /// - A
 /// - C
 /// - E
+/// - F
 /// - G
 /// - I
 /// - J
@@ -130,6 +131,9 @@ auto Type::_mangled_name() -> std::string {
 
         case Expr::Kind::StructType:
             return MangleNamedType(cast<StructType>(ptr), "S");
+
+        case Expr::Kind::EnumType:
+            return MangleNamedType(cast<EnumType>(ptr), "F");
 
         case Expr::Kind::TupleType: {
             auto t = cast<TupleType>(ptr);

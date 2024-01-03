@@ -184,8 +184,10 @@ private:
     /// Parser functions.
     auto ParseAlias() -> Result<AliasExpr*>;
     auto ParseAssertion() -> Result<AssertExpr*>;
+    bool ParseAttr(std::string_view attr_name, bool& flag);
     auto ParseBlock() -> Result<BlockExpr*>;
     auto ParseDecl() -> Result<Decl*>;
+    auto ParseEnum() -> Result<EnumType*>;
     auto ParseExpr(int curr_prec = FullExprPrecedence, bool full_expression = false) -> Result<Expr*>;
     void ParseFile();
     auto ParseFor() -> Result<Expr*>;

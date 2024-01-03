@@ -765,6 +765,7 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
             return hlir::ArrayType::get(Ty(ty->elem), ty->dimension().getZExtValue());
         }
 
+        case Expr::Kind::EnumType:
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType: {
             auto ty = cast<SingleElementTypeBase>(type);
@@ -892,6 +893,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         /// These are no-ops.
         case Expr::Kind::AliasExpr:
         case Expr::Kind::EmptyExpr:
+        case Expr::Kind::EnumeratorDecl:
         case Expr::Kind::FieldDecl:
         case Expr::Kind::ModuleRefExpr:
             return {};
@@ -1376,11 +1378,11 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             mlir::Value last;
             for (auto s : e->exprs) {
                 if (isa< // clang-format off
-                    ProcDecl,
-                    OverloadSetExpr,
+                    AliasExpr,
                     MemberAccessExpr,
                     ModuleRefExpr,
-                    AliasExpr,
+                    OverloadSetExpr,
+                    ProcDecl,
                     TypeBase
                 >(s)) continue; // clang-format on
                 last = Generate(s);
