@@ -1853,6 +1853,8 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Enter the enum’s scope and push a new DeclContext for name lookup.
             DeclContext::Guard _{this, n};
             tempset curr_scope = n->scope;
+            open_enums.push_back(n);
+            defer { open_enums.pop_back(); };
 
             /// For regular enums, all enumerators must either have constant
             /// initialisers or they will be assigned the value of the previous
@@ -3244,12 +3246,25 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
     /// Some DeclRefExprs may already be resolved to a node. If this one
     /// isn’t, find the nearest declaration with the given name.
     if (not d->decl) {
-        auto* const decls = [&] -> BlockExpr::Symbols* {
-            /// First, search active decl contexts.
-            for (auto& decl_context : decl_contexts)
-                if (auto syms = decl_context.find(d->name))
-                    return syms;
+        /// First, search active decl contexts.
+        ///
+        /// If we find an enumerator, set the type of this to the underlying
+        /// type if we are still analysing the enum, or to the type of the enum
+        /// that we searched (!) for the enumerator otherwise.
+        for (auto& decl_context : decl_contexts) {
+            if (auto syms = decl_context.find(d->name)) {
+                Assert(syms->size() == 1, "Enum scope entries must have one symbol");
+                d->decl = syms->front();
+                d->is_lvalue = false;
+                d->stored_type = rgs::contains(open_enums, decl_context.scope)
+                    ? decl_context.scope->underlying_type
+                    : decl_context.scope;
+                return true;
+            }
+        }
 
+        /// Find the declaration in the scope it was declared in.
+        auto* const decls = [&] -> BlockExpr::Symbols* {
             /// Try to find a declared symbol with that name in the scope
             /// that the name was found in.
             if (auto syms = d->scope->find(d->name, false)) return syms;

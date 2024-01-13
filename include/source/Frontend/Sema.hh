@@ -256,10 +256,10 @@ class Sema {
     /// than just the scope of the identifier—such as when an enum inherits
     /// from an enum declared in a different scope.
     class DeclContext {
+    public:
         /// Currently always an enum.
         EnumType* scope;
 
-    public:
         class [[nodiscard]] Guard {
             Sema& s;
 
@@ -282,6 +282,13 @@ class Sema {
 
     /// Active declaration contexts.
     SmallVector<DeclContext> decl_contexts;
+
+    /// Enums that are currently being analysed.
+    ///
+    /// DeclRefExprs that reference enum members within an enum have
+    /// their type set to the underlying type of the enum instead of
+    /// the enum type.
+    SmallVector<EnumType*> open_enums;
 
     /// Get the current Source context.
     readonly(Context*, ctx, return mod->context);
