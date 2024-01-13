@@ -16,6 +16,7 @@ class Sema;
 class Type;
 class TypeBase;
 class RecordType;
+class ASTPrinter;
 
 struct ArrayInfo;
 
@@ -292,6 +293,8 @@ struct ArrayInfo {
 };
 
 class EvalResult {
+    friend ASTPrinter;
+
 public:
     using TupleElements = std::vector<EvalResult>;
 

@@ -922,8 +922,8 @@ auto src::BlockExpr::NCAInFunction(BlockExpr* a, BlockExpr* b) -> BlockExpr* {
 ///  AST Printing
 /// ===========================================================================
 namespace src {
-namespace {
-struct ASTPrinter {
+class ASTPrinter {
+public:
     using enum utils::Colour;
 
     Module* mod;
@@ -971,6 +971,28 @@ struct ASTPrinter {
             node->location.pos
         );
     }
+
+    /// Print a constant value.
+    void PrintValue(const EvalResult& v) { // clang-format off
+        visit(v.value, utils::overloaded {
+            [&](Type t) { out += t.str(use_colour); },
+            [&](String s) { out += fmt::format("{}\"{}\"", C(Yellow), utils::Escape(s)); },
+            [&](std::monostate) { out += "<invalid>"; },
+            [&](std::nullptr_t) { out += fmt::format("{}nil", C(Red)); },
+            [&](const APInt& a) { out += fmt::format("{}{}", C(Magenta), a); },
+            [&](OverloadSetExpr* os) { out += fmt::format("{}{}", C(Green), os->overloads.front()->name); },
+            [&](const EvalResult::TupleElements& els) {
+                out += fmt::format("{}(", C(Red));
+                bool first = true;
+                for (auto& el : els) {
+                    if (first) first = false;
+                    else out += fmt::format("{}, ", C(Red));
+                    PrintValue(el);
+                }
+                out += fmt::format("{})", C(Red));
+            },
+        });
+    } // clang-format on
 
     /// Print the linkage of a node.
     void PrintLinkage(Linkage l) {
@@ -1030,8 +1052,7 @@ struct ASTPrinter {
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
             case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
 
-            case K::AssignExpr: PrintBasicNode("ConstExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::ConstExpr: PrintBasicNode("ConstExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::AssignExpr: PrintBasicNode("AssignExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
             case K::InvokeExpr: PrintBasicNode("InvokeExpr", e, static_cast<Expr*>(e->type)); return;
@@ -1069,6 +1090,15 @@ struct ASTPrinter {
                         f->takes_static_chain ? " chain" : ""
                     );
                 }
+                return;
+            }
+
+            case K::ConstExpr: {
+                auto c = cast<ConstExpr>(e);
+                PrintBasicHeader("ConstExpr", e);
+                out += fmt::format(" {} ", c->type.str(use_colour));
+                PrintValue(c->value);
+                out += "\n";
                 return;
             }
 
@@ -1338,11 +1368,14 @@ struct ASTPrinter {
                 auto a = cast<EnumType>(e);
                 PrintBasicHeader("EnumType", e);
                 out += fmt::format(
-                    "{}{} {}: {}\n",
+                    "{}{}{}{}{} {}: {}\n",
+                    C(Cyan),
+                    a->name.empty() ? "" : " ",
+                    a->name,
                     C(Yellow),
                     a->mask ? " mask" : "",
                     C(Red),
-                    a->elem.str(use_colour, true)
+                    a->elem.str(use_colour)
                 );
                 return;
             }
@@ -1752,7 +1785,6 @@ struct ASTPrinter {
         }
     }
 };
-} // namespace
 } // namespace src
 
 void src::Expr::print(bool print_children) const {

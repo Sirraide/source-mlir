@@ -336,6 +336,18 @@ bool src::Sema::ConvertImpl(
         return false;
     }
 
+    /// Enumerations are convertible to their derived enums.
+    if (isa<EnumType>(from) and isa<EnumType>(to)) {
+        auto to_enum = cast<EnumType>(to);
+        for (auto parent = to_enum->parent_enum; parent; parent = parent->parent_enum) {
+            if (parent == from) {
+                ctx.lvalue_to_rvalue();
+                from = ctx.cast(CastKind::Implicit, type);
+                return true;
+            }
+        }
+    }
+
     /// Array lvalues are convertible to slices.
     if (
         ctx.is_lvalue and
@@ -1881,7 +1893,17 @@ bool src::Sema::Analyse(Expr*& e) {
             auto underlying = n->underlying_type;
             auto bits = u32(underlying.size(ctx).bits());
             const APInt one = {bits, 1};
-            APInt last_value = {bits, n->mask ? 1 : 0};
+            const APInt *last_value = nullptr;
+
+            /// If any of our parents have enumerators, pick the value of the last one.
+            for (auto it = n->parent_enum; it; it = it->parent_enum) {
+                if (not it->enumerators.empty()) {
+                    last_value = &cast<ConstExpr>(it->enumerators.back()->value)->value.as_int();
+                    break;
+                }
+            }
+
+            /// Assign enumerator values.
             for (auto [i, enumerator] : vws::enumerate(n->enumerators)) {
                 /// Check if this enum, or any of its parents, already has
                 /// an enumerator with this name.
@@ -1908,15 +1930,15 @@ bool src::Sema::Analyse(Expr*& e) {
                 if (not enumerator->value) {
                     APInt this_val;
 
-                    /// Take the first value as the initial value.
-                    if (i == 0) { this_val = last_value; }
+                    /// Bitmask enums start at 1, other enums at 0.
+                    if (not last_value) { this_val = {bits, n->mask ? 1 : 0}; }
 
                     /// Otherwise, add 1 to the previous value.
                     else {
                         bool ov{};
-                        this_val = n->mask ? last_value.ushl_ov(one, ov) : last_value.uadd_ov(one, ov);
+                        this_val = n->mask ? last_value->ushl_ov(one, ov) : last_value->uadd_ov(one, ov);
                         if (ov) {
-                            auto err_val = last_value.sext(bits + 1);
+                            auto err_val = last_value->sext(bits + 1);
                             if (n->mask) err_val <<= 1;
                             else ++err_val;
                             Error(
@@ -1930,12 +1952,14 @@ bool src::Sema::Analyse(Expr*& e) {
                     }
 
                     /// This value is now the last value.
-                    last_value = std::move(this_val);
-                    enumerator->value = new (mod) ConstExpr(
+                    auto c = new (mod) ConstExpr(
                         nullptr,
-                        EvalResult(last_value, underlying),
+                        EvalResult(std::move(this_val), underlying),
                         enumerator->location
                     );
+
+                    enumerator->value = c;
+                    last_value = &c->value.as_int();
                 }
 
                 /// Validate the initialiser.
@@ -1946,12 +1970,12 @@ bool src::Sema::Analyse(Expr*& e) {
                     if (not EvaluateAsIntegerInPlace(enumerator->value, true, underlying)) continue;
 
                     /// For mask enums, the value must be a power of two.
-                    auto& this_val = cast<ConstExpr>(enumerator->value)->value.as_int();
-                    if (n->mask and (this_val.isZero() or not this_val.isPowerOf2())) {
+                    auto* this_val = &cast<ConstExpr>(enumerator->value)->value.as_int();
+                    if (n->mask and (this_val->isZero() or not this_val->isPowerOf2())) {
                         Error(
                             enumerator->value->location,
                             "Initialiser '{}' of mask enum must be a non-zero power of two",
-                            this_val
+                            *this_val
                         );
                         enumerator->sema.set_errored();
                         continue;
@@ -2988,25 +3012,58 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Check LHS and RHS.
             if (not Analyse(b->lhs) or not Analyse(b->rhs)) return e->sema.set_errored();
 
+            /// Check if the operator is a bitwise operator.
+            auto IsBitwise = [&] {
+                return b->op == Tk::Land or b->op == Tk::Lor or b->op == Tk::Xor;
+            };
+
             /// Common checks for arithmetic operators.
             auto CheckArithOperands = [&] {
                 /// Both types must be (arrays of) integers.
                 auto info_lhs = b->lhs->type.strip_arrays;
                 auto info_rhs = b->rhs->type.strip_arrays;
-                if (
-                    not info_lhs.base_type.is_int(false) or
-                    not info_rhs.base_type.is_int(false)
-                ) return Error( //
-                    b,
-                    "Operands of '{}' must be (arrays of) integers, but got '{}' and '{}'",
-                    Spelling(b->op),
-                    b->lhs->type,
-                    b->rhs->type
-                );
+                auto lhs_base = info_lhs.base_type.desugared;
+                auto rhs_base = info_rhs.base_type.desugared;
+
+                /// If this is a bitwise operation, we also support bitmask enums.
+                auto lhs_enum = dyn_cast<EnumType>(lhs_base);
+                auto rhs_enum = dyn_cast<EnumType>(rhs_base);
+                if (IsBitwise() and lhs_enum and rhs_enum) {
+                    auto ReportNotMaskEnum = [&](Type ty, Location loc) {
+                        Error(
+                            loc,
+                            "Enum '{}' is not a bitmask enum",
+                            ty
+                        );
+                        return b->sema.set_errored();
+                    };
+
+                    /// Check that both are mask enums and compatible.
+                    if (not lhs_enum->mask) return ReportNotMaskEnum(lhs_enum, b->lhs->location);
+                    if (not rhs_enum->mask) return ReportNotMaskEnum(rhs_enum, b->rhs->location);
+                    if (not Convert(b->rhs, b->lhs->type) and not Convert(b->lhs, b->rhs->type)) return Error(
+                        b,
+                        "Cannot perform '{}' on incompatible types '{}' and '{}'",
+                        Spelling(b->op),
+                        b->lhs->type,
+                        b->rhs->type
+                    );
+                }
+
+                /// Otherwise, only integers are allowed.
+                else if (not lhs_base.is_int(false) or not rhs_base.is_int(false)) {
+                    return Error(
+                        b,
+                        "Invalid operands for '{}': '{}' and '{}'",
+                        Spelling(b->op),
+                        b->lhs->type,
+                        b->rhs->type
+                    );
+                }
 
                 /// If either one is an array, the types must be the same.
                 if (
-                    (isa<ArrayType>(b->lhs->type) or isa<ArrayType>(b->rhs->type)) and
+                    (isa<ArrayType>(b->lhs->type.desugared) or isa<ArrayType>(b->rhs->type.desugared)) and
                     b->lhs->type != b->rhs->type
                 ) return Error( //
                     b,
@@ -3418,10 +3475,10 @@ void src::Sema::AnalyseExplicitCast(Expr*& e, [[maybe_unused]] bool is_hard) {
     /// If the types are convertible, then the cast is fine.
     if (Convert(c->operand, e->type)) return;
 
-    /// Integer-to-integer conversions are fine.
+    /// Enum/Integer-to-integer conversions are fine.
     auto from = c->operand->type.desugared;
     auto to = c->type.desugared;
-    if (from.is_int(true) and to.is_int(true)) {
+    if ((from.is_int(true) or isa<EnumType>(from)) and to.is_int(true)) {
         InsertLValueToRValueConversion(c->operand);
         return;
     }
