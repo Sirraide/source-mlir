@@ -115,20 +115,20 @@ using f64 = double;
 /// \endcode
 #define tempset auto CAT(_tempset_, __COUNTER__) = ::src::detail::TempsetStage1{}->*
 
-#define readonly(type, name, code) \
-    type _##name() { code; }       \
+#define readonly(type, name, code)         \
+    [[nodiscard]] type _##name() { code; } \
     __declspec(property(get = _##name)) type name
 
-#define readonly_const(type, name, code) \
-    type _##name() const { code; }       \
+#define readonly_const(type, name, code)         \
+    [[nodiscard]] type _##name() const { code; } \
     __declspec(property(get = _##name)) type name
 
 #define readonly_decl(type, name) \
-    type _##name();               \
+    [[nodiscard]] type _##name(); \
     __declspec(property(get = _##name)) type name
 
 #define readonly_const_decl(type, name) \
-    type _##name() const;               \
+    [[nodiscard]] type _##name() const; \
     __declspec(property(get = _##name)) type name
 
 #define property_decl(type, name) \

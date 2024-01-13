@@ -25,7 +25,6 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::ArrayLitExpr:
         case Expr::Kind::AssertExpr:
         case Expr::Kind::ConstructExpr:
-        case Expr::Kind::DeclRefExpr:
         case Expr::Kind::DeferExpr:
         case Expr::Kind::EmptyExpr:
         case Expr::Kind::ExportExpr:
@@ -57,6 +56,9 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::Nil:
             out = nullptr;
             return true;
+
+        case Expr::Kind::DeclRefExpr:
+            return Evaluate(cast<DeclRefExpr>(e)->decl, out, must_succeed);
 
         case Expr::Kind::StrLitExpr:
             out = cast<StrLitExpr>(e)->string;
@@ -250,25 +252,66 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
 }
 
 bool src::Sema::EvaluateAsBoolInPlace(Expr*& e, bool must_succeed) {
-    if (not EvaluateAsIntegerInPlace(e, must_succeed)) return false;
-    if (auto type = cast<ConstExpr>(e)->value.type; type != Type::Bool) {
-        if (must_succeed) Error(
-            e,
-            "Constant condition must be of type {}, but was {}",
-            Type::Bool,
-            type
-        );
-        return false;
-    }
+    if (not EvaluateAsIntegerInPlace(e, must_succeed, Type::Bool)) return false;
     return true;
 }
 
-bool src::Sema::EvaluateAsIntegerInPlace(Expr*& e, bool must_succeed) {
+bool src::Sema::EvaluateAsIntegerInPlace(Expr*& e, bool must_succeed, std::optional<Type> integer_or_bool) {
+    if (integer_or_bool.has_value()) Assert(
+        integer_or_bool->ptr->sema.ok,
+        "Unanalysed or errored type passed to constant evaluation: {}",
+        integer_or_bool->str(ctx->use_colours)
+    );
+
+    /// Attempt to evaluate the expression.
     EvalResult res;
     if (not Evaluate(e, res, must_succeed)) return false;
+
+    /// Make sure the result is an integer.
     if (not res.is_int()) {
-        if (must_succeed) Error(e, "Constant expression is not an integer");
+        if (must_succeed) {
+            if (integer_or_bool == Type::Bool) Error(e, "Constant expression is not a {}", Type::Bool);
+            else Error(e, "Constant expression is not an integer");
+        }
         return false;
+    }
+
+    /// Sanity check.
+    auto& val = res.as_int();
+    Assert(res.type.is_int(true), "EvalResult type/variant mismatch");
+
+    /// Handle desired type.
+    if (integer_or_bool.has_value()) {
+        auto ty = *integer_or_bool;
+        /// If the desired type is bool, the value *must* be a bool. No implicit
+        /// conversions are permitted here.
+        if (ty == Type::Bool and res.type != Type::Bool) {
+            if (must_succeed) Error(
+                e,
+                "Type {} is not implicitly convertible to {} in constant evaluation",
+                res.type,
+                Type::Bool
+            );
+            return false;
+        }
+
+        /// Make sure the value fits in the given type.
+        auto desired_width = u32(integer_or_bool->size(ctx).bits());
+        auto larger = std::max(val.getBitWidth(), desired_width);
+        auto newval = val.zextOrTrunc(desired_width);
+        if (newval.sext(larger) != val.sext(larger)) {
+            if (must_succeed) Error(
+                e,
+                "Value {} is not representable by type {}",
+                val,
+                ty
+            );
+            return false;
+        }
+
+        /// Resize it.
+        val = std::move(newval);
+        res.type = ty;
     }
 
     e = new (mod) ConstExpr(e, std::move(res), e->location);

@@ -1,0 +1,11 @@
+/// R %srcc %s --sema |& cat
+/// !* Error
+
+/// Enumerators declared in the nested enum shadow, but do not
+/// conflict with, enumerators declared in the enclosing enum.
+enum test1 {
+    foo,
+    bar = enum { foo, bar } :: bar as int,
+};
+
+static assert test1::bar as int == 1;

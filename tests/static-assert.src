@@ -1,4 +1,4 @@
-/// R       %srcc %s --sema
+/// R       %srcc %s --sema |& cat
 /// R[///H] %srcc %s --hlir
 
 /// Check that there are no errors.

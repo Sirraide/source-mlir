@@ -947,6 +947,7 @@ public:
 
 enum struct ScopeKind : u8 {
     Block,
+    Enum,
     Function,
     Struct,
 };
@@ -991,6 +992,9 @@ public:
     /// Whether this is a struct scope.
     readonly(bool, is_struct, return scope_kind == ScopeKind::Struct);
 
+    /// Whether this is an enum scope.
+    readonly(bool, is_enum, return scope_kind == ScopeKind::Enum);
+
     /// Whether this expression was create implicitly.
     bool implicit{};
 
@@ -1011,6 +1015,12 @@ public:
             return &sym->second;
         if (parent and not this_scope_only) return parent->find(name, false);
         return nullptr;
+    }
+
+    /// Mark this scope as an enum scope. This cannot be undone.
+    void set_enum_scope() {
+        Assert(scope_kind == ScopeKind::Block);
+        scope_kind = ScopeKind::Enum;
     }
 
     /// Mark this scope as a function scope. This cannot be undone.
@@ -1912,6 +1922,14 @@ public:
 protected:
     Named(Module* mod, String name, Mangling mangling)
         : mangling(mangling), module(mod), name(name) {}
+
+public:
+    /// RTTI.
+    static bool classof(const Expr* e) {
+        return e->kind == Expr::Kind::EnumType or
+               e->kind == Expr::Kind::OpaqueType or
+               e->kind == Expr::Kind::StructType;
+    }
 };
 
 /// Base class for record types (structs and tuples).
@@ -2068,11 +2086,23 @@ public:
     /// The enumerators of this enum.
     SmallVector<EnumeratorDecl*> enumerators;
 
+    /// Scope of this enum. This is only used for type-checking enumerator
+    /// initialisers as previous enumerators have to be in scope with slightly
+    /// different semantics than usual.
+    BlockExpr* scope{};
+
     /// Whether this is a bitmask enum.
     bool mask;
 
+    /// Get the underlying integer type of this enum.
+    readonly_decl(Type, underlying_type);
+
+    /// Get the parent enum, if there is one.
+    readonly_decl(EnumType*, parent_enum);
+
     EnumType(
         Module* mod,
+        BlockExpr* scope,
         String name,
         SmallVector<EnumeratorDecl*> enumerators,
         Type underlying_type,
@@ -2081,6 +2111,7 @@ public:
     ) : SingleElementTypeBase(Kind::EnumType, underlying_type, loc),
         Named(mod, name, Mangling::Source),
         enumerators(std::move(enumerators)),
+        scope(scope),
         mask(mask) {}
 
     /// RTTI.

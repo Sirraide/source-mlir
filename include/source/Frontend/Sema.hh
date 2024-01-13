@@ -160,7 +160,7 @@ class Sema {
         Status s = Status::Viable;
         int score = InvalidScore;
 
-        LLVM_READONLY readonly_const(ProcType*, type, return cast<ProcType>(proc->type));
+        readonly_const(ProcType*, type, return cast<ProcType>(proc->type));
         usz mismatch_index{};
     };
 
@@ -217,7 +217,6 @@ class Sema {
         /// Current guard.
         ScopeGuard* guard{};
 
-
         /// Used to implement Activate() and Deactivate().
         void ChangeState(Expr* e, auto cb);
 
@@ -253,6 +252,38 @@ class Sema {
     /// Expressions eligible for `.x` access.
     SmallVector<Expr*> with_stack;
 
+    /// In some cases, name lookup has to consider different scopes other
+    /// than just the scope of the identifier—such as when an enum inherits
+    /// from an enum declared in a different scope.
+    class DeclContext {
+        /// Currently always an enum.
+        EnumType* scope;
+
+    public:
+        class [[nodiscard]] Guard {
+            Sema& s;
+
+        public:
+            template <typename... Args>
+            Guard(Sema* s, Args&&... args) : s(*s) {
+                s->decl_contexts.push_back(DeclContext{std::forward<Args>(args)...});
+            }
+
+            ~Guard() {
+                s.decl_contexts.pop_back();
+            }
+        };
+
+        DeclContext(EnumType* e) : scope(e) {}
+
+        /// Find a symbol in this context.
+        auto find(String name) -> BlockExpr::Symbols*;
+    };
+
+    /// Active declaration contexts.
+    SmallVector<DeclContext> decl_contexts;
+
+    /// Get the current Source context.
     readonly(Context*, ctx, return mod->context);
 
     /// Number of anonymous procedures.
@@ -365,7 +396,18 @@ private:
     bool Evaluate(Expr* e, EvalResult& out, bool must_succeed = true);
 
     /// Evaluate an integral constant expression and replace it with the result.
-    bool EvaluateAsIntegerInPlace(Expr*& e, bool must_succeed = true);
+    ///
+    /// \param e The expression to replace.
+    /// \param must_succeed Whether to issue an error if evaluation fails.
+    /// \param integer_or_bool The desired type this must have. If the value is
+    ///        not implicitly convertible to this type, evaluation fails. If unset
+    ///        any integral or boolean type is accepted.
+    /// \return Whether evaluation succeeded.
+    bool EvaluateAsIntegerInPlace(
+        Expr*& e,
+        bool must_succeed = true,
+        std::optional<Type> integer_or_bool = std::nullopt
+    );
 
     /// Evaluate a boolean constant expression and replace it with the result.
     bool EvaluateAsBoolInPlace(Expr*& e, bool must_succeed = true);

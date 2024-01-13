@@ -312,9 +312,14 @@ bool src::Sema::ConvertImpl(
         /// to a smaller type if the value is known to fit at compile time.
         if (ctx.expr) {
             EvalResult value;
-            if (ctx.try_evaluate(value) and value.as_int().getSignificantBits() <= to_size.bits()) {
+            if (ctx.try_evaluate(value) and value.as_int().getActiveBits() <= to_size.bits()) {
                 value.type = to;
-                value.as_int() = value.as_int().trunc(unsigned(to_size.bits()));
+
+                /// Even though the *value* might require fewer bits than what we’re
+                /// converting to, the *type* (i.e. bit width) of the APInt might still
+                /// be larger, so we might have to truncate or extend independently of
+                /// that.
+                value.as_int() = value.as_int().sextOrTrunc(unsigned(to_size.bits()));
                 from = ctx.replace_with_constant(std::move(value));
                 return true;
             }
@@ -392,6 +397,13 @@ auto src::Sema::CreateImplicitDereference(Expr* e, isz depth) -> Expr* {
     }
 
     return e;
+}
+
+auto src::Sema::DeclContext::find(String name) -> BlockExpr::Symbols* {
+    for (auto it = scope; it; it = it->parent_enum)
+        if (auto syms = it->scope->find(name, true))
+            return syms;
+    return nullptr;
 }
 
 bool src::Sema::EnsureCondition(Expr*& e) {
@@ -1274,28 +1286,29 @@ auto src::Sema::Construct(
     MutableArrayRef<Expr*> init_args,
     Expr* target
 ) -> ConstructExpr* {
+    /// If the type being constructed is an enum type, then its
+    /// enumerators are in scope here.
+    auto ty = type.desugared;
+    std::optional<DeclContext::Guard> guard = std::nullopt;
+    if (auto e = dyn_cast<EnumType>(ty)) guard.emplace(this, e);
+
     /// Validate initialisers.
     if (not rgs::all_of(init_args, [&](auto*& e) { return Analyse(e); }))
         return nullptr;
 
-    /// Helper to print the argument types.
-    auto FormatArgTypes = [&](auto args) {
-        utils::Colours C{true};
-        return fmt::join(
-            vws::transform(args, [&](auto* e) { return e->type.str(mod->context->use_colours, true); }),
-            fmt::format("{}, ", C(utils::Colour::Red))
-        );
-    };
-
     /// Helper to emit an error that construction is not possible.
     auto InvalidArgs = [&] -> ConstructExpr* {
+        utils::Colours C{ctx->use_colours};
+        auto FormatArg = [&](auto* e) { return e->type.str(ctx->use_colours, true); };
         Error(
             loc,
             "Cannot construct '{}' from arguments {}",
             type,
-            FormatArgTypes(init_args)
+            fmt::join(
+                vws::transform(init_args, FormatArg),
+                fmt::format("{}, ", C(utils::Colour::Red))
+            )
         );
-
         return nullptr;
     };
 
@@ -1315,15 +1328,16 @@ auto src::Sema::Construct(
     };
 
     /// Initialisation is dependent on the type.
-    switch (auto ty = type.desugared; ty->kind) {
-        default: Unreachable("Invalid type for variable declaration");
+    switch (ty->kind) {
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
-            Unreachable("Should have been desugared");
+        case Expr::Kind::OpaqueType:
+            Unreachable("Don’t know how to construct a '{}'", ty.str(ctx->use_colours, true));
 
         /// These take zero or one argument.
         case Expr::Kind::BuiltinType:
-        case Expr::Kind::IntType: {
+        case Expr::Kind::IntType:
+        case Expr::Kind::Nil: {
             if (init_args.empty()) return ConstructExpr::CreateZeroinit(mod);
             if (init_args.size() == 1) return TrivialCopy(type);
             return InvalidArgs();
@@ -1585,9 +1599,55 @@ auto src::Sema::Construct(
             return InvalidArgs();
         }
 
+        case Expr::Kind::EnumType: {
+            auto enum_ty = cast<EnumType>(ty);
+
+            /// Enums that have a zero value can be initialised with no arguments.
+            if (init_args.empty()) {
+                /// Zero is never valid for mask enums.
+                if (enum_ty->mask) {
+                    Error(loc, "Initialisation of bitmask enum '{}' requires a value", enum_ty);
+                    return nullptr;
+                }
+
+                /// Check if there is a zero value in the enum or any of its parents.
+                for (auto enum_type = enum_ty; enum_type; enum_type = enum_type->parent_enum)
+                    for (auto n : enum_type->enumerators)
+                        if (cast<ConstExpr>(n)->value.as_int().isZero())
+                            return ConstructExpr::CreateZeroinit(mod);
+
+                /// Otherwise, this can’t be default-initialised.
+                Error(
+                    loc,
+                    "Initialisation of enum '{}' requires a value; 0 is not a valid "
+                    "enum value for this type!",
+                    enum_ty
+                );
+                return nullptr;
+            }
+
+            /// Enums can be initialised with a single argument, iff that
+            /// argument is either of the same type as the enum or one of
+            /// its parent types.
+            if (init_args.size() == 1) {
+                for (auto enum_type = enum_ty; enum_type; enum_type = enum_type->parent_enum)
+                    if (init_args[0]->type == enum_type)
+                        return TrivialCopy(enum_type);
+            }
+
+            return InvalidArgs();
+        }
+
         case Expr::Kind::ProcType: Todo();
         case Expr::Kind::ScopedPointerType: Todo();
-        case Expr::Kind::ClosureType: Todo();
+        case Expr::Kind::ClosureType:
+            Todo();
+
+            /// Ignore non types.
+#define SOURCE_AST_EXPR(nontype) case Expr::Kind::nontype:
+#define SOURCE_AST_TYPE(...)
+#include <source/Frontend/AST.def>
+            Unreachable("Invalid type for variable declaration");
     }
 }
 
@@ -1768,9 +1828,131 @@ bool src::Sema::Analyse(Expr*& e) {
             AnalyseRecord(cast<RecordType>(e));
             break;
 
-        /// Enumerations.
-        case Expr::Kind::EnumType: Todo();
         case Expr::Kind::EnumeratorDecl: Todo();
+
+        /// Enumerations.
+        case Expr::Kind::EnumType: {
+            auto n = cast<EnumType>(e);
+
+            /// Check the underlying type and make sure it is an integer
+            /// type or another enum type.
+            if (not AnalyseAsType(n->elem)) return e->sema.set_errored();
+            if (not isa<EnumType>(n->elem.desugared) and not n->elem.desugared.is_int(false)) return Error(
+                e,
+                "Underlying type of enum must be an integer type or another enum type"
+            );
+
+            /// Mask enums can only extend mask enums (or integer types, of
+            /// course), but vice versa is fine.
+            auto parent_enum = n->parent_enum;
+            if (n->mask and parent_enum and not parent_enum->mask) return Error(
+                e,
+                "Mask enums can only extend other mask enums"
+            );
+
+            /// Enter the enum’s scope and push a new DeclContext for name lookup.
+            DeclContext::Guard _{this, n};
+            tempset curr_scope = n->scope;
+
+            /// For regular enums, all enumerators must either have constant
+            /// initialisers or they will be assigned the value of the previous
+            /// enumerator plus one. In the initialiser of an enum, all previous
+            /// enumerators as well as inherited enumerators are in scope, but
+            /// unlike outside the enum, their type in the enum is the underlying
+            /// integer type.
+            auto underlying = n->underlying_type;
+            auto bits = u32(underlying.size(ctx).bits());
+            const APInt one = {bits, 1};
+            APInt last_value = {bits, n->mask ? 1 : 0};
+            for (auto [i, enumerator] : vws::enumerate(n->enumerators)) {
+                /// Check if this enum, or any of its parents, already has
+                /// an enumerator with this name.
+                for (auto it = n; it; it = it->parent_enum) {
+                    if (auto prev = it->scope->find(enumerator->name, true)) {
+                        Assert(prev->size() == 1, "Enum scope should contain one declaration per name");
+                        Error(
+                            enumerator,
+                            "An enumerator named '{}' already exists in this enum",
+                            enumerator->name
+                        );
+
+                        Diag::Note(
+                            ctx,
+                            prev->front()->location,
+                            "Previous declaration is here"
+                        );
+
+                        goto next_enumerator;
+                    }
+                }
+
+                /// Add 1 to the previous value, or multiply by 2 if this is a mask enum.
+                if (not enumerator->value) {
+                    APInt this_val;
+
+                    /// Take the first value as the initial value.
+                    if (i == 0) { this_val = last_value; }
+
+                    /// Otherwise, add 1 to the previous value.
+                    else {
+                        bool ov{};
+                        this_val = n->mask ? last_value.ushl_ov(one, ov) : last_value.uadd_ov(one, ov);
+                        if (ov) {
+                            auto err_val = last_value.sext(bits + 1);
+                            if (n->mask) err_val <<= 1;
+                            else ++err_val;
+                            Error(
+                                enumerator,
+                                "Computed enumerator value '{}' is not representable by type '{}'",
+                                err_val,
+                                underlying
+                            );
+                            continue;
+                        }
+                    }
+
+                    /// This value is now the last value.
+                    last_value = std::move(this_val);
+                    enumerator->value = new (mod) ConstExpr(
+                        nullptr,
+                        EvalResult(last_value, underlying),
+                        enumerator->location
+                    );
+                }
+
+                /// Validate the initialiser.
+                else {
+                    if (not Analyse(enumerator->value)) continue;
+
+                    /// Make sure the value is an integer constant of the right type.
+                    if (not EvaluateAsIntegerInPlace(enumerator->value, true, underlying)) continue;
+
+                    /// For mask enums, the value must be a power of two.
+                    auto& this_val = cast<ConstExpr>(enumerator->value)->value.as_int();
+                    if (n->mask and (this_val.isZero() or not this_val.isPowerOf2())) {
+                        Error(
+                            enumerator->value->location,
+                            "Initialiser '{}' of mask enum must be a non-zero power of two",
+                            this_val
+                        );
+                        enumerator->sema.set_errored();
+                        continue;
+                    }
+
+                    /// This value is now the last value.
+                    last_value = this_val;
+                }
+
+                /// Add the enumerator *value* to the scope; this way the type of the
+                /// enumerator within the enum is the underlying type.
+                n->scope->declare(enumerator->name, enumerator->value);
+            next_enumerator:
+            }
+
+            /// This enum is only ok if all of its enumerators are.
+            if (rgs::any_of(n->enumerators, [](auto e) { return e->sema.errored; }))
+                return e->sema.set_errored();
+        } break;
 
         /// Defer expressions have nothing to typecheck really, so
         /// we just check the operand and leave it at that. Even
@@ -1956,7 +2138,6 @@ bool src::Sema::Analyse(Expr*& e) {
                 i8slice,
                 a->msg->type
             );
-
 
             /// Create string literals for the condition and file name.
             a->cond_str = new (mod) StrLitExpr(
@@ -2375,8 +2556,10 @@ bool src::Sema::Analyse(Expr*& e) {
                 }
 
                 /// Type must be constructible from the initialiser args.
+                ///
+                /// Even if this fails, do not set the error flag for this variable
+                /// since we now know its type and can still use it for other things.
                 var->ctor = Construct(var->location, var->type, var->init_args, var);
-                if (not var->ctor) e->sema.set_errored();
                 var->init_args.clear();
             }
 
@@ -3062,7 +3245,13 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
     /// isn’t, find the nearest declaration with the given name.
     if (not d->decl) {
         auto* const decls = [&] -> BlockExpr::Symbols* {
-            /// Try to find a declared symbol with that name.
+            /// First, search active decl contexts.
+            for (auto& decl_context : decl_contexts)
+                if (auto syms = decl_context.find(d->name))
+                    return syms;
+
+            /// Try to find a declared symbol with that name in the scope
+            /// that the name was found in.
             if (auto syms = d->scope->find(d->name, false)) return syms;
 
             /// Check if this is an imported module.
@@ -3164,8 +3353,45 @@ void src::Sema::AnalyseExplicitCast(Expr*& e, [[maybe_unused]] bool is_hard) {
     if (Convert(c->operand, e->type)) return;
 
     /// Integer-to-integer conversions are fine.
-    if (c->operand->type.is_int(true) and e->type.is_int(true)) {
+    auto from = c->operand->type.desugared;
+    auto to = c->type.desugared;
+    if (from.is_int(true) and to.is_int(true)) {
         InsertLValueToRValueConversion(c->operand);
+        return;
+    }
+
+    /// Integer-to-enum casts.
+    if (auto enum_ty = dyn_cast<EnumType>(to); enum_ty and from.is_int(false)) {
+        InsertLValueToRValueConversion(c->operand);
+
+        /// Hard-casts are always allowed.
+        if (c->cast_kind == CastKind::Hard) return;
+
+        /// Soft casts require that the value be known, at compile time, to be
+        /// representable by the enum type.
+        if (not EvaluateAsIntegerInPlace(c->operand, false, enum_ty->underlying_type)) {
+            Error(
+                e,
+                "Non-constant expression of type '{}' cannot be converted to enum type '{}'",
+                c->operand->type,
+                e->type.str(ctx->use_colours, true)
+            );
+            return;
+        }
+
+        /// Check the value exists.
+        auto from_val = cast<ConstExpr>(c->operand)->value.as_int();
+        for (auto n : enum_ty->enumerators) {
+            auto& val = cast<ConstExpr>(n->value)->value.as_int();
+            if (val == from_val) return;
+        }
+
+        Error(
+            e,
+            "Type '{}' has no enumerator with value '{}'",
+            e->type.str(ctx->use_colours, true),
+            from_val
+        );
         return;
     }
 
@@ -3544,6 +3770,9 @@ void src::Sema::AnalyseModule() {
     for (auto& i : mod->imports) {
         /// C++ header.
         if (i.is_cxx_header) continue;
+
+        /// Already resolved.
+        if (i.mod) continue;
 
         /// Regular module.
         for (auto& p : mod->context->import_paths) {

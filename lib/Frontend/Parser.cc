@@ -284,7 +284,9 @@ auto src::Parser::ParseEnum() -> Result<EnumType*> {
     }
 
     /// Body is optional.
+    ScopeRAII sc{this};
     SmallVector<EnumeratorDecl*> enumerators;
+    sc.scope->set_enum_scope();
     if (Consume(Tk::LBrace)) {
         while (not At(Tk::RBrace, Tk::Eof)) {
             auto enumerator = tok.text;
@@ -312,14 +314,19 @@ auto src::Parser::ParseEnum() -> Result<EnumType*> {
         if (not Consume(Tk::RBrace)) Error("Expected ',' or '}}'");
     }
 
-    return new (mod) EnumType(
+    auto e = new (mod) EnumType(
         mod,
+        sc.scope,
         name,
         std::move(enumerators),
         underlying_type,
         mask,
         start
     );
+
+    /// If the enum has a name, add it to the symbol table.
+    if (not e->name.empty()) sc.scope->parent->declare(e->name, e);
+    return e;
 }
 
 /// <expr-decl-ref>  ::= IDENTIFIER

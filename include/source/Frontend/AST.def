@@ -39,8 +39,8 @@ SOURCE_AST_TYPE(ArrayType)
 SOURCE_AST_TYPE(OptionalType)
 SOURCE_AST_TYPE(SugaredType)
 SOURCE_AST_TYPE(ScopedType)
-SOURCE_AST_TYPE(ClosureType)
 SOURCE_AST_TYPE(EnumType)
+SOURCE_AST_TYPE(ClosureType)
 /// SingleElementType [end]
 /// Type [end]
 

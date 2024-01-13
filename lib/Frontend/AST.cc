@@ -393,6 +393,10 @@ bool src::Type::_is_noreturn() {
     return *this == NoReturn;
 }
 
+auto src::EnumType::_parent_enum() -> EnumType* {
+    return dyn_cast<EnumType>(elem.desugared);
+}
+
 auto src::Type::_ref_depth() -> isz {
     isz depth = 0;
     for (
@@ -636,8 +640,8 @@ done: // clang-format off
         d.ptr != ptr and (
             /// Do not print e.g. ‘bar aka struct bar’.
             not isa<SugaredType>(ptr) or
-            not isa<StructType>(d.ptr) or
-            cast<SugaredType>(ptr)->name != cast<StructType>(d.ptr)->name
+            not isa<Named>(d.ptr) or
+            cast<SugaredType>(ptr)->name != cast<Named>(d.ptr)->name
         )
     ) out += fmt::format(" {}aka {}", C(Reset), d.str(use_colour));
     out += C(Reset);
@@ -754,6 +758,12 @@ bool src::Type::_trivially_copyable() {
 #include <source/Frontend/AST.def>
             Unreachable("Not a type");
     }
+}
+
+auto src::EnumType::_underlying_type() -> Type {
+    auto d = elem.desugared;
+    if (auto n = dyn_cast<EnumType>(d)) return n->underlying_type;
+    return d;
 }
 
 bool src::Type::_yields_value() {
