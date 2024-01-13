@@ -61,8 +61,8 @@ c = N;
 E6 d = 2 as! E6;
 
 /// Bitmask enum shenanigans.
-E7 = A lor B lor C;
-E8 = A lor E;
+E7 e = A lor B lor C;
+E8 f = A lor E;
 
 /// Casting an enum to an integer is fine.
 sink a as i32 + b as i32 + c as i32 + d as i32 + E3::K as i32;

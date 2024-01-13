@@ -399,11 +399,9 @@ auto src::Sema::CreateImplicitDereference(Expr* e, isz depth) -> Expr* {
     return e;
 }
 
-auto src::Sema::DeclContext::find(String name) -> BlockExpr::Symbols* {
-    for (auto it = scope; it; it = it->parent_enum)
-        if (auto syms = it->scope->find(name, true))
-            return syms;
-    return nullptr;
+auto src::Sema::DeclContext::find(Sema& S, String name) -> Entry {
+    if (auto e = dyn_cast<EnumType>(scope)) return S.SearchEnumScope(e, name);
+    Unreachable("Invalid decl context");
 }
 
 bool src::Sema::EnsureCondition(Expr*& e) {
@@ -520,6 +518,26 @@ bool src::Sema::MakeDeclType(Type& e) {
     /// Procedure types decay to closures.
     if (auto p = dyn_cast<ProcType>(e)) e = new (mod) ClosureType(p);
     return true;
+}
+
+auto src::Sema::SearchEnumScope(
+    EnumType* enum_type,
+    String name
+) -> DeclContext::Entry {
+    for (auto it = enum_type; it; it = it->parent_enum) {
+        if (auto syms = it->scope->find(name, true)) {
+            Assert(syms->size() == 1, "Enum scope entries must contain exactly one symbol");
+
+            /// Set the type of this to the underlying type if we are still analysing
+            /// the enum, or to the type of the enum that we searched (!) for the enumerator
+            /// otherwise.
+            const bool open = rgs::contains(open_enums, enum_type);
+            Type ty = open ? enum_type->underlying_type : enum_type;
+            return {syms->front(), ty};
+        }
+    }
+
+    return DeclContext::Entry{};
 }
 
 bool src::Sema::TryConvert(ConversionSequence& seq, Expr* e, Type to, bool lvalue) {
@@ -2432,7 +2450,7 @@ bool src::Sema::Analyse(Expr*& e) {
             auto sa = cast<ScopeAccessExpr>(e);
             if (not Analyse(sa->object)) return e->sema.set_errored();
 
-            /// Currently, we only allow looking up names in a module.
+            /// Module lookup.
             if (auto m = dyn_cast<ModuleRefExpr>(sa->object)) {
                 auto exp = m->module->exports.find(sa->element);
                 if (exp == m->module->exports.end()) return Error(
@@ -2468,7 +2486,29 @@ bool src::Sema::Analyse(Expr*& e) {
                 break;
             }
 
-            return Error(sa, "LHS of operator '::' must be a module", sa->object->type);
+            /// Type.
+            if (auto ty_base = dyn_cast<TypeBase>(sa->object)) {
+                Type ty{ty_base};
+
+                /// Enumeration.
+                if (auto n = dyn_cast<EnumType>(ty.desugared)) {
+                    auto entry = SearchEnumScope(n, sa->element);
+                    if (not entry) return Error(
+                        sa,
+                        "Could not find '{}' in enum '{}'{}",
+                        sa->element,
+                        ty,
+                        n->parent_enum ? " or any of its parents" : ""
+                    );
+
+                    sa->resolved = entry.expr;
+                    sa->stored_type = entry.type;
+                    sa->is_lvalue = false;
+                    break;
+                }
+            }
+
+            return Error(sa, "LHS of operator '::' must be a module or enum type", sa->object->type);
         }
 
         /// Perform name lookup in scope.
@@ -3265,18 +3305,11 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
     /// isn’t, find the nearest declaration with the given name.
     if (not d->decl) {
         /// First, search active decl contexts.
-        ///
-        /// If we find an enumerator, set the type of this to the underlying
-        /// type if we are still analysing the enum, or to the type of the enum
-        /// that we searched (!) for the enumerator otherwise.
         for (auto& decl_context : decl_contexts) {
-            if (auto syms = decl_context.find(d->name)) {
-                Assert(syms->size() == 1, "Enum scope entries must have one symbol");
-                d->decl = syms->front();
-                d->is_lvalue = false;
-                d->stored_type = rgs::contains(open_enums, decl_context.scope)
-                    ? decl_context.scope->underlying_type
-                    : decl_context.scope;
+            if (auto [decl, type] = decl_context.find(*this, d->name)) {
+                d->decl = decl;
+                d->is_lvalue = decl->is_lvalue;
+                d->stored_type = type;
                 return true;
             }
         }

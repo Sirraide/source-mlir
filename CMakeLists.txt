@@ -80,6 +80,9 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clan
         ## This is typically nonsense if you’re not an idiot.
         -Wno-ctad-maybe-unsupported
 
+        ## Clang allows structured bindings in conditions as an extension.
+        -Wno-binding-in-condition
+
         ## This is nonsense in C++26.
         -Wno-trigraphs
     )

@@ -256,10 +256,10 @@ class Sema {
     /// than just the scope of the identifier—such as when an enum inherits
     /// from an enum declared in a different scope.
     class DeclContext {
-    public:
         /// Currently always an enum.
         EnumType* scope;
 
+    public:
         class [[nodiscard]] Guard {
             Sema& s;
 
@@ -274,10 +274,16 @@ class Sema {
             }
         };
 
+        struct Entry {
+            Expr* expr{};
+            Type type{Type::Unknown}; ///< DeclRefExprs may need to receive a different type.
+            explicit operator bool() { return expr != nullptr; }
+        };
+
         DeclContext(EnumType* e) : scope(e) {}
 
-        /// Find a symbol in this context.
-        auto find(String name) -> BlockExpr::Symbols*;
+        /// Find an entry in this context.
+        auto find(Sema& s, String name) -> Entry;
     };
 
     /// Active declaration contexts.
@@ -485,9 +491,12 @@ private:
         ArrayRef<Expr*> args
     );
 
+    /// Search an enum for an enumerator
+    auto SearchEnumScope(EnumType* enum_type, String name) -> DeclContext::Entry;
+
     /// Like Convert(), but does not perform the conversion, and does not
     /// issue any diagnostics on conversion failure.
-
+    ///
     /// This  *will* perform lvalue-to-rvalue conversion if
     /// the type conversion requires it and also in any case unless \p
     /// lvalue is true.
