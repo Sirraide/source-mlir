@@ -898,7 +898,11 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         case Expr::Kind::ModuleRefExpr:
             return {};
 
+        /// A construct expression without a target is meaningless.
         case Expr::Kind::ConstructExpr:
+            Diag::ICE(ctx, expr->location, "ConstructExpr without result object");
+
+        case Expr::Kind::AssignExpr:
             Todo();
 
         /// Nil should always be wrapped in a cast expression.

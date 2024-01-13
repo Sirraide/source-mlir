@@ -645,7 +645,10 @@ public:
 
 private:
     ConstructExpr(ConstructKind k)
-        : Expr(Kind::ConstructExpr, Location{}), ctor_kind(k) {}
+        : Expr(Kind::ConstructExpr, Location{}),
+          ctor_kind(k) {
+        sema.set_done();
+    }
 
     template <utils::is<ProcDecl*, RecordType*, std::nullptr_t> ProcOrRecordPtrType = std::nullptr_t>
     static auto Create(
@@ -1407,6 +1410,29 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::MaterialiseTemporaryExpr; }
+};
+
+/// Assign a value to a memory location.
+class AssignExpr : public TypedExpr {
+public:
+    /// The location to assign to.
+    Expr* lvalue;
+
+    /// The expression constructing the value.
+    ConstructExpr* ctor;
+
+    AssignExpr(Expr* lvalue, ConstructExpr* ctor, Location loc)
+        : TypedExpr(Kind::AssignExpr, lvalue->type, loc),
+          lvalue(lvalue),
+          ctor(ctor) {
+        Assert(lvalue->sema.ok);
+        Assert(ctor->sema.ok);
+        sema.set_done();
+        is_lvalue = true;
+    }
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::AssignExpr; }
 };
 
 /// ===========================================================================

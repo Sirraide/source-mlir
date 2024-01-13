@@ -1005,6 +1005,43 @@ struct ASTPrinter {
     void PrintHeader(Expr* e) {
         using K = Expr::Kind;
         switch (e->kind) {
+            /// We don’t print most types here.
+            case K::ArrayType:
+            case K::BuiltinType:
+            case K::ClosureType:
+            case K::IntType:
+            case K::OpaqueType:
+            case K::OptionalType:
+            case K::ProcType:
+            case K::ReferenceType:
+            case K::ScopedPointerType:
+            case K::ScopedType:
+            case K::SliceType:
+            case K::SugaredType:
+            case K::TupleType:
+            print_type:
+                PrintBasicNode("Type", e, e);
+                return;
+
+            case K::ArrayLitExpr: PrintBasicNode("ArrayLitExpr", e, nullptr); return;
+            case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
+            case K::Nil: PrintBasicNode("Nil", e, nullptr); return;
+            case K::OverloadSetExpr: PrintBasicNode("OverloadSetExpr", e, nullptr); return;
+            case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
+            case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
+
+            case K::AssignExpr: PrintBasicNode("ConstExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::ConstExpr: PrintBasicNode("ConstExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::ExportExpr: PrintBasicNode("ExportExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::InvokeExpr: PrintBasicNode("InvokeExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::MaterialiseTemporaryExpr: PrintBasicNode("MaterialiseTemporaryExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::TupleExpr: PrintBasicNode("TupleExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::TupleIndexExpr: PrintBasicNode("TupleIndexExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::WithExpr: PrintBasicNode("WithExpr", e, static_cast<Expr*>(e->type)); return;
+
             case K::ProcDecl: {
                 auto f = cast<ProcDecl>(e);
                 PrintLinkage(f->linkage);
@@ -1178,8 +1215,6 @@ struct ASTPrinter {
                 return;
             }
 
-            case K::InvokeExpr: PrintBasicNode("InvokeExpr", e, static_cast<Expr*>(e->type)); return;
-
             case K::InvokeBuiltinExpr: {
                 static const auto String = [](Builtin b) -> std::string_view {
                     switch (b) {
@@ -1298,23 +1333,6 @@ struct ASTPrinter {
                 out += '\n';
                 return;
             }
-
-            case K::ArrayLitExpr: PrintBasicNode("ArrayLitExpr", e, nullptr); return;
-            case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
-            case K::Nil: PrintBasicNode("Nil", e, nullptr); return;
-            case K::OverloadSetExpr: PrintBasicNode("OverloadSetExpr", e, nullptr); return;
-            case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
-            case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
-
-            case K::ConstExpr: PrintBasicNode("ConstExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::ExportExpr: PrintBasicNode("ExportExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::MaterialiseTemporaryExpr: PrintBasicNode("MaterialiseTemporaryExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::TupleExpr: PrintBasicNode("TupleExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::TupleIndexExpr: PrintBasicNode("TupleIndexExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::WithExpr: PrintBasicNode("WithExpr", e, static_cast<Expr*>(e->type)); return;
 
             case K::EnumType: {
                 auto a = cast<EnumType>(e);
@@ -1444,25 +1462,10 @@ struct ASTPrinter {
                     );
                     return;
                 }
-                [[fallthrough]];
-            }
 
-            /// We don’t print any other types here.
-            case K::ArrayType:
-            case K::BuiltinType:
-            case K::ClosureType:
-            case K::IntType:
-            case K::OpaqueType:
-            case K::OptionalType:
-            case K::ProcType:
-            case K::ReferenceType:
-            case K::ScopedPointerType:
-            case K::ScopedType:
-            case K::SliceType:
-            case K::SugaredType:
-            case K::TupleType:
-                PrintBasicNode("Type", e, e);
-                return;
+                /// Unnamed structs are just printed in-line.
+                goto print_type;
+            }
         }
 
         PrintBasicNode(R"(<???>)", e, static_cast<Expr*>(e->type));
@@ -1604,6 +1607,11 @@ struct ASTPrinter {
             case K::BinaryExpr: {
                 auto b = cast<BinaryExpr>(e);
                 PrintChildren({b->lhs, b->rhs}, leading_text);
+            } break;
+
+            case K::AssignExpr: {
+                auto a = cast<AssignExpr>(e);
+                PrintChildren({a->lvalue, a->ctor}, leading_text);
             } break;
 
             case K::TupleExpr: {

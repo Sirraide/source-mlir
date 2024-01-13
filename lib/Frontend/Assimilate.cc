@@ -247,6 +247,12 @@ class Assimilator {
                 Assimilate(b->rhs);
             } break;
 
+            case Expr::Kind::AssignExpr: {
+                auto a = cast<AssignExpr>(e);
+                Assimilate(a->lvalue);
+                Assimilate(a->ctor);
+            } break;
+
             case Expr::Kind::EnumType: {
                 auto t = cast<EnumType>(e);
                 DoAssimilate(t->module);
