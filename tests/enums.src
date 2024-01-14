@@ -1,4 +1,6 @@
+/// R %srcc %s --hlir
 
+/// d t %[a-zA-Z0-9_]+
 
 /// Trailing comma is allowed.
 enum E1 { A, B, C, D, }
@@ -11,12 +13,21 @@ enum E4 : i32 {
     N = M + 3, /// Enumerator defined in terms of previous one.
 }
 
+static assert E4::M as i32 == 17;
+static assert E4::N as i32 == 20;
+
 /// Enums can ‘extend’ other enums.
 enum E5 : E4 {
     O,     /// Value is one plus the last enumerator of the parent.
     P = N, /// Enumerators from the parent enum are in scope here.
     Q,
 }
+
+static assert E5::M as i32 == 17;
+static assert E5::N as i32 == 20;
+static assert E5::O as i32 == 21;
+static assert E5::P as i32 == 20;
+static assert E5::Q as i32 == 21;
 
 /// Enums can also have no enumerators at all; this is
 /// basically just a strong typedef.
@@ -30,42 +41,106 @@ enum E7 mask : i8 {
     D,
 }
 
+static assert E7::A as i8 == 1;
+static assert E7::B as i8 == 2;
+static assert E7::C as i8 == 4;
+static assert E7::D as i8 == 8;
+
 /// Bitmask enums can only extend other bitmask enums.
 enum E8 mask : E7 {
     E,
     F,
 }
 
+static assert E8::A as i8 == 1;
+static assert E8::B as i8 == 2;
+static assert E8::C as i8 == 4;
+static assert E8::D as i8 == 8;
+static assert E8::E as i8 == 16;
+static assert E8::F as i8 == 32;
+
 /// Initialise an enum from an integer. This is fine,
 /// so long as the integer is in range (which means it
 /// must be a constant expression), though it requires
 /// a cast.
+///
+/// * $a:t = local i64,
+/// + $c1:t = arith.constant 1
+/// + construct $a trivial i64 $c1
 E1 a = 1 as E1;
 
 /// Initialise an enum from an enumerator. Enumerator values
 /// are in scope here.
+///
+/// + $b:t = local i32,
+/// + $c2:t = arith.constant 20
+/// + construct $b trivial i32 $c2
 E4 b = N;
 
 /// As well as here.
+///
+/// + $c3:t = arith.constant 20
+/// + construct $b trivial i32 $c3
 b = N;
 
 /// Explicitly specify the enum and enumerator.
+///
+/// + $c:t = local i32,
+/// + $c4:t = arith.constant 17
+/// + construct $c trivial i32 $c4
 var c = E5::M;
 
 /// Enumerators of the parent enum are implicitly convertible
 /// to any derived enum; furthermore, enumerators of the parent
 /// enum are also in scope here.
+///
+/// + $c5:t = arith.constant 20
+/// + construct $c trivial i32 $c5
 c = N;
 
 /// Converting an out-of-bounds integer to an enum requires
 /// a hard cast.
+///
+/// + $d:t = local i64,
+/// + $c6:t = arith.constant 2
+/// + construct $d trivial i64 $c6
 E6 d = 2 as! E6;
 
 /// Bitmask enum shenanigans.
+///
+/// + $e:t = local i8,
+/// + $c7:t = arith.constant 1
+/// + $c8:t = arith.constant 2
+/// + $r1:t = or i8 $c7, $c8
+/// + $c9:t = arith.constant 16
+/// + $r2:t = or i8 $r1, $c9
+/// + construct $e trivial i8 $r2
 E8 e = A lor B lor E;
+
+/// + $f:t = local i8,
+/// + $c10:t = arith.constant 1
+/// + $c11:t = arith.constant 2
+/// + $r3:t = or i8 $c10, $c11
+/// + $c12:t = arith.constant 16
+/// + $r4:t = or i8 $r3, $c12
+/// + construct $f trivial i8 $r4
 E8 f = E7::A lor E8::B lor E8::E;
 
 /// Casting an enum to an integer is fine.
+///
+/// + $va:t = load i64 from $a
+/// + $trunc:t = arith.trunci $va : i64 to i32
+/// + $vb:t = load i32 from $b
+/// + $s1:t = add i32 $trunc, $vb
+/// + $vc:t = load i32 from $c
+/// + $s2:t = add i32 $s1, $vc
+/// + $vd:t = load i64 from $d
+/// + $trunc2:t = arith.trunci $vd : i64 to i32
+/// + $s3:t = add i32 $s2, $trunc2
+/// + $ce:t = arith.constant 2 : i64
+/// + $trunc3:t = arith.trunci $ce : i64 to i32
+/// + $s4:t = add i32 $s3, $trunc3
+/// + call @sink($s4)
 sink a as i32 + b as i32 + c as i32 + d as i32 + E3::K as i32;
 
 proc sink (i32) extern nomangle;

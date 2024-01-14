@@ -42,7 +42,7 @@ struct foo {
     /// + scope
     /// + (?<x>$t) = structgep $t[0] -> i64&
     /// + (?<val1>$t) = load i64 from $param1
-    /// + store into $x, i64 $val1
+    /// + construct $x trivial i64 $val1
     init (i64 x) {
         .x = x;
     }
@@ -58,7 +58,7 @@ struct foo {
     /// + (?<val1>$t) = load i64 from $param1
     /// + (?<val2>$t) = load i64 from $param2
     /// + (?<sum>$t) = add i64 $val1, $val2
-    /// + store into $x, i64 $sum
+    /// + construct $x trivial i64 $sum
     init (i64 x, i64 y) {
         .x = x + y;
     }

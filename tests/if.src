@@ -66,7 +66,7 @@ int& d = if false { b } else { c };
 /// + $TRUE_4:
 /// + $t = scope i64& {
 /// +     (?<A_3>$t) = load i64 from $A
-/// +     store into $A, i64 $A_3
+/// +     construct $A trivial i64 $A_3
 /// +     yield i64& $A
 /// + }
 /// + cf.br $JOIN_4

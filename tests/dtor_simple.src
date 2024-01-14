@@ -41,7 +41,7 @@ foo y = x.x;
 /// + (?<v1>$t) = scope i32& {
 /// +   (?<v2>$t) = structgep %arg0[0] -> i32&
 /// +   (?<v3>$t) = load i32 from $v0
-/// +   store into $v2, i32 $v3, align 4
+/// +   construct $v2 trivial i32 $v3
 /// +   yield i32& $v2
 /// + }
 /// + return

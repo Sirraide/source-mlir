@@ -564,6 +564,20 @@ auto src::CodeGen::EmitReference([[maybe_unused]] mlir::Location loc, src::Expr*
         mlir::SymbolRefAttr::get(mctx, p->mangled_name)
     );
 
+    /// If the operand is an enumerator, emit its value.
+    if (auto e = dyn_cast<EnumeratorDecl>(decl)) return CreateInt(
+        loc,
+        cast<ConstExpr>(e->value)->value.as_int(),
+        e->type
+    );
+
+    /// Sometimes, we may bind a value directly to a constant.
+    if (auto c = dyn_cast<ConstExpr>(decl)) return CreateInt(
+        loc,
+        c->value.as_int(),
+        c->type
+    );
+
     Unreachable();
 }
 
@@ -885,7 +899,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
 #define SOURCE_AST_TYPE(name) case Expr::Kind::name:
 #define SOURCE_AST_NIL(...)   /// Better error message for nil.
 #include <source/Frontend/AST.def>
-        Unreachable();
+        Diag::ICE(ctx, expr->location, "Don’t know how to codegen types");
 
         case Expr::Kind::OverloadSetExpr:
             Diag::ICE(ctx, expr->location, "Unresolved overload set in codegen");
@@ -901,9 +915,6 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         /// A construct expression without a target is meaningless.
         case Expr::Kind::ConstructExpr:
             Diag::ICE(ctx, expr->location, "ConstructExpr without result object");
-
-        case Expr::Kind::AssignExpr:
-            Todo();
 
         /// Nil should always be wrapped in a cast expression.
         case Expr::Kind::Nil:
@@ -1016,6 +1027,15 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             return tmp;
         }
 
+        case Expr::Kind::AssignExpr: {
+            auto a = cast<AssignExpr>(expr);
+            auto loc = Loc(a->location);
+            auto align = a->lvalue->type.align(ctx);
+            auto lval = Generate(a->lvalue);
+            Construct(loc, lval, align, a->ctor);
+            return lval;
+        }
+
         case Expr::Kind::ParenExpr: {
             auto p = cast<ParenExpr>(expr);
             return Generate(p->expr);
@@ -1095,9 +1115,9 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             );
         }
 
+        /// The ‘object’ is just a scope, so we don’t emit anything for it.
         case Expr::Kind::ScopeAccessExpr: {
             auto sa = cast<ScopeAccessExpr>(expr);
-            std::ignore = Generate(sa->object);
             return EmitReference(Loc(sa->location), sa->resolved);
         }
 
@@ -1929,16 +1949,19 @@ auto src::CodeGen::GenerateCmpOp(BinaryExpr* b) -> mlir::Value {
 }
 
 auto src::CodeGen::GenerateConvertingCast(CastExpr* c, mlir::Value operand) -> mlir::Value {
+    auto from_type = c->operand->type.desugared_underlying;
+    auto to_type = c->type.desugared_underlying;
+
     /// Create a nil of the target type.
-    if (isa<Nil>(c->operand)) return Create<hlir::NilOp>(Loc(c->location), Ty(c->type));
+    if (isa<Nil>(from_type)) return Create<hlir::NilOp>(Loc(c->location), Ty(to_type));
 
     /// No-op.
-    if (c->operand->type == c->type) return operand;
+    if (from_type == to_type) return operand;
 
     /// Procedure to closure casts.
-    if (isa<ProcType>(c->operand->type) and isa<ClosureType>(c->type)) {
+    if (isa<ProcType>(from_type) and isa<ClosureType>(to_type)) {
         auto proc = operand.getDefiningOp<mlir::func::ConstantOp>();
-        auto proc_type = cast<ProcType>(c->operand->type);
+        auto proc_type = cast<ProcType>(from_type);
 
         /// If the procedure is a nested function that takes a static
         /// chain, retrieve the appropriate chain pointer.
@@ -1947,7 +1970,7 @@ auto src::CodeGen::GenerateConvertingCast(CastExpr* c, mlir::Value operand) -> m
             return Create<hlir::MakeClosureOp>(
                 Loc(c->location),
                 proc.getValue(),
-                Ty(c->type),
+                Ty(to_type),
                 chain
             );
         }
@@ -1957,21 +1980,21 @@ auto src::CodeGen::GenerateConvertingCast(CastExpr* c, mlir::Value operand) -> m
         return Create<hlir::MakeClosureOp>(
             Loc(c->location),
             proc.getValue(),
-            Ty(c->type)
+            Ty(to_type)
         );
     }
 
-    /// Integer-to-integer casts.
-    if (c->operand->type.is_int(true) and c->type.is_int(true)) {
-        auto from_size = c->operand->type.size(ctx);
-        auto to_size = c->type.size(ctx);
+    /// Enum/integer-to-enum/integer casts.
+    if (from_type.is_int(true) and to_type.is_int(true)) {
+        auto from_size = from_type.size(ctx);
+        auto to_size = to_type.size(ctx);
 
         /// Truncation.
         if (from_size > to_size) {
             /// Casts to bool never actually truncate, but are instead
             /// equivalent to != 0. Note that that only applies to bool,
             /// not i1!
-            if (c->type == Type::Bool) {
+            if (to_type == Type::Bool) {
                 auto int_type = mlir::IntegerType::get(mctx, unsigned(from_size.bits()));
                 auto zero = Create<mlir::arith::ConstantOp>(
                     Loc(c->location),
@@ -2021,11 +2044,11 @@ auto src::CodeGen::GenerateConvertingCast(CastExpr* c, mlir::Value operand) -> m
     }
 
     /// Array-to-slice casts.
-    if (isa<ArrayType>(c->operand->type) and isa<SliceType>(c->type)) {
+    if (isa<ArrayType>(from_type) and isa<SliceType>(to_type)) {
         Assert(c->operand->is_lvalue);
         return CreateSliceFromArray(
             Loc(c->location),
-            cast<ArrayType>(c->operand->type),
+            cast<ArrayType>(from_type),
             operand
         );
     }

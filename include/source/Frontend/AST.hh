@@ -227,6 +227,10 @@ public:
     /// Get the type stripped of any sugar.
     readonly_const_decl(Type, desugared);
 
+    /// Get the type stripped of any sugar. Also strip sugar that
+    /// is irrelevant for the backend, e.g. enums.
+    readonly_const_decl(Type, desugared_underlying);
+
     /// Get the mangled name of this type.
     ///
     /// Context may be null if this is a struct type.

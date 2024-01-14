@@ -86,11 +86,11 @@ proc small (
     i64 ins = a + b + d + e + f;
 
     /// + $e2:t = load i64 from $e
-    /// + store into %arg2, i64 $e2
+    /// + construct %arg2 trivial i64 $e2
     c = e;
 
     /// + $ins1:t = load i64 from $ins
-    /// + store into %arg5, i64 $ins1
+    /// + construct %arg5 trivial i64 $ins1
     f = ins;
 }
 
@@ -119,10 +119,10 @@ proc big (
     i64[100] ins = a + b + d + e + f;
 
     /// + $e2:t = load i64[100] from %arg4
-    /// + store into %arg2, i64[100] $e2
+    /// + construct %arg2 trivial i64[100] $e2
     c = e;
 
     /// + $ins1:t = load i64[100] from $ins
-    /// + store into %arg5, i64[100] $ins1
+    /// + construct %arg5 trivial i64[100] $ins1
     f = ins;
 }

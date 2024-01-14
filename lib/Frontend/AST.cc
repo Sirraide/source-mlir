@@ -372,6 +372,12 @@ auto src::Type::_desugared() const -> Type {
     return *this;
 }
 
+auto src::Type::_desugared_underlying() const -> Type {
+    auto d = desugared;
+    if (auto e = dyn_cast<EnumType>(d)) return e->underlying_type.desugared_underlying;
+    return d;
+}
+
 bool src::Type::is_int(bool bool_is_int) {
     if (isa<SugaredType, ScopedType>(ptr)) return desugared.is_int(bool_is_int);
     switch (ptr->kind) {

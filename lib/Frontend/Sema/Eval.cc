@@ -45,7 +45,6 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::ParamDecl:
         case Expr::Kind::ProcDecl:
         case Expr::Kind::ReturnExpr:
-        case Expr::Kind::ScopeAccessExpr:
         case Expr::Kind::SubscriptExpr:
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::WhileExpr:
@@ -57,6 +56,9 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::Nil:
             out = nullptr;
             return true;
+
+        case Expr::Kind::ScopeAccessExpr:
+            return Evaluate(cast<ScopeAccessExpr>(e)->resolved, out, must_succeed);
 
         case Expr::Kind::DeclRefExpr:
             return Evaluate(cast<DeclRefExpr>(e)->decl, out, must_succeed);
@@ -142,18 +144,25 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::CastExpr: {
             auto c = cast<CastExpr>(e);
             if (not Evaluate(c->operand, out, must_succeed)) return false;
-            if (c->type.is_int(true) and c->operand->type.is_int(true)) {
-                if (c->type == c->operand->type) return true;
+
+            /// Enum/integer to enum/integer casts.
+            ///
+            /// If we get here, the cast has already been confirmed to be valid, so
+            /// just ignore enums here.
+            auto from = c->operand->type.desugared_underlying;
+            auto to = c->operand->type.desugared_underlying;
+            if (from.is_int(true) and to.is_int(true)) {
+                if (from == to) return true;
 
                 /// Always *zero-extend* bools to avoid turning true into -1.
-                const auto bits = unsigned(c->type.size(mod->context).bits());
-                if (c->operand->type == Type::Bool) {
+                const auto bits = unsigned(to.size(mod->context).bits());
+                if (from == Type::Bool) {
                     out.as_int() = out.as_int().zext(bits);
                     return true;
                 }
 
                 /// Casts to bool must yield 1 if the value is nonzero.
-                if (c->type == Type::Bool) {
+                if (to == Type::Bool) {
                     out.as_int() = APInt(1, out.as_int().getBoolValue());
                     return true;
                 }

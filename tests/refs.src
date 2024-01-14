@@ -30,13 +30,13 @@ int copy_i = r1i;
 
 /// * (?<R1I_2>$t) = load $any from $R1I
 /// + (?<I_2>$t) = load $any from $R1I_2
-/// + store into $I, $any $I_2
+/// + construct $I trivial $any $I_2
 i = r1i;
 
 /// * (?<R1I_3>$t) = load $any from $R1I
 /// + (?<R1J_0>$t) = load $any from $R1J
 /// + (?<J_0>$t) = load $any from $R1J_0
-/// + store into $R1I_3, $any $J_0
+/// + construct $R1I_3 trivial $any $J_0
 r1i = r1j;
 
 /// ===== Trivial Rebinding =====
@@ -67,14 +67,14 @@ int&&& r3j = r2j;
 /// * (?<R2I_0>$t) = load $any from $R2I
 /// + (?<R1I_4>$t) = load $any from $R2I_0
 /// + (?<J_1>$t) = load $any from $J
-/// + store into $R1I_4, $any $J_1
+/// + construct $R1I_4 trivial $any $J_1
 r2i = j;
 
 /// * (?<R3I_0>$t) = load $any from $R3I
 /// + (?<R2I_1>$t) = load $any from $R3I_0
 /// + (?<R1I_5>$t) = load $any from $R2I_1
 /// + (?<J_2>$t) = load $any from $J
-/// + store into $R1I_5, $any $J_2
+/// + construct $R1I_5 trivial $any $J_2
 r3i = j;
 
 /// * (?<R2J_0>$t) = load $any from $R2J
@@ -83,7 +83,7 @@ r3i = j;
 /// + (?<R2J_1>$t) = load $any from $R3J_0
 /// + (?<R1J_3>$t) = load $any from $R2J_1
 /// + (?<J_3>$t) = load $any from $R1J_3
-/// + store into $R1J_2, $any $J_3
+/// + construct $R1J_2 trivial $any $J_3
 r2j = r3j;
 
 /// * (?<R3I_1>$t) = load $any from $R3I
@@ -92,7 +92,7 @@ r2j = r3j;
 /// + (?<R2I_3>$t) = load $any from $R2I
 /// + (?<R1I_7>$t) = load $any from $R2I_3
 /// + (?<I_3>$t) = load $any from $R1I_7
-/// + store into $R1I_6, $any $I_3
+/// + construct $R1I_6 trivial $any $I_3
 r3i = r2i;
 
 /// * (?<R3I_2>$t) = load $any from $R3I
@@ -100,14 +100,14 @@ r3i = r2i;
 /// + (?<R1I_8>$t) = load $any from $R2I_4
 /// + (?<R1I_9>$t) = load $any from $R1I
 /// + (?<I_4>$t) = load $any from $R1I_9
-/// + store into $R1I_8, $any $I_4
+/// + construct $R1I_8 trivial $any $I_4
 r3i = r1i;
 
 /// * (?<R2J_2>$t) = load $any from $R2J
 /// + (?<R1J_4>$t) = load $any from $R2J_2
 /// + (?<R1J_5>$t) = load $any from $R1J
 /// + (?<J_4>$t) = load $any from $R1J_5
-/// + store into $R1J_4, $any $J_4
+/// + construct $R1J_4 trivial $any $J_4
 r2j = r1j;
 
 /// ===== Multi-level Rebinding =====

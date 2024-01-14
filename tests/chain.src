@@ -25,7 +25,7 @@ proc p1 -> int {
     int c;
 
     /// * (?<CONST_1>$t) = arith.constant 4 : i64
-    /// + store into $A, i64 $CONST_1
+    /// + construct $A trivial i64 $CONST_1
     a = 4;
 
     /// * (?<CONST_2>$t) = arith.constant 4 : i64
@@ -40,7 +40,7 @@ proc p1 -> int {
         /// + (?<CHAIN1_1>$t) = extractlocal chain $CHAIN2[0]
         /// + (?<A1>$t) = structgep $CHAIN1_1[0] -> i64&
         /// * (?<CONST_3>$t) = arith.constant 3 : i64
-        /// + store into $A1, i64 $CONST_3
+        /// + construct $A1 trivial i64 $CONST_3
         a = 3;
 
         /// + call @_SJJ2p1PE2p2PiE2p3PE($CHAIN2)
@@ -54,7 +54,7 @@ proc p1 -> int {
             /// + (?<CHAIN2_1>$t) = extractlocal chain $CHAIN3[0]
             /// + (?<B1>$t) = structgep $CHAIN2_1[1] -> i64&
             /// * (?<CONST_4>$t) = arith.constant 4 : i64
-            /// + store into $B1, i64 $CONST_4
+            /// + construct $B1 trivial i64 $CONST_4
             b = 4;
 
             /// + call @_SJJJ2p1PE2p2PiE2p3PE2p4PE($CHAIN3)
@@ -76,7 +76,7 @@ proc p1 -> int {
                 /// + (?<CHAIN1_2>$t) = extractlocal chain $CHAIN2_2[0]
                 /// + (?<A2>$t) = structgep $CHAIN1_2[0] -> i64&
                 /// + (?<CONST_7>$t) = arith.constant 8 : i64
-                /// + store into $A2, i64 $CONST_7
+                /// + construct $A2 trivial i64 $CONST_7
                 a = 8;
 
                 /// + (?<CONST_8>$t) = arith.constant 4 : i64
@@ -97,13 +97,13 @@ proc p1 -> int {
             /// + (?<CHAIN1_3>$t) = extractlocal chain $CHAIN2_4[0]
             /// + (?<A3>$t) = structgep $CHAIN1_3[0] -> i64&
             /// + (?<CONST_10>$t) = arith.constant 42 : i64
-            /// + store into $A3, i64 $CONST_10
+            /// + construct $A3 trivial i64 $CONST_10
             a = 42;
 
             /// * (?<CHAIN2_5>$t) = extractlocal chain $CHAIN5[0]
             /// + (?<B2>$t) = structgep $CHAIN2_5[1] -> i64&
             /// + (?<CONST_11>$t) = arith.constant 6 : i64
-            /// + store into $B2, i64 $CONST_11
+            /// + construct $B2 trivial i64 $CONST_11
             b = 6;
         }
     }
