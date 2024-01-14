@@ -1537,7 +1537,7 @@ auto src::Sema::Construct(
             }
 
             /// If the argument is an array, simply copy/move it.
-            if (init_args[0]->type == ty) return TrivialCopy(ty);
+            if (init_args[0]->type.strip_refs_and_pointers == ty) return TrivialCopy(ty);
 
             /// Otherwise, attempt to broadcast a single value. If the
             /// value is simply convertible to the target type, then
