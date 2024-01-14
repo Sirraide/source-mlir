@@ -1643,7 +1643,7 @@ auto src::Sema::Construct(
                 /// Check if there is a zero value in the enum or any of its parents.
                 for (auto enum_type = enum_ty; enum_type; enum_type = enum_type->parent_enum)
                     for (auto n : enum_type->enumerators)
-                        if (cast<ConstExpr>(n)->value.as_int().isZero())
+                        if (n->value.isZero())
                             return ConstructExpr::CreateZeroinit(mod);
 
                 /// Otherwise, this can’t be default-initialised.
@@ -1870,12 +1870,19 @@ bool src::Sema::Analyse(Expr*& e) {
                 "Underlying type of enum must be an integer type or another enum type"
             );
 
+            /// Analyse our parent, if we have one.
+            if (n->parent_enum) {
+                Type t{n->parent_enum};
+                if (not AnalyseAsType(t)) return e->sema.set_errored();
+                Assert(t.ptr == n->parent_enum, "Must not wrap parent enum");
+            }
+
             /// Mask enums can only extend mask enums (or integer types, of
             /// course), but vice versa is fine.
-            auto parent_enum = n->parent_enum;
-            if (n->mask and parent_enum and not parent_enum->mask) return Error(
+            if (n->mask and n->parent_enum and not n->parent_enum->mask) return Error(
                 e,
-                "Mask enums can only extend other mask enums"
+                "Bitmask enum cannot extend non-bitmask enum '{}'",
+                Type{n->parent_enum}
             );
 
             /// Enter the enum’s scope and push a new DeclContext for name lookup.
@@ -1898,7 +1905,7 @@ bool src::Sema::Analyse(Expr*& e) {
             /// If any of our parents have enumerators, pick the value of the last one.
             for (auto it = n->parent_enum; it; it = it->parent_enum) {
                 if (not it->enumerators.empty()) {
-                    last_value = &cast<ConstExpr>(it->enumerators.back()->value)->value.as_int();
+                    last_value = &it->enumerators.back()->value;
                     break;
                 }
             }
@@ -1927,7 +1934,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 }
 
                 /// Add 1 to the previous value, or multiply by 2 if this is a mask enum.
-                if (not enumerator->value) {
+                if (not enumerator->initialiser) {
                     APInt this_val;
 
                     /// Bitmask enums start at 1, other enums at 0.
@@ -1958,22 +1965,22 @@ bool src::Sema::Analyse(Expr*& e) {
                         enumerator->location
                     );
 
-                    enumerator->value = c;
+                    enumerator->initialiser = c;
                     last_value = &c->value.as_int();
                 }
 
                 /// Validate the initialiser.
                 else {
-                    if (not Analyse(enumerator->value)) continue;
+                    if (not Analyse(enumerator->initialiser)) continue;
 
                     /// Make sure the value is an integer constant of the right type.
-                    if (not EvaluateAsIntegerInPlace(enumerator->value, true, underlying)) continue;
+                    if (not EvaluateAsIntegerInPlace(enumerator->initialiser, true, underlying)) continue;
 
                     /// For mask enums, the value must be a power of two.
-                    auto* this_val = &cast<ConstExpr>(enumerator->value)->value.as_int();
+                    auto* this_val = &enumerator->value;
                     if (n->mask and (this_val->isZero() or not this_val->isPowerOf2())) {
                         Error(
-                            enumerator->value->location,
+                            enumerator->initialiser->location,
                             "Initialiser '{}' of mask enum must be a non-zero power of two",
                             *this_val
                         );
@@ -1987,7 +1994,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
                 /// Add the enumerator *value* to the scope; this way the type of the
                 /// enumerator within the enum is the underlying type.
-                n->scope->declare(enumerator->name, enumerator->value);
+                n->scope->declare(enumerator->name, enumerator->initialiser);
             next_enumerator:
             }
 
@@ -3505,7 +3512,7 @@ void src::Sema::AnalyseExplicitCast(Expr*& e, [[maybe_unused]] bool is_hard) {
         /// Check the value exists.
         auto from_val = cast<ConstExpr>(c->operand)->value.as_int();
         for (auto n : enum_ty->enumerators) {
-            auto& val = cast<ConstExpr>(n->value)->value.as_int();
+            auto& val = n->value;
             if (val == from_val) return;
         }
 

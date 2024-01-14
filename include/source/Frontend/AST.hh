@@ -1459,12 +1459,17 @@ public:
 
 class EnumeratorDecl : public Decl {
 public:
-    /// The value of this enumerator.
-    Expr* value;
+    /// Initialising expression.
+    ///
+    /// After Sema, you probably want to use `value` instead.
+    Expr* initialiser;
 
-    EnumeratorDecl(String name, Expr* value, Location loc)
+    /// Get the enumerator value.
+    readonly(APInt&, value, return cast<ConstExpr>(initialiser)->value.as_int());
+
+    EnumeratorDecl(String name, Expr* init, Location loc)
         : Decl(Kind::EnumeratorDecl, name, Type::Unknown, loc),
-          value(value) {}
+          initialiser(init) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::EnumeratorDecl; }

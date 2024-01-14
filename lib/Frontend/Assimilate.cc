@@ -263,7 +263,7 @@ class Assimilator {
             case Expr::Kind::EnumeratorDecl: {
                 auto b = cast<EnumeratorDecl>(e);
                 Assimilate(b->stored_type);
-                Assimilate(b->value);
+                Assimilate(b->initialiser);
             } break;
 
             case Expr::Kind::TupleExpr: {

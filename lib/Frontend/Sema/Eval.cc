@@ -80,7 +80,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
 
         case Expr::Kind::EnumeratorDecl: {
             auto n = cast<EnumeratorDecl>(e);
-            out = {cast<ConstExpr>(n)->value.as_int(), n->type};
+            out = {n->value, n->type};
             return true;
         }
 

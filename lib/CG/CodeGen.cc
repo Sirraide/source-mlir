@@ -567,7 +567,7 @@ auto src::CodeGen::EmitReference([[maybe_unused]] mlir::Location loc, src::Expr*
     /// If the operand is an enumerator, emit its value.
     if (auto e = dyn_cast<EnumeratorDecl>(decl)) return CreateInt(
         loc,
-        cast<ConstExpr>(e->value)->value.as_int(),
+        e->value,
         e->type
     );
 

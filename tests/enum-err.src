@@ -1,0 +1,55 @@
+/// R %srcc %s --sema |& cat
+
+enum P { X = 1, Y, Z }
+enum Der : P;
+int runtime;
+
+/// * enum-err.src:9:13: Error: An enumerator named 'X' already exists in this enum
+/// * enum-err.src:9:10: Note: Previous declaration is here
+enum A { X, X }
+
+/// * enum-err.src:13:14: Error: An enumerator named 'X' already exists in this enum
+/// * enum-err.src:3:14: Note: Previous declaration is here
+enum B : P { X }
+
+/// * enum-err.src:16:1: Error: Underlying type of enum must be an integer type or another enum type
+enum C : int&;
+
+/// * enum-err.src:19:19: Error: Value 128 is not representable by type i8
+enum D : i8 { X = 128 }
+
+/// * enum-err.src:22:14: Error: Unknown symbol 'Y'
+enum F { X = Y, Y }
+
+/// * enum-err.src:27:9: Error: Initialiser '0' of mask enum must be a non-zero power of two
+/// * enum-err.src:28:9: Error: Initialiser '3' of mask enum must be a non-zero power of two
+enum G mask {
+    A = 0,
+    B = 3,
+}
+
+/// * enum-err.src:32:1: Error: Bitmask enum cannot extend non-bitmask enum 'F'
+enum H mask : F;
+
+/// * enum-err.src:35:14: Error: Not a constant expression
+enum I { X = runtime }
+
+/// * enum-err.src:38:3: Error: Initialisation of enum 'P' requires a value; 0 is not a valid enum value for this type!
+P zero;
+
+/// * enum-err.src:42:3: Error: Cannot construct 'P' from arguments int
+/// * enum-err.src:43:3: Error: Cannot construct 'P' from arguments int
+P x = 0;
+P y = 34;
+
+/// * enum-err.src:47:3: Error: Cannot construct 'P' from arguments Der
+Der d = P::X;
+P z = d;
+
+/// * enum-err.src:50:7: Error: Type 'P' has no enumerator with value '347'
+P q = 347 as P;
+
+/// * enum-err.src:55:8: Error: Enum 'P' is not a bitmask enum
+P v1 = P::X;
+P v2 = P::X;
+P v3 = v1 lor v2;

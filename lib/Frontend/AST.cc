@@ -579,12 +579,12 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
 
         case Expr::Kind::StructType: {
             auto s = cast<StructType>(ptr);
-            out += fmt::format("{}struct ", C(Red));
             if (not s->name.empty()) {
                 out += fmt::format("{}{}", C(Cyan), s->name);
             } else {
                 out += fmt::format(
-                    "<anonymous {}{}{} at {}{}{}:{}{}{}>",
+                    "{} struct <anonymous {}{}{} at {}{}{}+{}{}{}>",
+                    C(Red),
                     C(Blue),
                     fmt::ptr(ptr),
                     C(Red),
@@ -600,12 +600,12 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
 
         case Expr::Kind::EnumType: {
             auto s = cast<EnumType>(ptr);
-            out += fmt::format("{}enum ", C(Red));
             if (not s->name.empty()) {
                 out += fmt::format("{}{}", C(Cyan), s->name);
             } else {
                 out += fmt::format(
-                    "<anonymous {}{}{} at {}{}{}:{}{}{}>",
+                    "{} enum <anonymous {}{}{} at {}{}{}+{}{}{}>",
+                    C(Red),
                     C(Blue),
                     fmt::ptr(ptr),
                     C(Red),
@@ -641,15 +641,19 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
 
 done: // clang-format off
     auto d = desugared;
-    if (
-        include_desugared and
-        d.ptr != ptr and (
-            /// Do not print e.g. ‘bar aka struct bar’.
-            not isa<SugaredType>(ptr) or
-            not isa<Named>(d.ptr) or
-            cast<SugaredType>(ptr)->name != cast<Named>(d.ptr)->name
-        )
-    ) out += fmt::format(" {}aka {}", C(Reset), d.str(use_colour));
+    bool print_canonical = [&] -> bool {
+        /// Type is not sugared.
+        if (not include_desugared or d.ptr == ptr) return false;
+        auto s = dyn_cast<SugaredType>(ptr);
+        if (not s) return false;
+
+        /// Structs and enums may be behind a sugared type with the
+        /// same name; do not print the 'aka' in that case.
+        if (auto t = dyn_cast<StructType>(d.ptr)) return t->name != s->name;
+        if (auto e = dyn_cast<EnumType>(d.ptr)) return e->name != s->name;
+        return true;
+    }();
+    if (print_canonical) out += fmt::format(" {}aka {}", C(Reset), d.str(use_colour));
     out += C(Reset);
     return out;
 } // clang-format on
@@ -699,7 +703,7 @@ bool src::Type::_trivial() {
         case Expr::Kind::EnumType:
             return rgs::any_of(
                 cast<EnumType>(ptr)->enumerators,
-                [](auto e) { return cast<ConstExpr>(e->value)->value.as_int().isZero(); }
+                [](auto e) { return e->value.isZero(); }
             );
 
         case Expr::Kind::SugaredType:
@@ -1665,7 +1669,7 @@ public:
 
             case K::EnumeratorDecl: {
                 auto t = cast<EnumeratorDecl>(e);
-                if (t->value) PrintChildren(t->value, leading_text);
+                if (t->initialiser) PrintChildren(t->initialiser, leading_text);
             } break;
 
             case K::SubscriptExpr: {

@@ -59,6 +59,11 @@ static assert E8::D as i8 == 8;
 static assert E8::E as i8 == 16;
 static assert E8::F as i8 == 32;
 
+/// But the other way around is fine.
+enum E9 : E8 {
+    G = 47,
+}
+
 /// Initialise an enum from an integer. This is fine,
 /// so long as the integer is in range (which means it
 /// must be a constant expression), though it requires
