@@ -1,0 +1,8 @@
+struct pair (type T, type U) {
+    T first;
+    U second;
+}
+
+proc sum (pair($T, $T) p) -> $T {
+    return p.first + p.second;
+}

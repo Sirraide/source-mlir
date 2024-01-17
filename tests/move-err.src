@@ -1,0 +1,59 @@
+
+proc puts (i8) extern native;
+
+struct HasDtor {
+    delete {
+        puts 'dtor called'.data;
+    }
+}
+
+/// Certain types are trivially copyable, i.e. they are copied
+/// instead of moved as there really is no way of moving them.
+int a;
+int[5] b;
+int[] c = b;
+
+int d = a;
+int[5] e = b;
+int[] f = c;
+
+/// Thus, the original values can still be used after such an operation.
+int g = a;
+int[5] h = b;
+int[] i = c;
+
+/// However, this is not true for types with a destructor.
+HasDtor j;
+var k = j;
+
+/// * move-err.src:30:9 Error: Use of variable 'j' after it has been moved.
+var l = j;
+
+/// Potential move.
+if true {
+    var q = k;
+}
+
+/// * move-err.src:38:9 Error: Use of variable 'j' after potential move.
+var m = j;
+
+/// Definite move.
+HasDtor n;
+if true {
+    var q = n;
+} else {
+    var q = n;
+}
+
+/// * move-err.src:49:9 Error: Use of variable 'n' after definite move.
+var o = n;
+
+/// Definite move, lvalue variant.
+HasDtor p;
+HasDtor q;
+var r = if true then p else q;
+
+/// * move-err.src:58:9 Error: Use of variable 'p' after potential move.
+/// * move-err.src:59:9 Error: Use of variable 'q' after potential move.
+var s = p;
+var t = q;

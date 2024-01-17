@@ -202,7 +202,7 @@ bool src::Sema::ConvertImpl(
 
     /// Active optionals are convertible to the type they contain. There
     /// are no other valid conversions involving optionals at the moment.
-    if (auto ty = Optionals.GetActiveOptionalType(ctx.expr)) {
+    if (auto ty = LValueState.GetActiveOptionalType(ctx.expr)) {
         from = ctx.cast(CastKind::OptionalUnwrap, ty->elem);
         return ConvertImpl<perform_conversion>(ctx, from, type);
     }
@@ -564,7 +564,7 @@ auto src::Sema::Unwrap(Expr* e, bool keep_lvalues) -> Expr* {
     Assert(e->sema.ok, "Unwrap() called on broken or unanalysed expression");
 
     /// Unwrap active optionals.
-    if (auto opt = Optionals.GetActiveOptionalType(e)) {
+    if (auto opt = LValueState.GetActiveOptionalType(e)) {
         e = new (mod) CastExpr(CastKind::OptionalUnwrap, e, opt->elem, e->location);
         Analyse(e);
         return Unwrap(e, keep_lvalues);
@@ -586,32 +586,32 @@ void src::Sema::UnwrapInPlace(Expr*& e, bool keep_lvalues) {
 }
 
 auto src::Sema::UnwrappedType(Expr* e) -> Type {
-    if (auto opt = Optionals.GetActiveOptionalType(e)) return opt->elem.strip_refs_and_pointers;
+    if (auto opt = LValueState.GetActiveOptionalType(e)) return opt->elem.strip_refs_and_pointers;
     return e->type.strip_refs_and_pointers;
 }
 
 /// ===========================================================================
 ///  Optional tracking.
 /// ===========================================================================
-src::Sema::OptionalState::ScopeGuard::ScopeGuard(src::Sema& S)
+src::Sema::LValueState::ScopeGuard::ScopeGuard(src::Sema& S)
     : S(S),
-      previous(std::exchange(S.Optionals.guard, this)) {}
+      previous(std::exchange(S.LValueState.guard, this)) {}
 
-src::Sema::OptionalState::ScopeGuard::~ScopeGuard() {
-    for (auto&& [e, old_state] : changes) S.Optionals.tracked[e] = std::move(old_state);
-    S.Optionals.guard = previous;
+src::Sema::LValueState::ScopeGuard::~ScopeGuard() {
+    for (auto&& [e, old_state] : changes) S.LValueState.tracked[e] = std::move(old_state);
+    S.LValueState.guard = previous;
 }
 
-src::Sema::OptionalState::ActivationGuard::ActivationGuard(Sema& S, Expr* expr)
+src::Sema::LValueState::OptionalActivationGuard::OptionalActivationGuard(Sema& S, Expr* expr)
     : S(S), expr(expr) {
-    S.Optionals.Activate(expr);
+    S.LValueState.ActivateOptional(expr);
 }
 
-src::Sema::OptionalState::ActivationGuard::~ActivationGuard() {
-    S.Optionals.Deactivate(expr);
+src::Sema::LValueState::OptionalActivationGuard::~OptionalActivationGuard() {
+    S.LValueState.DeactivateOptional(expr);
 }
 
-auto src::Sema::OptionalState::GetObjectPath(MemberAccessExpr* m) -> std::pair<LocalDecl*, Path> {
+auto src::Sema::LValueState::GetObjectPath(MemberAccessExpr* m) -> std::pair<LocalDecl*, Path> {
     if (not m or not m->field or not m->object) return {nullptr, {}};
 
     /// Find object root.
@@ -634,7 +634,7 @@ auto src::Sema::OptionalState::GetObjectPath(MemberAccessExpr* m) -> std::pair<L
     return {nullptr, {}};
 }
 
-void src::Sema::OptionalState::ChangeState(Expr* e, auto cb) {
+void src::Sema::LValueState::ChangeOptionalState(Expr* e, auto cb) {
     if (not e) return;
     e = e->ignore_paren_refs;
 
@@ -653,22 +653,22 @@ void src::Sema::OptionalState::ChangeState(Expr* e, auto cb) {
     }
 }
 
-void src::Sema::OptionalState::Activate(Expr* e) { // clang-format off
-    ChangeState(e, utils::overloaded {
-        [&] (LocalDecl* var) { tracked[var].active = true; },
+void src::Sema::LValueState::ActivateOptional(Expr* e) { // clang-format off
+    ChangeOptionalState(e, utils::overloaded {
+        [&] (LocalDecl* var) { tracked[var].active_optional = true; },
         [&] (LocalDecl* var, Path path) {
             /// Activating a field only makes sense if the thing
             /// itself is active, so if we get here, it must be
             /// active.
-            tracked[var].active = true;
+            tracked[var].active_optional = true;
             tracked[var].active_fields.push_back(std::move(path));
         }
     });
 } // clang-format on
 
-void src::Sema::OptionalState::Deactivate(Expr* e) { // clang-format off
-    ChangeState(e, utils::overloaded {
-        [&] (LocalDecl* var) { tracked[var].active = false; },
+void src::Sema::LValueState::DeactivateOptional(Expr* e) { // clang-format off
+    ChangeOptionalState(e, utils::overloaded {
+        [&] (LocalDecl* var) { tracked[var].active_optional = false; },
         [&] (LocalDecl* var, Path path) {
             /// Delete all paths that *start with* this path, as nested
             /// objects are now part of a different object.
@@ -679,13 +679,13 @@ void src::Sema::OptionalState::Deactivate(Expr* e) { // clang-format off
     });
 } // clang-format on
 
-auto src::Sema::OptionalState::GetActiveOptionalType(Expr* e) -> OptionalType* {
+auto src::Sema::LValueState::GetActiveOptionalType(Expr* e) -> OptionalType* {
     if (not e) return nullptr;
     e = e->ignore_paren_refs;
 
     if (auto var = dyn_cast<LocalDecl>(e)) {
         auto obj = tracked.find(var);
-        if (obj == tracked.end() or not obj->second.active) return nullptr;
+        if (obj == tracked.end() or not obj->second.active_optional) return nullptr;
         return dyn_cast<OptionalType>(var->type.desugared);
     }
 
@@ -693,7 +693,7 @@ auto src::Sema::OptionalState::GetActiveOptionalType(Expr* e) -> OptionalType* {
         if (auto [var, path] = GetObjectPath(m); var) {
             Assert(not path.empty());
             auto obj = tracked.find(var);
-            if (obj == tracked.end() or not obj->second.active) return nullptr;
+            if (obj == tracked.end() or not obj->second.active_optional) return nullptr;
             if (
                 rgs::any_of(
                     obj->second.active_fields,
@@ -715,7 +715,7 @@ auto src::Sema::OptionalState::GetActiveOptionalType(Expr* e) -> OptionalType* {
     return nullptr;
 }
 
-auto src::Sema::OptionalState::MatchNilTest(Expr* test) -> Expr* {
+auto src::Sema::LValueState::MatchOptionalNilTest(Expr* test) -> Expr* {
     auto c = dyn_cast<CastExpr>(test->ignore_lv2rv);
     if (
         c and
@@ -727,6 +727,53 @@ auto src::Sema::OptionalState::MatchNilTest(Expr* test) -> Expr* {
     }
 
     return nullptr;
+}
+
+void src::Sema::LValueState::SetDefinitelyMoved(Expr* expr) {
+    if (not expr) return;
+    auto e = expr->ignore_paren_refs;
+
+    /// Ignore trivially copyable types and non-lvalues.
+    if (e->type.trivially_copyable) return;
+    if (not e->is_lvalue) return;
+
+    /// Check if the variable has already been moved.
+    auto AlreadyMoved = [&](LocalDecl* var) {
+        if (not var->already_moved) return false;
+        S->Error(expr->location, "Cannot move from {}moved-from value", var->partially_moved ? "partially" : "");
+        S->Note(last_moves[var].loc, "Previous move was here");
+        return true;
+    };
+
+    if (auto var = dyn_cast<LocalDecl>(e)) {
+        if (AlreadyMoved(var)) return;
+        var->definitely_moved = true;
+        last_moves[var].loc = expr->location;
+    }
+
+    if (auto mem = dyn_cast<MemberAccessExpr>(e)) {
+        if (auto [var, path] = GetObjectPath(mem); var) {
+            Assert(not path.empty());
+            if (AlreadyMoved(var)) return;
+
+            /// If the field we’re trying to move—or one of its subobjects—has already
+            /// been moved, then we can’t do this.
+            auto entry = llvm::find_if(var->partially_moved_fields, [&](Path& p) {
+                return utils::starts_with(p, path);
+            });
+
+            /// Got one.
+            if (entry != var->partially_moved_fields.end()) {
+                S->Error(expr->location, "Cannot moved already moved-from value");
+                S->Note(last_moves[var].subobjects[*entry], "Previous move was here");
+                return;
+            }
+
+            /// Ok.
+            last_moves[var].subobjects[path] = expr->location;
+            var->partially_moved_fields.push_back(std::move(path));
+        }
+    }
 }
 
 /// ===========================================================================
@@ -1343,7 +1390,7 @@ auto src::Sema::Construct(
     };
 
     /// Helper to emit a trivial copy.
-    auto TrivialCopy = [&](Type ty) -> ConstructExpr* {
+    auto CopyInit = [&](Type ty) -> ConstructExpr* {
         if (not Convert(init_args[0], ty)) {
             Error(
                 init_args[0],
@@ -1354,7 +1401,7 @@ auto src::Sema::Construct(
             return nullptr;
         }
 
-        return ConstructExpr::CreateTrivialCopy(mod, init_args[0]);
+        return ConstructExpr::CreateCopy(mod, init_args[0]);
     };
 
     /// Initialisation is dependent on the type.
@@ -1369,7 +1416,7 @@ auto src::Sema::Construct(
         case Expr::Kind::IntType:
         case Expr::Kind::Nil: {
             if (init_args.empty()) return ConstructExpr::CreateZeroinit(mod);
-            if (init_args.size() == 1) return TrivialCopy(type);
+            if (init_args.size() == 1) return CopyInit(type);
             return InvalidArgs();
         }
 
@@ -1380,15 +1427,25 @@ auto src::Sema::Construct(
                 return nullptr;
             }
 
-            if (init_args.size() == 1) return TrivialCopy(type);
+            if (init_args.size() == 1) return CopyInit(type);
             return InvalidArgs();
         }
 
         case Expr::Kind::StructType: {
             auto s = cast<StructType>(ty);
 
-            /// If there are no arguments, and no constructor, zero-initialise the struct.
-            if (init_args.empty() and s->initialisers.empty()) return ConstructExpr::CreateZeroinit(mod);
+            /// If the type has no constructors...
+            if (s->initialisers.empty()) {
+                /// and there are no arguments, zero-initialise the struct.
+                if (init_args.empty()) return ConstructExpr::CreateZeroinit(mod);
+
+                /// Otherwise, perform a move.
+                if (init_args.size() == 1) {
+                    return CopyInit(type);
+                }
+
+                return InvalidArgs();
+            }
 
             /// Otherwise, perform overload resolution.
             auto ctor = PerformOverloadResolution(loc, s->initialisers, init_args, true);
@@ -1417,7 +1474,7 @@ auto src::Sema::Construct(
 
             /// If there is one argument that is also a tuple with the
             /// exact same type as this, just use it.
-            if (init_args[0]->type == ty) return TrivialCopy(ty);
+            if (init_args[0]->type == ty) return CopyInit(ty);
 
             /// If there is one argument that is a tuple, take its elements.
             SmallVector<Expr*, 16> args_storage;
@@ -1537,7 +1594,7 @@ auto src::Sema::Construct(
             }
 
             /// If the argument is an array, simply copy/move it.
-            if (init_args[0]->type.strip_refs_and_pointers == ty) return TrivialCopy(ty);
+            if (init_args[0]->type.strip_refs_and_pointers == ty) return CopyInit(ty);
 
             /// Otherwise, attempt to broadcast a single value. If the
             /// value is simply convertible to the target type, then
@@ -1571,7 +1628,7 @@ auto src::Sema::Construct(
 
         case Expr::Kind::SliceType: {
             if (init_args.empty()) return ConstructExpr::CreateZeroinit(mod);
-            if (init_args.size() == 1) return TrivialCopy(type);
+            if (init_args.size() == 1) return CopyInit(type);
 
             /// A slice can be constructed from a reference+size.
             auto s = cast<SliceType>(ty);
@@ -1619,11 +1676,11 @@ auto src::Sema::Construct(
                 /// If the initialiser is already an optional,
                 /// just leave it as is.
                 if (type == init_args[0]->type)
-                    return ConstructExpr::CreateTrivialCopy(mod, init_args[0]);
+                    return ConstructExpr::CreateCopy(mod, init_args[0]);
 
                 /// Otherwise, attempt to convert it to the wrapped type.
-                Optionals.Activate(target);
-                return TrivialCopy(opt->elem);
+                LValueState.ActivateOptional(target);
+                return CopyInit(opt->elem);
             }
 
             return InvalidArgs();
@@ -1662,7 +1719,7 @@ auto src::Sema::Construct(
             if (init_args.size() == 1) {
                 for (auto enum_type = enum_ty; enum_type; enum_type = enum_type->parent_enum)
                     if (init_args[0]->type == enum_type)
-                        return TrivialCopy(enum_type);
+                        return CopyInit(enum_type);
             }
 
             return InvalidArgs();
@@ -1900,7 +1957,7 @@ bool src::Sema::Analyse(Expr*& e) {
             auto underlying = n->underlying_type;
             auto bits = u32(underlying.size(ctx).bits());
             const APInt one = {bits, 1};
-            const APInt *last_value = nullptr;
+            const APInt* last_value = nullptr;
 
             /// If any of our parents have enumerators, pick the value of the last one.
             for (auto it = n->parent_enum; it; it = it->parent_enum) {
@@ -2175,7 +2232,8 @@ bool src::Sema::Analyse(Expr*& e) {
             /// Condition must be a bool.
             if (Analyse(a->cond) and EnsureCondition(a->cond)) {
                 /// If this asserts that an optional is not nil, mark it as active.
-                if (auto o = Optionals.MatchNilTest(a->cond)) Optionals.Activate(o);
+                if (auto o = LValueState.MatchOptionalNilTest(a->cond))
+                    LValueState.ActivateOptional(o);
             }
 
             /// Message must be an i8[].
@@ -2211,7 +2269,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Track what optionals were made active in this scope and reset
             /// their active state when we leave it; same for with expressions.
-            OptionalState::ScopeGuard _{*this};
+            LValueState::ScopeGuard _{*this};
             const auto with_stack_size = with_stack.size();
             defer { with_stack.resize(with_stack_size); };
 
@@ -2267,8 +2325,10 @@ bool src::Sema::Analyse(Expr*& e) {
             auto m = cast<CastExpr>(e);
             Analyse(m->operand);
             switch (m->cast_kind) {
-                /// Only generated by sema. Converts an lvalue to an rvalue.
+                /// Only generated by sema. Converts an lvalue to an rvalue by moving
+                /// or copying in the case of a trivially-copyable type.
                 case CastKind::LValueToRValue:
+                    LValueState.SetDefinitelyMoved(m->operand);
                     m->stored_type = m->operand->type;
                     break;
 
@@ -2682,9 +2742,9 @@ bool src::Sema::Analyse(Expr*& e) {
             /// If the condition tests whether an optional is not nil, set
             /// the active state of the optional to true in the branch where
             /// it isn’t.
-            if (auto o = Optionals.MatchNilTest(i->cond)) {
+            if (auto o = LValueState.MatchOptionalNilTest(i->cond)) {
                 {
-                    OptionalState::ActivationGuard _{*this, o};
+                    LValueState::OptionalActivationGuard _{*this, o};
                     if (not Analyse(i->then)) return e->sema.set_errored();
                 }
 
@@ -2703,12 +2763,12 @@ bool src::Sema::Analyse(Expr*& e) {
                 .get()
             ) {
                 {
-                    OptionalState::ActivationGuard _{*this, local->decl};
+                    LValueState::OptionalActivationGuard _{*this, local->decl};
                     if (i->else_ and not Analyse(i->else_)) return e->sema.set_errored();
                 }
 
                 if (not Analyse(i->then)) return e->sema.set_errored();
-                if (i->then->type == Type::NoReturn) Optionals.Activate(local->decl);
+                if (i->then->type == Type::NoReturn) LValueState.ActivateOptional(local->decl);
             } // clang-format on
 
             /// Otherwise, there is nothing to infer.
@@ -3282,7 +3342,7 @@ bool src::Sema::Analyse(Expr*& e) {
                         );
 
                         /// If the initialiser is non-optional reference, then it is active now.
-                        Optionals.Activate(b->lhs);
+                        LValueState.ActivateOptional(b->lhs);
 
                         b->stored_type = b->lhs->type;
                         b->is_lvalue = true;
@@ -3734,8 +3794,8 @@ bool src::Sema::AnalyseInvokeBuiltin(Expr*& e) {
                 "Operand of __srcc_destroy must be a local variable."
             );
 
-            /// Mark var as destroyed.
-            cast<LocalRefExpr>(invoke->args[0])->decl->set_deleted_or_moved();
+            /// Lvalue-to-rvalue conversion takes care of move semantics.
+            InsertLValueToRValueConversion(invoke->args[0]);
 
             /// Destroy returns nothing.
             invoke->stored_type = Type::Void;

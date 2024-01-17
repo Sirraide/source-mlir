@@ -1117,13 +1117,17 @@ public:
                 auto v = cast<LocalDecl>(e);
                 PrintBasicHeader(isa<ParamDecl>(v) ? "ParamDecl" : "LocalDecl", e);
                 out += fmt::format(
-                    "{}{}{} {}{}{}{}",
+                    "{}{}{} {}{}{}{}{}",
                     C(White),
                     v->name.empty() ? "" : " ",
                     v->name,
                     v->type.str(use_colour),
                     C(Blue),
                     v->is_lvalue ? " lvalue" : "",
+                    v->definitely_moved    ? " moved"
+                    : v->partially_moved   ? " partially-moved"
+                    : v->potentially_moved ? " potentially-moved"
+                                           : "",
                     v->captured ? " captured" : ""
                 );
 
@@ -1360,7 +1364,7 @@ public:
                     case Uninitialised: out += " uninit"; break;
                     case Zeroinit: out += " zero"; break;
                     case Parameter: out += " parameter"; break;
-                    case TrivialCopy: out += " trivial"; break;
+                    case Copy: out += " trivial"; break;
                     case SliceFromParts: out += " slice"; break;
                     case InitialiserCall: out += " init"; break;
                     case ArrayInitialiserCall: out += " array-init"; break;

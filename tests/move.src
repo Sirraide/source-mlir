@@ -1,0 +1,60 @@
+/// R[///S] %srcc %s --ast
+/// R[///H] %srcc %s --hlir
+
+///S p nolit .
+
+///H d t %[a-zA-Z0-9_]+
+///H p nolit .
+///H d any .*
+///H p lit .
+
+proc puts (i8&) extern native;
+
+struct S {
+    delete {
+        puts "destructor called".data;
+    }
+}
+
+///S * ^LocalDecl .* x int lvalue
+///S ! moved
+///H * $x:t = local i64,
+///H + construct $x zeroinit
+int x;
+
+///S * ^LocalDecl .* y int lvalue
+///S ! moved
+///H * $y:t = local i64,
+///H + $x1:t = load i64 from $x
+///H + construct $y trivial i64 $x1
+int y = x;
+
+///S * ^LocalDecl .* z int lvalue
+///S ! moved
+///H * $z:t = local i64,
+///H + $y1:t = load i64 from $y
+///H + construct $z trivial i64 $y1
+int z = y;
+
+///  Destructor is only called once below.
+///S * ^LocalDecl .* a S lvalue moved
+///H * $a:t = local @S,
+///H + construct $a zeroinit
+S a;
+
+///S * ^LocalDecl .* b S lvalue moved
+///H * $b:t = local @S,
+///H + $a1:t = load @S from $a
+///H + construct $b trivial @S $a1
+S b = a;
+
+///S * ^LocalDecl .* c S lvalue
+///S ! moved
+///H * $c:t = local @S,
+///H + $b1:t = load @S from $b
+///H + construct $c trivial @S $b1
+S c = b;
+
+///H + $token:t = destroy $c dtor @_SYS1SPE
+///H !* destroy
+///H + yield $any unwind $token

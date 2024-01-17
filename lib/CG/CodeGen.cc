@@ -202,7 +202,7 @@ void src::CodeGen::AllocateLocalVar(LocalDecl* decl) {
             Loc(decl->location),
             Ty(decl->type),
             decl->type.align(ctx).value(),
-            decl->deleted_or_moved
+            false
         );
     }
 }
@@ -327,7 +327,7 @@ void src::CodeGen::Construct(
         } break;
 
         /// A trivial copy is always one argument.
-        case ConstructKind::TrivialCopy:
+        case ConstructKind::Copy:
         case ConstructKind::ArrayBroadcast: {
             Assert(args.size() == 1);
             LowerElemPtr();
@@ -880,8 +880,28 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
 auto src::CodeGen::UnwindValues(ArrayRef<Expr*> exprs) -> SmallVector<mlir::Value> {
     SmallVector<mlir::Value> vals;
     for (auto e : exprs) {
+        /// Execute deferred expressions.
         if (isa<DeferExpr>(e)) vals.push_back(Generate(e));
+
+        /// Destroy local variables.
         else if (auto l = dyn_cast<LocalDecl>(e)) {
+            /// Variables moved in their entirety do not get a destructor call.
+            if (l->definitely_moved) continue;
+
+            /// A partially moved variable cannot have a destructor, so destroy
+            /// any non-trivially-destructible subobjects that have not already
+            /// been destroyed.
+            if (l->partially_moved) {
+                Todo("Destroy partially moved lvalues");
+            }
+
+            /// A value that is potentially moved has an associated ‘dtor flag’,
+            /// so query it at runtime to see if it should be destroyed here.
+            if (l->potentially_moved) {
+                Todo("Destroy potentially moved lvalues");
+            }
+
+            /// Otherwise, destroy it unconditionally, if it has a destructor.
             auto addr = local_vars.at(l);
             auto d = Destroy(Loc(l->location), addr, l->type);
             if (d) vals.push_back(d);

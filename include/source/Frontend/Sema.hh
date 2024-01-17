@@ -164,27 +164,38 @@ class Sema {
         usz mismatch_index{};
     };
 
-    /// Machinery for tracking the state of optionals.
-    class OptionalState {
+    /// Machinery for tracking the state of lvalues.
+    class LValueState {
         using Path = SmallVector<u32, 4>;
         struct State {
-            /// Whether the variable itself is active.
-            bool active : 1;
+            /// Whether the lvalue itself is an active optional. Always true
+            /// if this is not an optional.
+            bool active_optional : 1;
 
             /// List of field paths that are active, by field index.
             SmallVector<Path, 1> active_fields;
         };
 
+        struct Moves {
+            /// Location of move of the entire variable, if any.
+            Location loc{};
+
+            /// Locations of moves of subobjects.
+            std::map<Path, Location> subobjects{};
+        };
+
     public:
         /// Guard for entering a scope.
         class ScopeGuard {
-            friend OptionalState;
+            friend LValueState;
             Sema& S;
             ScopeGuard* previous;
 
             /// Entities of optional type whose active state has changed in
             /// this scope, as well as the value of that state in the previous
             /// scope.
+            ///
+            /// The root of an entry is always a local variable.
             DenseMap<LocalDecl*, State> changes;
 
         public:
@@ -192,21 +203,23 @@ class Sema {
             ~ScopeGuard();
         };
 
-        /// Guard for temporarily making a value active. This always
+        /// Guard for temporarily activating and optional. This always
         /// resets the active state to what it was before the guard,
         /// irrespective of whether it is changed after the guard was
         /// created.
-        struct ActivationGuard {
-            friend OptionalState;
+        struct OptionalActivationGuard {
+            friend LValueState;
             Sema& S;
             Expr* expr;
 
         public:
-            ActivationGuard(Sema& S, Expr* expr);
-            ~ActivationGuard();
+            OptionalActivationGuard(Sema& S, Expr* expr);
+            ~OptionalActivationGuard();
         };
 
     private:
+        Sema* S;
+
         /// All entities that are currently tracked, and whether they
         /// are active. Key is the root object of the entity, which
         /// is always a local variable (this is because tracking only
@@ -214,25 +227,30 @@ class Sema {
         /// enough to be tracked in the first place).
         DenseMap<LocalDecl*, State> tracked;
 
+        /// Location of last move for variables; used only for diagnostics.
+        DenseMap<LocalDecl*, Moves> last_moves;
+
         /// Current guard.
         ScopeGuard* guard{};
 
         /// Used to implement Activate() and Deactivate().
-        void ChangeState(Expr* e, auto cb);
+        void ChangeOptionalState(Expr* e, auto cb);
 
         /// Get the path to an entity of optional type.
         auto GetObjectPath(MemberAccessExpr* e) -> std::pair<LocalDecl*, Path>;
 
     public:
+        LValueState(Sema* S) : S(S) {}
+
         /// Mark an optional as active until the end of the current scope.
         ///
         /// \param e The expression to activate. May be null.
-        void Activate(Expr* e);
+        void ActivateOptional(Expr* e);
 
         /// Mark an optional as inactive until the end of the current scope.
         ///
         /// \param e The expression to deactivate. May be null.
-        void Deactivate(Expr* e);
+        void DeactivateOptional(Expr* e);
 
         /// If this is an active entity of optional type, return the optional
         /// type, else return null.
@@ -240,8 +258,13 @@ class Sema {
 
         /// Test if an expression checks whether an entity of optional type
         /// is nil, and if so, return a pointer to that entity.
-        auto MatchNilTest(Expr* test) -> Expr*;
-    } Optionals;
+        auto MatchOptionalNilTest(Expr* test) -> Expr*;
+
+        /// Mark an object as definitely moved from.
+        ///
+        /// \param e The expression to mark as moved from. May be null.
+        void SetDefinitelyMoved(Expr* e);
+    } LValueState{this};
 
     /// Expressions that still need to be checked for unwinding.
     SmallVector<Unwind> unwind_entries;
@@ -379,22 +402,36 @@ private:
 
     /// Create a diagnostic at a location.
     template <typename... Args>
-    Diag EmitError(Expr* e, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
-        if (e->sema.errored) return Diag();
-        e->sema.set_errored();
-        return Diag::Error(mod->context, e->location, fmt, MakeFormattable(std::forward<Args>(args))...);
+    Diag EmitDiag(Diag::Kind k, Expr* e, fmt::format_string<make_formattable_t<Args>...> fmt, Args&& ...args) {
+        if (k == Diag::Kind::Error) {
+            if (e->sema.errored) return Diag();
+            e->sema.set_errored();
+        }
+
+        return Diag(mod->context, k, e->location, fmt, MakeFormattable(std::forward<Args>(args))...);
     }
 
     /// Create a diagnostic and mark an expression as errored.
     template <typename... Args>
+    Diag EmitDiag(Diag::Kind k, Location loc, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
+        return Diag(mod->context, k, loc, fmt, MakeFormattable(std::forward<Args>(args))...);
+    }
+
+    /// Emit an error.
+    template <typename... Args>
     Diag EmitError(Location loc, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
-        return Diag::Error(mod->context, loc, fmt, MakeFormattable(std::forward<Args>(args))...);
+        return EmitDiag(Diag::Kind::Error, loc, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    Diag EmitError(Expr* e, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
+        return EmitDiag(Diag::Kind::Error, e, fmt, std::forward<Args>(args)...);
     }
 
     /// Same as EmitError(), but returns false for convenience.
     template <typename... Args>
     bool Error(Location loc, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
-        EmitError(loc, fmt, MakeFormattable(std::forward<Args>(args))...);
+        EmitError(loc, fmt, std::forward<Args>(args)...);
         return false;
     }
 
@@ -467,6 +504,18 @@ private:
         } else {
             return std::forward<T>(t);
         }
+    }
+
+    /// Create a Note().
+    template <typename... Args>
+    void Note(Location loc, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
+        EmitDiag(Diag::Kind::Note, loc, fmt, std::forward<Args>(args)...);
+    }
+
+    /// Create a Note().
+    template <typename... Args>
+    void Note(Expr* e, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
+        EmitDiag(Diag::Kind::Note, e, fmt, std::forward<Args>(args)...);
     }
 
     /// Resolve overload set.

@@ -603,8 +603,8 @@ enum struct ConstructKind {
     /// no-op in constructor codegen.
     Parameter,
 
-    /// Trivial memcpy/store. One argument.
-    TrivialCopy,
+    /// Memcpy/store (either trivial copy or move). One argument.
+    Copy,
 
     /// Construct a slice from a pointer and a size. Two arguments.
     SliceFromParts,
@@ -711,7 +711,7 @@ private:
             case K::ArrayZeroinit:
                 return 0;
 
-            case K::TrivialCopy:
+            case K::Copy:
             case K::ArrayBroadcast:
                 return 1;
 
@@ -734,7 +734,7 @@ private:
             case K::Uninitialised:
             case K::Zeroinit:
             case K::Parameter:
-            case K::TrivialCopy:
+            case K::Copy:
             case K::SliceFromParts:
             case K::ArrayBroadcast:
             case K::ArrayZeroinit:
@@ -755,7 +755,7 @@ private:
             case K::Uninitialised:
             case K::Zeroinit:
             case K::Parameter:
-            case K::TrivialCopy:
+            case K::Copy:
             case K::SliceFromParts:
             case K::InitialiserCall:
             case K::ArrayListInit:
@@ -785,7 +785,7 @@ public:
             case K::Uninitialised:
             case K::Zeroinit:
             case K::Parameter:
-            case K::TrivialCopy:
+            case K::Copy:
             case K::SliceFromParts:
             case K::InitialiserCall:
             case K::RecordListInit:
@@ -836,7 +836,7 @@ public:
     static auto CreateUninitialised(Module* m) { return new (m) ConstructExpr(K::Uninitialised); }
     static auto CreateZeroinit(Module* m) { return new (m) ConstructExpr(K::Zeroinit); }
     static auto CreateParam(Module* m) { return new (m) ConstructExpr(K::Parameter); }
-    static auto CreateTrivialCopy(Module* m, Expr* expr) { return Create(m, K::TrivialCopy, expr); }
+    static auto CreateCopy(Module* m, Expr* expr) { return Create(m, K::Copy, expr); }
     static auto CreateSliceFromParts(Module* m, Expr* ptr, Expr* size) { return Create(m, K::SliceFromParts, {ptr, size}); }
     static auto CreateArrayListInit(Module* m, ArrayRef<Expr*> args) { return Create(m, K::ArrayListInit, args); }
 
@@ -1543,9 +1543,6 @@ public:
 
 /// Local variable declaration.
 class LocalDecl : public Decl {
-    bool is_captured = false;
-    bool deleted = false;
-
 public:
     /// The procedure containing this declaration.
     ProcDecl* parent;
@@ -1556,17 +1553,38 @@ public:
     /// Constructor(s) that should be invoked, if any.
     ConstructExpr* ctor{};
 
+    /// List of partially moved-from field paths. A path here means that only
+    /// the innermost fields has been moved from.
+    SmallVector<SmallVector<u32, 4>, 1> partially_moved_fields;
+
     /// Index in capture list of parent procedure, if any.
     isz capture_index{};
 
     /// What kind of variable this is.
     LocalKind local_kind;
 
+private:
+    bool is_captured : 1 = false;
+
+public:
+    /// Whether the lvalue has been moved from; no destructor call is
+    /// emitted for it when it goes out of scope.
+    bool definitely_moved : 1 = false;
+
+    /// Whether the lvalue *may* have been moved from; in this case, it
+    /// may not be read from, but whether the destructor needs to be called
+    /// must be determined using an auxiliary variable.
+    bool potentially_moved : 1 = false;
+
     /// Whether this declaration is captured.
     readonly(bool, captured, return is_captured);
 
-    /// Whether this variable is ever deleted or moved from.
-    readonly(bool, deleted_or_moved, return deleted);
+    /// Whether this variable is partially moved from.
+    readonly(bool, partially_moved, return not partially_moved_fields.empty());
+
+    /// Whether this variable is ever moved. This is mostly used to check if
+    /// the variable can still be moved from.
+    readonly(bool, already_moved, return definitely_moved or potentially_moved);
 
     /// Some variables (e.g. the variable of a for-in loop) cannot
     /// be captured since they do not correspond to a stack variable
@@ -1615,9 +1633,6 @@ public:
 
     /// Mark this declaration as captured.
     void set_captured();
-
-    /// Mark that this declaration is deleted or moved from.
-    void set_deleted_or_moved() { deleted = true; }
 
     /// RTTI.
     static bool classof(const Expr* e) {
