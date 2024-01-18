@@ -26,7 +26,7 @@ int[] i = c;
 HasDtor j;
 var k = j;
 
-/// * move-err.src:30:9 Error: Use of variable 'j' after it has been moved.
+/// * move-err.src:$LINE+1:9 Error: Variable 'j' has already been moved from.
 var l = j;
 
 /// Potential move.
@@ -34,7 +34,7 @@ if true {
     var q = k;
 }
 
-/// * move-err.src:38:9 Error: Use of variable 'j' after potential move.
+/// * move-err.src:$LINE+1:9 Error: Variable 'j' has already been moved from.
 var m = j;
 
 /// Definite move.
@@ -45,7 +45,7 @@ if true {
     var q = n;
 }
 
-/// * move-err.src:49:9 Error: Use of variable 'n' after definite move.
+/// * move-err.src:$LINE+1:9 Error: Variable 'n' has already been moved from.
 var o = n;
 
 /// Definite move, lvalue variant.
@@ -53,7 +53,7 @@ HasDtor p;
 HasDtor q;
 var r = if true then p else q;
 
-/// * move-err.src:58:9 Error: Use of variable 'p' after potential move.
-/// * move-err.src:59:9 Error: Use of variable 'q' after potential move.
+/// * move-err.src:$LINE+1:9 Error: Variable 'p' has already been moved from.
+/// * move-err.src:$LINE+1:9 Error: Variable 'q' has already been moved from.
 var s = p;
 var t = q;

@@ -740,7 +740,12 @@ void src::Sema::LValueState::SetDefinitelyMoved(Expr* expr) {
     /// Check if the variable has already been moved.
     auto AlreadyMoved = [&](LocalDecl* var) {
         if (not var->already_moved) return false;
-        S->Error(expr->location, "Cannot move from {}moved-from value", var->partially_moved ? "partially" : "");
+        S->Error(
+            expr->location,
+            "Variable '{}' has already been {}moved from",
+            var->name,
+            var->partially_moved ? "partially" : ""
+        );
         S->Note(last_moves[var].loc, "Previous move was here");
         return true;
     };
