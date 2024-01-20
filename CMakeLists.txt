@@ -159,7 +159,7 @@ endif()
 ## ============================================================================
 ## Find libfmt.
 find_package(fmt CONFIG)
-if (NOT DEFINED fmt_FOUND)
+if (NOT fmt_FOUND)
     include(FetchContent)
 	message(STATUS "Fmtlib not found, downloading ...")
 	FetchContent_Declare(fmtlib
