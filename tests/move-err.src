@@ -24,9 +24,10 @@ int[] i = c;
 
 /// However, this is not true for types with a destructor.
 HasDtor j;
-var k = j;
+var k = j; /// e K $LINE
 
-/// * move-err.src:$LINE+1:9 Error: Variable 'j' has already been moved from.
+/// * move-err.src:$LINE+2:9 Error: Variable 'j' has already been moved from
+/// * move-err.src:$K:9      Note: Previous move was here
 var l = j;
 
 /// Potential move.
@@ -34,7 +35,8 @@ if true {
     var q = k;
 }
 
-/// * move-err.src:$LINE+1:9 Error: Variable 'j' has already been moved from.
+/// * move-err.src:$LINE+2:9 Error: Variable 'j' has already been moved from
+/// * move-err.src:$K:9      Note: Previous move was here
 var m = j;
 
 /// Definite move.
@@ -45,7 +47,7 @@ if true {
     var q = n;
 }
 
-/// * move-err.src:$LINE+1:9 Error: Variable 'n' has already been moved from.
+/// * move-err.src:$LINE+1:9 Error: Variable 'n' has already been moved from
 var o = n;
 
 /// Definite move, lvalue variant.
@@ -53,7 +55,7 @@ HasDtor p;
 HasDtor q;
 var r = if true then p else q;
 
-/// * move-err.src:$LINE+1:9 Error: Variable 'p' has already been moved from.
-/// * move-err.src:$LINE+1:9 Error: Variable 'q' has already been moved from.
+/// * move-err.src:$LINE+2:9 Error: Variable 'p' has already been moved from
+/// * move-err.src:$LINE+2:9 Error: Variable 'q' has already been moved from
 var s = p;
 var t = q;

@@ -1145,80 +1145,61 @@ void src::Sema::ReportOverloadResolutionFailure(
 /// Finally, after processing all downwards and upwards movement, we now need to
 /// take care of any remaining forwards and backwards movement.
 ///
-/// A formal elaboration of the algorithm is found below. The entry point for the
-/// algorithm is Validate-Jump. It makes use of two procedures: Unwind, which unwinds
-/// from an expression to some parent scope, and Unwind-Local, which unwinds within
-/// a scope.
-///
-/// ALGORITHM Validate-Jump (in Goto, in Label)
-///     contract Goto and Label must be full expressions.
-///     where Goto  := the branch transferring control flow.
-///           Label := the target that we are branching to.
-///
-///     1. Let Source be the parent scope of Goto; let Target be the parent scope of Label; let
-///        NCA be the nearest common ancestor scope of Source and Target.
-///
-///     2. If NCA != Target (that is, the target is a child of the NCA), then the jump involves
-///        downward movement. Otherwise, go to step 3. Invoke Unwind(Label, NCA). If the returned
-///        list is not empty (that is, if we crossed any protected expressions), the program is
-///        ill-formed.
-///
-///     3. Let To-Unwind = Unwind(Goto, NCA).
-///
-///     4. Let FE(Goto) and FE(Label) be the parent full expressions of Goto and Label, respectively,
-///        in NCA. If FE(Goto) < FE(Label), let First be FE(Goto) and Second be FE(Label); otherwise,
-///        let First be FE(Label) and Second be FE(Goto).
-///
-///     5. Let Rest = Unwind-Local(Second, First). If FE(Goto) < FE(Label), and Rest is not empty, the
-///        program is ill-formed. Append Rest to To-Unwind.
-///
-///     6. During codegen, when emitting the branch, first handle all expressions in To-Unwind (e.g.
-///        invoke destructors of variables and execute deferred expressions).
-///
-/// PROCEDURE Unwind (in E, in To) yields Expr[]
-///     contract To is a proper ancestor of the parent scope of E.
-///     where E  := the *full expression* we are unwinding from;
-///           To := the scope (= block) we are unwinding to.
-///
-///     1. Let S be the parent scope of E. Let To-Unwind be an empty Expr[].
-///
-///     2. If S = To, return To-Unwind.
-///
-///     3. Let First be the first full expression of S. Append the result of invoking
-///        Unwind-Local(E, First) to To-Unwind.
-///
-///     4. Set E to the parent full expression of S, and S to the parent scope of S. Go
-///        to step 2.
-///
-/// PROCEDURE Unwind-Local (in FE, in To) yields Expr[]
-///     contract FE and To are in the same scope, and To precedes FE.
-///     where FE := the *full expression* we are unwinding from;
-///           To := the *full expression* we are unwinding to.
-///
-///     1. Let To-Unwind be an empty Expr[].
-///
-///     2. Add any protected subexpressions of FE to To-Unwind, in reverse tree order.
-///
-///     3. If FE = To, return To-Unwind.
-///
-///     4. Go to step 2.
-///
-/// Unwind-Local as above, but stores expressions into a vector instead
-/// of creating a new one or issues an error if the vector is nullptr.
-///
-auto src::Sema::UnwindLocal(UnwindContext ctx, BlockExpr* S, Expr* FE, Expr* To) -> bool {
-    auto FEIter = rgs::find(S->exprs, FE);
-    auto ToIter = rgs::find(S->exprs, To);
-    Assert(FEIter != S->exprs.end());
-    Assert(ToIter != S->exprs.end());
+/// This algorithm is implemented in Unwind(), UnwindLocal(), and ValidateDirectBr()
+/// below, with the entry point being the latter. UnwindUpTo() is used solely to
+/// unwind entire scopes (i.e. it only requires upwards/backwards movement) and
+/// can thus never error. This is used for other types of control flow (viz. break,
+/// continue, return).
 
-    /// We want to include the contents of the expression that we’re unwinding
-    /// from only if we’re actually unwinding, in which case the UnwindContext
+/// \brief Handle forwards/backwards movement within a single block.
+///
+/// If we’re moving forwards, \p ctx is a pointer to the branch
+/// from which the forwards movement originates; in this case,
+/// crossing protected expressions is invalid, so we emit an error
+/// if we find any.
+///
+/// If we’re moving backwards, \p ctx is a pointer to a vector to
+/// which we append any protected expressions we encounter along
+/// the way.
+///
+/// \see \c Unwind(), \c ValidateDirectBr().
+///
+/// \param ctx Unwinding context, as described above.
+/// \param InBlock The block in which we’re moving forward/backward. Must not be empty!
+/// \param From The statement in \p InBlock containing the jump.
+/// \param To The statement we’re unwinding to.
+/// \return Always \c true if we’re moving backwards, \c false if we’re
+///         moving forward and encounter a protected expression.
+auto src::Sema::UnwindLocal(
+    UnwindContext ctx,
+    BlockExpr* InBlock,
+    Expr* From,
+    Expr* To
+) -> bool {
+    /// Find the positions of `From` and `To` in `InBlock` so we know which one
+    /// comes first. Both must be direct children of the block.
+    auto FromIter = rgs::find(InBlock->exprs, From);
+    auto ToIter = rgs::find(InBlock->exprs, To);
+    Assert(FromIter != InBlock->exprs.end());
+    Assert(ToIter != InBlock->exprs.end());
+
+    /// We want to include `From` only if we’re actually unwinding (i.e. *emitting*
+    /// protected subexpressions during backwards movement)—in which case the `ctx`
     /// will not be an expression.
-    if (not ctx.is<Expr*>()) ++FEIter;
+    ///
+    /// Note that `FromIter` will be used as the *end* iterator below, so *advancing*
+    /// it means we *include* `From` in the loop in that case.
+    if (not ctx.is<Expr*>()) ++FromIter;
 
-    /// Handle protected subexpressions.
-    for (auto E : rgs::subrange(ToIter, FEIter) | vws::reverse) {
+    /// Check all expressions between `To` (inclusive) and `From` (possibly inclusive).
+    ///
+    /// Note that LabelExprs are syntactically Statements that may contain other Statements
+    /// (this is because e.g. `foo: bar: int x` is valid), so make sure to look through any
+    /// labels here. Protected expressions must be statements, so it suffices to check just
+    /// the statements themselves (protected expressions in nested blocks have no effect on
+    /// anything outside those blocks, so those don’t matter here).
+    for (auto E : rgs::subrange(ToIter, FromIter) | vws::reverse) {
+        /// We are moving forward; crossing a protected expression is an error.
         if (auto expr = ctx.dyn_cast<Expr*>()) {
             if (E->is_protected) {
                 Error(expr, "Jump is ill-formed");
@@ -1230,58 +1211,133 @@ auto src::Sema::UnwindLocal(UnwindContext ctx, BlockExpr* S, Expr* FE, Expr* To)
                         ? "deferred expression"s
                         : "variable declaration"s
                 );
+
+                /// Bail out on the first protected expression; no need to report more than one.
                 return false;
             }
-        } else {
+        }
+
+        /// We are moving backwards; collect any protected expressions. This is *not* an error.
+        else {
             auto prot = ctx.get<SmallVectorImpl<Expr*>*>();
             if (E->is_protected) prot->push_back(E->ignore_labels);
         }
     }
+
+    /// Everything was ok.
     return true;
 }
 
-/// \brief Unwind from E in S up to, but not including, To, if S != To.
+/// \brief Handle upwards/downwards movement between two blocks.
 ///
-/// This is `Unwind` as described in the big comment above, with the same
-/// modifications as `UnwindLocal`.
+/// Note that we implement downwards movement as upwards movement to
+/// simplify the implementation of this.
 ///
-/// \return The parent full expression of E in To, or nullptr if there was an error.
-auto src::Sema::Unwind(UnwindContext prot, BlockExpr* S, Expr* E, BlockExpr* To) -> Expr* {
-    /// 1/2.
-    while (S != To) {
-        /// 3.
+/// Note that this does nothing if \p From = \p To when the function
+/// is called. Use \c UnwindLocal() for that instead. This implements
+/// upwards/downwards movement *only*. However, this *does* take care
+/// of any forward/backward movement that is required to enter or leave
+/// a scope starting at any Statement.
+///
+/// \param ctx If we are performing downwards
+/// \param From The block that we are unwinding from, i.e. the block that
+///        contains \p E.
+/// \param E The statement in \p From that we are unwinding from.
+/// \param To The block that we are unwinding to; this must be an ancestor
+///        of \p From (or equal to it).
+/// \return The parent Statement in \p To that contains \p E, or \c nullptr
+///         if there was an error.
+auto src::Sema::Unwind(
+    UnwindContext ctx,
+    BlockExpr* From,
+    Expr* E,
+    BlockExpr* const To
+) -> Expr* {
+    /// We haven’t reached the block we want to unwind to just yet, i.e.
+    /// `From` is still a *child* of `To`.
+    while (From != To) {
+        /// Handle backwards/forwards movement.
+        ///
+        /// Conceptually, this moves from somewhere in the middle in the block
+        /// to the first Statement in the block (or vice versa, if we’re doing
+        /// ‘downwards’ movement).
         if (
-            not S->exprs.empty() and
-            not UnwindLocal(prot, S, E, S->exprs.front())
+            not From->exprs.empty() and
+            not UnwindLocal(ctx, From, E, From->exprs.front())
         ) return nullptr;
 
-        /// 4.
-        E = S->parent_full_expression;
-        S = S->parent;
+        /// Note that `E` is a Statement in `From`; this sets it to the parent
+        /// Statement of `From`, i.e. the Statement in `Parent(From)`, i.e. the
+        /// Statement that contains `From` and also `E` (and, by transitivity,
+        /// our original `E` on function entry).
+        E = From->parent_full_expression;
+
+        /// Move up a scope. This is the upwards/downwards movement proper, and
+        /// as we’ve already discussed at length, it is a no-op.
+        From = From->parent;
     }
 
+    /// `E` is now the parent of `From` (and, by transitivity, also `E`) in `To`.
     return E;
 }
 
-/// Unwind from uw in S up to and including To.
-void src::Sema::UnwindUpTo(BlockExpr* S, BlockExpr* To, UnwindExpr* uw) {
-    auto E = uw->parent_full_expression;
-    for (;;) {
-        if (
-            not S->exprs.empty() and
-            not UnwindLocal(&uw->unwind, S, E, S->exprs.front())
-        ) return;
+/// \brief Unwind one or more scopes.
+///
+/// This implements any control-flow transfer that isn’t a Goto, i.e. \c break,
+/// \c continue, and \c return. Thus, this is always upwards movement and thus
+/// should never error.
+///
+/// Note that \c To is included in the unwinding process; for example, if \c UW
+/// is a \c return expression, then \c To will be the top-level scope of the
+/// function containing the \c return.
+///
+/// \param From The scope that contains \p UW, i.e. which we are unwinding from.
+/// \param To The scope we are unwinding to (inclusive).
+/// \param UW The Statement from which we’re unwinding.
+void src::Sema::UnwindUpTo(
+    BlockExpr* From,
+    BlockExpr* const To,
+    UnwindExpr* const UW
+) {
+    /// `UW` may be a subexpression of some other expression; get the Statement
+    /// that contains it, here `E`.
+    auto E = UW->parent_full_expression;
 
-        if (S == To) break;
-        E = S->parent_full_expression;
-        S = S->parent;
+    /// Always unwind at least the scope that contains `UW`.
+    for (;;) {
+        /// This kind of stack unwinding must never fail.
+        if (not From->exprs.empty()) {
+            Assert(
+                UnwindLocal(&UW->unwind, From, E, From->exprs.front()),
+                "Unwinding non-direct branch should always succeed"
+            );
+        }
+
+        /// If we’ve just handled everything in `To`, stop.
+        if (From == To) break;
+
+        /// Same procedure as in UnwindLocal(): find the Statement that contains `E`
+        /// (and thus `UW`) in the parent of `From`, and set `From` to its parent.
+        E = From->parent_full_expression;
+        From = From->parent;
     }
 }
 
+/// This is called for every GotoExpr in the module.
+///
+/// Check whether a direct branch (= GotoExpr) to a label is sound,
+/// and collect any protected expressions that we need to unwind.
+///
+/// \see Unwind(), UnwindLocal().
 void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* source) {
     if (not g->sema.ok) return;
-    auto label = g->target;
-    auto target = label->parent;
+
+    /// `g`:      the goto from which we’re transferring control.
+    /// `label`:  the LabelExpr to which we’re transferring control.
+    /// `source`: the block containing `g`.
+    /// `target`: the block containing `label`.
+    const auto label = g->target;
+    const auto target = label->parent;
 
     /// Sanity checks.
     /// FIXME: Check for this in the parser instead.
@@ -1297,27 +1353,57 @@ void src::Sema::ValidateDirectBr(GotoExpr* g, BlockExpr* source) {
         return;
     }
 
-    /// 1.
-    BlockExpr* nca = BlockExpr::NCAInFunction(source, target);
+    /// Find the NCA of the source and target blocks.
+    BlockExpr* const nca = BlockExpr::NCAInFunction(source, target);
     Assert(nca, "Goto and label blocks must have a common ancestor");
 
-    /// 2.
+    /// If NCA != target, then the target is a child of the NCA,
+    /// i.e. we have downwards movement; handle that part of the
+    /// jump first. Unwind() takes care of that. Note that we
+    /// implement this downwards movement from the NCA to `target`
+    /// via upwards movement *from* `target` up to NCA. This way,
+    /// we don’t actually need to implement moving down the scope
+    /// stack.
+    ///
+    /// `label_nca` is the closest parent of `label` in NCA, i.e.
+    /// `label` itself if `label` is a direct child of NCA, or the
+    /// Statement in NCA that contains `label`.
     Expr* label_nca = label;
     if (nca != target) {
-        label_nca = Unwind(g, label->parent, label, nca);
+        label_nca = Unwind(g, target, label, nca);
+
+        /// Since this ‘upwards movement’ is actually downwards
+        /// movement, we bail out early if we end up crossing any
+        /// protected expressions.
         if (not label_nca) return;
     }
 
-    /// 3.
-    Expr* goto_nca = Unwind(&g->unwind, source, g, nca);
+    /// Handle upwards movement from the source to the NCA. This
+    /// is genuine upwards movement, so no errors on protected
+    /// expressions here, but store them in `g->unwind` so we can
+    /// unwind them later.
+    ///
+    /// `goto_nca` is to `goto` what `label_nca` is to `label`.
+    Expr* const goto_nca = Unwind(&g->unwind, source, g, nca);
 
-    /// 4/5.
+    /// Convert `goto_nca` and `label_nca` to iterators in NCA
+    /// so we can figure out which one comes first.
     auto goto_it = rgs::find(nca->exprs, goto_nca);
     auto label_it = rgs::find(nca->exprs, label_nca);
     Assert(goto_it != nca->exprs.end());
     Assert(label_it != nca->exprs.end());
+
+    /// `unwind_to` and `unwind_from` are the Statements in NCA
+    /// that we’re unwinding to (i.e. the destination) and from
+    /// (i.e. the source), respectively.
     auto unwind_to = std::min(goto_it, label_it);
     auto unwind_from = std::max(goto_it, label_it);
+
+    /// Finally, handle forwards or backwards movement in the NCA,
+    /// if any. If we’re moving *forwards*, i.e. if `goto_it` <
+    /// `label_it`, tell UnwindLocal() to error on any protected
+    /// expressions; otherwise, we’re moving backwards, so simply
+    /// add them to `g->unwind` so we can unwind them later.
     UnwindLocal(
         goto_it < label_it ? UnwindContext(g) : &g->unwind,
         nca,

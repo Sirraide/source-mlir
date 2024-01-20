@@ -563,6 +563,8 @@ private:
 
     /// Unwinder.
     ///
+    /// See comments in Sema.cc for a detailed explanation of all of this.
+    ///
     /// Used for stack unwinding as part of direct branches (goto, break
     /// continue, return).
     ///
