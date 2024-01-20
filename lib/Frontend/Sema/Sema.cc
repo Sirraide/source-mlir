@@ -941,8 +941,8 @@ void src::Sema::ReportOverloadResolutionFailure(
 /// Some expressions, when executed, ‘register’ some action to be taken
 /// when the scope that contains them is exited. For instance, deferred
 /// expressions ‘register’ the execution of the deferred material and
-/// local variable declarations register a destructor call. For the sake
-/// of brevity, we shall refer to such expressions as *protected*.
+/// local variable declarations (may) register a destructor call. For the
+/// sake of brevity, we shall refer to such expressions as *protected*.
 ///
 /// Consider now a situation such as the following:
 ///
@@ -980,7 +980,7 @@ void src::Sema::ReportOverloadResolutionFailure(
 /// definition of a protected expression: instead of requiring that
 /// the actions ‘registered’ by such expressions are executed whenever
 /// the scope containing them is exited, we instead say that they are
-/// executed, whenever the *rest* of the scope after that expression
+/// executed whenever the *rest* of the scope after that expression
 /// is exited; this includes cases where the same scope is reëntered
 /// further up before the protected expression.
 ///
@@ -989,12 +989,12 @@ void src::Sema::ReportOverloadResolutionFailure(
 /// branch can involve upwards and downwards movement, sometimes even
 /// both, but it can only move forwards or backwards.
 ///
-/// To elaborate, a branch involves a source (a GotoExpr) and a target
-/// (a LabelExpr); either the source or target are in the same scope
+/// To elaborate, a branch involves a source (e.g. a GotoExpr) and a target
+/// (a LabelExpr); either the source or target are in the same scope,
 /// or they aren’t. If they are, then the branch moves either forwards
 /// or backwards, and there is no upwards or downwards movement.
 ///
-/// If they aren’t, then the source and the target have some nca (nearest
+/// If they aren’t, then the source and the target have some NCA (nearest
 /// common ancestor) scope. To transfer control flow from the source to
 /// the target, we must unwind from the source up to the NCA, then move
 /// either forward or backward in the NCA—depending on whether the Goto
@@ -1022,10 +1022,10 @@ void src::Sema::ReportOverloadResolutionFailure(
 /// In order to handle such branches in a sane manner, it helps to
 /// operate based on the assumption that control flow never actually
 /// ‘jumps’ around randomly, but instead always flows from a parent
-/// scope to a direct child or vice versa: in this case, we do not
+/// scope to a direct child or vice versa: in the case above, we do not
 /// simply jump from the source to the target, but rather, we move
 /// up one scope from the source into the NCA block, then backwards
-/// in that block to the block containing the target, and then down
+/// in that block to the BlockExpr containing the target, and then down
 /// to the target.
 ///
 /// Decomposing jumps into downwards, upwards, and forwards/backwards
@@ -1050,7 +1050,7 @@ void src::Sema::ReportOverloadResolutionFailure(
 ///    we shall call *cross jumps*.
 ///
 /// However, instead of analysing each kind of jump separately, we can
-/// combine some of the logic. First, note that a cross jump needs to move
+/// combine some of the logic: first, note that a cross jump needs to move
 /// from the source up to the NCA, then forward or backward in the NCA,
 /// and then down from the NCA to the target. Thus, a cross jump can be
 /// decomposed into combinations of the other three.
@@ -1058,8 +1058,8 @@ void src::Sema::ReportOverloadResolutionFailure(
 /// Furthermore, upwards jumps involve leaving scopes; this means that we
 /// conceptually move to the beginning of a scope, and then up to its parent;
 /// downwards scopes do something similar, except that they move from the
-/// start of a scope to somewhere in the middle of it in order to enter a nested
-/// scope.
+/// start of a scope to somewhere in the middle of it in order to enter a
+/// nested scope.
 ///
 /// Using this decomposition analysis, we can reduce all the jump kinds above
 /// to combinations of four primitives:
@@ -1113,6 +1113,11 @@ void src::Sema::ReportOverloadResolutionFailure(
 ///       properly. Does that influence us being able to branch *out* of the middle
 ///       of an expression? What about initialisers? Can we branch out of those?
 ///
+///       Answer: For simplicity’s stake, we should make `goto` a statement as well
+///       and disallow branching into or out of BlockExprs in expression position
+///       (i.e. which are not statements). This way, we never end up with half an
+///       expression.
+///
 /// Now that we have come to a detailed understanding of how jumps work, let
 /// us consider an actual algorithm for validating jumps (and determining what,
 /// if anything, we need to unwind).
@@ -1150,9 +1155,8 @@ void src::Sema::ReportOverloadResolutionFailure(
 ///     where Goto  := the branch transferring control flow.
 ///           Label := the target that we are branching to.
 ///
-///     1. Let Source be the parent scope of the full expression that contains Goto; let Target
-///        be the parent scope of the full expression that contains Label; let NCA be the nearest
-///        common ancestor scope of Source and Target.
+///     1. Let Source be the parent scope of Goto; let Target be the parent scope of Label; let
+///        NCA be the nearest common ancestor scope of Source and Target.
 ///
 ///     2. If NCA != Target (that is, the target is a child of the NCA), then the jump involves
 ///        downward movement. Otherwise, go to step 3. Invoke Unwind(Label, NCA). If the returned
