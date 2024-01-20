@@ -1239,7 +1239,9 @@ auto src::Sema::UnwindLocal(
 /// of any forward/backward movement that is required to enter or leave
 /// a scope starting at any Statement.
 ///
-/// \param ctx If we are performing downwards
+/// \see UnwindLocal(), ValidateDirectBr().
+///
+/// \param ctx Unwinding context passed to \c UnwindLocal().
 /// \param From The block that we are unwinding from, i.e. the block that
 ///        contains \p E.
 /// \param E The statement in \p From that we are unwinding from.
@@ -1323,7 +1325,7 @@ void src::Sema::UnwindUpTo(
     }
 }
 
-/// This is called for every GotoExpr in the module.
+/// \brief This is called for every GotoExpr in the module.
 ///
 /// Check whether a direct branch (= GotoExpr) to a label is sound,
 /// and collect any protected expressions that we need to unwind.
