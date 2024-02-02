@@ -9,7 +9,7 @@ module x;
 
 ///  b
 ///  * hlir.func external @_SM1x1aPE -> i64
-///O * define fastcc i64 @_SM1x1aPE()
+///O * define fastcc noundef i64 @_SM1x1aPE()
 ///O *   ret i64 50
 export proc a -> i64 {
     int[5] arr = [1, 2, 3, 4, 5];

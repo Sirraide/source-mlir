@@ -9,7 +9,7 @@ module x;
 
 ///  b
 ///  * hlir.func external @_SM1x1aPE -> i32
-///O * define fastcc i32 @_SM1x1aPE()
+///O * define fastcc noundef i32 @_SM1x1aPE()
 ///O *   ret i32 15
 export proc a -> i32 {
     i32[5] arr = [1, 2, 3, 4, 5];
@@ -49,7 +49,7 @@ export proc a -> i32 {
 
 ///  b
 ///  * hlir.func external @_SM1x1bPE -> i32
-///O * define fastcc i32 @_SM1x1bPE()
+///O * define fastcc noundef i32 @_SM1x1bPE()
 ///O *   ret i32 15
 export proc b -> i32 {
     i32[5] arr = [1, 2, 3, 4, 5];
