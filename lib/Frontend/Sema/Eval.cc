@@ -1,5 +1,22 @@
 #include <source/Frontend/Sema.hh>
 
+namespace src {
+namespace {
+constexpr bool IsComparisonOperator(Tk t) {
+    switch (t) {
+        default: return false;
+        case Tk::Lt:
+        case Tk::Le:
+        case Tk::Gt:
+        case Tk::Ge:
+        case Tk::EqEq:
+        case Tk::Neq:
+            return true;
+    }
+}
+} // namespace
+} // namespace src
+
 bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
     Assert(e->sema.ok, "Refusing evaluate broken or unanalysed expression");
     switch (e->kind) {
@@ -18,6 +35,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::StructType:
         case Expr::Kind::SugaredType:
         case Expr::Kind::TupleType:
+        case Expr::Kind::TypeofType:
             out = Type(e);
             return true;
 
@@ -180,6 +198,50 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
             EvalResult rhs_res;
             if (not Evaluate(b->lhs, out, must_succeed)) return false;
             if (not Evaluate(b->rhs, rhs_res, must_succeed)) return false;
+
+            /// Comparison operators are defined between more types than just integers.
+            if (IsComparisonOperator(b->op)) {
+                /// Nil is always equal to itself.
+                if (out.is_nil()) {
+                    Assert(rhs_res.is_nil());
+                    switch (b->op) {
+                        case Tk::EqEq: out = {APInt(1, true), Type::Bool}; return true;
+                        case Tk::Neq: out = {APInt(1, false), Type::Bool}; return true;
+                        default: goto not_constexpr;
+                    }
+                }
+
+                /// Strings are compared in the usual manner.
+                if (out.is_str()) {
+                    Assert(rhs_res.is_str());
+                    auto StrCmp = [&](auto Pred) {
+                        out = {APInt(1, std::invoke(Pred, out.as_str(), rhs_res.as_str())), Type::Bool};
+                    };
+
+                    switch (b->op) {
+                        case Tk::Lt: StrCmp(std::less<>{}); return true;
+                        case Tk::Le: StrCmp(std::less_equal<>{}); return true;
+                        case Tk::Gt: StrCmp(std::greater<>{}); return true;
+                        case Tk::Ge: StrCmp(std::greater_equal<>{}); return true;
+                        case Tk::EqEq: StrCmp(std::equal_to<>{}); return true;
+                        case Tk::Neq: StrCmp(std::not_equal_to<>{}); return true;
+                        default: goto not_constexpr;
+                    }
+                }
+
+                /// Types are compared by identity.
+                if (out.is_type()) {
+                    Assert(rhs_res.is_type());
+                    switch (b->op) {
+                        case Tk::EqEq: out = {APInt(1, out.as_type() == rhs_res.as_type()), Type::Bool}; return true;
+                        case Tk::Neq: out = {APInt(1, out.as_type() != rhs_res.as_type()), Type::Bool}; return true;
+                        default: goto not_constexpr;
+                    }
+                }
+
+                /// Anything else is handled by the integer case below.
+            }
+
             auto& lhs = out.as_int();
             auto& rhs = rhs_res.as_int();
             switch (b->op) {

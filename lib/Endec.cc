@@ -108,7 +108,8 @@ auto Type::_mangled_name() -> std::string {
 
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
-            return cast<SingleElementTypeBase>(ptr)->elem.mangled_name;
+        case Expr::Kind::TypeofType:
+            return desugared.mangled_name;
 
         case Expr::Kind::ProcType: {
             auto p = cast<ProcType>(ptr);

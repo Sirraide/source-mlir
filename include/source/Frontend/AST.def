@@ -23,6 +23,7 @@ SOURCE_AST_TYPE(BuiltinType)
 SOURCE_AST_TYPE(IntType)
 SOURCE_AST_NIL(Nil) // Both a type and an expression.
 SOURCE_AST_TYPE(ProcType)
+SOURCE_AST_TYPE(TypeofType)
 SOURCE_AST_TYPE(OpaqueType)
 
 /// RecordType [begin]

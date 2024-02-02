@@ -1,0 +1,8 @@
+/// R %srcc %s --sema |& cat
+/// !* Error
+
+int x;
+typeof x y;
+
+static assert typeof x == int;
+static assert (typeof x) == int;

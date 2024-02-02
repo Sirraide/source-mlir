@@ -2148,6 +2148,20 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::OpaqueType; }
 };
 
+/// Not a child of SingleElementTypeBase because it contains an
+/// *expression*, not a type.
+class TypeofType : public TypeBase {
+public:
+    /// The expression whose type we want to know.
+    Expr* expr;
+
+    TypeofType(Expr* expr, Location loc)
+        : TypeBase(Kind::TypeofType, loc), expr(expr) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::TypeofType; }
+};
+
 class SingleElementTypeBase : public TypeBase {
 public:
     /// The element type.

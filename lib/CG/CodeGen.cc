@@ -737,7 +737,13 @@ auto src::CodeGen::GetStaticChainPointer(ProcDecl* proc) -> mlir::Value {
 
 auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
     Assert(isa<TypeBase>(type), "Type is not a Type");
+    type = type.desugared;
     switch (type->kind) {
+        case Expr::Kind::SugaredType:
+        case Expr::Kind::ScopedType:
+        case Expr::Kind::TypeofType:
+            Unreachable();
+
         case Expr::Kind::BuiltinType: {
             switch (cast<BuiltinType>(type)->builtin_kind) {
                 using K = BuiltinTypeKind;
@@ -779,9 +785,7 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
             return hlir::ArrayType::get(Ty(ty->elem), ty->dimension().getZExtValue());
         }
 
-        case Expr::Kind::EnumType:
-        case Expr::Kind::SugaredType:
-        case Expr::Kind::ScopedType: {
+        case Expr::Kind::EnumType: {
             auto ty = cast<SingleElementTypeBase>(type);
             return Ty(ty->elem);
         }

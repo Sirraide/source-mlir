@@ -45,6 +45,10 @@ class Assimilator {
             case Expr::Kind::StrLitExpr:
                 break;
 
+            case Expr::Kind::TypeofType:
+                Assimilate(cast<TypeofType>(e)->expr);
+                break;
+
             case Expr::Kind::ArrayType:
             case Expr::Kind::ClosureType:
             case Expr::Kind::OptionalType:

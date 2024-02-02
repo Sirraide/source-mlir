@@ -323,6 +323,9 @@ auto src::Type::align(Context* ctx) const -> Align {
         case Expr::Kind::TupleType:
             return cast<RecordType>(ptr)->stored_alignment;
 
+        case Expr::Kind::TypeofType:
+            return cast<TypeofType>(ptr)->expr->type.align(ctx);
+
         case Expr::Kind::OptionalType: {
             auto opt = cast<OptionalType>(ptr);
             if (isa<ReferenceType>(opt->elem)) return opt->elem.align(ctx);
@@ -369,6 +372,7 @@ auto src::Type::_default_constructor() -> ProcDecl* {
 auto src::Type::_desugared() const -> Type {
     if (auto s = dyn_cast<SugaredType>(ptr)) return s->elem.desugared;
     if (auto s = dyn_cast<ScopedType>(ptr)) return s->elem.desugared;
+    if (auto t = dyn_cast<TypeofType>(ptr)) return t->expr->type.desugared;
     return *this;
 }
 
@@ -379,7 +383,7 @@ auto src::Type::_desugared_underlying() const -> Type {
 }
 
 bool src::Type::is_int(bool bool_is_int) {
-    if (isa<SugaredType, ScopedType>(ptr)) return desugared.is_int(bool_is_int);
+    if (isa<SugaredType, ScopedType, TypeofType>(ptr)) return desugared.is_int(bool_is_int);
     switch (ptr->kind) {
         default: return false;
         case Expr::Kind::IntType: return true;
@@ -438,6 +442,9 @@ auto src::Type::size(Context* ctx) const -> Size {
         case Expr::Kind::ReferenceType:
         case Expr::Kind::ScopedPointerType:
             return ctx->size_of_pointer;
+
+        case Expr::Kind::TypeofType:
+            return cast<TypeofType>(ptr)->expr->type.size(ctx);
 
         case Expr::Kind::SliceType:
         case Expr::Kind::ClosureType: {
@@ -513,6 +520,13 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
         case Expr::Kind::ScopedType: {
             auto sc = cast<ScopedType>(ptr);
             out += fmt::format("{}::{}", sc->object->scope_name, sc->name);
+        } break;
+
+        case Expr::Kind::TypeofType: {
+            out += "typeof";
+            auto e = cast<TypeofType>(ptr)->expr;
+            if (e->sema.ok) out += fmt::format("{}:{}", C(Red), e->type.str(use_colour));
+            else out += ":???";
         } break;
 
         case Expr::Kind::BuiltinType: {
@@ -708,6 +722,7 @@ bool src::Type::_trivial() {
 
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
+        case Expr::Kind::TypeofType:
             return desugared.trivial;
 
         case Expr::Kind::ArrayType:
@@ -715,6 +730,7 @@ bool src::Type::_trivial() {
 
         case Expr::Kind::TupleType:
             return rgs::all_of(cast<TupleType>(ptr)->field_types(), std::identity{}, &Type::_trivial);
+
 
         case Expr::Kind::StructType: {
             auto s = cast<StructType>(ptr);
@@ -748,7 +764,9 @@ bool src::Type::_trivially_copyable() {
 
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
+        case Expr::Kind::TypeofType:
             return desugared.trivial;
+
 
         case Expr::Kind::ArrayType:
             return cast<ArrayType>(ptr)->elem.trivial;
@@ -788,14 +806,15 @@ bool src::operator==(Type a, Type b) {
     if (not isa<TypeBase>(a) or not isa<TypeBase>(b)) return false;
 
     /// If either is a sugared type, look through the sugar.
-    if (isa<SugaredType, ScopedType>(a)) return a.desugared == b;
-    if (isa<SugaredType, ScopedType>(b)) return a == b.desugared;
+    if (isa<SugaredType, ScopedType, TypeofType>(a)) return a.desugared == b;
+    if (isa<SugaredType, ScopedType, TypeofType>(b)) return a == b.desugared;
 
     /// Types of different kinds are never equal.
     if (a->kind != b->kind) return false;
     switch (a->kind) {
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
+        case Expr::Kind::TypeofType:
             Unreachable();
 
         case Expr::Kind::OpaqueType: {
@@ -989,8 +1008,11 @@ public:
             [&](String s) { out += fmt::format("{}\"{}\"", C(Yellow), utils::Escape(s)); },
             [&](std::monostate) { out += "<invalid>"; },
             [&](std::nullptr_t) { out += fmt::format("{}nil", C(Red)); },
-            [&](const APInt& a) { out += fmt::format("{}{}", C(Magenta), a); },
             [&](OverloadSetExpr* os) { out += fmt::format("{}{}", C(Green), os->overloads.front()->name); },
+            [&](const APInt& a) {
+                if (v.type == Type::Bool) out += fmt::format("{}{}", C(Red), a.getBoolValue() ? "true" : "false");
+                else out += fmt::format("{}{}", C(Magenta), a);
+            },
             [&](const EvalResult::TupleElements& els) {
                 out += fmt::format("{}(", C(Red));
                 bool first = true;
@@ -1051,6 +1073,7 @@ public:
             case K::SliceType:
             case K::SugaredType:
             case K::TupleType:
+            case K::TypeofType:
             print_type:
                 PrintBasicNode("Type", e, e);
                 return;
@@ -1548,6 +1571,7 @@ public:
             case K::SliceType:
             case K::SugaredType:
             case K::TupleType:
+            case K::TypeofType:
                 break;
 
             case K::StructType: {

@@ -1506,6 +1506,9 @@ auto src::Sema::Construct(
     switch (ty->kind) {
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
+        case Expr::Kind::TypeofType:
+            Unreachable("Should have been desugared");
+
         case Expr::Kind::OpaqueType:
             Unreachable("Don’t know how to construct a '{}'", ty.str(ctx->use_colours, true));
 
@@ -1871,9 +1874,11 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::TupleIndexExpr:
             Unreachable();
 
-        /// Handled by the code that handles records.
+        /// Handled elsewhere.
         case Expr::Kind::FieldDecl:
             Unreachable("FieldDecl should be handled when analysing RecordTypes");
+        case Expr::Kind::EnumeratorDecl:
+            Unreachable("EnumeratorDecl should be handled when analysing EnumTypes");
 
         /// Each overload of an overload set must be unique.
         /// TODO: Check that that is actually the case.
@@ -2011,7 +2016,11 @@ bool src::Sema::Analyse(Expr*& e) {
             AnalyseRecord(cast<RecordType>(e));
             break;
 
-        case Expr::Kind::EnumeratorDecl: Todo();
+        /// Get the type of an expression.
+        case Expr::Kind::TypeofType: {
+            auto t = cast<TypeofType>(e);
+            if (not Analyse(t->expr)) return e->sema.set_errored();
+        } break;
 
         /// Enumerations.
         case Expr::Kind::EnumType: {

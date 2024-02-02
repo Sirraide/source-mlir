@@ -148,6 +148,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::StringLiteral:
         case Tk::Struct:
         case Tk::True:
+        case Tk::Typeof:
         case Tk::Var:
         case Tk::Void:
         case Tk::While:
@@ -346,13 +347,14 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
     switch (start_token) {
         default: return Error("Expected expression");
 
-        case Tk::IntegerType:
-        case Tk::Int:
         case Tk::Bool:
-        case Tk::Void:
-        case Tk::NoReturn:
+        case Tk::Int:
+        case Tk::IntegerType:
         case Tk::Nil:
+        case Tk::NoReturn:
+        case Tk::Typeof:
         case Tk::Var:
+        case Tk::Void:
             lhs = ParseType() >> [&](Type t) { return static_cast<Expr*>(t); };
             break;
 
@@ -1450,6 +1452,7 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 /// <type-prim>      ::= INTEGER_TYPE | INT | BOOL | NIL | VOID | NORETURN | VAR
 /// <type-named>     ::= IDENTIFIER
 /// <type-tuple>     ::= "(" { <type> "," } [ <type> ] ")"
+/// <type-typeof>    ::= TYPEOF <expr>
 /// <type-qualified> ::= <type> { <type-qual> }
 /// <type-qual>      ::= "&" | "^" | "?" | "[" [ <expr> ] "]"
 auto src::Parser::ParseType() -> Result<Type> {
@@ -1468,6 +1471,13 @@ auto src::Parser::ParseType() -> Result<Type> {
             auto ty = ParseEnum();
             if (IsError(ty)) return ty.diag;
             base_type = *ty;
+        } break;
+
+        case Tk::Typeof: {
+            auto loc = Next();
+            auto expr = ParseExpr(PrefixPrecedence);
+            if (IsError(expr)) return expr.diag;
+            base_type = new (mod) TypeofType(*expr, {loc, expr->location});
         } break;
 
         /// Tuple type.

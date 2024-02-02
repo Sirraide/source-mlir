@@ -133,11 +133,13 @@
                    | <type-enum>
                    | <type-struct>
                    | <type-tuple>
+                   | <type-typeof>
                    | <struct-anon>
                    | <enum-anon>
 <type-prim>      ::= INTEGER_TYPE | INT | BOOL | NIL | VOID | NORETURN | VAR
 <type-named>     ::= IDENTIFIER
 <type-tuple>     ::= "(" { <type> "," } [ <type> ] ")"
+<type-typeof>    ::= TYPEOF <expr>
 <type-qualified> ::= <type> { <type-qual> }
 <type-qual>      ::= "&" | "^" | "?" | "[" [ <expr> ] "]"
 
