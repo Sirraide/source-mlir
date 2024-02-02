@@ -77,7 +77,7 @@
 <expr-if>        ::= [ STATIC ] IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
 <expr-invoke>    ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
 <expr-jump>      ::= GOTO IDENTIFIER
-<expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL | <array-literal>
+<expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL | TRUE | FALSE | <array-literal>
 <expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
 <expr-paren>     ::= "(" <expr> ")"
 <expr-prefix>    ::= <prefix-op> <expr>
