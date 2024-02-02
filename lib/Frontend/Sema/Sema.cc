@@ -537,7 +537,8 @@ auto src::Sema::SearchEnumScope(
     String name
 ) -> DeclContext::Entry {
     for (auto it = enum_type; it; it = it->parent_enum) {
-        if (auto syms = it->scope->find(name, true)) {
+        if (auto [syms, escapes] = it->scope->find(name, true)) {
+            Assert(not escapes, "Should never be set for enum lookups");
             Assert(syms->size() == 1, "Enum scope entries must contain exactly one symbol");
 
             /// Set the type of this to the underlying type if we are still analysing
@@ -2069,7 +2070,8 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// Check if this enum, or any of its parents, already has
                 /// an enumerator with this name.
                 for (auto it = n; it; it = it->parent_enum) {
-                    if (auto prev = it->scope->find(enumerator->name, true)) {
+                    if (auto [prev, escapes] = it->scope->find(enumerator->name, true)) {
+                        Assert(not escapes, "Should never be set for enum lookups");
                         Assert(prev->size() == 1, "Enum scope should contain one declaration per name");
                         Error(
                             enumerator,
@@ -3539,7 +3541,24 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
         auto* const decls = [&] -> BlockExpr::Symbols* {
             /// Try to find a declared symbol with that name in the scope
             /// that the name was found in.
-            if (auto syms = d->scope->find(d->name, false)) return syms;
+            if (auto [syms, escapes_isolated_context] = d->scope->find(d->name, false)) {
+                /// Variable declarations may not be referenced across a context boundary.
+                if (escapes_isolated_context and isa<LocalDecl>(syms->front())) {
+                    Error(
+                        d,
+                        "Variable '{}' cannot be accessed here.",
+                        d->name
+                    );
+
+                    Note(
+                        syms->front(),
+                        "Access references this variable. Did you mean to declare it 'static'?"
+                    );
+
+                    return nullptr;
+                }
+                return syms;
+            }
 
             /// Check if this is an imported module.
             auto m = rgs::find(mod->imports, d->name, &ImportedModuleRef::logical_name);

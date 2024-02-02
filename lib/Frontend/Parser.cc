@@ -1225,6 +1225,10 @@ auto src::Parser::ParseProc() -> Result<ProcDecl*> {
         if (IsError(body)) return body.diag;
         curr_func->body = *body;
         curr_func->body->set_function_scope();
+
+        /// If this is a top-level function, then it cannot access variables in
+        /// the surrounding scope.
+        if (not curr_func->nested) curr_func->body->set_isolated();
     }
 
     /// If this is not an initialiser declaration and the return type is not

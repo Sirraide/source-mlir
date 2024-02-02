@@ -972,6 +972,9 @@ public:
     /// The parent scope.
     BlockExpr* parent;
 
+    /// The parent function.
+    ProcDecl* parent_proc;
+
     /// The module this scope belongs to.
     Module* module;
 
@@ -995,7 +998,18 @@ private:
     /// What kind of scope this is.
     ScopeKind scope_kind = ScopeKind::Block;
 
+    /// Whether this scope is isolated from the surrounding scope. This
+    /// does not apply to unevaluated contextx.
+    bool isolated{};
+
 public:
+    struct LookupResult {
+        Symbols* symbols{};
+        bool escapes_isolated_context{};
+
+        explicit operator bool() const { return symbols; }
+    };
+
     /// Whether this is a function scope.
     readonly(bool, is_function, return scope_kind == ScopeKind::Function);
 
@@ -1004,6 +1018,9 @@ public:
 
     /// Whether this is an enum scope.
     readonly(bool, is_enum, return scope_kind == ScopeKind::Enum);
+
+    /// Whether this scope is isolated from the surrounding scope.
+    readonly(bool, is_isolated_from_above, return isolated);
 
     /// Whether this expression was create implicitly.
     bool implicit{};
@@ -1020,11 +1037,19 @@ public:
     }
 
     /// Find a (vector of) symbol(s) in this scope.
-    auto find(String name, bool this_scope_only) -> Symbols* {
-        if (auto sym = symbol_table.find(name.value()); sym != symbol_table.end())
-            return &sym->second;
-        if (parent and not this_scope_only) return parent->find(name, false);
-        return nullptr;
+    auto find(String name, bool this_scope_only) -> LookupResult {
+        bool escapes_isolated_context = false;
+        for (auto* sc = this; sc; sc = sc->parent) {
+            if (auto sym = sc->symbol_table.find(name.value()); sym != sc->symbol_table.end())
+                return {&sym->second, escapes_isolated_context};
+
+            /// Stop if we’re only supposed to search this scope, or if
+            /// this is a function scope that is not a local function.
+            if (this_scope_only) return {};
+            if (sc->isolated) escapes_isolated_context = true;
+        }
+
+        return {};
     }
 
     /// Mark this scope as an enum scope. This cannot be undone.
@@ -1039,10 +1064,17 @@ public:
         scope_kind = ScopeKind::Function;
     }
 
+    /// Mark this scope as isolated from surrounding scopes.
+    void set_isolated() {
+        Assert(is_function or is_struct);
+        isolated = true;
+    }
+
     /// Mark this scope as a struct scope. This cannot be undone.
     void set_struct_scope() {
         Assert(scope_kind == ScopeKind::Block);
         scope_kind = ScopeKind::Struct;
+        set_isolated();
     }
 
     /// Find the NCA of two blocks in a function. Returns nullptr

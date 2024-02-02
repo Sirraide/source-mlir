@@ -1,0 +1,19 @@
+/// R %srcc %s --sema |& cat
+
+int x;
+
+proc foo {
+    /// Illegal, as x is not a global variable.
+    x = 42; /// * tests/static-var-err.src:$LINE:5: Error: Variable 'x' cannot be accessed here.
+
+    /// Equally illegal.
+    int y;
+    struct bar {
+        init {
+            y = 42; /// * tests/static-var-err.src:$LINE:13: Error: Variable 'y' cannot be accessed here.
+        }
+    }
+
+    /// Unevaluated context, so this is fine.
+    ///typeof x y;
+}
