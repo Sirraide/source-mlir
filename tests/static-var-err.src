@@ -11,9 +11,12 @@ proc foo {
     struct bar {
         init {
             y = 42; /// * tests/static-var-err.src:$LINE:13: Error: Variable 'y' cannot be accessed here.
+
+            /// Unevaluated context, so this is fine.
+            typeof y z; /// !* tests/static-var-err.src:$LINE:
         }
     }
 
-    /// Unevaluated context, so this is fine.
-    ///typeof x y;
+    /// Likewise fine.
+    typeof x z; /// !* tests/static-var-err.src:$LINE:
 }

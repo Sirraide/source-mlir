@@ -331,6 +331,9 @@ class Sema {
     /// Whether to print unsupported C++ imports.
     bool debug_cxx = false;
 
+    /// Whether we’re in an unevaluated context.
+    bool unevaluated = false;
+
 public:
     Sema(Module* mod) : mod(mod) {}
 

@@ -2019,6 +2019,7 @@ bool src::Sema::Analyse(Expr*& e) {
         /// Get the type of an expression.
         case Expr::Kind::TypeofType: {
             auto t = cast<TypeofType>(e);
+            tempset unevaluated = true;
             if (not Analyse(t->expr)) return e->sema.set_errored();
         } break;
 
@@ -3551,8 +3552,9 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
             /// Try to find a declared symbol with that name in the scope
             /// that the name was found in.
             if (auto [syms, escapes_isolated_context] = d->scope->find(d->name, false)) {
-                /// Variable declarations may not be referenced across a context boundary.
-                if (escapes_isolated_context and isa<LocalDecl>(syms->front())) {
+                /// Variable declarations may not be referenced across a context boundary,
+                /// except in an unevaluated context, such as `typeof`.
+                if (not unevaluated and escapes_isolated_context and isa<LocalDecl>(syms->front())) {
                     Error(
                         d,
                         "Variable '{}' cannot be accessed here.",
