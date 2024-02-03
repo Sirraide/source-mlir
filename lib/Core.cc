@@ -69,9 +69,10 @@ src::Context::Context() {
     ffi_size_t = CreateFFIIntType(ast.getSizeType());
 }
 
-void src::Context::add_module(std::unique_ptr<Module> mod) {
-    std::unique_lock _{mtx};
-    modules.emplace_back(std::move(mod));
+auto src::Context::CreateModule() -> Module* {
+    auto mod = new Module(this);
+    modules.emplace_back(mod);
+    return mod;
 }
 
 auto src::Context::get_or_load_file(fs::path path) -> File& {
@@ -110,6 +111,11 @@ auto src::Context::MakeFile(fs::path name, std::unique_ptr<llvm::MemoryBuffer> c
     Assert(fptr->id <= std::numeric_limits<u16>::max());
     owned_files.emplace_back(fptr);
     return *fptr;
+}
+
+void src::Context::SetCanonicalModulePtr(Module* mod) {
+    auto c = canonical_modules.try_emplace(mod->name, mod);
+    mod->canonical = c.first->getValue();
 }
 
 /// ===========================================================================
@@ -300,6 +306,42 @@ bool src::Module::add_import(
     return false;
 }
 
+void src::Module::assimilate(Module* other) {
+    if (this == other) return;
+
+    /// AST merging after Sema would be a nightmare.
+    Assert(
+        not other->top_level_func->sema.analysed,
+        "Sorry, assimilating analysed modules is not implemented"
+    );
+
+    /// Merge imports.
+    for (auto& i : other->imports)
+        if (not utils::contains(imports, i))
+            imports.push_back(i);
+
+    /// Move over all functions, but exclude the top-level
+    /// function of the assimilated module.
+    Assert(other->functions.front() == other->top_level_func);
+    utils::append(functions, ArrayRef<ProcDecl*>(other->functions).drop_front());
+
+    /// Copy labels.
+    for (auto& [k, v] : other->top_level_func->body->symbol_table)
+        utils::append(top_level_func->body->symbol_table[k], v);
+
+    for (auto& [k, v] : other->exports) utils::append(exports[k], v);
+    utils::append(top_level_func->body->exprs, other->top_level_func->body->exprs);
+    utils::append(named_structs, other->named_structs);
+    utils::append(exprs, other->exprs);
+
+    /// Move over identifier table and allocator.
+    owned_objects.emplace_back(other->alloc.release());
+    owned_objects.emplace_back(other->tokens.release());
+
+    /// Make sure we don’t attempt to delete expressions twice.
+    other->exprs.clear();
+}
+
 auto src::Module::Create(
     Context* ctx,
     StringRef name,
@@ -307,14 +349,12 @@ auto src::Module::Create(
     Location module_decl_location
 ) -> Module* {
     auto* mod = CreateUninitialised(ctx);
-    mod->init(std::move(name), is_cxx_header, module_decl_location);
+    mod->init(name, is_cxx_header, module_decl_location);
     return mod;
 }
 
 auto src::Module::CreateUninitialised(Context* ctx) -> Module* {
-    auto* mod = new Module(ctx);
-    ctx->add_module(std::unique_ptr<Module>{mod});
-    return mod;
+    return ctx->create_uninitialised_module();
 }
 
 void src::Module::init(StringRef _name, bool _is_cxx_header, Location _module_decl_location) {
@@ -323,6 +363,7 @@ void src::Module::init(StringRef _name, bool _is_cxx_header, Location _module_de
     name = save(_name);
     module_decl_location = _module_decl_location;
     is_cxx_header = _is_cxx_header;
+    context->set_canonical_module_ptr(this);
 
     top_level_func = new (this) ProcDecl{
         this,
@@ -336,10 +377,6 @@ void src::Module::init(StringRef _name, bool _is_cxx_header, Location _module_de
     };
 
     top_level_func->body = new (this) BlockExpr{this, {}};
-}
-
-auto src::Module::_global_scope() -> BlockExpr* {
-    return top_level_func->body;
 }
 
 /// ===========================================================================

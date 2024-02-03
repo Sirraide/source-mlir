@@ -114,6 +114,9 @@ class Context {
     /// in the context so we always have a place where we can put them.
     std::vector<std::unique_ptr<Module>> modules;
 
+    /// Cached canonical module pointers.
+    StringMap<Module*> canonical_modules;
+
     /// For thread safety.
     mutable std::recursive_mutex mtx;
 
@@ -130,6 +133,7 @@ class Context {
     Align pointer_align;
     Size int_size;
     Size pointer_size;
+
 public:
     /// Whether to use colours in diagnostics.
     readonly_const(bool, use_colours, return should_use_colours.load(std::memory_order_relaxed));
@@ -165,9 +169,6 @@ public:
     /// Delete context data.
     ~Context();
 
-    /// Add a module to the context.
-    void add_module(std::unique_ptr<Module> mod);
-
     /// Create a new file from a name and contents.
     File& create_file(fs::path name, std::unique_ptr<llvm::MemoryBuffer> contents) {
         std::unique_lock _{mtx};
@@ -175,6 +176,12 @@ public:
             std::move(name),
             std::move(contents)
         );
+    }
+
+    /// Create an uninitialised module.
+    Module* create_uninitialised_module() {
+        std::unique_lock _{mtx};
+        return CreateModule();
     }
 
     /// Get a file by id.
@@ -188,6 +195,14 @@ public:
     [[nodiscard]] auto file_count() const -> usz {
         std::unique_lock _{mtx};
         return owned_files.size();
+    }
+
+    /// Get the canonical module pointer for a module.
+    ///
+    /// The module must already exist.
+    void set_canonical_module_ptr(Module* mod) {
+        std::unique_lock _{mtx};
+        SetCanonicalModulePtr(mod);
     }
 
     /// Get a file from disk.
@@ -217,11 +232,17 @@ public:
     }
 
 private:
+    /// Create module.
+    auto CreateModule() -> Module*;
+
     /// Initialise the context.
     void Initialise();
 
     /// Register a file in the context.
     File& MakeFile(fs::path name, std::unique_ptr<llvm::MemoryBuffer> contents);
+
+    /// Set the canonical module pointer for a module.
+    void SetCanonicalModulePtr(Module* mod);
 };
 
 /// Reference to an imported module.
@@ -285,6 +306,16 @@ public:
     /// Top-level module function.
     ProcDecl* top_level_func{};
 
+    /// Canonical module pointer.
+    ///
+    /// AST nodes and the like can store a pointer to this or its top-level
+    /// function if they need to refer to a module.
+    ///
+    /// In cases where a module is split across multiple files, or if multiple
+    /// `Module` structs need to be merged into one module for whatever reason,
+    /// this is the module that they will eventually be merged into.
+    Module* canonical{};
+
     /// AST nodes in this module.
     SmallVector<Expr*> exprs;
 
@@ -303,9 +334,6 @@ public:
     /// Whether this is a C++ header.
     bool is_cxx_header{};
 
-    /// Get the global scope of this module.
-    readonly_decl(BlockExpr*, global_scope);
-
     /// Accessor so we don’t have to include everything required
     /// to bring mlir::ModuleOp into scope here. Implemented in
     /// CodeGen.cc.
@@ -317,6 +345,8 @@ public:
     /// Associated LLVM module. This is null for
     /// imported modules.
     std::unique_ptr<llvm::Module> llvm;
+
+    friend Context;
 
 private:
     explicit Module(Context* ctx);

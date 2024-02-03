@@ -877,7 +877,7 @@ struct Deserialiser {
                     {},
                     {},
                     {},
-                    new (&*mod) BlockExpr(&*mod, mod->global_scope),
+                    new (&*mod) BlockExpr(&*mod, mod->canonical->top_level_func->body),
                     mangling,
                     {}
                 );

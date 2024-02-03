@@ -913,7 +913,7 @@ void src::Parser::ParseFile() {
     }
 
     /// Set up scopes.
-    scope_stack.push_back(mod->global_scope);
+    scope_stack.push_back(mod->canonical->top_level_func->body);
 
     /// Parse expressions.
     std::ignore = ParseStmts(Tk::Eof, mod->top_level_func->body->exprs);
