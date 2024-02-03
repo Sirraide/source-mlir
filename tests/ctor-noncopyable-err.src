@@ -1,4 +1,4 @@
-/// R %srcc %s --sema |& cat
+/// R %srcc %s --sema
 
 proc q extern;
 proc sink (foo a) extern;

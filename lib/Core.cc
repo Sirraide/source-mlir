@@ -624,18 +624,20 @@ void src::Diag::PrintDiagWithoutLocation(utils::Colours C) {
     using enum utils::Colour;
 
     /// Print error location, if present.
-    if (sloc.line() != 0) fmt::print(
-        stderr,
-        "{}{}:{}:{}: ",
-        C(Bold),
-        NormaliseFilename(sloc.file_name()),
-        sloc.line(),
-        sloc.column()
-    );
+    if (sloc.line() != 0) {
+        stream << fmt::format(
+            "{}{}:{}:{}: ",
+            C(Bold),
+            NormaliseFilename(sloc.file_name()),
+            sloc.line(),
+            sloc.column()
+
+        );
+    }
 
     /// Print the message.
-    fmt::print(stderr, "{}{}{}: {}", C(Bold), Colour(C, kind), Name(kind), C(Reset));
-    fmt::print(stderr, "{}{}{}\n", C(Bold), msg, C(Reset));
+    stream << fmt::format("{}{}{}: {}", C(Bold), Colour(C, kind), Name(kind), C(Reset));
+    stream << fmt::format("{}{}{}\n", C(Bold), msg, C(Reset));
     HandleFatalErrors(C);
 }
 
@@ -654,7 +656,7 @@ void src::Diag::print() {
         kind = Kind::None;
 
         /// Reset the colour when we’re done.
-        fmt::print(stderr, "{}", C(Reset));
+        stream << fmt::format("{}", C(Reset));
     };
 
     /// If there is no context, then there is also no location info.
@@ -668,20 +670,15 @@ void src::Diag::print() {
 
     /// Make sure that diagnostics don’t clump together, but also don’t insert
     /// an ugly empty line before the first diagnostic.
-    if (ctx->has_error() and kind != Kind::Note)
-        fmt::print(stderr, "\n");
+    if (ctx->has_error() and kind != Kind::Note) stream << "\n";
 
     /// If the location is invalid, either because the specified file does not
     /// exists, its position is out of bounds or 0, or its length is 0, then we
     /// skip printing the location.
     if (not where.seekable(ctx)) {
         /// Even if the location is invalid, print the file name if we can.
-        if (auto f = ctx->file(where.file_id)) fmt::print(
-            stderr,
-            "{}{}: ",
-            C(Bold),
-            f->path().string()
-        );
+        if (auto f = ctx->file(where.file_id))
+            stream << fmt::format("{}{}: ", C(Bold), f->path().string());
 
         /// Print the message.
         PrintDiagWithoutLocation(C);
@@ -708,17 +705,17 @@ void src::Diag::print() {
 
     /// Print the file name, line number, and column number.
     const auto& file = *ctx->file(where.file_id);
-    fmt::print(stderr, "{}{}:{}:{}: ", C(Bold), file.path().string(), line, col);
+    stream << fmt::format("{}{}:{}:{}: ", C(Bold), file.path().string(), line, col);
 
     /// Print the diagnostic name and message.
-    fmt::print(stderr, "{}{}: ", Colour(C, kind), Name(kind));
-    fmt::print(stderr, "{}{}\n", C(Reset), msg);
+    stream << fmt::format("{}{}: ", Colour(C, kind), Name(kind));
+    stream << fmt::format("{}{}\n", C(Reset), msg);
 
     /// Print the line up to the start of the location, the range in the right
     /// colour, and the rest of the line.
-    fmt::print(stderr, " {} | {}", line, before);
-    fmt::print(stderr, "{}{}{}{}", C(Bold), Colour(C, kind), range, C(Reset));
-    fmt::print(stderr, "{}\n", after);
+    stream << fmt::format(" {} | {}", line, before);
+    stream << fmt::format("{}{}{}{}", C(Bold), Colour(C, kind), range, C(Reset));
+    stream << fmt::format("{}\n", after);
 
     /// Determine the number of digits in the line number.
     const auto digits = utils::NumberWidth(line);
@@ -734,13 +731,12 @@ void src::Diag::print() {
     /// of digits in the line number and append more spaces to line us up with
     /// the range.
     for (usz i = 0, end = digits + ColumnWidth(before) + sizeof("  | ") - 1; i < end; i++)
-        fmt::print(stderr, " ");
+        stream << " ";
 
     /// Finally, underline the range.
-    fmt::print(stderr, "{}{}", C(Bold), Colour(C, kind));
-    for (usz i = 0, end = ColumnWidth(range); i < end; i++)
-        fmt::print(stderr, "~");
-    fmt::print(stderr, "\n");
+    stream << fmt::format("{}{}", C(Bold), Colour(C, kind));
+    for (usz i = 0, end = ColumnWidth(range); i < end; i++) stream << "~";
+    stream << "\n";
 
     /// Handle fatal errors.
     HandleFatalErrors(C);

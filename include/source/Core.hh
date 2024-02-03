@@ -157,6 +157,9 @@ public:
     /// So we don’t interleave diagnostics.
     mutable std::mutex diags_mutex;
 
+    /// Output stream for diagnostics.
+    llvm::raw_ostream* diags_stream = &llvm::errs();
+
     /// Create a context for the host target.
     explicit Context();
 
@@ -470,6 +473,12 @@ private:
     Location where;
     std::source_location sloc{};
     std::string msg;
+
+    readonly(
+        llvm::raw_ostream&,
+        stream,
+        return ctx and ctx->diags_stream ? *ctx->diags_stream : llvm::errs()
+    );
 
     /// Handle fatal error codes.
     void HandleFatalErrors(utils::Colours);

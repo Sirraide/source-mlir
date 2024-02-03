@@ -368,6 +368,7 @@ bool src::DriverImpl::DescribeModule(StringRef name) {
 void src::DriverImpl::InitContext(Context& ctx) {
     ctx.should_use_colours.store(opts.use_colours, std::memory_order_relaxed);
     ctx.module_import_paths = import_paths;
+    ctx.diags_stream = opts.action == CompileOptions::Action::Sema ? &llvm::outs() : &llvm::errs();
 }
 
 auto src::Driver::Impl() {
