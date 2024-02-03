@@ -624,7 +624,7 @@ void src::Diag::PrintDiagWithoutLocation(utils::Colours C) {
     using enum utils::Colour;
 
     /// Print error location, if present.
-    if (sloc.line() != 0) {
+    if (sloc.line() != 0 and kind != Kind::FError) {
         stream << fmt::format(
             "{}{}:{}:{}: ",
             C(Bold),
