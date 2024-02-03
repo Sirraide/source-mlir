@@ -2720,7 +2720,7 @@ bool src::Sema::Analyse(Expr*& e) {
         /// its declaration. Type and lvalueness is already set by the ctor.
         case Expr::Kind::LocalRefExpr: {
             auto var = cast<LocalRefExpr>(e);
-            if (var->parent != var->decl->parent) {
+            if (var->parent != var->decl->parent(mod)) {
                 /// Synthesised variables (e.g. loop variables) should never be captured.
                 if (not var->decl->is_legal_to_capture) {
                     if (IsInParameter(var->decl)) return Error(
@@ -2743,6 +2743,7 @@ bool src::Sema::Analyse(Expr*& e) {
         /// Parameter declaration.
         case Expr::Kind::ParamDecl: {
             auto var = cast<ParamDecl>(e);
+            var->set_parent(curr_proc);
             if (not ClassifyParameter(var->info)) return e->sema.set_errored();
             var->stored_type = var->info->type;
             var->ctor = ConstructExpr::CreateParam(mod);
@@ -2760,6 +2761,7 @@ bool src::Sema::Analyse(Expr*& e) {
         /// Variable declaration.
         case Expr::Kind::LocalDecl: {
             auto var = cast<LocalDecl>(e);
+            if (not var->parent_or_null) var->set_parent(curr_proc);
             if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
 
             /// Parameters should be ParamDecls instead.
@@ -3881,7 +3883,6 @@ bool src::Sema::AnalyseInvoke(Expr*& e, bool direct_child_of_block) {
     /// Helper to create a var decl.
     auto MakeVar = [&](Expr* name, SmallVector<Expr*> init) -> LocalDecl* {
         return new (mod) LocalDecl(
-            curr_proc,
             cast<DeclRefExpr>(name)->name,
             ty,
             std::move(init),
@@ -4144,7 +4145,7 @@ void src::Sema::AnalyseModule() {
     /// captured locals, then it must take a chain pointer.
     auto TakesChainPointer = [&](ProcDecl* f) -> bool {
         if (not f->nested) return false;
-        for (auto p = f->parent; p; p = p->parent)
+        for (auto p = f->parent_or_null; p; p = p->parent_or_null)
             if (not p->captured_locals.empty())
                 return true;
         return false;
@@ -4154,7 +4155,7 @@ void src::Sema::AnalyseModule() {
     /// any of them take static chain pointers or not.
     for (auto f : mod->functions)
         if (TakesChainPointer(f))
-            cast<ProcType>(f->type)->static_chain_parent = f->parent;
+            cast<ProcType>(f->type)->static_chain_parent = f->parent_or_null;
 }
 
 bool src::Sema::AnalyseProcedureType(ProcDecl* proc) {

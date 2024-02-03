@@ -16,6 +16,10 @@ class Parser {
     std::vector<BlockExpr*> scope_stack;
 
     /// Current function.
+    ///
+    /// If we’re not currently parsing a function, then this is null. This
+    /// is especially true if we’re at the top level, even though we are
+    /// technically inside the top-level function.
     ProcDecl* curr_func{};
 
     /// Current position in the token stream.
@@ -27,6 +31,16 @@ class Parser {
     readonly(BlockExpr*, global_scope, return scope_stack[0]);
     readonly(BlockExpr*, curr_scope, return scope_stack.back());
     readonly(Location, curr_loc, return tok.location);
+
+    /// Get the current function, or the top-level function if there is
+    /// none. Note that we *must not* store a pointer returned by this
+    /// anywhere, as it may become invalid if the top-level function is
+    /// merged into another module during AST merging.
+    readonly(
+        ProcDecl*,
+        curr_or_top_level_proc,
+        return curr_func ? curr_func : mod->top_level_func
+    );
 
     /// Default mangling scheme.
     Mangling default_mangling = Mangling::Source;
@@ -196,7 +210,7 @@ private:
     auto ParseNakedInvokeExpr(Expr* callee) -> Result<InvokeExpr*>;
     auto ParseParamDeclList(SVI<ParamDecl*>& param_decls, std::deque<ParamInfo>& param_types) -> Location;
     void ParsePragma();
-    auto ParseProc() -> Result<ProcDecl*>;
+    auto ParseProc(bool no_parent = false) -> Result<ProcDecl*>;
     auto ParseProcBody() -> Result<BlockExpr*>;
     auto ParseStmt() -> Result<Expr*>;
     auto ParseStmts(Tk until, SmallVector<Expr*>& into) -> Result<void>;

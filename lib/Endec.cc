@@ -173,8 +173,8 @@ auto ObjectDecl::_mangled_name() -> StringRef {
         /// Nested functions start with 'L' and the name of the parent function. Exclude
         /// the '_S' prefix from the parent function’s name.
         auto ty = cast<ProcType>(proc->type);
-        if (proc->parent != proc->module->top_level_func)
-            s += fmt::format("J{}", proc->parent->mangled_name.drop_front(2));
+        if (proc->parent_or_null)
+            s += fmt::format("J{}", proc->parent_or_null->mangled_name.drop_front(2));
 
         /// Special members receive an extra sigil followed by the parent
         /// struct name and have no name themselves.
@@ -914,7 +914,7 @@ struct Deserialiser {
                 auto ty = Map(rd<TD>());
                 auto p = new (&*mod) ProcDecl(
                     &*mod,
-                    mod->top_level_func,
+                    nullptr,
                     mod->save(name),
                     ty,
                     {},

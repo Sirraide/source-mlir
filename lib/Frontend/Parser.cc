@@ -246,7 +246,6 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
 
     /// Create a variable declaration, but don’t add it to any scope.
     return new (mod) LocalDecl(
-        curr_func,
         name,
         *ty,
         {},
@@ -360,7 +359,6 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
 
         case Tk::Semicolon:
             return new (mod) EmptyExpr(curr_loc);
-
 
         /// Struct type or decl.
         ///
@@ -787,7 +785,9 @@ auto src::Parser::ParseStmt() -> Result<Expr*> {
                 Next(), Next();
                 auto stmt = ParseStmt();
                 if (IsError(stmt)) return stmt.diag;
-                return new (mod) LabelExpr(curr_func, std::move(text), *stmt, start);
+                auto l = new (mod) LabelExpr(text, *stmt, start);
+                curr_or_top_level_proc->add_label(l->label, l);
+                return l;
             }
 
             /// Otherwise, this is a regular name.
@@ -904,15 +904,13 @@ void src::Parser::ParseFile() {
 
         if (not Consume(Tk::Semicolon)) Error("Expected ';'");
         mod->imports.emplace_back(
-            std::move(name),
-            std::move(logical_name),
+            name,
+            logical_name,
             loc,
             is_open,
             is_header
         );
     }
-
-    curr_func = mod->top_level_func;
 
     /// Set up scopes.
     scope_stack.push_back(mod->global_scope);
@@ -931,7 +929,6 @@ auto src::Parser::ParseFor() -> Result<Expr*> {
     /// Helper to create an artificial variable.
     auto CreateVar = [&](LocalKind k) {
         auto var = new (mod) LocalDecl(
-            curr_func,
             tok.text,
             Type::Unknown,
             {},
@@ -1120,7 +1117,6 @@ auto src::Parser::ParseParamDeclList(
             /// Return type defaults to void.
             if (sig.type->ret_type == Type::Unknown) sig.type->ret_type = Type::Void;
             param_decls.push_back(new (mod) ParamDecl(
-                nullptr,
                 &parameters.emplace_back(sig.type, intent, with),
                 sig.name,
                 sig.loc
@@ -1145,7 +1141,6 @@ auto src::Parser::ParseParamDeclList(
 
             /// TODO: Default values go in their own scope.
             param_decls.push_back(new (mod) ParamDecl(
-                nullptr,
                 &parameters.emplace_back(Type(*param_type), intent, with),
                 name,
                 tok.location
@@ -1181,7 +1176,7 @@ void src::Parser::ParsePragma() {
 /// <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
 /// <init-decl>      ::= INIT <proc-signature> <proc-body>
 /// <proc-body>      ::= <expr-block> | "=" <implicit-block>
-auto src::Parser::ParseProc() -> Result<ProcDecl*> {
+auto src::Parser::ParseProc(bool no_parent) -> Result<ProcDecl*> {
     /// Procedure signatures are rather complicated, so
     /// we’ll parse them separately.
     auto smf = At(Tk::Init, Tk::Delete);
@@ -1189,10 +1184,10 @@ auto src::Parser::ParseProc() -> Result<ProcDecl*> {
 
     /// Create the procedure early so we can set it as
     /// the current procedure.
-    tempset curr_func = new (mod) ProcDecl(
+    const auto proc = new (mod) ProcDecl(
         mod,
-        curr_func,
-        std::move(sig.name),
+        no_parent ? nullptr : curr_func,
+        sig.name,
         sig.type,
         std::move(sig.param_decls),
         sig.is_extern ? Linkage::Imported : Linkage::Internal,
@@ -1200,12 +1195,15 @@ auto src::Parser::ParseProc() -> Result<ProcDecl*> {
         sig.loc
     );
 
+    /// Set the current procedure.
+    tempset curr_func = proc;
+
     /// Internal attribute used for testing to prevent functions from being
     /// optimised away even though they are not used. Should not be used for
     /// anything other than that.
     if (sig.attr___srcc_external__) {
-        curr_func->linkage =
-            curr_func->linkage == Linkage::Imported
+        proc->linkage =
+            proc->linkage == Linkage::Imported
                 ? Linkage::Reexported
                 : Linkage::Exported;
     }
@@ -1225,12 +1223,12 @@ auto src::Parser::ParseProc() -> Result<ProcDecl*> {
 
         /// Set the body if there is one.
         if (IsError(body)) return body.diag;
-        curr_func->body = *body;
-        curr_func->body->set_function_scope();
+        proc->body = *body;
+        proc->body->set_function_scope();
 
         /// If this is a top-level function, then it cannot access variables in
         /// the surrounding scope.
-        if (not curr_func->nested) curr_func->body->set_isolated();
+        if (not proc->nested) proc->body->set_isolated();
     }
 
     /// If this is not an initialiser declaration and the return type is not
@@ -1239,8 +1237,8 @@ auto src::Parser::ParseProc() -> Result<ProcDecl*> {
         sig.type->ret_type = Type::Void;
 
     /// Add it to the current scope if it is named.
-    if (not curr_func->name.empty()) curr_scope->declare(curr_func->name, curr_func);
-    return curr_func;
+    if (not proc->name.empty()) curr_scope->declare(proc->name, proc);
+    return proc;
 }
 
 /// Parse a procedure signature. The return type is 'unknown' by
@@ -1343,14 +1341,13 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
         /// Initialiser / Deleter.
         if (At(Tk::Init, Tk::Delete)) {
             auto init = At(Tk::Init);
-            auto smf = ParseProc();
+            auto smf = ParseProc(true);
             if (IsError(smf)) {
                 Synchronise(Tk::Semicolon, Tk::RBrace);
                 continue;
             }
 
             /// Add it to the struct type.
-            smf->parent = mod->top_level_func;
             if (init) initialisers.push_back(*smf);
             else {
                 if (deleter) Error(smf->location, "Type already has a deleter");

@@ -68,11 +68,10 @@ src::ProcDecl::ProcDecl(
     Mangling mangling,
     Location loc
 ) : ObjectDecl(Kind::ProcDecl, mod, name, type, linkage, mangling, loc),
-    parent(parent),
+    parent_ptr(parent),
     params(std::move(param_decls)),
     body(nullptr) {
     module->add_function(this);
-    for (auto param : params) param->parent = this;
 }
 
 src::DeclRefExpr::DeclRefExpr(Decl* referenced, Location loc)
@@ -90,17 +89,6 @@ src::LocalRefExpr::LocalRefExpr(ProcDecl* parent, LocalDecl* decl, Location loc)
     is_lvalue = decl->is_lvalue;
 }
 
-src::LabelExpr::LabelExpr(
-    ProcDecl* in_procedure,
-    String label,
-    Expr* expr,
-    Location loc
-) : Expr(Kind::LabelExpr, loc),
-    label(label),
-    expr(expr) {
-    in_procedure->add_label(this->label, this);
-}
-
 src::TupleIndexExpr::TupleIndexExpr(Expr* object, FieldDecl* field, Location loc)
     : TypedExpr(Kind::TupleIndexExpr, field->type, loc),
       object(object),
@@ -111,10 +99,15 @@ src::TupleIndexExpr::TupleIndexExpr(Expr* object, FieldDecl* field, Location loc
     is_lvalue = object->is_lvalue;
 }
 
+auto src::LocalDecl::parent(Module* parent_module) -> ProcDecl* {
+    if (parent_ptr) return parent_ptr;
+    return parent_module->top_level_func;
+}
+
 void src::LocalDecl::set_captured() {
     if (is_captured) return;
     is_captured = true;
-    parent->captured_locals.push_back(this);
+    if (parent_ptr) parent_ptr->captured_locals.push_back(this);
 }
 
 auto src::Expr::_ignore_labels() -> Expr* {
@@ -202,7 +195,7 @@ auto src::Expr::_scope_name() -> std::string {
         case Kind::ProcDecl: {
             auto p = cast<ProcDecl>(this);
             if (p->name.empty()) return "<anonymous>";
-            if (p->parent != p->module->top_level_func) return fmt::format("{}::{}", p->parent->scope_name, p->name);
+            if (p->parent_or_null) return fmt::format("{}::{}", p->parent_or_null->scope_name, p->name);
             if (p->module->is_logical_module) return fmt::format("{}::{}", p->module->name, p->name);
             return std::string{p->name.sv()};
         }
@@ -1233,8 +1226,8 @@ public:
                     n->type.str(use_colour),
                     C(Blue),
                     n->is_lvalue ? " lvalue" : "",
-                    n->parent != n->decl->parent
-                        ? fmt::format(" chain{}:{}{}", C(Red), C(Green), n->decl->parent->name)
+                    n->parent != n->decl->parent(mod)
+                        ? fmt::format(" chain{}:{}{}", C(Red), C(Green), n->decl->parent(mod)->name)
                         : ""
                 );
                 return;

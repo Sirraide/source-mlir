@@ -194,7 +194,7 @@ void src::CodeGen::AllocateLocalVar(LocalDecl* decl) {
     if (decl->captured) {
         local_vars[decl] = Create<hlir::StructGEPOp>(
             Loc(decl->location),
-            captured_locals_ptrs.at(decl->parent),
+            captured_locals_ptrs.at(decl->parent(mod)),
             decl->capture_index
         );
     } else {
@@ -619,9 +619,10 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     for (const auto& [i, var] : llvm::enumerate(captured)) {
         /// Zero is the static chain.
         if (proc->takes_static_chain and i == 0) {
+            Assert(proc->parent_or_null, "Procedure taking static chain must have a parent");
             fields.push_back(new (mod) FieldDecl(
                 "",
-                new (mod) ReferenceType(proc->parent->captured_locals_type, {}),
+                new (mod) ReferenceType(proc->parent_or_null->captured_locals_type, {}),
                 {},
                 Size::Bytes(0),
                 0,
@@ -724,7 +725,7 @@ auto src::CodeGen::GetStaticChainPointer(ProcDecl* proc) -> mlir::Value {
     );
 
     /// Walk up the stack till we reach the desired procedure.
-    for (auto p = curr_proc->parent; p != proc; p = p->parent) {
+    for (auto p = curr_proc->parent_or_null; p and p != proc; p = p->parent_or_null) {
         chain = Create<hlir::ChainExtractLocalOp>(
             builder.getUnknownLoc(),
             chain,
@@ -1075,7 +1076,8 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
 
             /// Easy case: the variable we’re accessing is in the same
             /// scope as the reference.
-            if (var->parent == var->decl->parent) {
+            auto proc = var->decl->parent(mod);
+            if (var->parent == proc) {
                 Assert(local_vars.contains(var->decl));
                 return local_vars.at(var->decl);
             }
@@ -1086,12 +1088,12 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             ///
             /// Get the frame pointer of the procedure containing
             /// the variable declaration.
-            auto& locals = var->decl->parent->captured_locals;
+            auto& locals = proc->captured_locals;
             auto var_index = std::distance(locals.begin(), rgs::find(locals, var->decl));
             return Create<hlir::StructGEPOp>(
                 Loc(var->location),
-                GetStaticChainPointer(var->decl->parent),
-                var_index + var->decl->parent->nested
+                GetStaticChainPointer(proc),
+                var_index + proc->nested
             );
         }
 

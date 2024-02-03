@@ -314,7 +314,6 @@ class Assimilator {
             case Expr::Kind::ParamDecl: {
                 auto l = cast<LocalDecl>(e);
                 for (auto& i : l->init_args) Assimilate(i);
-                Assimilate(l->parent);
                 Assimilate(l->ctor);
             } break;
 
@@ -323,7 +322,6 @@ class Assimilator {
                 for (auto& x : p->params) Assimilate(x);
                 for (auto& [k, v] : p->labels) Assimilate(v);
                 for (auto& x : p->captured_locals) Assimilate(x);
-                Assimilate(p->parent);
                 Assimilate(p->body);
                 Assimilate(p->captured_locals_type);
                 DoAssimilate(p->module);

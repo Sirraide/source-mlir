@@ -513,11 +513,12 @@ public:
     bool used = false;
 
     LabelExpr(
-        ProcDecl* in_procedure,
         String label,
         Expr* expr,
         Location loc
-    );
+    ) : Expr(Kind::LabelExpr, loc),
+        label(label),
+        expr(expr) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::LabelExpr; }
@@ -972,9 +973,6 @@ public:
     /// The parent scope.
     BlockExpr* parent;
 
-    /// The parent function.
-    ProcDecl* parent_proc;
-
     /// The module this scope belongs to.
     Module* module;
 
@@ -999,7 +997,7 @@ private:
     ScopeKind scope_kind = ScopeKind::Block;
 
     /// Whether this scope is isolated from the surrounding scope. This
-    /// does not apply to unevaluated contextx.
+    /// does not apply to unevaluated contexts.
     bool isolated{};
 
 public:
@@ -1575,10 +1573,11 @@ public:
 
 /// Local variable declaration.
 class LocalDecl : public Decl {
-public:
-    /// The procedure containing this declaration.
-    ProcDecl* parent;
+    /// The procedure containing this declaration. Null if the
+    /// parent is the top-level function.
+    ProcDecl* parent_ptr{};
 
+public:
     /// The initialiser arguments, if any.
     SmallVector<Expr*> init_args;
 
@@ -1618,6 +1617,9 @@ public:
     /// the variable can still be moved from.
     readonly(bool, already_moved, return definitely_moved or potentially_moved);
 
+    /// Get the parent function or null if the parent is the top-level function.
+    readonly_const(ProcDecl*, parent_or_null, return parent_ptr);
+
     /// Some variables (e.g. the variable of a for-in loop) cannot
     /// be captured since they do not correspond to a stack variable
     /// (and capturing them would also not be desirable as that is
@@ -1633,21 +1635,18 @@ public:
 protected:
     LocalDecl(
         Kind k,
-        ProcDecl* parent,
         String name,
         Type type,
         SmallVector<Expr*> init,
         LocalKind kind,
         Location loc
     ) : Decl(k, name, type, loc),
-        parent(parent),
         init_args(std::move(init)),
         local_kind(kind) {
     }
 
 public:
     LocalDecl(
-        ProcDecl* parent,
         String name,
         Type type,
         SmallVector<Expr*> init,
@@ -1655,7 +1654,6 @@ public:
         Location loc
     ) : LocalDecl( //
             Kind::LocalDecl,
-            parent,
             name,
             type,
             std::move(init),
@@ -1663,8 +1661,17 @@ public:
             loc
         ) {}
 
+    /// Get the parent procedure.
+    auto parent(Module* parent_module) -> ProcDecl*;
+
     /// Mark this declaration as captured.
     void set_captured();
+
+    /// Set the parent procedure.
+    void set_parent(ProcDecl* parent) {
+        Assert(not parent_ptr);
+        parent_ptr = parent;
+    }
 
     /// RTTI.
     static bool classof(const Expr* e) {
@@ -1745,13 +1752,11 @@ class ParamDecl : public LocalDecl {
 public:
     ParamInfo* info{};
     ParamDecl(
-        ProcDecl* parent,
         ParamInfo* info,
         String name,
         Location loc
     ) : LocalDecl( //
             Kind::ParamDecl,
-            parent,
             name,
             info->type,
             {},
@@ -1793,10 +1798,8 @@ public:
 */
 
 class ProcDecl : public ObjectDecl {
+    ProcDecl* parent_ptr;
 public:
-    /// The parent function. Null if this is the top-level function. This
-    /// is used for building static chains.
-    ProcDecl* parent;
 
     /// The function parameter decls. Empty if this is a declaration.
     SmallVector<ParamDecl*> params;
@@ -1848,10 +1851,13 @@ public:
     }
 
     /// Whether this is a nested procedure.
-    readonly(bool, nested, return parent and parent->parent != nullptr);
+    readonly(bool, nested, return parent_ptr);
 
     /// Whether this takes a static chain pointer parameter.
     readonly_decl(bool, takes_static_chain);
+
+    /// Get the parent, if it has one.
+    readonly(ProcDecl*, parent_or_null, return parent_ptr);
 
     /// Get the return type of this procedure.
     [[gnu::pure]] readonly_decl(Type, ret_type);
