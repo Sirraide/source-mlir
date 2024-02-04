@@ -1514,8 +1514,7 @@ auto src::Sema::Construct(
 
         /// These take zero or one argument.
         case Expr::Kind::BuiltinType:
-        case Expr::Kind::IntType:
-        case Expr::Kind::Nil: {
+        case Expr::Kind::IntType: {
             if (init_args.empty()) return ConstructExpr::CreateZeroinit(mod);
             if (init_args.size() == 1) return CopyInit(type);
             return InvalidArgs();
@@ -1867,7 +1866,6 @@ bool src::Sema::Analyse(Expr*& e) {
         case Expr::Kind::IntType:
         case Expr::Kind::MaterialiseTemporaryExpr:
         case Expr::Kind::ModuleRefExpr:
-        case Expr::Kind::Nil:
         case Expr::Kind::OpaqueType:
         case Expr::Kind::ScopedType:
         case Expr::Kind::SugaredType:

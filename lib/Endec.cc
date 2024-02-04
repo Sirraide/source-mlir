@@ -36,7 +36,6 @@
 ///
 /// - b
 /// - i
-/// - n
 /// - q
 /// - r
 /// - s
@@ -87,9 +86,6 @@ auto Type::_mangled_name() -> std::string {
             }
 
             Unreachable();
-
-        case Expr::Kind::Nil:
-            return "n";
 
         /// The underscore is so we know how many digits are part of the bit width.
         case Expr::Kind::IntType:

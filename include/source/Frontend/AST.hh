@@ -145,7 +145,7 @@ public:
     /// Strip parentheses, and DeclRefExprs.
     readonly_decl(Expr*, ignore_paren_refs);
 
-    /// Check if this is 'nil'.
+    /// Check if this is '()'.
     readonly_decl(bool, is_nil);
 
     /// Check if this is an expression that we can not branch
@@ -309,15 +309,14 @@ private:
         Type,
         OverloadSetExpr*,
         String,
-        TupleElements,
-        std::nullptr_t
+        TupleElements
     > value{}; // clang-format on
 
 public:
     Type type{Type::Unknown};
 
     EvalResult() : value(std::monostate{}) {}
-    EvalResult(std::nullptr_t); /// Nil.
+    EvalResult(std::nullptr_t) : value{TupleElements{}}, type(Type::Nil) {}
     EvalResult(APInt value, Type type) : value(std::move(value)), type(type) {}
     EvalResult(OverloadSetExpr* os) : value(os), type(Type::OverloadSet) {}
     EvalResult(String s) : value(s), type(Type::OverloadSet) {}
@@ -331,8 +330,9 @@ public:
     auto as_overload_set() -> OverloadSetExpr* { return std::get<OverloadSetExpr*>(value); }
 
     bool is_int() const { return std::holds_alternative<APInt>(value); }
-    bool is_nil() const { return std::holds_alternative<std::nullptr_t>(value); }
+    bool is_nil() const { return is_tuple() and std::get<TupleElements>(value).empty(); }
     bool is_str() const { return std::holds_alternative<String>(value); }
+    bool is_tuple() const { return std::holds_alternative<TupleElements>(value); }
     bool is_type() const { return std::holds_alternative<Type>(value); }
 };
 
@@ -1950,15 +1950,6 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::IntType; }
 };
 
-/// This is both the nil type and the nil literal.
-class Nil : public TypeBase {
-public:
-    Nil(Location loc) : TypeBase(Kind::Nil, loc) { sema.set_done(); }
-
-    /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::Nil; }
-};
-
 class BuiltinType : public TypeBase {
     using K = BuiltinTypeKind;
 
@@ -2440,7 +2431,6 @@ struct THCastImpl {
     }
 };
 
-inline EvalResult::EvalResult(std::nullptr_t) : value(nullptr), type(Type::Nil) {}
 inline EvalResult::EvalResult(TupleElements elems, TupleType* type)
     : value(std::move(elems)), type(type) {}
 

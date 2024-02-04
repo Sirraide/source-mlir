@@ -71,10 +71,6 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
             if (must_succeed) Error(e, "Not a constant expression");
             return false;
 
-        case Expr::Kind::Nil:
-            out = nullptr;
-            return true;
-
         case Expr::Kind::ScopeAccessExpr:
             return Evaluate(cast<ScopeAccessExpr>(e)->resolved, out, must_succeed);
 
