@@ -1776,8 +1776,8 @@ auto src::Sema::Construct(
             if (init_args.size() == 1) {
                 /// If the initialiser is already an optional,
                 /// just leave it as is.
-                if (type == init_args[0]->type)
-                    return ConstructExpr::CreateCopy(mod, init_args[0]);
+                if (init_args[0]->type == Type::Nil) return ConstructExpr::CreateZeroinit(mod);
+                if (type == init_args[0]->type) return CopyInit(type);
 
                 /// Otherwise, attempt to convert it to the wrapped type.
                 LValueState.ActivateOptional(target);
