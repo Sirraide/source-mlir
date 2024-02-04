@@ -123,3 +123,46 @@ export proc c -> i32 {
     /// + return i32 $final
     return sum;
 }
+
+///  b
+///  * hlir.func external @_SM1x1dPE -> i32
+///O * define fastcc noundef i32 @_SM1x1dPE()
+///O *   ret i32 15
+export proc d -> i32 {
+    /// * $sum:t = local i32,
+    i32 sum;
+
+    /// * $sz:t = slice_size i8[]
+    /// + $I0:t = arith.constant 0
+    /// + cf.br $cond:b($I0 : i64)
+    /// + $cond($I:t: i64):
+    /// + $cont:t = arith.cmpi ult, $I, $sz
+    /// + cf.cond_br $cont, $true:b, $false:b
+    /// + $true:
+    /// + $data:t = slice_data i8[]
+    /// + $offs:t = offset i8& $data[$I]
+    /// + scope
+    /// + $val:t = load i8 from $offs
+
+    /// Skipping the "0"[0] load here as that’s not important.
+    /// * $str_offs:t = offset i8&
+    /// + $ascii_zero:t = load i8 from $str_offs
+    /// + $diff:t = sub i8 $val, $ascii_zero
+    /// + $ext:t = arith.extsi $diff : i8 to i32
+    /// + $old:t = load i32 from $sum
+    /// + $new:t = add i32 $old, $ext
+    /// + store into $sum, i32 $new
+    /// + yield
+    /// + }
+    /// + cf.br $inc:b
+    /// + $inc:
+    /// + $one:t = arith.constant 1
+    /// + $I1:t = arith.addi $I, $one
+    /// + cf.br $cond($I1 : i64)
+    for i in "12345" do sum += i - "0"[0];
+
+    /// + $false:
+    /// + $final:t = load i32 from $sum
+    /// + return i32 $final
+    return sum;
+}
