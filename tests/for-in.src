@@ -7,9 +7,8 @@
 
 module x;
 
-proc helper -> i32[5] {
-    return (1, 2, 3, 4, 5);
-}
+proc array -> i32[5] = (1, 2, 3, 4, 5);
+proc tuple -> (i32, i32, i32, i32, i32) = (1, 2, 3, 4, 5);
 
 ///  b
 ///  * hlir.func external @_SM1x1aPE -> i32
@@ -200,7 +199,44 @@ export proc e -> i32 {
     /// + $one:t = arith.constant 1
     /// + $I1:t = arith.addi $I, $one
     /// + cf.br $cond($I1 : i64)
-    for i in helper() do sum += i;
+    for i in array() do sum += i;
+
+    /// + $false:
+    /// + $final:t = load i32 from $sum
+    /// + return i32 $final
+    return sum;
+}
+
+///  b
+///  * hlir.func external @_SM1x1fPE -> i32
+///O * define fastcc noundef i32 @_SM1x1fPE()
+///O *   ret i32 15
+export proc f -> i32 {
+    /// * $sum:t = local i32,
+    i32 sum;
+
+    /// * $sz:t = slice_size i32[]
+    /// + $I0:t = arith.constant 0
+    /// + cf.br $cond:b($I0 : i64)
+    /// + $cond($I:t: i64):
+    /// + $cont:t = arith.cmpi ult, $I, $sz
+    /// + cf.cond_br $cont, $true:b, $false:b
+    /// + $true:
+    /// + $data:t = slice_data i32[]
+    /// + $offs:t = offset i32& $data[$I]
+    /// + scope
+    /// + $val:t = load i32 from $offs
+    /// + $old:t = load i32 from $sum
+    /// + $new:t = add i32 $old, $val
+    /// + store into $sum, i32 $new
+    /// + yield
+    /// + }
+    /// + cf.br $inc:b
+    /// + $inc:
+    /// + $one:t = arith.constant 1
+    /// + $I1:t = arith.addi $I, $one
+    /// + cf.br $cond($I1 : i64)
+    for i in tuple() do sum += i;
 
     /// + $false:
     /// + $final:t = load i32 from $sum

@@ -1219,6 +1219,7 @@ public:
                 out += C(Red);
                 switch (c->cast_kind) {
                     case CastKind::ArrayToElemRef: out += " ArrayToElemRef"; break;
+                    case CastKind::BitCast: out += " BitCast"; break;
                     case CastKind::Hard: out += " Hard"; break;
                     case CastKind::Implicit: out += " Implicit"; break;
                     case CastKind::LValueRefToLValue: out += " LValueRefToLValue"; break;

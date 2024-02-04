@@ -310,19 +310,15 @@ struct BitCastOpLowering : public ConversionPattern {
             rewriter.replaceOp(op, args[0]);
         }
 
-        /// This is mainly used for pointer casts, so this should probably not be reached.
-        else {
-            std::string from, to;
-            llvm::raw_string_ostream from_os{from}, to_os{to};
-            bitcast.getType().print(from_os);
-            args[0].getType().print(to_os);
-            Diag::ICE(
-                "Unsupported lowering for BitCastOp from {} to {}",
-                from,
-                to
-            );
-        }
+        /// Anything else is lowered using the alloca-store-load type punning trick.
+        auto val = CreateInMemoryCast(
+            rewriter,
+            *getTypeConverter<LLVMTypeConverter>(),
+            bitcast.getType(),
+            args[0]
+        );
 
+        rewriter.replaceOp(op, val);
         return success();
     }
 };

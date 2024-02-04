@@ -1218,6 +1218,10 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
                     Todo();
                 }
 
+                /// No-op conversion cast.
+                case CastKind::BitCast:
+                    return Create<hlir::BitCastOp>(Loc(c->location), Ty(c->type), operand);
+
                 /// Proper casts are all handled the same.
                 case CastKind::Implicit:
                 case CastKind::Soft:

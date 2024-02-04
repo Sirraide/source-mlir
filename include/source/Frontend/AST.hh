@@ -916,6 +916,9 @@ enum struct CastKind {
     /// Convert an array lvalue to a reference rvalue to the first element.
     ArrayToElemRef,
 
+    /// No-op cast that simply reinterprets a bit pattern.
+    BitCast,
+
     /// Any other implicit conversion.
     Implicit,
 
