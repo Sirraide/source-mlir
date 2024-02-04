@@ -40,7 +40,6 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
             return true;
 
         case Expr::Kind::AliasExpr:
-        case Expr::Kind::ArrayLitExpr:
         case Expr::Kind::AssertExpr:
         case Expr::Kind::AssignExpr:
         case Expr::Kind::ConstructExpr:

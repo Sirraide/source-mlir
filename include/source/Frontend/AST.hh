@@ -194,7 +194,6 @@ public:
     static constinit const Type NoReturn;
     static constinit const Type OverloadSet;
     static constinit const Type MemberProc;
-    static constinit const Type ArrayLiteral;
     static constinit const Type VoidRef;
     static constinit const Type VoidRefRef;
     static constinit const Type I8;
@@ -885,23 +884,6 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::AliasExpr; }
-};
-
-class ArrayLitExpr : public Expr {
-public:
-    /// The elements of this array literal.
-    SmallVector<Expr*> elements;
-
-    /// The result object into which this literal is evaluated. If null,
-    /// the backend will create a temporary for this to be generated into.
-    Expr* result_object{};
-
-    ArrayLitExpr(SmallVector<Expr*> elements, Location loc)
-        : Expr(Kind::ArrayLitExpr, loc),
-          elements(std::move(elements)) {}
-
-    /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::ArrayLitExpr; }
 };
 
 /// ===========================================================================
@@ -1899,11 +1881,6 @@ enum struct BuiltinTypeKind {
     /// Type of a member function expression, e.g. `a.foo`. The only
     /// thing that can reasonably be done with this is to call it.
     MemberProc,
-
-    /// Array literals can be oddly-shaped, so assigning a type to
-    /// them doesn’t really make much sense; each array literal has
-    /// to be treated as a special case.
-    ArrayLiteral,
 };
 
 class TypeBase : public Expr {

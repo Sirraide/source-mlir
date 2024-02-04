@@ -753,7 +753,6 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
                 case K::Bool: return Bool;
                 case K::Int: return Int;
 
-                case K::ArrayLiteral:
                 case K::MemberProc:
                 case K::OverloadSet:
                 case K::Unknown:
@@ -1508,7 +1507,6 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         }
 
         case Expr::Kind::TupleExpr: Unreachable("Cannot emit tuple literals w/o a result object");
-        case Expr::Kind::ArrayLitExpr: Unreachable("Cannot emit array literals w/o a result object");
 
         case Expr::Kind::TupleIndexExpr: {
             auto t = cast<TupleIndexExpr>(expr);

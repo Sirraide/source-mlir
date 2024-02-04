@@ -36,7 +36,7 @@ i64[5] int_broadcast = 1;
 ///  b
 ///  + (?<int_empty>$t) = local i64[5]
 ///  + construct $int_empty zeroinit
-i64[5] int_empty = [];
+i64[5] int_empty = ();
 
 ///  b
 ///  + (?<int_partial>$t) = local i64[5]
@@ -54,7 +54,7 @@ i64[5] int_empty = [];
 ///  + (?<I3>$t) = arith.constant 3
 ///  + (?<A1_4>$t) = offset i64& $A1[$I3]
 ///  + construct $A1_4 zeroinit, elems 2
-i64[5] int_partial = [1, 2, 3];
+i64[5] int_partial = (1, 2, 3);
 
 ///  b
 ///  + (?<int_full>$t) = local i64[5]
@@ -77,7 +77,7 @@ i64[5] int_partial = [1, 2, 3];
 ///  + (?<A1_5>$t) = offset i64& $A1[$I4]
 ///  + (?<C5>$t) = arith.constant 5
 ///  + construct $A1_5 trivial i64 $C5
-i64[5] int_full = [1, 2, 3, 4, 5];
+i64[5] int_full = (1, 2, 3, 4, 5);
 
 ///  b
 ///  + (?<int_nested_complete>$t) = local i64[2][2]
@@ -98,12 +98,12 @@ i64[5] int_full = [1, 2, 3, 4, 5];
 ///  + (?<A2_4>$t) = offset i64& $A2_3[$I3]
 ///  + (?<C4>$t) = arith.constant 4
 ///  + construct $A2_4 trivial i64 $C4
-i64[2][2] int_nested_complete = [[1, 2], [3, 4]];
+i64[2][2] int_nested_complete = ((1, 2), (3, 4));
 
 ///  b
 ///  + (?<int_nested_incomplete>$t) = local i64[3][4]
 ///  + (?<A1>$t) = array_decay $int_nested_incomplete to i64[3]&
-i64[3][4] int_nested_incomplete = [
+i64[3][4] int_nested_incomplete = (
     ///  + (?<A2>$t) = array_decay $A1 to i64&
     ///  + (?<C1>$t) = arith.constant 1
     ///  + construct $A2 trivial i64 $C1
@@ -115,7 +115,7 @@ i64[3][4] int_nested_incomplete = [
     ///  + (?<A2_3>$t) = offset i64& $A2[$I2]
     ///  + (?<C3>$t) = arith.constant 3
     ///  + construct $A2_3 trivial i64 $C3
-    [1, 2, 3],
+    (1, 2, 3),
 
     ///  + (?<I3>$t) = arith.constant 1
     ///  + (?<A1_2>$t) = offset i64[3]& $A1[$I3]
@@ -125,18 +125,18 @@ i64[3][4] int_nested_incomplete = [
     ///  + (?<I4>$t) = arith.constant 1
     ///  + (?<A2_5>$t) = offset i64& $A2_4[$I4]
     ///  + construct $A2_5 zeroinit, elems 2
-    [4],
+    (4,),
 
     ///  + (?<I5>$t) = arith.constant 2
     ///  + (?<A1_3>$t) = offset i64[3]& $A1[$I5]
     ///  + construct $A1_3 zeroinit
-    [],
+    (),
 
     ///  + (?<I6>$t) = arith.constant 3
     ///  + (?<A1_4>$t) = offset i64[3]& $A1[$I6]
     ///  + (?<A2_7>$t) = array_decay $A1_4 to i64&
     ///  + construct $A2_7 zeroinit, elems 3
-];
+);
 
 ///  b
 ///  + (?<foo_default>$t) = local @foo[5]
@@ -155,7 +155,7 @@ foo[5] foo_broadcast = 1;
 ///  + (?<foo_empty>$t) = local @foo[5]
 ///  + (?<A>$t) = array_decay $foo_empty to @foo&
 ///  + construct $A init @_SXS3fooPE, elems 5
-foo[5] foo_empty = [];
+foo[5] foo_empty = ();
 
 ///  b
 ///  + (?<foo_partial>$t) = local @foo[5]
@@ -173,7 +173,7 @@ foo[5] foo_empty = [];
 ///  + (?<I3>$t) = arith.constant 3
 ///  + (?<A1_4>$t) = offset @foo& $A1[$I3]
 ///  + construct $A1_4 init @_SXS3fooPE, elems 2
-foo[5] foo_partial = [1, 2, 3];
+foo[5] foo_partial = (1, 2, 3);
 
 ///  b
 ///  + (?<foo_full>$t) = local @foo[5]
@@ -196,7 +196,7 @@ foo[5] foo_partial = [1, 2, 3];
 ///  + (?<A1_5>$t) = offset @foo& $A1[$I4]
 ///  + (?<C5>$t) = arith.constant 5
 ///  + construct $A1_5 init @_SXS3fooPI64_E(i64 $C5)
-foo[5] foo_full = [1, 2, 3, 4, 5];
+foo[5] foo_full = (1, 2, 3, 4, 5);
 
 ///  b
 ///  + (?<foo_nested_complete>$t) = local @foo[2][2]
@@ -217,12 +217,12 @@ foo[5] foo_full = [1, 2, 3, 4, 5];
 ///  + (?<A2_4>$t) = offset @foo& $A2_3[$I3]
 ///  + (?<C4>$t) = arith.constant 4
 ///  + construct $A2_4 init @_SXS3fooPI64_E(i64 $C4)
-foo[2][2] foo_nested_complete = [[1, 2], [3, 4]];
+foo[2][2] foo_nested_complete = ((1, 2), (3, 4));
 
 ///  b
 ///  + (?<foo_nested_incomplete>$t) = local @foo[3][4]
 ///  + (?<A1>$t) = array_decay $foo_nested_incomplete to @foo[3]&
-foo[3][4] foo_nested_incomplete = [
+foo[3][4] foo_nested_incomplete = (
     ///  + (?<A2>$t) = array_decay $A1 to @foo&
     ///  + (?<C1>$t) = arith.constant 1
     ///  + construct $A2 init @_SXS3fooPI64_E(i64 $C1)
@@ -234,7 +234,7 @@ foo[3][4] foo_nested_incomplete = [
     ///  + (?<A2_3>$t) = offset @foo& $A2[$I2]
     ///  + (?<C3>$t) = arith.constant 3
     ///  + construct $A2_3 init @_SXS3fooPI64_E(i64 $C3)
-    [1, 2, 3],
+    (1, 2, 3),
 
     ///  + (?<I3>$t) = arith.constant 1
     ///  + (?<A1_2>$t) = offset @foo[3]& $A1[$I3]
@@ -244,19 +244,19 @@ foo[3][4] foo_nested_incomplete = [
     ///  + (?<I4>$t) = arith.constant 1
     ///  + (?<A2_5>$t) = offset @foo& $A2_4[$I4]
     ///  + construct $A2_5 init @_SXS3fooPE, elems 2
-    [4],
+    (4,),
 
     ///  + (?<I5>$t) = arith.constant 2
     ///  + (?<A1_3>$t) = offset @foo[3]& $A1[$I5]
     ///  + (?<A2_6>$t) = array_decay $A1_3 to @foo&
     ///  + construct $A2_6 init @_SXS3fooPE, elems 3
-    [],
+    (),
 
     ///  + (?<I6>$t) = arith.constant 3
     ///  + (?<A1_4>$t) = offset @foo[3]& $A1[$I6]
     ///  + (?<A2_7>$t) = array_decay $A1_4 to @foo&
     ///  + construct $A2_7 init @_SXS3fooPE, elems 3
-];
+);
 
 ///L call void @_S4sinkPA5I64_E([5 x i64] zeroinitializer)
 ///L call void @_S4sinkPA5I64_E([5 x i64] [i64 1, i64 1, i64 1, i64 1, i64 1])
