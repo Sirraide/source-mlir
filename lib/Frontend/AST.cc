@@ -15,7 +15,7 @@ IntType IntType8Instance{Size::Bits(8), {}};
 IntType IntType16Instance{Size::Bits(16), {}};
 IntType IntType32Instance{Size::Bits(32), {}};
 IntType IntType64Instance{Size::Bits(64), {}};
-Nil NilInstance{{}};
+TupleType NilInstance{{}, {}};
 ReferenceType VoidRefTypeInstance = [] {
     ReferenceType ty{&VoidTypeInstance, {}};
     ty.sema.set_done();
@@ -142,7 +142,8 @@ auto src::Expr::_ignore_paren_refs() -> Expr* {
 }
 
 bool src::Expr::_is_nil() {
-    return isa<Nil>(this);
+    if (auto t = dyn_cast<TupleExpr>(this)) return t->elements.empty();
+    return false;
 }
 
 bool src::Expr::_is_protected() {
@@ -295,9 +296,6 @@ auto src::Type::align(Context* ctx) const -> Align {
             /// FIXME: Use context.
             return Align(std::max<usz>(1, std::bit_ceil(usz(cast<IntType>(ptr)->size.bytes()))));
 
-        case Expr::Kind::Nil:
-            return Align(1);
-
         case Expr::Kind::ReferenceType:
         case Expr::Kind::ScopedPointerType:
             return ctx->align_of_pointer;
@@ -389,7 +387,8 @@ bool src::Type::is_int(bool bool_is_int) {
 }
 
 bool src::Type::_is_nil() {
-    return isa<src::Nil>(ptr);
+    if (auto t = dyn_cast<TupleType>(ptr)) return t->all_fields.empty();
+    return false;
 }
 
 bool src::Type::_is_noreturn() {
@@ -428,9 +427,6 @@ auto src::Type::size(Context* ctx) const -> Size {
 
         case Expr::Kind::IntType:
             return cast<IntType>(ptr)->size;
-
-        case Expr::Kind::Nil:
-            return Size::Bits(0);
 
         case Expr::Kind::ReferenceType:
         case Expr::Kind::ScopedPointerType:
@@ -499,7 +495,6 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
 
     switch (ptr->kind) {
         case Expr::Kind::IntType: out += fmt::format("i{}", cast<IntType>(ptr)->size); break;
-        case Expr::Kind::Nil: out += "nil"; break;
         case Expr::Kind::OptionalType: WriteSElem("?"); break;
         case Expr::Kind::ReferenceType: WriteSElem("&"); break;
         case Expr::Kind::ScopedPointerType: WriteSElem("^"); break;
@@ -694,7 +689,6 @@ bool src::Type::_trivial() {
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
         case Expr::Kind::IntType:
-        case Expr::Kind::Nil:
         case Expr::Kind::OptionalType:
         case Expr::Kind::ScopedPointerType:
         case Expr::Kind::SliceType:
@@ -744,7 +738,6 @@ bool src::Type::_trivially_copyable() {
         case Expr::Kind::ClosureType:
         case Expr::Kind::EnumType:
         case Expr::Kind::IntType:
-        case Expr::Kind::Nil:
         case Expr::Kind::OpaqueType:
         case Expr::Kind::OptionalType:
         case Expr::Kind::ProcType:
@@ -815,9 +808,6 @@ bool src::operator==(Type a, Type b) {
             auto ob = cast<OpaqueType>(b);
             return oa->name == ob->name and oa->module == ob->module;
         }
-
-        case Expr::Kind::Nil:
-            return true;
 
         case Expr::Kind::BuiltinType:
             return cast<BuiltinType>(a)->builtin_kind == cast<BuiltinType>(b)->builtin_kind;
@@ -1073,7 +1063,6 @@ public:
 
             case K::ArrayLitExpr: PrintBasicNode("ArrayLitExpr", e, nullptr); return;
             case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
-            case K::Nil: PrintBasicNode("Nil", e, nullptr); return;
             case K::OverloadSetExpr: PrintBasicNode("OverloadSetExpr", e, nullptr); return;
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
             case K::WhileExpr: PrintBasicNode("WhileExpr", e, nullptr); return;
@@ -1554,7 +1543,6 @@ public:
             case K::BuiltinType:
             case K::ClosureType:
             case K::IntType:
-            case K::Nil:
             case K::OpaqueType:
             case K::OptionalType:
             case K::ProcType:

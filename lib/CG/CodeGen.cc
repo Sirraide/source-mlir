@@ -870,9 +870,6 @@ auto src::CodeGen::Ty(Type type, bool for_closure) -> mlir::Type {
             return record_types.at(r);
         }
 
-        case Expr::Kind::Nil:
-            Diag::ICE(ctx, type->location, "Nil type has no representation in the IR");
-
 #define SOURCE_AST_EXPR(name) case Expr::Kind::name:
 #define SOURCE_AST_TYPE(...)
 #include <source/Frontend/AST.def>
@@ -922,7 +919,6 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
     switch (expr->kind) {
         /// Can’t codegen types.
 #define SOURCE_AST_TYPE(name) case Expr::Kind::name:
-#define SOURCE_AST_NIL(...)   /// Better error message for nil.
 #include <source/Frontend/AST.def>
         Diag::ICE(ctx, expr->location, "Don’t know how to codegen types");
 
@@ -940,10 +936,6 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         /// A construct expression without a target is meaningless.
         case Expr::Kind::ConstructExpr:
             Diag::ICE(ctx, expr->location, "ConstructExpr without result object");
-
-        /// Nil should always be wrapped in a cast expression.
-        case Expr::Kind::Nil:
-            Diag::ICE(ctx, expr->location, "Nil has no representation in the IR");
 
         case Expr::Kind::InvokeExpr: {
             auto e = cast<InvokeExpr>(expr);
@@ -1152,7 +1144,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
 
             /// Emit the operand.
             mlir::Value operand;
-            if (not isa<Nil>(c->operand)) operand = Generate(c->operand);
+            if (not c->operand->is_nil) operand = Generate(c->operand);
 
             /// Note that some of the casts perform the same operation,
             /// but they are logically distinct in that they yield different
@@ -1979,7 +1971,7 @@ auto src::CodeGen::GenerateConvertingCast(CastExpr* c, mlir::Value operand) -> m
     auto to_type = c->type.desugared_underlying;
 
     /// Create a nil of the target type.
-    if (isa<Nil>(from_type)) return Create<hlir::NilOp>(Loc(c->location), Ty(to_type));
+    if (from_type.is_nil) return Create<hlir::NilOp>(Loc(c->location), Ty(to_type));
 
     /// No-op.
     if (from_type == to_type) return operand;

@@ -6,10 +6,6 @@
 #    define SOURCE_AST_TYPE(...) SOURCE_AST_EXPR(__VA_ARGS__)
 #endif
 
-#ifndef SOURCE_AST_NIL
-#    define SOURCE_AST_NIL(...) SOURCE_AST_TYPE(__VA_ARGS__)
-#endif
-
 #ifndef SOURCE_AST_UNTYPED_EXPR
 #    define SOURCE_AST_UNTYPED_EXPR(...) SOURCE_AST_EXPR(__VA_ARGS__)
 #endif
@@ -21,7 +17,6 @@
 /// Type [begin]
 SOURCE_AST_TYPE(BuiltinType)
 SOURCE_AST_TYPE(IntType)
-SOURCE_AST_NIL(Nil) // Both a type and an expression.
 SOURCE_AST_TYPE(ProcType)
 SOURCE_AST_TYPE(TypeofType)
 SOURCE_AST_TYPE(OpaqueType)

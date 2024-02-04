@@ -528,7 +528,7 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
 
             /// Empty tuple.
             if (At(Tk::RParen)) {
-                lhs = new (mod) Nil({start, curr_loc});
+                lhs = new (mod) TupleExpr({}, {start, curr_loc});
                 Next();
                 break;
             }
