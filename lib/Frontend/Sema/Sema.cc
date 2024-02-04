@@ -1944,9 +1944,11 @@ bool src::Sema::Analyse(Expr*& e) {
             AnalyseAsType(str->stored_type);
         } break;
 
-        /// Just check each element.
+        /// Check each element.
         ///
-        /// Note that tuples are always rvalues.
+        /// By default, a tuple literal yields an rvalue of tuple type. Contexts
+        /// that want e.g. an array literal instead have to process this manually
+        /// instead.
         case Expr::Kind::TupleExpr: {
             auto tuple = cast<TupleExpr>(e);
             for (auto& elem : tuple->elements)
@@ -2920,6 +2922,47 @@ bool src::Sema::Analyse(Expr*& e) {
         /// For in loops.
         case Expr::Kind::ForInExpr: {
             auto f = cast<ForInExpr>(e);
+
+            /// If the range is a tuple literal, it is only iterable if all
+            /// of its elements have the same type.
+            if (auto tuple = dyn_cast<TupleExpr>(f->range)) {
+                Type elem_ty = Type::Unknown;
+                for (auto& elem : tuple->elements) {
+                    if (not Analyse(elem)) return e->sema.set_errored();
+                    if (elem_ty == Type::Unknown) {
+                        elem_ty = elem->type;
+                        if (not MakeDeclType(elem_ty)) return e->sema.set_errored();
+                    } else if (not Convert(elem, elem_ty)) {
+                        Error(
+                            tuple->location,
+                            "Cannot iterate over tuple literal with elements of "
+                            "incompatible types '{}' and '{}'",
+                            elem_ty,
+                            elem->type
+                        );
+                        return e->sema.set_errored();
+                    }
+                }
+
+                /// Treat the tuple as an array literal.
+                tuple->sema.set_done();
+                tuple->stored_type = new (mod) ArrayType(
+                    elem_ty,
+                    new (mod) ConstExpr(
+                        nullptr,
+                        EvalResult{APInt{64, tuple->elements.size()}, Type::Int},
+                        {}
+                    ),
+                    tuple->location
+                );
+
+                Assert(AnalyseAsType(tuple->stored_type));
+
+                /// Construct a temporary to iterate over.
+                auto ctor = Construct(tuple->location, tuple->stored_type, f->range);
+                if (not ctor) return e->sema.set_errored();
+                f->range = new (mod) MaterialiseTemporaryExpr(tuple->stored_type, ctor, tuple->location);
+            }
 
             /// Make sure the range is something we can iterate over; currently,
             /// that’s only arrays and slices.
