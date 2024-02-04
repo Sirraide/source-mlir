@@ -12,7 +12,7 @@ module x;
 ///O * define fastcc noundef i32 @_SM1x1aPE()
 ///O *   ret i32 15
 export proc a -> i32 {
-    i32[5] arr = [1, 2, 3, 4, 5];
+    i32[5] arr = (1, 2, 3, 4, 5);
     i32[] slice = arr;
 
     /// * $sum:t = local i32,
@@ -52,7 +52,7 @@ export proc a -> i32 {
 ///O * define fastcc noundef i32 @_SM1x1bPE()
 ///O *   ret i32 15
 export proc b -> i32 {
-    i32[5] arr = [1, 2, 3, 4, 5];
+    i32[5] arr = (1, 2, 3, 4, 5);
 
     /// * $sum:t = local i32,
     i32 sum;

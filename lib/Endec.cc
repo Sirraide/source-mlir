@@ -78,7 +78,6 @@ auto Type::_mangled_name() -> std::string {
                 case BuiltinTypeKind::Bool: return "b";
                 case BuiltinTypeKind::NoReturn: return "r";
 
-                case BuiltinTypeKind::ArrayLiteral:
                 case BuiltinTypeKind::MemberProc:
                 case BuiltinTypeKind::OverloadSet:
                 case BuiltinTypeKind::Unknown:
@@ -407,7 +406,6 @@ struct Serialiser {
                     case BuiltinTypeKind::Bool: return TD(SerialisedTypeTag::Bool);
                     case BuiltinTypeKind::NoReturn: return TD(SerialisedTypeTag::NoReturn);
 
-                    case BuiltinTypeKind::ArrayLiteral:
                     case BuiltinTypeKind::OverloadSet:
                     case BuiltinTypeKind::MemberProc:
                     case BuiltinTypeKind::Unknown:

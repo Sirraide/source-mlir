@@ -12,7 +12,7 @@ module x;
 ///O * define fastcc noundef i64 @_SM1x1aPE()
 ///O *   ret i64 50
 export proc a -> i64 {
-    int[5] arr = [1, 2, 3, 4, 5];
+    int[5] arr = (1, 2, 3, 4, 5);
 
     /// * $sum:t = local i64,
     int sum;

@@ -555,21 +555,6 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
             if (not At(Tk::RParen)) return Error("Expected ')'");
             Next();
         } break;
-
-        /// Array literal.
-        case Tk::LBrack: {
-            auto start = Next();
-            SmallVector<Expr*> exprs;
-            while (not At(Tk::RBrack, Tk::Eof)) {
-                auto expr = ParseExpr();
-                if (IsError(expr)) return expr.diag;
-                exprs.push_back(*expr);
-                if (not Consume(Tk::Comma)) break;
-            }
-
-            lhs = new (mod) ArrayLitExpr(std::move(exprs), {start, curr_loc});
-            if (not Consume(Tk::RBrack)) Error("Expected ']'");
-        } break;
     }
 
     /// Stop here if there was an error.

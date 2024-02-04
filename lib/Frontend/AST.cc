@@ -10,7 +10,6 @@ BuiltinType BoolTypeInstance{BuiltinTypeKind::Bool, {}};
 BuiltinType NoReturnTypeInstance{BuiltinTypeKind::NoReturn, {}};
 BuiltinType OverloadSetTypeInstance{BuiltinTypeKind::OverloadSet, {}};
 BuiltinType MemberProcTypeInstance{BuiltinTypeKind::MemberProc, {}};
-BuiltinType ArrayLiteralTypeInstance{BuiltinTypeKind::ArrayLiteral, {}};
 IntType IntType8Instance{Size::Bits(8), {}};
 IntType IntType16Instance{Size::Bits(16), {}};
 IntType IntType32Instance{Size::Bits(32), {}};
@@ -34,7 +33,6 @@ constinit const Type Type::Bool = &BoolTypeInstance;
 constinit const Type Type::NoReturn = &NoReturnTypeInstance;
 constinit const Type Type::OverloadSet = &OverloadSetTypeInstance;
 constinit const Type Type::MemberProc = &MemberProcTypeInstance;
-constinit const Type Type::ArrayLiteral = &ArrayLiteralTypeInstance;
 constinit const Type Type::VoidRef = &VoidRefTypeInstance;
 constinit const Type Type::VoidRefRef = &VoidRefRefTypeInstance;
 constinit const Type Type::I8 = &IntType8Instance;
@@ -213,9 +211,6 @@ auto src::Expr::_type() -> Type {
         case Kind::OverloadSetExpr:
             return Type::OverloadSet;
 
-        case Kind::ArrayLitExpr:
-            return Type::ArrayLiteral;
-
         case Kind::AliasExpr:
         case Kind::AssertExpr:
         case Kind::ConstructExpr:
@@ -281,7 +276,6 @@ auto src::Type::align(Context* ctx) const -> Align {
                     return ctx->align_of_int;
 
                 /// Alignment can’t be 0.
-                case BuiltinTypeKind::ArrayLiteral:
                 case BuiltinTypeKind::MemberProc:
                 case BuiltinTypeKind::NoReturn:
                 case BuiltinTypeKind::OverloadSet:
@@ -413,7 +407,6 @@ auto src::Type::size(Context* ctx) const -> Size {
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
             switch (cast<BuiltinType>(ptr)->builtin_kind) {
-                case BuiltinTypeKind::ArrayLiteral: return {};
                 case BuiltinTypeKind::Bool: return Size::Bits(1);
                 case BuiltinTypeKind::Int: return ctx->size_of_int;
                 case BuiltinTypeKind::MemberProc: return {};
@@ -520,7 +513,6 @@ auto src::Type::str(bool use_colour, bool include_desugared) const -> std::strin
         case Expr::Kind::BuiltinType: {
             auto bk = cast<BuiltinType>(ptr)->builtin_kind;
             switch (bk) {
-                case BuiltinTypeKind::ArrayLiteral: out += "<empty array literal>"; goto done;
                 case BuiltinTypeKind::Bool: out += "bool"; goto done;
                 case BuiltinTypeKind::Int: out += "int"; goto done;
                 case BuiltinTypeKind::MemberProc: out += "<member procedure>"; goto done;
@@ -1061,7 +1053,6 @@ public:
                 PrintBasicNode("Type", e, e);
                 return;
 
-            case K::ArrayLitExpr: PrintBasicNode("ArrayLitExpr", e, nullptr); return;
             case K::EmptyExpr: PrintBasicNode("EmptyExpr", e, nullptr); return;
             case K::OverloadSetExpr: PrintBasicNode("OverloadSetExpr", e, nullptr); return;
             case K::ReturnExpr: PrintBasicNode("ReturnExpr", e, nullptr); return;
@@ -1736,10 +1727,6 @@ public:
                 auto c = const_cast<ConstructExpr*>(cast<ConstructExpr>(e));
                 PrintChildren(c->args_and_init(), leading_text);
             } break;
-
-            case K::ArrayLitExpr:
-                PrintChildren(cast<ArrayLitExpr>(e)->elements, leading_text);
-                break;
 
             case K::LabelExpr:
                 PrintChildren(cast<LabelExpr>(e)->expr, leading_text);

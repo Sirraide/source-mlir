@@ -1620,10 +1620,10 @@ auto src::Sema::Construct(
         case Expr::Kind::ArrayType: {
             auto [base, total_size, _] = ty.strip_arrays;
             auto no_args = init_args.empty();
-            auto arr = no_args ? nullptr : dyn_cast<ArrayLitExpr>(init_args[0]->ignore_parens);
+            auto tuple = no_args ? nullptr : dyn_cast<TupleExpr>(init_args[0]->ignore_parens);
 
-            /// No args or a single empty array literal.
-            if (no_args or (arr and arr->elements.empty())) {
+            /// No args or a single empty tuple.
+            if (no_args or (tuple and tuple->elements.empty())) {
                 /// An array of trivial types is itself trivial.
                 if (base.trivial) return ConstructExpr::CreateZeroinit(mod);
 
@@ -1646,16 +1646,16 @@ auto src::Sema::Construct(
             );
 
             /// If the argument is an array literal, construct the array from it.
-            if (arr) {
+            if (tuple) {
                 auto array_type = cast<ArrayType>(ty);
                 auto size = array_type->dimension().getZExtValue();
                 auto elem = array_type->elem.desugared;
 
                 /// Array literal must not be larger than the array type.
-                if (size < arr->elements.size()) {
+                if (size < tuple->elements.size()) {
                     Error(
                         loc,
-                        "Cannot initialise array '{}' from larger literal containing '{}' elements",
+                        "Cannot initialise array '{}' from tuple containing '{}' elements",
                         type,
                         size
                     );
@@ -1664,13 +1664,13 @@ auto src::Sema::Construct(
 
                 /// Construct each element.
                 SmallVector<Expr*, 16> ctors;
-                for (auto e : arr->elements)
+                for (auto e : tuple->elements)
                     if (auto ctor = Construct(e->location, elem, e))
                         ctors.push_back(ctor);
 
                 /// If the array literal is too small, that’s fine, so long
                 /// as the element type is default-constructible.
-                if (auto rem = size - arr->elements.size()) {
+                if (auto rem = size - tuple->elements.size()) {
                     rem *= elem.strip_arrays.total_dimension;
                     if (base.trivial) {
                         ctors.push_back(ConstructExpr::CreateArrayZeroinit(mod, rem));
@@ -1679,10 +1679,10 @@ auto src::Sema::Construct(
                     } else {
                         Error(
                             loc,
-                            "Cannot create array '{}' from literal containing '{}' "
+                            "Cannot create array '{}' from tuple containing '{}' "
                             "elements as '{}' is not default-constructible",
                             type,
-                            arr->elements.size(),
+                            tuple->elements.size(),
                             base
                         );
                         return nullptr;
@@ -1930,15 +1930,6 @@ bool src::Sema::Analyse(Expr*& e) {
             if (not Analyse(p->expr)) return e->sema.set_errored();
             p->stored_type = p->expr->type;
             p->is_lvalue = p->expr->is_lvalue;
-        } break;
-
-        /// Array literals are weird because we can’t really do much with
-        /// them until we get to the context that they’re used in.
-        case Expr::Kind::ArrayLitExpr: {
-            auto a = cast<ArrayLitExpr>(e);
-            for (auto& elem : a->elements)
-                if (not Analyse(elem))
-                    return e->sema.set_errored();
         } break;
 
         /// String literals are u8 slices.
@@ -2787,13 +2778,6 @@ bool src::Sema::Analyse(Expr*& e) {
 
                 /// Type must be valid for a variable.
                 if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
-
-                /// If the initialiser is an array literal, set this as
-                /// the result object of that literal.
-                if (not var->init_args.empty()) {
-                    auto arr = dyn_cast<ArrayLitExpr>(var->init_args[0]);
-                    if (arr) arr->result_object = var;
-                }
 
                 /// Type must be constructible from the initialiser args.
                 ///
