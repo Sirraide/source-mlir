@@ -54,7 +54,6 @@ const StringMap<Tk> keywords = {
     {"land", Tk::Land},
     {"lor", Tk::Lor},
     {"match", Tk::Match},
-    {"nil", Tk::Nil},
     {"noreturn", Tk::NoReturn},
     {"not", Tk::Not},
     {"or", Tk::Or},
@@ -968,7 +967,6 @@ bool src::operator==(const Token& a, const Token& b) {
         case Tk::Land:
         case Tk::Lor:
         case Tk::Match:
-        case Tk::Nil:
         case Tk::NoReturn:
         case Tk::Not:
         case Tk::Or:

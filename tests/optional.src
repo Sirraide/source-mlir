@@ -11,6 +11,10 @@ proc a(int) extern;
 /// + zeroinitialiser $X
 int x;
 
+/// * (?<Y>$t) = local i64&
+/// + zeroinitialiser $Y
+int&? y = ();
+
 /// + (?<REF>$t) = local i64&
 /// + zeroinitialiser $REF
 int&? ref;

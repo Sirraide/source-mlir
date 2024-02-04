@@ -137,7 +137,6 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::LBrace:
         case Tk::LBrack:
         case Tk::LParen:
-        case Tk::Nil:
         case Tk::NoReturn:
         case Tk::Not:
         case Tk::Proc:
@@ -349,7 +348,6 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
         case Tk::Bool:
         case Tk::Int:
         case Tk::IntegerType:
-        case Tk::Nil:
         case Tk::NoReturn:
         case Tk::Typeof:
         case Tk::Var:
@@ -525,9 +523,17 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
             }
         } break;
 
-        /// Parenthesised expression or tuple.
         case Tk::LParen: {
             auto start = Next();
+
+            /// Empty tuple.
+            if (At(Tk::RParen)) {
+                lhs = new (mod) Nil({start, curr_loc});
+                Next();
+                break;
+            }
+
+            /// Tuple or parenthesised expression.
             auto expr = ParseExpr();
             if (IsError(expr)) return expr.diag;
 
@@ -1524,11 +1530,6 @@ auto src::Parser::ParseType() -> Result<Type> {
 
         case Tk::NoReturn:
             base_type = BuiltinType::NoReturn(mod, tok.location);
-            Next();
-            break;
-
-        case Tk::Nil:
-            base_type = new (mod) Nil(curr_loc);
             Next();
             break;
 

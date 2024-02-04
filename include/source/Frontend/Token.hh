@@ -157,7 +157,6 @@ enum struct Tk {
     Land,
     Lor,
     Match,
-    Nil,
     NoReturn,
     Not,
     Or,
@@ -324,7 +323,6 @@ constexpr auto Spelling(Tk t) -> String {
         case Tk::Land: return "land";
         case Tk::Lor: return "lor";
         case Tk::Match: return "match";
-        case Tk::Nil: return "nil";
         case Tk::NoReturn: return "noreturn";
         case Tk::Not: return "not";
         case Tk::Or: return "or";
