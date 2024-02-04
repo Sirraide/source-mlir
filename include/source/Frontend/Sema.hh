@@ -509,6 +509,13 @@ private:
         }
     }
 
+    /// Materialise a temporary value.
+    ///
+    /// This is the opposite of lvalue-to-rvalue conversion: it takes an rvalue and
+    /// converts it to a temporary. Note that nothing happens if the expression is
+    /// already a MaterialiseTemporaryExpr of the same type.
+    bool MaterialiseTemporary(Expr*& e, Type type);
+
     /// Create a Note().
     template <typename... Args>
     void Note(Location loc, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {

@@ -1,8 +1,10 @@
 /// R %srcc %s --sema
 
+/// p lit []
+
 struct A {};
 A a;
 
-for i in 42 {} /// * tests/for-in-err.src:$LINE:10: Error: Type 'int' is not iterable.
-for i in a {} /// * tests/for-in-err.src:$LINE:10: Error: Type 'A' is not iterable.
+for i in 42 {} /// * tests/for-in-err.src:$LINE:10: Error: Type 'int' is not iterable
+for i in a {} /// * tests/for-in-err.src:$LINE:10: Error: Type 'A' is not iterable
 for i in (2, "e") {} /// * tests/for-in-err.src:$LINE:10: Error: Cannot iterate over tuple literal with elements of incompatible types 'int' and 'i8[]'

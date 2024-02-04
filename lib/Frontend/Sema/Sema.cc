@@ -377,9 +377,7 @@ bool src::Sema::ConvertImpl(
     /// TODO: Actually support this w/ TryConvert()...
     if constexpr (perform_conversion) {
         if (isa<StructType, ArrayType>(to.desugared)) {
-            auto ctor = Construct(ctx.expr->location, to, {*ctx.e}, nullptr);
-            if (not ctor) return false;
-            *ctx.e = new (mod) MaterialiseTemporaryExpr(to, ctor, ctx.expr->location);
+            if (not MaterialiseTemporary(*ctx.e, to)) return false;
             ctx.score++;
             return true;
         }
@@ -465,11 +463,7 @@ bool src::Sema::FinaliseInvokeArgument(Expr*& arg, const ParamInfo* param) {
 
         /// Lvalues are passed as-is. Rvalues undergo temporary materialisation.
         case ParamInfo::Class::AnyRef:
-            if (not arg->is_lvalue) {
-                auto ctor = Construct(arg->location, param->type, {arg}, nullptr);
-                if (not ctor) return false;
-                arg = new (mod) MaterialiseTemporaryExpr(param->type, ctor, arg->location);
-            }
+            if (not arg->is_lvalue) return MaterialiseTemporary(arg, param->type);
             return true;
 
         /// Requires an rvalue.
@@ -477,15 +471,9 @@ bool src::Sema::FinaliseInvokeArgument(Expr*& arg, const ParamInfo* param) {
             InsertLValueToRValueConversion(arg);
             return true;
 
-        /// Create a copy on the stack and pass it by reference. If this is already
-        /// a temporary, use it instead of creating *another* copy.
-        case ParamInfo::Class::CopyAsRef: {
-            if (isa<MaterialiseTemporaryExpr>(arg) and arg->type == param->type) return true;
-            auto ctor = Construct(arg->location, param->type, {arg}, nullptr);
-            if (not ctor) return false;
-            arg = new (mod) MaterialiseTemporaryExpr(param->type, ctor, arg->location);
-            return true;
-        }
+        /// Create a copy on the stack and pass it by reference.
+        case ParamInfo::Class::CopyAsRef:
+            return MaterialiseTemporary(arg, param->type);
     }
 
     Unreachable("Invalid param class");
@@ -529,6 +517,17 @@ bool src::Sema::MakeDeclType(Type& e) {
 
     /// Procedure types decay to closures.
     if (auto p = dyn_cast<ProcType>(e)) e = new (mod) ClosureType(p);
+    return true;
+}
+
+bool src::Sema::MaterialiseTemporary(Expr*& e, Type type) {
+    /// If this is already a temporary, keep it instead of creating *another* copy.
+    if (isa<MaterialiseTemporaryExpr>(e) and e->type == type) return true;
+
+    /// Actually create a temporary.
+    auto ctor = Construct(e->location, type, {e}, nullptr);
+    if (not ctor) return false;
+    e = new (mod) MaterialiseTemporaryExpr(type, ctor, e->location);
     return true;
 }
 
@@ -2924,7 +2923,9 @@ bool src::Sema::Analyse(Expr*& e) {
             auto f = cast<ForInExpr>(e);
 
             /// If the range is a tuple literal, it is only iterable if all
-            /// of its elements have the same type.
+            /// of its elements have the same type. We need to do some processing
+            /// manually here because we don’t know what the type of this is
+            /// supposed to be.
             if (auto tuple = dyn_cast<TupleExpr>(f->range)) {
                 Type elem_ty = Type::Unknown;
                 for (auto& elem : tuple->elements) {
@@ -2957,31 +2958,32 @@ bool src::Sema::Analyse(Expr*& e) {
                 );
 
                 Assert(AnalyseAsType(tuple->stored_type));
-
-                /// Construct a temporary to iterate over.
-                auto ctor = Construct(tuple->location, tuple->stored_type, f->range);
-                if (not ctor) return e->sema.set_errored();
-                f->range = new (mod) MaterialiseTemporaryExpr(tuple->stored_type, ctor, tuple->location);
+                if (not MaterialiseTemporary(f->range, tuple->stored_type))
+                    return e->sema.set_errored();
             }
 
-            /// Make sure the range is something we can iterate over; currently,
-            /// that’s only arrays and slices.
+            /// Check the range first, as we need to determine the type of the
+            /// iteration variable from it.
             if (not Analyse(f->range)) return e->sema.set_errored();
             UnwrapInPlace(f->range, true);
-            if (not isa<ArrayType, SliceType>(f->range->type.strip_refs_and_pointers)) return Error(
-                f->range,
-                "Type '{}' is not iterable",
-                f->range->type
-            );
 
             /// Slices can just be loaded whole.
-            /// TODO: Temporary Materialisation.
             if (isa<SliceType>(f->range->type)) InsertLValueToRValueConversion(f->range);
-            else if (not f->range->is_lvalue) Diag::ICE(
-                mod->context,
-                f->range->location,
-                "Sorry, iterating over rvalue arrays is currently not supported"
-            );
+
+            /// Arrays must be lvalues.
+            else if (isa<ArrayType>(f->range->type)) {
+                if (not f->range->is_lvalue and not MaterialiseTemporary(f->range, f->range->type))
+                    return e->sema.set_errored();
+            }
+
+            /// Anything else is not iterable.
+            else {
+                return Error(
+                    f->range,
+                    "Type '{}' is not iterable",
+                    f->range->type
+                );
+            }
 
             /// The loop variable is an lvalue of the element type of the range.
             auto s = cast<SingleElementTypeBase>(f->range->type);
