@@ -94,6 +94,7 @@ SOURCE_AST_TYPED_EXPR(EnumeratorDecl)
 
 /// ObjectDecl [begin]
 SOURCE_AST_TYPED_EXPR(ProcDecl)
+SOURCE_AST_TYPED_EXPR(StaticDecl)
 
 #undef SOURCE_AST_EXPR
 #undef SOURCE_AST_TYPE

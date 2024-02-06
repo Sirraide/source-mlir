@@ -111,7 +111,7 @@
 /// ==========================================================================
 <decl>           ::= <linkage-decl>
 <linkage-decl>   ::= <proc-named> | <proc-extern> | <var-decl>
-<var-decl>       ::= <type> IDENTIFIER [ "=" <expr> ]
+<var-decl>       ::= [ STATIC ] <type> IDENTIFIER [ "=" <expr> ]
 <type-struct>    ::= STRUCT <name> <struct-rest>
 <struct-anon>    ::= STRUCT <struct-rest>
 <struct-rest>    ::= "{" { <struct-field> | <init-decl> } "}"

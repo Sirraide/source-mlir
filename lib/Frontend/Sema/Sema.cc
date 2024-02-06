@@ -2857,6 +2857,9 @@ bool src::Sema::Analyse(Expr*& e) {
             }
         } break;
 
+        /// Static variable declaration.
+        case Expr::Kind::StaticDecl: Todo();
+
         /// If expressions.
         case Expr::Kind::IfExpr: {
             auto i = cast<IfExpr>(e);

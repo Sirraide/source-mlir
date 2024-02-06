@@ -44,28 +44,29 @@ struct Location {
     /// Shift a source location to the left.
     [[nodiscard]] constexpr auto operator<<(isz amount) const -> Location {
         Location l = *this;
-        l.pos = u32(pos - u32(amount));
+        if (not is_valid()) return l;
+        l.pos = std::min(pos, u32(pos - u32(amount)));
         return l;
     }
 
     /// Shift a source location to the right.
     [[nodiscard]] constexpr auto operator>>(isz amount) const -> Location {
         Location l = *this;
-        l.pos = u32(pos + u32(amount));
+        l.pos = std::max(pos, u32(pos + u32(amount)));
         return l;
     }
 
     /// Extend a source location to the left.
     [[nodiscard]] constexpr auto operator<<=(isz amount) const -> Location {
         Location l = *this << amount;
-        l.len = u16(l.len + amount);
+        l.len = std::max(l.len, u16(l.len + amount));
         return l;
     }
 
     /// Extend a source location to the right.
     [[nodiscard]] constexpr auto operator>>=(isz amount) const -> Location {
         Location l = *this;
-        l.len = u16(l.len + amount);
+        l.len = std::max(l.len, u16(l.len + amount));
         return l;
     }
 

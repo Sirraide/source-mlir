@@ -247,7 +247,7 @@ bool src::ProcDecl::_takes_static_chain() {
 /// ===========================================================================
 src::StructType::StructType(
     Module* mod,
-    String sname,
+    String name,
     SmallVector<FieldDecl*> fields,
     SmallVector<ProcDecl*> inits,
     MemberProcedures member_procs,
@@ -256,7 +256,8 @@ src::StructType::StructType(
     Mangling mangling,
     Location loc
 ) : RecordType(Kind::StructType, std::move(fields), loc),
-    Named(mod, sname, mangling),
+    MangledEntity(mod, mangling),
+    name(name),
     initialisers(std::move(inits)),
     member_procs(std::move(member_procs)),
     deleter(deleter),
@@ -1061,6 +1062,7 @@ public:
             case K::InvokeExpr: PrintBasicNode("InvokeExpr", e, static_cast<Expr*>(e->type)); return;
             case K::MaterialiseTemporaryExpr: PrintBasicNode("MaterialiseTemporaryExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::StaticDecl: PrintBasicNode("StaticDecl", e, static_cast<Expr*>(e->type)); return;
             case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, static_cast<Expr*>(e->type)); return;
             case K::TupleExpr: PrintBasicNode("TupleExpr", e, static_cast<Expr*>(e->type)); return;
             case K::TupleIndexExpr: PrintBasicNode("TupleIndexExpr", e, static_cast<Expr*>(e->type)); return;
@@ -1611,6 +1613,18 @@ public:
             case K::ParamDecl: {
                 tempset print_procedure_bodies = false;
                 auto v = cast<LocalDecl>(e);
+
+                /// Only one of these is ever populated.
+                PrintChildren(v->init_args, leading_text);
+                if (v->ctor) PrintChildren(v->ctor, leading_text);
+            } break;
+
+            case K::StaticDecl: {
+                tempset print_procedure_bodies = false;
+                auto v = cast<StaticDecl>(e);
+
+                /// As above.
+                PrintChildren(v->init_args, leading_text);
                 if (v->ctor) PrintChildren(v->ctor, leading_text);
             } break;
 

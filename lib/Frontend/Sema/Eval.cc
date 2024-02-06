@@ -62,6 +62,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::ParamDecl:
         case Expr::Kind::ProcDecl:
         case Expr::Kind::ReturnExpr:
+        case Expr::Kind::StaticDecl:
         case Expr::Kind::SubscriptExpr:
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::WhileExpr:

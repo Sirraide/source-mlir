@@ -45,18 +45,18 @@ namespace src {
 /// ===========================================================================
 ///  Mangler.
 /// ===========================================================================
-auto Type::_mangled_name() -> std::string {
+auto detail::MangledName(Expr* e) -> std::string {
     auto FormatSEType = [&](Expr* t, std::string_view prefix) {
         auto se = cast<SingleElementTypeBase>(t);
         return fmt::format("{}{}", prefix, se->elem.mangled_name);
     };
 
-    auto MangleNamedType = [&](Named* s, std::string_view prefix) {
+    auto MangleNamedType = [&](std::derived_from<MangledEntity> auto* s, std::string_view prefix) {
         std::call_once(s->name_mangling_flag, [&] {
             if (not s->module or not s->module->is_logical_module) {
-                s->mangled_name = fmt::format("{}{}{}", prefix, s->name.size(), s->name);
+                s->stored_mangled_name = fmt::format("{}{}{}", prefix, s->name.size(), s->name);
             } else {
-                s->mangled_name = fmt::format(
+                s->stored_mangled_name = fmt::format(
                     "M{}{}{}{}{}",
                     s->module->name.size(),
                     s->module->name,
@@ -67,12 +67,33 @@ auto Type::_mangled_name() -> std::string {
             }
         });
 
-        return s->mangled_name;
+        return s->stored_mangled_name;
     };
 
-    switch (ptr->kind) {
+    auto MangleModuleName = [&](ObjectDecl* obj) {
+        auto& s = obj->stored_mangled_name;
+
+        /// Determine mangling.
+        switch (obj->mangling) {
+            case Mangling::None:
+                s = obj->name.value();
+                return false;
+
+            /// Actually compute the mangled name.
+            case Mangling::Source: break;
+        }
+
+        /// Append prefix.
+        s = "_S";
+        if (obj->module->is_logical_module)
+            s += fmt::format("M{}{}", obj->module->name.size(), obj->module->name);
+        return true;
+    };
+
+    /// Handle types first.
+    switch (e->kind) {
         case Expr::Kind::BuiltinType:
-            switch (cast<BuiltinType>(ptr)->builtin_kind) {
+            switch (cast<BuiltinType>(e)->builtin_kind) {
                 case BuiltinTypeKind::Void: return "v";
                 case BuiltinTypeKind::Int: return "i";
                 case BuiltinTypeKind::Bool: return "b";
@@ -88,26 +109,26 @@ auto Type::_mangled_name() -> std::string {
 
         /// The underscore is so we know how many digits are part of the bit width.
         case Expr::Kind::IntType:
-            return fmt::format("I{}_", cast<IntType>(ptr)->size.bits());
+            return fmt::format("I{}_", cast<IntType>(e)->size.bits());
 
-        case Expr::Kind::ReferenceType: return FormatSEType(ptr, "R");
-        case Expr::Kind::ScopedPointerType: return FormatSEType(ptr, "U");
-        case Expr::Kind::SliceType: return FormatSEType(ptr, "L");
-        case Expr::Kind::OptionalType: return FormatSEType(ptr, "O");
-        case Expr::Kind::ClosureType: return FormatSEType(ptr, "C");
+        case Expr::Kind::ReferenceType: return FormatSEType(e, "R");
+        case Expr::Kind::ScopedPointerType: return FormatSEType(e, "U");
+        case Expr::Kind::SliceType: return FormatSEType(e, "L");
+        case Expr::Kind::OptionalType: return FormatSEType(e, "O");
+        case Expr::Kind::ClosureType: return FormatSEType(e, "C");
 
         case Expr::Kind::ArrayType: {
-            auto a = cast<ArrayType>(ptr);
+            auto a = cast<ArrayType>(e);
             return fmt::format("A{}_{}", a->dimension(), a->elem.mangled_name);
         }
 
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
         case Expr::Kind::TypeofType:
-            return desugared.mangled_name;
+            return Type(cast<TypeBase>(e)).desugared.mangled_name;
 
         case Expr::Kind::ProcType: {
-            auto p = cast<ProcType>(ptr);
+            auto p = cast<ProcType>(e);
 
             /// We don’t include the return type since you can’t overload on
             /// that anyway. Similarly, native functions are not mangled at
@@ -123,82 +144,73 @@ auto Type::_mangled_name() -> std::string {
         }
 
         case Expr::Kind::OpaqueType:
-            return MangleNamedType(cast<OpaqueType>(ptr), "Q");
+            return MangleNamedType(cast<OpaqueType>(e), "Q");
 
         case Expr::Kind::StructType:
-            return MangleNamedType(cast<StructType>(ptr), "S");
+            return MangleNamedType(cast<StructType>(e), "S");
 
         case Expr::Kind::EnumType:
-            return MangleNamedType(cast<EnumType>(ptr), "F");
+            return MangleNamedType(cast<EnumType>(e), "F");
 
         case Expr::Kind::TupleType: {
-            auto t = cast<TupleType>(ptr);
+            auto t = cast<TupleType>(e);
             auto fields = t->non_padding_fields();
             std::string name = fmt::format("G{}", rgs::distance(fields));
             for (auto f : fields) name += f->type.mangled_name;
             return name;
         }
 
+/// All types need mangling, so make sure the compiler errors if
+/// we add a type without updating this.
 #define SOURCE_AST_EXPR(name) case Expr::Kind::name:
 #define SOURCE_AST_TYPE(...)
 #include <source/Frontend/AST.def>
-            Unreachable("Not a type");
-    }
-}
-
-auto ObjectDecl::_mangled_name() -> StringRef {
-    auto& s = stored_mangled_name;
-    if (not s.empty()) return s;
-
-    /// Determine mangling.
-    switch (mangling) {
-        case Mangling::None: return name;
-
-        /// Actually compute the mangled name.
-        case Mangling::Source: break;
+        break;
     }
 
-    /// Append prefix.
-    s = "_S";
-    if (module->is_logical_module)
-        s += fmt::format("M{}{}", module->name.size(), module->name);
+    /// Mangle a procedure name.
+    if (auto proc = dyn_cast<ProcDecl>(e)) {
+        std::call_once(proc->name_mangling_flag, [&] {
+            if (not MangleModuleName(proc)) return;
+            auto& s = proc->stored_mangled_name;
 
-    /// Procedure.
-    if (auto proc = dyn_cast<ProcDecl>(this)) {
-        /// Nested functions start with 'L' and the name of the parent function. Exclude
-        /// the '_S' prefix from the parent function’s name.
-        auto ty = cast<ProcType>(proc->type);
-        if (proc->parent_or_null)
-            s += fmt::format("J{}", proc->parent_or_null->mangled_name.drop_front(2));
+            /// Nested functions start with 'L' and the name of the parent function. Exclude
+            /// the '_S' prefix from the parent function’s name.
+            auto ty = cast<ProcType>(proc->type);
+            if (proc->parent_or_null)
+                s += fmt::format("J{}", StringRef{proc->parent_or_null->mangled_name}.drop_front(2));
 
-        /// Special members receive an extra sigil followed by the parent
-        /// struct name and have no name themselves.
-        if (proc->is_smp) {
-            if (ty->smp_kind == SpecialMemberKind::Constructor)
-                s += fmt::format("X{}", Type{ty->smp_parent}.mangled_name);
-            else if (ty->smp_kind == SpecialMemberKind::Destructor)
-                s += fmt::format("Y{}", Type{ty->smp_parent}.mangled_name);
-        }
+            /// Special members receive an extra sigil followed by the parent
+            /// struct name and have no name themselves.
+            if (proc->is_smp) {
+                if (ty->smp_kind == SpecialMemberKind::Constructor)
+                    s += fmt::format("X{}", Type{ty->smp_parent}.mangled_name);
+                else if (ty->smp_kind == SpecialMemberKind::Destructor)
+                    s += fmt::format("Y{}", Type{ty->smp_parent}.mangled_name);
+            }
 
-        /// Member functions have both as sigil and a name.
-        else if (proc->parent_struct) {
-            s += fmt::format(
-                "W{}{}{}",
-                Type{proc->parent_struct}.mangled_name,
-                name.size(),
-                name
-            );
-        }
+            /// Member functions have both as sigil and a name.
+            else if (proc->parent_struct) {
+                s += fmt::format(
+                    "W{}{}{}",
+                    Type{proc->parent_struct}.mangled_name,
+                    proc->name.size(),
+                    proc->name
+                );
+            }
 
-        /// All other functions just include the name.
-        else { s += fmt::format("{}{}", name.size(), name); }
+            /// All other functions just include the name.
+            else { s += fmt::format("{}{}", proc->name.size(), proc->name); }
 
-        /// The type is always included.
-        s += type.mangled_name;
-        return s;
-    } else {
-        Todo();
+            /// The type is always included.
+            s += proc->type.mangled_name;
+        });
+
+        /// Mangled name is now cached.
+        return proc->stored_mangled_name;
     }
+
+    Unreachable("Unsupported expression kind {} in mangled", +e->kind);
 }
 
 /// ===========================================================================

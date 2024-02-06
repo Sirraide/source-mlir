@@ -230,9 +230,20 @@ auto src::Parser::ParseBlock() -> Result<BlockExpr*> {
     return sc.scope;
 }
 
-/// <decl> ::= <proc-named> | <proc-extern> | <param-decl> | <var-decl>
+/// <decl>         ::= <linkage-decl>
+/// <linkage-decl> ::= <proc-named> | <proc-extern> | <var-decl>
+/// <var-decl>     ::= [ STATIC ] <type> IDENTIFIER [ "=" <expr> ]
 auto src::Parser::ParseDecl() -> Result<Decl*> {
     if (At(Tk::Proc)) return cast<Decl>(ParseProc());
+
+    /// Optional static modifier.
+    /// TODO: Should be moved up if we ever allow the `proc^ ...` function
+    /// pointer syntax.
+    auto static_loc = curr_loc;
+    const bool is_static = Consume(Tk::Static);
+
+    /// We don’t have static procedures. Just ignore the 'static'.
+    if (At(Tk::Proc)) Error(static_loc, "'static' does not make sense here");
 
     /// Parse decl type.
     auto ty = ParseType();
@@ -243,14 +254,29 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
     auto name = tok.text;
     auto loc = Next();
 
+    /// Parse optional initialiser.
+    auto init_args = ParseInitArgs();
+
     /// Create a variable declaration, but don’t add it to any scope.
-    return new (mod) LocalDecl(
-        name,
-        *ty,
-        {},
-        LocalKind::Variable,
-        loc
-    );
+    if (is_static) {
+        return new (mod) StaticDecl(
+            mod,
+            name,
+            *ty,
+            std::move(init_args),
+            Linkage::Internal,
+            Mangling::Source,
+            loc
+        );
+    } else {
+        return new (mod) LocalDecl(
+            name,
+            *ty,
+            std::move(init_args),
+            LocalKind::Variable,
+            loc
+        );
+    }
 }
 
 /// <type-enum>  ::= ENUM IDENTIFIER [ <enum-rest> ]
@@ -446,20 +472,28 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
         } break;
 
         case Tk::Static: {
-            auto start = Next();
-            switch (tok.type) {
-                default: return Error(start, "Expected expression");
-                case Tk::If:
+            switch (LookAhead(1).type) {
+                case Tk::If: {
+                    auto start = Next();
                     lhs = ParseIf(start, true);
-                    break;
+                } break;
 
                 case Tk::Assert: {
+                    auto start = Next();
                     lhs = ParseAssertion();
                     if (lhs) {
                         lhs->location = {start, lhs->location};
                         cast<AssertExpr>(*lhs)->is_static = true;
                     }
                     break;
+                }
+
+                default: {
+                    if (auto decl = ParseDecl()) {
+                        auto global = cast<StaticDecl>(*decl);
+                        curr_scope->declare(global->name, global);
+                        lhs = global;
+                    }
                 }
             }
         } break;
@@ -1030,6 +1064,23 @@ auto src::Parser::ParseImplicitBlock() -> Result<BlockExpr*> {
     }
 }
 
+/// Parse initialise arguments for a declaration.
+auto src::Parser::ParseInitArgs() -> SmallVector<Expr*> {
+    SmallVector<Expr*> init_args;
+    if (Consume(Tk::Assign)) {
+        do {
+            auto expr = ParseExpr();
+            if (IsError(expr)) {
+                Synchronise();
+                break;
+            }
+
+            init_args.push_back(*expr);
+        } while (Consume(Tk::Comma));
+    }
+    return init_args;
+}
+
 /// Parse the arguments of a naked invoke expression.
 ///
 /// This does no checking as to whether this should syntactically be parsed
@@ -1044,14 +1095,7 @@ auto src::Parser::ParseNakedInvokeExpr(Expr* callee) -> Result<InvokeExpr*> {
 
     /// An assignment expression after a naked invocation is bound to it
     /// in case it turns out to be a declaration.
-    SmallVector<Expr*> init_args;
-    if (Consume(Tk::Assign)) {
-        do {
-            auto expr = ParseExpr();
-            if (IsError(expr)) return expr.diag;
-            init_args.push_back(*expr);
-        } while (Consume(Tk::Comma));
-    }
+    auto init_args = ParseInitArgs();
 
     Location loc = {callee->location, not args.empty() ? args.back()->location : Location{}};
     return new (mod) InvokeExpr(
@@ -1380,6 +1424,12 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
                 );
                 continue;
             }
+
+            /// FIXME: Support this!
+            if (not var->init_args.empty()) Error(
+                var->location,
+                "Struct field may not have an initialiser"
+            );
 
             fields.push_back(new (mod) FieldDecl(
                 var->name,

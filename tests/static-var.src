@@ -1,0 +1,15 @@
+/// R %srcc %s --sema
+/// !* Error
+
+static int x;
+
+proc foo {
+    x = 42;
+
+    static int y;
+    struct bar {
+        init {
+            y = 42;
+        }
+    }
+}

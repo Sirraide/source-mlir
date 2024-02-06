@@ -20,6 +20,11 @@ class ASTPrinter;
 
 struct ArrayInfo;
 
+namespace detail {
+/// NEVER call this directly.
+auto MangledName(Expr*) -> std::string;
+}
+
 /// ===========================================================================
 ///  Enums
 /// ===========================================================================
@@ -231,9 +236,7 @@ public:
     readonly_const_decl(Type, desugared_underlying);
 
     /// Get the mangled name of this type.
-    ///
-    /// Context may be null if this is a struct type.
-    readonly_decl(std::string, mangled_name);
+    readonly(std::string, mangled_name, return detail::MangledName(ptr));
 
     /// Check if this is any integer type.
     bool is_int(bool bool_is_int);
@@ -707,7 +710,6 @@ public:
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind >= Kind::BlockExpr; }
 };
-
 
 /// This expression stores all information required to construct
 /// a value. The type of this is only filled in if it is created
@@ -1496,22 +1498,56 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::EnumeratorDecl; }
 };
 
-class ObjectDecl : public Decl {
-    /// Mangled name.
-    std::string stored_mangled_name;
+/// Helper class for entities that store a mangled name.
+class MangledEntity {
+    friend auto detail::MangledName(Expr*) -> std::string;
+
+    /// Cached so we don’t need to recompute it.
+    mutable std::string stored_mangled_name;
+
+    /// Avoid race condition on mangled name.
+    mutable std::once_flag name_mangling_flag;
 
 public:
-    /// The module this declaration belongs to.
-    Module* module;
-
-    /// Linkage of this object.
-    Linkage linkage;
-
-    /// Mangling scheme.
+    /// The mangling scheme of this type.
     Mangling mangling;
 
-    /// Get the mangled name of this object.
-    readonly_decl(StringRef, mangled_name);
+    /// The parent module.
+    Module* module;
+
+    /// Get the mangled name of this entity.
+    ///
+    /// FIXME: This is goddamn horrendous, and we’ve already had
+    /// StringRef’s binding to the return value of this all over
+    /// the place. Come up w/ a better way of handling/caching
+    /// mangled names, but I’m not gonna do that now because I
+    /// cannot stand to so much as see any part of the mangler
+    /// any more rn.
+    auto _mangled_name(this auto& self) -> std::string { return detail::MangledName(std::addressof(self)); }
+    __declspec(property(get = _mangled_name)) std::string mangled_name;
+
+    /// Get the name of this entity.
+    auto unmangled_name(this const auto& self) { return self.name; }
+
+protected:
+    MangledEntity(Module* mod, Mangling mangling)
+        : mangling(mangling), module(mod) {}
+
+public:
+    /// RTTI.
+    static bool classof(const Expr* e) {
+        return e->kind == Expr::Kind::EnumType or
+               e->kind == Expr::Kind::OpaqueType or
+               e->kind == Expr::Kind::StructType;
+    }
+};
+
+class ObjectDecl
+    : public Decl
+    , public MangledEntity {
+public:
+    /// Linkage of this object.
+    Linkage linkage;
 
     /// Whether this decl is imported or exported.
     readonly(bool, imported, return linkage == Linkage::Imported or linkage == Linkage::Reexported);
@@ -1526,9 +1562,8 @@ public:
         Mangling mangling,
         Location loc
     ) : Decl(k, name, type, loc),
-        module(mod),
-        linkage(linkage),
-        mangling(mangling) {}
+        MangledEntity(mod, mangling),
+        linkage(linkage) {}
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind >= Kind::ProcDecl; }
@@ -1760,38 +1795,34 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::ParamDecl; }
 };
 
-/*
-/// Global variable decalration.
-class GlobalDecl : public ObjectDecl {
+/// Static variable declaration.
+class StaticDecl : public ObjectDecl {
 public:
+    /// The initialiser arguments, if any.
+    SmallVector<Expr*> init_args;
 
-    /// The initialiser.
-    Expr* init;
+    /// Static constructor(s) that should be invoked, if any.
+    ConstructExpr* ctor{};
 
-    /// Linkage and mangling are ignored for e.g. struct fields.
-    /// TODO: Maybe use a different FieldDecl class for that?
-    GlobalDecl(
-        ProcDecl* parent,
+    StaticDecl(
+        Module* mod,
         String name,
-        Expr* type,
-        Expr* init,
+        Type type,
+        SmallVector<Expr*> init,
         Linkage linkage,
         Mangling mangling,
         Location loc
-    ) : ObjectDecl(Kind::LocalDecl, name type, linkage, mangling, loc),
-        parent(parent),
-        init(init) {
+    ) : ObjectDecl(Kind::StaticDecl, mod, name, type, linkage, mangling, loc),
+        init_args(std::move(init)) {
     }
 
     /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::LocalDecl; }
+    static bool classof(const Expr* e) { return e->kind == Kind::StaticDecl; }
 };
-*/
 
 class ProcDecl : public ObjectDecl {
     ProcDecl* parent_ptr;
 public:
-
     /// The function parameter decls. Empty if this is a declaration.
     SmallVector<ParamDecl*> params;
 
@@ -1966,40 +1997,6 @@ public:
     static bool classof(const Expr* e) { return e->kind == Kind::BuiltinType; }
 };
 
-/// Helper class for entities that store a mangled name.
-class Named {
-    /// Needs to access mangled name.
-    friend Type;
-
-    /// Cached so we don’t need to recompute it.
-    std::string mangled_name;
-
-    /// Avoid race condition on mangled name.
-    std::once_flag name_mangling_flag;
-
-public:
-    /// The mangling scheme of this type.
-    Mangling mangling;
-
-    /// The parent module.
-    Module* module;
-
-    /// The name of this type.
-    String name;
-
-protected:
-    Named(Module* mod, String name, Mangling mangling)
-        : mangling(mangling), module(mod), name(name) {}
-
-public:
-    /// RTTI.
-    static bool classof(const Expr* e) {
-        return e->kind == Expr::Kind::EnumType or
-               e->kind == Expr::Kind::OpaqueType or
-               e->kind == Expr::Kind::StructType;
-    }
-};
-
 /// Base class for record types (structs and tuples).
 class RecordType : public TypeBase {
 public:
@@ -2046,9 +2043,12 @@ public:
 
 class StructType
     : public RecordType
-    , public Named {
+    , public MangledEntity {
 public:
     using MemberProcedures = StringMap<llvm::TinyPtrVector<ProcDecl*>>;
+
+    /// The name of this type.
+    String name;
 
     /// Initialisers of this struct.
     SmallVector<ProcDecl*> initialisers;
@@ -2119,11 +2119,15 @@ private:
 
 class OpaqueType
     : public TypeBase
-    , public Named {
+    , public MangledEntity {
 public:
+    /// The name of this type.
+    String name;
+
     OpaqueType(Module* mod, String name, Mangling mangling, Location loc)
         : TypeBase(Kind::OpaqueType, loc),
-          Named(mod, name, mangling) {
+          MangledEntity(mod, mangling),
+          name(name) {
         sema.set_done();
     }
 
@@ -2163,7 +2167,7 @@ public:
 
 class EnumType
     : public SingleElementTypeBase
-    , public Named {
+    , public MangledEntity {
 public:
     /// The enumerators of this enum.
     SmallVector<EnumeratorDecl*> enumerators;
@@ -2172,6 +2176,9 @@ public:
     /// initialisers as previous enumerators have to be in scope with slightly
     /// different semantics than usual.
     BlockExpr* scope{};
+
+    /// The name of this type.
+    String name;
 
     /// Whether this is a bitmask enum.
     bool mask;
@@ -2191,9 +2198,10 @@ public:
         bool mask,
         Location loc
     ) : SingleElementTypeBase(Kind::EnumType, underlying_type, loc),
-        Named(mod, name, Mangling::Source),
+        MangledEntity(mod, Mangling::Source),
         enumerators(std::move(enumerators)),
         scope(scope),
+        name(name),
         mask(mask) {}
 
     /// RTTI.
