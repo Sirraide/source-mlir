@@ -1532,6 +1532,16 @@ auto src::Sema::Construct(
         if (res.failure() and init_args.size() == 1 and isa<TupleExpr>(init_args[0])) {
             auto tuple = cast<TupleExpr>(init_args[0]);
             auto res2 = PerformOverloadResolution(loc, s->initialisers, tuple->elements);
+
+            /// FIXME: This will print all overloads twice. The question here is: how
+            /// much information does it make sense to provide here? We don’t know whether
+            /// the the user intended the tuple to be unpacked or not, after all. Perhaps
+            /// we should print only the results of the second attempt iff there are no
+            /// overloads that take a tuple, and only the results of the first attempt
+            /// otherwise. Is that a good-enough heuristic? Either way, should we also
+            /// provide a command-line flag to always print all overloads? This could
+            /// potentially also be incorporated into something like an '-fverbose-diagnostics'
+            /// flag.
             if (not res2) return nullptr;
 
             /// Unpacking worked. Suppress diagnostics from the first attempt.
