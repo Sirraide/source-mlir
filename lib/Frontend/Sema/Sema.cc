@@ -469,6 +469,16 @@ bool src::Sema::FinaliseInvokeArgument(Expr*& arg, const ParamInfo* param) {
         /// Requires an rvalue.
         case ParamInfo::Class::ByVal:
             InsertLValueToRValueConversion(arg);
+
+            /// If the argument is a trivial ConstructExpr, pass through
+            /// the underlying value. Otherwise, materialise a temporary
+            /// to construct into and load from it.
+            if (auto c = dyn_cast<ConstructExpr>(arg)) {
+                if (c->ctor_kind == ConstructKind::Copy and c->args().size() == 1) arg = c->args().front(); /// FIXME: fidelity.
+                else if (not MaterialiseTemporary(arg, param->type)) return false;
+                InsertLValueToRValueConversion(arg);
+            }
+
             return true;
 
         /// Create a copy on the stack and pass it by reference.
@@ -529,6 +539,11 @@ bool src::Sema::MaterialiseTemporary(Expr*& e, Type type) {
     if (not ctor) return false;
     e = new (mod) MaterialiseTemporaryExpr(type, ctor, e->location);
     return true;
+}
+
+void src::Sema::MaterialiseTemporaryIfRValue(Expr*& e) {
+    if (e->is_lvalue) return;
+    Assert(MaterialiseTemporary(e, e->type));
 }
 
 auto src::Sema::SearchEnumScope(
@@ -784,16 +799,79 @@ void src::Sema::LValueState::SetDefinitelyMoved(Expr* expr) {
 /// ===========================================================================
 ///  Overload Resolution
 /// ===========================================================================
+src::Sema::OverloadResolutionResult::ResolutionFailure::~ResolutionFailure() {
+    using enum utils::Colour;
+    if (suppress_diagnostics) return;
+    utils::Colours C{S.ctx->use_colours};
+    S.Error(where, "Overload resolution failed");
+
+    /// Print all argument types.
+    fmt::print(stderr, "  {}{}Arguments:\n", C(Bold), C(White));
+    for (auto [i, e] : llvm::enumerate(args))
+        fmt::print(stderr, "    {}{}{}. {}\n", C(Bold), C(White), i + 1, e->type.str(S.mod->context->use_colours, true));
+
+    /// Print overloads and why each one was invalid.
+    fmt::print(stderr, "\n  {}{}Overloads:\n", C(Bold), C(White));
+    for (auto [i, o] : llvm::enumerate(overloads)) {
+        if (i != 0) fmt::print("\n");
+        fmt::print(
+            stderr,
+            "    {}{}{}.{} {}{}{}\n",
+            C(Bold),
+            C(White),
+            i + 1,
+            C(Reset),
+            o.proc->type.str(S.mod->context->use_colours, true),
+            C(White),
+            C(Reset)
+        );
+
+        if (o.proc->location.seekable(S.mod->context)) {
+            auto lc = o.proc->location.seek_line_column(S.mod->context);
+            fmt::print(
+                stderr,
+                "       at {}:{}:{}\n",
+                S.mod->context->file(o.proc->location.file_id)->path().string(),
+                lc.line,
+                lc.col
+            );
+        }
+
+        fmt::print(stderr, "       ");
+        switch (o.s) {
+            case Candidate::Status::ArgumentCountMismatch:
+                fmt::print(stderr, "Requires {} arguments\n", o.type->parameters.size());
+                break;
+
+            case Candidate::Status::NoViableArgOverload:
+                fmt::print(stderr, "Overload set for argument {} contains no viable overload\n", o.mismatch_index + 1);
+                break;
+
+            case Candidate::Status::ArgumentTypeMismatch:
+                fmt::print(
+                    stderr,
+                    "Incompatible type for argument {}\n",
+                    o.mismatch_index + 1
+                );
+                break;
+
+            /// Viable here means that the overload was ambiguous.
+            case Candidate::Status::Viable:
+                fmt::print("Viable, but ambiguous\n");
+                break;
+        }
+    }
+}
+
 auto src::Sema::PerformOverloadResolution(
     Location where,
     ArrayRef<ProcDecl*> overloads,
-    MutableArrayRef<Expr*> args,
-    bool required
-) -> ProcDecl* {
+    MutableArrayRef<Expr*> args
+) -> OverloadResolutionResult {
     /// First, analyse all arguments.
     for (auto& a : args)
         if (not Analyse(a))
-            return nullptr;
+            return OverloadResolutionResult::IllFormed{};
 
     /// Create a candidate for each element of the overload set; each
     /// candidate is initially viable.
@@ -846,10 +924,12 @@ auto src::Sema::PerformOverloadResolution(
 
     /// If there are no viable candidates, or there is more than one
     /// candidate with the minimum score, the program is ill-formed.
-    if (min == candidates.end()) {
-        if (required) ReportOverloadResolutionFailure(where, candidates, args);
-        return nullptr;
-    }
+    if (min == candidates.end()) return OverloadResolutionResult::ResolutionFailure{
+        *this,
+        where,
+        std::move(candidates),
+        args
+    };
 
     /// Apply conversions from arguments to parameter types.
     auto proc = min->proc;
@@ -858,76 +938,10 @@ auto src::Sema::PerformOverloadResolution(
         const bool variadic = i >= params.size();
         if (not variadic) ApplyConversionSequence(args[i], std::move(min->arg_convs[i]));
         if (not FinaliseInvokeArgument(args[i], variadic ? nullptr : &params[i]))
-            return nullptr;
+            return OverloadResolutionResult::IllFormed{};
     }
 
-    return proc;
-}
-
-void src::Sema::ReportOverloadResolutionFailure(
-    Location where,
-    ArrayRef<Candidate> overloads,
-    ArrayRef<Expr*> args
-) {
-    using enum utils::Colour;
-    utils::Colours C{ctx->use_colours};
-    Error(where, "Overload resolution failed");
-
-    /// Print all argument types.
-    fmt::print(stderr, "  {}{}Arguments:\n", C(Bold), C(White));
-    for (auto [i, e] : llvm::enumerate(args))
-        fmt::print(stderr, "    {}{}{}. {}\n", C(Bold), C(White), i + 1, e->type.str(mod->context->use_colours, true));
-
-    /// Print overloads and why each one was invalid.
-    fmt::print(stderr, "\n  {}{}Overloads:\n", C(Bold), C(White));
-    for (auto [i, o] : llvm::enumerate(overloads)) {
-        if (i != 0) fmt::print("\n");
-        fmt::print(
-            stderr,
-            "    {}{}{}. {}{}{}\n",
-            C(Bold),
-            C(White),
-            i + 1,
-            o.proc->type.str(mod->context->use_colours, true),
-            C(White),
-            C(Reset)
-        );
-
-        if (o.proc->location.seekable(mod->context)) {
-            auto lc = o.proc->location.seek_line_column(mod->context);
-            fmt::print(
-                stderr,
-                "       at {}:{}:{}\n",
-                mod->context->file(o.proc->location.file_id)->path().string(),
-                lc.line,
-                lc.col
-            );
-        }
-
-        fmt::print(stderr, "       ");
-        switch (o.s) {
-            case Candidate::Status::ArgumentCountMismatch:
-                fmt::print(stderr, "Requires {} arguments\n", o.type->parameters.size());
-                break;
-
-            case Candidate::Status::NoViableArgOverload:
-                fmt::print(stderr, "Overload set for argument {} contains no viable overload\n", o.mismatch_index + 1);
-                break;
-
-            case Candidate::Status::ArgumentTypeMismatch:
-                fmt::print(
-                    stderr,
-                    "Incompatible type for argument {}\n",
-                    o.mismatch_index + 1
-                );
-                break;
-
-            /// Viable here means that the overload was ambiguous.
-            case Candidate::Status::Viable:
-                fmt::print("Viable, but ambiguous\n");
-                break;
-        }
-    }
+    return OverloadResolutionResult::Ok{proc};
 }
 
 /// ===========================================================================
@@ -1470,6 +1484,13 @@ auto src::Sema::Construct(
     if (not rgs::all_of(init_args, [&](auto*& e) { return Analyse(e); }))
         return nullptr;
 
+    /// If the only initialiser is already a construct expression, just keep it.
+    if (
+        init_args.size() == 1 and
+        isa<ConstructExpr>(init_args[0]) and
+        init_args[0]->type == type
+    ) return cast<ConstructExpr>(init_args[0]);
+
     /// Helper to emit an error that construction is not possible.
     auto InvalidArgs = [&] -> ConstructExpr* {
         utils::Colours C{ctx->use_colours};
@@ -1499,6 +1520,28 @@ auto src::Sema::Construct(
         }
 
         return ConstructExpr::CreateCopy(mod, init_args[0]);
+    };
+
+    /// Try and resolve a constructor call.
+    auto LookUpConstructor = [&](StructType* s) -> ProcDecl* {
+        auto res = PerformOverloadResolution(loc, s->initialisers, init_args);
+        if (res.ill_formed()) return nullptr;
+
+        /// If there is no viable constructor, but the arguments consist of
+        /// a single TupleExpr, try to unpack it and see if that works.
+        if (res.failure() and init_args.size() == 1 and isa<TupleExpr>(init_args[0])) {
+            auto tuple = cast<TupleExpr>(init_args[0]);
+            auto res2 = PerformOverloadResolution(loc, s->initialisers, tuple->elements);
+            if (not res2) return nullptr;
+
+            /// Unpacking worked. Suppress diagnostics from the first attempt.
+            init_args = tuple->elements;
+            std::get<OverloadResolutionResult::ResolutionFailure>(res.result).suppress();
+            res.result = std::move(res2.result);
+        }
+
+        if (res.failure()) return nullptr;
+        return std::get<OverloadResolutionResult::Ok>(res.result);
     };
 
     /// Initialisation is dependent on the type.
@@ -1533,34 +1576,31 @@ auto src::Sema::Construct(
         case Expr::Kind::StructType: {
             auto s = cast<StructType>(ty);
 
-            /// If the type has no constructors...
-            if (s->initialisers.empty()) {
-                /// and there are no arguments, zero-initialise the struct.
-                if (init_args.empty()) return ConstructExpr::CreateZeroinit(mod);
-
-                /// Otherwise, perform a move.
-                if (init_args.size() == 1) {
-                    return CopyInit(type);
-                }
-
-                return InvalidArgs();
+            /// If the type has constructors, try to find one that works.
+            if (not s->initialisers.empty()) {
+                auto ctor = LookUpConstructor(s);
+                if (not ctor) return nullptr;
+                return ConstructExpr::CreateInitialiserCall(
+                    mod,
+                    ctor,
+                    init_args
+                );
             }
 
-            /// Otherwise, perform overload resolution.
-            auto ctor = PerformOverloadResolution(loc, s->initialisers, init_args, true);
-            if (not ctor) return nullptr;
-            return ConstructExpr::CreateInitialiserCall(mod, ctor, init_args);
+            /// Otherwise, this basically acts just like a tuple.
+            [[fallthrough]];
         }
 
         case Expr::Kind::TupleType: {
-            auto t = cast<TupleType>(ty);
+            auto t = cast<RecordType>(ty);
 
             /// If there are no arguments, perform default-construction.
             if (init_args.empty()) {
                 /// If all elements of the tuple are trivial, this is zero-initialisation.
-                if (Type(t).trivial) return ConstructExpr::CreateZeroinit(mod);
+                if (Type(t).trivially_constructible) return ConstructExpr::CreateZeroinit(mod);
 
                 /// Otherwise, all types must be default-constructible.
+                Assert(not t->non_padding_fields().empty(), "Empty record type should be trivially-constructible");
                 SmallVector<Expr*, 16> ctors;
                 for (auto elem : t->non_padding_fields()) {
                     auto ctor = Construct(loc, elem->type, {});
@@ -1581,8 +1621,12 @@ auto src::Sema::Construct(
                 auto tuple = dyn_cast<TupleType>(init_args[0]->type.desugared);
                 init_args.size() == 1 and tuple
             ) {
-                for (auto f : tuple->non_padding_fields()) {
-                    auto idx = new (mod) TupleIndexExpr(init_args[0], f, loc);
+                /// If this is a literal, don’t bother materialising a temporary
+                /// and instead just extract the elements directly.
+                auto lit = dyn_cast<TupleExpr>(init_args[0]);
+                if (not lit) MaterialiseTemporaryIfRValue(init_args[0]);
+                for (auto [i, f] : vws::enumerate(tuple->non_padding_fields())) {
+                    auto idx = lit ? lit->elements[usz(i)] : new (mod) TupleIndexExpr(init_args[0], f, loc); // FIXME: fidelity.
                     args_storage.push_back(idx);
                 }
 
@@ -1624,7 +1668,7 @@ auto src::Sema::Construct(
             /// No args or a single empty tuple.
             if (no_args or (tuple and tuple->elements.empty())) {
                 /// An array of trivial types is itself trivial.
-                if (base.trivial) return ConstructExpr::CreateZeroinit(mod);
+                if (base.trivially_constructible) return ConstructExpr::CreateZeroinit(mod);
 
                 /// Otherwise, if this is a struct type with a constructor
                 /// that takes no elements, call that constructor for each
@@ -1671,7 +1715,7 @@ auto src::Sema::Construct(
                 /// as the element type is default-constructible.
                 if (auto rem = size - tuple->elements.size()) {
                     rem *= elem.strip_arrays.total_dimension;
-                    if (base.trivial) {
+                    if (base.trivially_constructible) {
                         ctors.push_back(ConstructExpr::CreateArrayZeroinit(mod, rem));
                     } else if (auto ctor = base.default_constructor) {
                         ctors.push_back(ConstructExpr::CreateArrayInitialiserCall(mod, {}, ctor, rem));
@@ -1698,7 +1742,7 @@ auto src::Sema::Construct(
             /// Otherwise, attempt to broadcast a single value. If the
             /// value is simply convertible to the target type, then
             /// just copy it.
-            if (base.trivial) {
+            if (base.trivially_constructible) {
                 ConversionSequence seq;
                 if (not TryConvert(seq, init_args[0], base)) {
                     Error(
@@ -1716,7 +1760,7 @@ auto src::Sema::Construct(
 
             /// If not, see if there is a constructor with that type.
             if (auto s = dyn_cast<StructType>(base)) {
-                auto ctor = PerformOverloadResolution(loc, s->initialisers, init_args, true);
+                auto ctor = LookUpConstructor(s);
                 if (not ctor) return nullptr;
                 return ConstructExpr::CreateArrayInitialiserCall(mod, init_args, ctor, total_size);
             }
@@ -3198,7 +3242,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
             /// Handle tuples.
             if (auto t = dyn_cast<TupleType>(s->object->type)) {
-                Assert(s->object->is_lvalue, "TODO: Temporary Materialisation");
+                MaterialiseTemporaryIfRValue(s->object);
 
                 /// Index must be an integer.
                 if (Analyse(s->index) and not Convert(s->index, Type::Int)) return Error(
@@ -3832,8 +3876,14 @@ bool src::Sema::AnalyseInvoke(Expr*& e, bool direct_child_of_block) {
 
     /// Perform overload resolution.
     auto ResolveOverloadSet = [&](OverloadSetExpr* o, Expr*& callee_ref) {
-        auto callee = PerformOverloadResolution(invoke->location, o->overloads, invoke->args, true);
-        if (not callee) return e->sema.set_errored();
+        Assert(
+            invoke->init_args.empty(),
+            "Assigning to a procedure call is currently not supported"
+        );
+
+        auto res = PerformOverloadResolution(invoke->location, o->overloads, invoke->args);
+        if (not res) return e->sema.set_errored();
+        auto callee = res.resolved();
         invoke->stored_type = callee->type.callable->ret_type;
 
         /// Wrap the procedure with a DeclRefExpr, for backend reasons.
@@ -3847,6 +3897,10 @@ bool src::Sema::AnalyseInvoke(Expr*& e, bool direct_child_of_block) {
     /// Handle regular calls.
     auto PerformSimpleCall = [&](Expr*& callee) {
         auto ptype = callee->type.callable;
+        Assert(
+            invoke->init_args.empty(),
+            "Assigning to a procedure call is currently not supported"
+        );
 
         /// Callee must be an rvalue.
         InsertLValueToRValueConversion(callee);
@@ -3931,9 +3985,24 @@ bool src::Sema::AnalyseInvoke(Expr*& e, bool direct_child_of_block) {
     }
 
     /// This is indeed a type.
-    /// TODO: naked: decl. parens: literal!
     Assert(isa<TypeBase>(ty), "Should be a type");
     if (not MakeDeclType(ty)) e->sema.set_errored();
+
+    /// If the invoke expression’s arguments are parenthesised, then
+    /// this is actually a literal, not a declaration.
+    if (not invoke->naked) {
+        Assert(
+            invoke->init_args.empty(),
+            "Assigning to a procedure call is currently not supported"
+        );
+
+        auto c = Construct(invoke->location, ty, invoke->args);
+        if (not c) return e->sema.set_errored();
+        c->stored_type = ty;
+        c->location = invoke->location;
+        e = c;
+        return true;
+    }
 
     /// Check if declarations are even allowed here.
     if (not direct_child_of_block) return Error(
@@ -4064,7 +4133,12 @@ void src::Sema::AnalyseProcedure(ProcDecl* proc) {
     if (not AnalyseProcedureType(proc)) return;
 
     /// If there is no body, then there is nothing to do.
-    if (not proc->body) return;
+    if (not proc->body) {
+        proc->params.clear();
+        return;
+    }
+
+    /// Don’t analyse procedures twice.
     Assert(not proc->sema.analysed);
     tempset curr_scope = proc->body;
     tempset unwind_entries = decltype(unwind_entries){};

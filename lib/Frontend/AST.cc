@@ -213,7 +213,6 @@ auto src::Expr::_type() -> Type {
 
         case Kind::AliasExpr:
         case Kind::AssertExpr:
-        case Kind::ConstructExpr:
         case Kind::DeferExpr:
         case Kind::EmptyExpr:
         case Kind::ExportExpr:
@@ -676,7 +675,7 @@ auto src::Type::_strip_refs_and_pointers() -> Type {
     return d;
 }
 
-bool src::Type::_trivial() {
+bool src::Type::_trivially_constructible() {
     Assert(ptr->sema.ok);
     switch (ptr->kind) {
         case Expr::Kind::BuiltinType:
@@ -702,18 +701,17 @@ bool src::Type::_trivial() {
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
         case Expr::Kind::TypeofType:
-            return desugared.trivial;
+            return desugared.trivially_constructible;
 
         case Expr::Kind::ArrayType:
-            return cast<ArrayType>(ptr)->elem.trivial;
+            return cast<ArrayType>(ptr)->elem.trivially_constructible;
 
         case Expr::Kind::TupleType:
-            return rgs::all_of(cast<TupleType>(ptr)->field_types(), std::identity{}, &Type::_trivial);
-
+            return rgs::all_of(cast<TupleType>(ptr)->field_types(), std::identity{}, &Type::_trivially_constructible);
 
         case Expr::Kind::StructType: {
             auto s = cast<StructType>(ptr);
-            return s->initialisers.empty() and not s->deleter;
+            return s->initialisers.empty();
         }
 
 #define SOURCE_AST_EXPR(name) case Expr::Kind::name:
@@ -743,14 +741,13 @@ bool src::Type::_trivially_copyable() {
         case Expr::Kind::SugaredType:
         case Expr::Kind::ScopedType:
         case Expr::Kind::TypeofType:
-            return desugared.trivial;
-
+            return desugared.trivially_copyable;
 
         case Expr::Kind::ArrayType:
-            return cast<ArrayType>(ptr)->elem.trivial;
+            return cast<ArrayType>(ptr)->elem.trivially_copyable;
 
         case Expr::Kind::TupleType:
-            return rgs::all_of(cast<TupleType>(ptr)->field_types(), std::identity{}, &Type::_trivial);
+            return rgs::all_of(cast<TupleType>(ptr)->field_types(), std::identity{}, &Type::_trivially_copyable);
 
         /// TODO: Attribute similar to Rust’s #[derive(Copy)] for cases where
         /// a type has an initialiser, but is still trivially copyable.
@@ -1361,7 +1358,7 @@ public:
                     case Uninitialised: out += " uninit"; break;
                     case Zeroinit: out += " zero"; break;
                     case Parameter: out += " parameter"; break;
-                    case Copy: out += " trivial"; break;
+                    case Copy: out += " trivial-copy"; break;
                     case SliceFromParts: out += " slice"; break;
                     case InitialiserCall: out += " init"; break;
                     case ArrayInitialiserCall: out += " array-init"; break;
@@ -1726,6 +1723,7 @@ public:
 
             case K::ConstructExpr: {
                 auto c = const_cast<ConstructExpr*>(cast<ConstructExpr>(e));
+                tempset print_procedure_bodies = false;
                 PrintChildren(c->args_and_init(), leading_text);
             } break;
 

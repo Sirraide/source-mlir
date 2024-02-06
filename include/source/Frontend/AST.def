@@ -52,7 +52,6 @@ SOURCE_AST_UNTYPED_EXPR(LabelExpr)
 SOURCE_AST_UNTYPED_EXPR(EmptyExpr)
 SOURCE_AST_UNTYPED_EXPR(ModuleRefExpr)
 SOURCE_AST_UNTYPED_EXPR(AliasExpr)
-SOURCE_AST_UNTYPED_EXPR(ConstructExpr)
 SOURCE_AST_UNTYPED_EXPR(OverloadSetExpr)
 
 /// UnwindExpr [begin]
@@ -63,6 +62,7 @@ SOURCE_AST_UNTYPED_EXPR(LoopControlExpr)
 
 /// TypedExpr [begin]
 SOURCE_AST_TYPED_EXPR(BlockExpr)
+SOURCE_AST_TYPED_EXPR(ConstructExpr)
 SOURCE_AST_TYPED_EXPR(ImplicitThisExpr)
 SOURCE_AST_TYPED_EXPR(WithExpr)
 SOURCE_AST_TYPED_EXPR(MaterialiseTemporaryExpr)

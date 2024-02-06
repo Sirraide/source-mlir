@@ -164,6 +164,77 @@ class Sema {
         usz mismatch_index{};
     };
 
+    /// Result of overload resolution.
+    struct OverloadResolutionResult {
+        /// We couldn’t find any viable overloads.
+        struct ResolutionFailure {
+            Sema& S;
+            Location where;
+            SmallVector<Candidate> overloads;
+            ArrayRef<Expr*> args;
+            bool suppress_diagnostics = false;
+
+            /// Suppress diagnostics for this resolution failure.
+            void suppress() { suppress_diagnostics = true; }
+
+            ResolutionFailure(Sema& s, Location w, SmallVector<Candidate> o, ArrayRef<Expr*> a)
+                : S(s), where(w), overloads(std::move(o)), args(a) {}
+
+            ResolutionFailure(const ResolutionFailure&) = delete;
+            ResolutionFailure& operator=(const ResolutionFailure&) = delete;
+            ResolutionFailure(ResolutionFailure&& other) : S(other.S) {
+                *this = std::move(other);
+            }
+
+            ResolutionFailure& operator=(ResolutionFailure&& other) {
+                if (this == std::addressof(other)) return *this;
+                S = other.S;
+                where = other.where;
+                overloads = std::move(other.overloads);
+                args = other.args;
+                suppress_diagnostics = std::exchange(other.suppress_diagnostics, true);
+                return *this;
+            }
+
+            /// Emit diagnostics for overload resolution failure.
+            ~ResolutionFailure();
+        };
+
+        /// We found a single viable overload, but there was some other problem
+        /// with it not relating to overloading that causes the program to be
+        /// ill-formed (e.g. parameter intent problems). Alternatively, we didn’t
+        /// even get to overload resolution because there was something wrong with
+        /// e.g. the arguments.
+        ///
+        /// This always indicates an ill-formed program. Do not attempt to recover
+        /// from this.
+        using IllFormed = std::nullptr_t;
+
+        /// We found a single viable overload.
+        using Ok = ProcDecl*;
+
+        /// The result.
+        using Data = std::variant<ResolutionFailure, IllFormed, Ok>;
+        Data result;
+
+        /// Construct a new result.
+        OverloadResolutionResult(IllFormed) : result(nullptr) {}
+        OverloadResolutionResult(Ok ok) : result(ok) {}
+        OverloadResolutionResult(ResolutionFailure f) : result(std::move(f)) {}
+
+        /// Whether this makes the program ill-formed.
+        bool ill_formed() const { return std::holds_alternative<IllFormed>(result); }
+
+        /// Whether this is a resolution failure.
+        bool failure() const { return std::holds_alternative<ResolutionFailure>(result); }
+
+        /// Get the procedure that was resolved.
+        auto resolved() const -> ProcDecl* { return std::get<Ok>(result); }
+
+        /// Check if this is at all valid.
+        explicit operator bool() const { return not ill_formed() and not failure(); }
+    };
+
     /// Machinery for tracking the state of lvalues.
     class LValueState {
         using Path = SmallVector<u32, 4>;
@@ -405,7 +476,7 @@ private:
 
     /// Create a diagnostic at a location.
     template <typename... Args>
-    Diag EmitDiag(Diag::Kind k, Expr* e, fmt::format_string<make_formattable_t<Args>...> fmt, Args&& ...args) {
+    Diag EmitDiag(Diag::Kind k, Expr* e, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
         if (k == Diag::Kind::Error) {
             if (e->sema.errored) return Diag();
             e->sema.set_errored();
@@ -516,6 +587,11 @@ private:
     /// already a MaterialiseTemporaryExpr of the same type.
     bool MaterialiseTemporary(Expr*& e, Type type);
 
+    /// Materialise a temporary value if it is an rvalue.
+    ///
+    /// Lvalues are unaffected by this.
+    void MaterialiseTemporaryIfRValue(Expr*& e);
+
     /// Create a Note().
     template <typename... Args>
     void Note(Location loc, fmt::format_string<make_formattable_t<Args>...> fmt, Args&&... args) {
@@ -533,22 +609,12 @@ private:
     /// \param where Location for issuing diagnostics.
     /// \param overloads The overloads to resolve.
     /// \param args The arguments to the call.
-    /// \param required Whether resolution must succeed. Diagnostics are suppressed
-    ///        if this is false.
     /// \return The resolved overload, or nullptr if resolution failed.
     auto PerformOverloadResolution(
         Location where,
         ArrayRef<ProcDecl*> overloads,
-        MutableArrayRef<Expr*> args,
-        bool required
-    ) -> ProcDecl*;
-
-    /// Print diagnostic for overload resolution failure.
-    void ReportOverloadResolutionFailure(
-        Location where,
-        ArrayRef<Candidate> overloads,
-        ArrayRef<Expr*> args
-    );
+        MutableArrayRef<Expr*> args
+    ) -> OverloadResolutionResult;
 
     /// Search an enum for an enumerator
     auto SearchEnumScope(EnumType* enum_type, String name) -> DeclContext::Entry;

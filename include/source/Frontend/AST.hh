@@ -263,13 +263,16 @@ public:
     /// Strip all references and pointers from this type.
     readonly_decl(Type, strip_refs_and_pointers);
 
-    /// Check whether this type is trivial, has no constructors or destructors
-    /// at all; that is, it is either a builtin type or a type for which default
-    /// construction is zero-initialisation, and there is no destructor.
-    readonly_decl(bool, trivial);
+    /// Check whether this type has no constructors at all; that is, it
+    /// is either a builtin type or a type for which default construction
+    /// is zero-initialisation.
+    ///
+    /// Note that the type may still have a destructor.
+    readonly_decl(bool, trivially_constructible);
 
-    /// Check whether this type is trivial to copy, i.e. whether it can be copied
-    /// via a memcpy.
+    /// Check whether this type is trivial to copy, i.e. whether it can
+    /// be copied via a memcpy and whether it should always be copied
+    /// instead of moved.
     readonly_decl(bool, trivially_copyable);
 
     /// Check if this type logically yields a value, i.e. is not
@@ -633,9 +636,84 @@ enum struct ConstructKind {
     RecordListInit,
 };
 
-/// This expression stores all information required to construct a value.
+class AliasExpr : public Expr {
+public:
+    /// The name of the alias.
+    String alias;
+
+    /// The aliased expression.
+    Expr* expr;
+
+    AliasExpr(String alias, Expr* expr, Location loc)
+        : Expr(Kind::AliasExpr, loc),
+          alias(alias),
+          expr(expr) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind == Kind::AliasExpr; }
+};
+
+/// ===========================================================================
+///  Typed Expressions
+/// ===========================================================================
+enum struct CastKind {
+    /// Convert lvalues to rvalues.
+    LValueToRValue,
+
+    /// Convert an reference rvalue to an lvalue of the referenced type.
+    ReferenceToLValue,
+
+    /// Convert an lvalue to a reference rvalue.
+    LValueToReference,
+
+    /// Convert an reference lvalue to an lvalue of the referenced type. Same
+    /// as performing LValueToRValue and then ReferenceToLValue.
+    LValueRefToLValue,
+
+    /// Test if an optional is nil, yielding an rvalue bool.
+    OptionalNilTest,
+
+    /// Unwrap an optional. This yields an lvalue of the contained type
+    /// iff the optional is itself an lvalue.
+    OptionalUnwrap,
+
+    /// Wrap a value, creating an optional. This always yields an rvalue.
+    OptionalWrap,
+
+    /// Convert an array lvalue to a reference rvalue to the first element.
+    ArrayToElemRef,
+
+    /// No-op cast that simply reinterprets a bit pattern.
+    BitCast,
+
+    /// Any other implicit conversion.
+    Implicit,
+
+    /// 'as' cast.
+    Soft,
+
+    /// 'as!' cast.
+    Hard,
+};
+
+class TypedExpr : public Expr {
+public:
+    /// 'type' is already a member of Expr, so don’t use that here.
+    Type stored_type;
+
+    TypedExpr(Kind k, Type type, Location loc)
+        : Expr(k, loc), stored_type(type) {}
+
+    /// RTTI.
+    static bool classof(const Expr* e) { return e->kind >= Kind::BlockExpr; }
+};
+
+
+/// This expression stores all information required to construct
+/// a value. The type of this is only filled in if it is created
+/// as a free-standing expression.
 class ConstructExpr final
-    : public Expr
+    : public TypedExpr
     , llvm::TrailingObjects<ConstructExpr, isz, Expr*, usz> {
     friend TrailingObjects;
     using K = ConstructKind;
@@ -652,7 +730,7 @@ public:
 
 private:
     ConstructExpr(ConstructKind k)
-        : Expr(Kind::ConstructExpr, Location{}),
+        : TypedExpr(Kind::ConstructExpr, Type::Unknown, Location{}),
           ctor_kind(k) {
         sema.set_done();
     }
@@ -867,78 +945,6 @@ public:
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::ConstructExpr; }
-};
-
-class AliasExpr : public Expr {
-public:
-    /// The name of the alias.
-    String alias;
-
-    /// The aliased expression.
-    Expr* expr;
-
-    AliasExpr(String alias, Expr* expr, Location loc)
-        : Expr(Kind::AliasExpr, loc),
-          alias(alias),
-          expr(expr) {}
-
-    /// RTTI.
-    static bool classof(const Expr* e) { return e->kind == Kind::AliasExpr; }
-};
-
-/// ===========================================================================
-///  Typed Expressions
-/// ===========================================================================
-enum struct CastKind {
-    /// Convert lvalues to rvalues.
-    LValueToRValue,
-
-    /// Convert an reference rvalue to an lvalue of the referenced type.
-    ReferenceToLValue,
-
-    /// Convert an lvalue to a reference rvalue.
-    LValueToReference,
-
-    /// Convert an reference lvalue to an lvalue of the referenced type. Same
-    /// as performing LValueToRValue and then ReferenceToLValue.
-    LValueRefToLValue,
-
-    /// Test if an optional is nil, yielding an rvalue bool.
-    OptionalNilTest,
-
-    /// Unwrap an optional. This yields an lvalue of the contained type
-    /// iff the optional is itself an lvalue.
-    OptionalUnwrap,
-
-    /// Wrap a value, creating an optional. This always yields an rvalue.
-    OptionalWrap,
-
-    /// Convert an array lvalue to a reference rvalue to the first element.
-    ArrayToElemRef,
-
-    /// No-op cast that simply reinterprets a bit pattern.
-    BitCast,
-
-    /// Any other implicit conversion.
-    Implicit,
-
-    /// 'as' cast.
-    Soft,
-
-    /// 'as!' cast.
-    Hard,
-};
-
-class TypedExpr : public Expr {
-public:
-    /// 'type' is already a member of Expr, so don’t use that here.
-    Type stored_type;
-
-    TypedExpr(Kind k, Type type, Location loc)
-        : Expr(k, loc), stored_type(type) {}
-
-    /// RTTI.
-    static bool classof(const Expr* e) { return e->kind >= Kind::BlockExpr; }
 };
 
 enum struct ScopeKind : u8 {

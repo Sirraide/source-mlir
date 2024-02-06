@@ -1510,7 +1510,9 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             return CreateInt(Loc(e->location), e->value, e->type);
         }
 
-        case Expr::Kind::TupleExpr: Unreachable("Cannot emit tuple literals w/o a result object");
+        case Expr::Kind::TupleExpr:
+            expr->print(true);
+            Unreachable("Cannot emit tuple literals w/o a result object");
 
         case Expr::Kind::TupleIndexExpr: {
             auto t = cast<TupleIndexExpr>(expr);

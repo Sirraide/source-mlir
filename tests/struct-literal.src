@@ -1,0 +1,101 @@
+/// R %srcc %s --hlir
+
+/// d t %[a-zA-Z0-9_]+
+/// p lit []
+
+struct A {
+    int x;
+    int y;
+}
+
+struct B {
+    int x;
+    init (int x, int y) {
+        .x = x + y;
+    }
+}
+
+proc sink (int) extern;
+proc sink (A) extern;
+proc sink (B) extern;
+
+/// b
+/// * $i:t = local i64
+/// + $c1:t = arith.constant 1
+/// + construct $i trivial i64 $c1
+/// + $ii:t = local i64[2]
+/// + $ptr:t = array_decay $ii to i64&
+/// + $c2:t = arith.constant 1
+/// + construct $ptr trivial i64 $c2
+/// + $offs:t = arith.constant 1
+/// + $ptr2:t = offset i64& $ptr[$offs]
+/// + $c3:t = arith.constant 2
+/// + construct $ptr2 trivial i64 $c3
+/// + $c4:t = arith.constant 1
+/// + call @_S4sinkPiE($c4)
+var i = int(1);
+int[2] ii = (1, int(2));
+sink int(1);
+
+/// b
+/// + $a:t = local @A
+/// + $x1:t = structgep $a[0] -> i64&
+/// + $c5:t = arith.constant 1
+/// + construct $x1 trivial i64 $c5
+/// + $y1:t = structgep $a[1] -> i64&
+/// + $c6:t = arith.constant 2
+/// + construct $y1 trivial i64 $c6
+var a = A(1, 2);
+
+/// + $a2:t = local @A[2]
+/// + $ptr:t = array_decay $a2 to @A&
+/// + $x2:t = structgep $ptr[0] -> i64&
+/// + $c7:t = arith.constant 1
+/// + construct $x2 trivial i64 $c7
+/// + $y2:t = structgep $ptr[1] -> i64&
+/// + $c8:t = arith.constant 2
+/// + construct $y2 trivial i64 $c8
+/// + $c9:t = arith.constant 1
+/// + $offs1:t = offset @A& $ptr[$c9]
+/// + $x3:t = structgep $offs1[0] -> i64&
+/// + $c10:t = arith.constant 3
+/// + construct $x3 trivial i64 $c10
+/// + $y3:t = structgep $offs1[1] -> i64&
+/// + $c11:t = arith.constant 4
+/// + construct $y3 trivial i64 $c11
+A[2] aa = ((1, 2), A(3, 4));
+
+/// + $a3:t = local @A
+/// + $x4:t = structgep $a3[0] -> i64&
+/// + $c12:t = arith.constant 1
+/// + construct $x4 trivial i64 $c12
+/// + $y4:t = structgep $a3[1] -> i64&
+/// + $c13:t = arith.constant 2
+/// + construct $y4 trivial i64 $c13
+/// + $val:t = load @A from $a3
+/// + call @_S4sinkPS1AE($val)
+sink A(1, 2);
+
+/// b
+/// + $b:t = local @B
+/// + $c1:t = arith.constant 1
+/// + $c2:t = arith.constant 2
+/// + construct $b init @_SXS1BPiiE(i64 $c1, i64 $c2)
+/// + $bb:t = local @B[2]
+/// + $ptr:t = array_decay $bb to @B&
+/// + $c3:t = arith.constant 1
+/// + $c4:t = arith.constant 2
+/// + construct $ptr init @_SXS1BPiiE(i64 $c3, i64 $c4)
+/// + $c5:t = arith.constant 1
+/// + $offs:t = offset @B& $ptr[$c5]
+/// + $c6:t = arith.constant 3
+/// + $c7:t = arith.constant 4
+/// + construct $offs init @_SXS1BPiiE(i64 $c6, i64 $c7)
+/// + $btmp:t = local @B
+/// + $c8:t = arith.constant 1
+/// + $c9:t = arith.constant 2
+/// + construct $btmp init @_SXS1BPiiE(i64 $c8, i64 $c9)
+/// + call @_S4sinkPsS1BE($btmp)
+var b = B(1, 2);
+B[2] bb = ((1, 2), B(3, 4));
+sink B(1, 2);
