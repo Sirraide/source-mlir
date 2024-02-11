@@ -28,7 +28,7 @@ struct CodeGen {
     DenseMap<Expr*, StringRef, TypeBase::DenseMapInfo> constructors;
 
     /// These should not be emitted multiple times.
-    DenseMap<StaticDecl*, mlir::Value> static_vars;
+    DenseMap<StaticDecl*, hlir::StaticOp> static_vars;
     DenseMap<LocalDecl*, mlir::Value> local_vars;
     DenseMap<DeferExpr*, hlir::DeferOp> defers;
 
@@ -932,6 +932,9 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         case Expr::Kind::OverloadSetExpr:
             Diag::ICE(ctx, expr->location, "Unresolved overload set in codegen");
 
+        case Expr::Kind::StaticDecl:
+            Diag::ICE(ctx, expr->location, "Attempted to Generate() a StaticDecl");
+
         /// These are no-ops.
         case Expr::Kind::AliasExpr:
         case Expr::Kind::EmptyExpr:
@@ -1309,7 +1312,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
 
             /// Do not attempt to emit anything here, but make sure we
             /// haven’t changed our mind about that either.
-            Assert((isa<ProcDecl, StructType>(e->expr)), "Invalid export");
+            Assert((isa<ProcDecl, StaticDecl, StructType>(e->expr)), "Invalid export");
             return {};
         }
 
@@ -1436,6 +1439,7 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
                     ModuleRefExpr,
                     OverloadSetExpr,
                     ProcDecl,
+                    StaticDecl,
                     TypeBase
                 >(s)) continue; // clang-format on
                 last = Generate(s);
@@ -1545,23 +1549,6 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
 
             /// Returns itself as an lvalue.
             return local_vars.at(e);
-        }
-
-        case Expr::Kind::StaticDecl: {
-            auto s = cast<StaticDecl>(expr);
-            if (auto var = static_vars.find(s); var != static_vars.end()) return var->second;
-
-            /// Create the variable.
-            mlir::OpBuilder::InsertionGuard guard{builder};
-            builder.setInsertionPointToStart(mod->mlir.getBody());
-            auto var = static_vars[s] = Create<hlir::StaticOp>(
-                Loc(s->location),
-                s->mangled_name,
-                ConvertLinkage(s->linkage),
-                Ty(s->type),
-                s->type.align(ctx).value()
-            );
-            return var;
         }
 
         /// If expressions.
@@ -2147,6 +2134,18 @@ void src::CodeGen::GenerateModule() {
         }
     }
 
+    /// Codegen static variables.
+    builder.setInsertionPointToEnd(mod->mlir.getBody());
+    for (auto s : mod->static_vars) {
+        static_vars[s] = Create<hlir::StaticOp>(
+            Loc(s->location),
+            s->mangled_name,
+            ConvertLinkage(s->linkage),
+            Ty(s->type),
+            s->type.align(ctx).value()
+        );
+    }
+
     /// Codegen functions.
     for (auto f : mod->functions) {
         builder.setInsertionPointToEnd(mod->mlir.getBody());
@@ -2284,6 +2283,22 @@ void src::CodeGen::GenerateProcedure(ProcDecl* proc) {
                 false,
                 ConvertCC(CallConv::Source)
             );
+        }
+
+        /// Initialise static variables.
+        ///
+        /// Skip zeroinit constructors since all static variables get a
+        /// zeroinitializer constructor by default when lowered to LLVM
+        /// IR.
+        ///
+        /// FIXME: Should we do what C++ does and initialise a static
+        /// variable the first time the scope it contains is entered
+        /// using an atomic init guard?
+        for (auto s : mod->static_vars) {
+            if (s->ctor->ctor_kind == ConstructKind::Zeroinit) continue;
+            auto loc = Loc(s->location);
+            auto ref = EmitReference(loc, s);
+            Construct(loc, ref, s->type.align(ctx), s->ctor);
         }
     }
 

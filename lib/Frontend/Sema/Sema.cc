@@ -2842,6 +2842,7 @@ bool src::Sema::Analyse(Expr*& e) {
         /// Static variable declaration.
         case Expr::Kind::StaticDecl: {
             auto var = cast<StaticDecl>(e);
+            mod->static_vars.push_back(var);
             if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
             return AnalyseVariableInitialisation(e, var->ctor, var->stored_type, var->init_args);
         }

@@ -1,29 +1,50 @@
 /// R %srcc %s --hlir
+/// R[///L] %srcc %s --llvm
 
-/// d t %[a-zA-Z0-9_]+
+///  d t %[a-zA-Z0-9_]+
+///L d t %[a-zA-Z0-9_]+
 
-/// * hlir.static i64 _SD1y, align 8
-/// * hlir.static i64 _SD1x, align 8
-static int x;
+///  * hlir.static i64 _SD1x, align 8
+///  * hlir.static i64 _SD1y, align 8
+///L * @_SD1x = private global i64
+///L * @_SD1y = private global i64
+static int x = 7;
 
-/// * hlir.func private @_S3fooPE
-/// + scope
+///  b
+///  * hlir.func external @__src_main {
+///  + call
+///  + $x:t = global_ref @_SD1x
+///  + $c:t = arith.constant 7
+///  + construct $x trivial i64 $c
+///L * define fastcc void @__src_main
+///L + call
+///L + store i64 7, ptr @_SD1x
+
+///  b
+///  * hlir.func private @_S3fooPE
+///  + scope
+///L * define private fastcc void @_S3fooPE
+///L + store i64 42, ptr @_SD1x
 proc foo {
-    /// + $x1:t = global_ref @_SD1x
-    /// + $c1:t = arith.constant 42
-    /// + construct $x1 trivial i64 $c1
+    ///  + $x1:t = global_ref @_SD1x
+    ///  + $c1:t = arith.constant 42
+    ///  + construct $x1 trivial i64 $c1
     x = 42;
 
     static int y;
     struct bar {
-        /// * hlir.func private @_SXS3barPE
-        /// + scope
-        /// + $y:t = global_ref @_SD1y
-        /// + $x2:t = global_ref @_SD1x
-        /// + $xval:t = load i64 from $x2
-        /// + $c2:t = arith.constant 42
-        /// + $sum:t = add i64 $xval, $c2
-        /// + construct $y trivial i64 $sum
+        ///  * hlir.func private @_SXS3barPE
+        ///  + scope
+        ///  + $y:t = global_ref @_SD1y
+        ///  + $x2:t = global_ref @_SD1x
+        ///  + $xval:t = load i64 from $x2
+        ///  + $c2:t = arith.constant 42
+        ///  + $sum:t = add i64 $xval, $c2
+        ///  + construct $y trivial i64 $sum
+        ///L * define private fastcc void @_SXS3barPE
+        ///L + $x:t = load i64, ptr @_SD1x
+        ///L + $sum:t = add i64 $x, 42
+        ///L + store i64 $sum, ptr @_SD1y
         init {
             y = x + 42;
         }

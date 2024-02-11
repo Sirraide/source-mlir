@@ -441,7 +441,7 @@ auto hlir::SliceSizeOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
 
 void hlir::StaticOp::print(OpAsmPrinter& p) {
     p << " ";
-    PrintType(getType(), p);
+    PrintType(getStaticType(), p);
     p << " " << getSymName() << ", align " << getAlignment().getValue().getZExtValue();
 }
 

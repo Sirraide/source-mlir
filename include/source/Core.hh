@@ -29,6 +29,7 @@ class Expr;
 class BlockExpr;
 class StructType;
 class IntType;
+class StaticDecl;
 
 /// Enable colours in Assert()/Todo()/Unreachable().
 void EnableAssertColours(bool enable);
@@ -305,6 +306,9 @@ public:
 
     /// Named structs.
     SmallVector<StructType*, 64> named_structs;
+
+    /// Static variables.
+    SmallVector<StaticDecl*, 64> static_vars;
 
     /// Top-level module function.
     ProcDecl* top_level_func{};

@@ -360,6 +360,45 @@ struct LocalOpLowering : public ConversionPattern {
     }
 };
 
+/// Lowering for static var decls.
+struct StaticOpLowering : public ConversionPattern {
+    explicit StaticOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
+        : ConversionPattern(tc, hlir::StaticOp::getOperationName(), 1, ctx) {
+    }
+
+    auto matchAndRewrite(
+        Operation* op,
+        ArrayRef<Value>,
+        ConversionPatternRewriter& rewriter
+    ) const -> LogicalResult override {
+        auto loc = op->getLoc();
+        auto var = cast<hlir::StaticOp>(op);
+
+        /// We always pass the entire type to the alloca, so
+        /// the ‘array size’ is always 1.
+        auto one = rewriter.create<LLVM::ConstantOp>(
+            loc,
+            getTypeConverter<LLVMTypeConverter>()->getIndexType(),
+            rewriter.getI32IntegerAttr(1)
+        );
+
+        /// Create the static.
+        auto global = rewriter.create<LLVM::GlobalOp>(
+            loc,
+            var.getStaticType(),
+            false,
+            var.getLinkage().getLinkage(),
+            var.getSymName(),
+            rewriter.getZeroAttr(var.getStaticType()),
+            var.getAlignment().getValue().getZExtValue()
+        );
+
+        /// Replace the local var op with it.
+        rewriter.replaceOp(op, global);
+        return success();
+    }
+};
+
 /// Lowering for zero-initialisation.
 struct ZeroInitOpLowering : public ConversionPattern {
     explicit ZeroInitOpLowering(MLIRContext* ctx, LLVMTypeConverter& tc)
@@ -1082,6 +1121,7 @@ struct HLIRToLLVMLoweringPass
             ReturnOpLowering,
             SliceDataOpLowering,
             SliceSizeOpLowering,
+            StaticOpLowering,
             StoreOpLowering,
             StringOpLowering,
             StructGepOpLowering,

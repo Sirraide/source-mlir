@@ -506,8 +506,8 @@ def HLIR_StaticOp : HLIR_Op<"static"> {
     let summary = "Static variable";
     let hasVerifier = 0;
     let hasCustomAssemblyFormat = 1;
-    let results = (outs HLIR_Type:$res);
     let arguments = (ins
+        TypeAttr:$static_type,
         SymbolNameAttr:$sym_name,
         LinkageAttr:$linkage,
         Builtin_IntegerAttr:$alignment
@@ -517,13 +517,13 @@ def HLIR_StaticOp : HLIR_Op<"static"> {
         OpBuilder<(ins
             "StringRef":$name,
             "::mlir::LLVM::Linkage":$linkage,
-            "::mlir::Type":$type,
+            "::mlir::Type":$static_type,
             "std::int64_t":$alignment
         ), [{
             build(
                 $_builder,
                 $_state,
-                type,
+                mlir::TypeAttr::get(static_type),
                 StringAttr::get($_state.getContext(), name),
                 mlir::LLVM::LinkageAttr::get($_state.getContext(), linkage),
                 $_builder.getI64IntegerAttr(alignment)
