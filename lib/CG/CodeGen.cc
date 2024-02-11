@@ -28,6 +28,7 @@ struct CodeGen {
     DenseMap<Expr*, StringRef, TypeBase::DenseMapInfo> constructors;
 
     /// These should not be emitted multiple times.
+    DenseMap<StaticDecl*, mlir::Value> static_vars;
     DenseMap<LocalDecl*, mlir::Value> local_vars;
     DenseMap<DeferExpr*, hlir::DeferOp> defers;
 
@@ -576,6 +577,13 @@ auto src::CodeGen::EmitReference([[maybe_unused]] mlir::Location loc, src::Expr*
         loc,
         c->value.as_int(),
         c->type
+    );
+
+    /// If the operand is a static variable, reference it by name.
+    if (auto s = dyn_cast<StaticDecl>(decl)) return Create<hlir::GlobalRefOp>(
+        loc,
+        hlir::ReferenceType::get(Ty(s->type)),
+        mlir::SymbolRefAttr::get(mctx, mod->save(s->mangled_name).value())
     );
 
     Unreachable();
@@ -1539,7 +1547,22 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
             return local_vars.at(e);
         }
 
-        case Expr::Kind::StaticDecl: Todo();
+        case Expr::Kind::StaticDecl: {
+            auto s = cast<StaticDecl>(expr);
+            if (auto var = static_vars.find(s); var != static_vars.end()) return var->second;
+
+            /// Create the variable.
+            mlir::OpBuilder::InsertionGuard guard{builder};
+            builder.setInsertionPointToStart(mod->mlir.getBody());
+            auto var = static_vars[s] = Create<hlir::StaticOp>(
+                Loc(s->location),
+                s->mangled_name,
+                ConvertLinkage(s->linkage),
+                Ty(s->type),
+                s->type.align(ctx).value()
+            );
+            return var;
+        }
 
         /// If expressions.
         case Expr::Kind::IfExpr: {

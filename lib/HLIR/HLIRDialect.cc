@@ -439,6 +439,15 @@ auto hlir::SliceSizeOp::parse(OpAsmParser&, OperationState&) -> ParseResult {
     Todo();
 }
 
+void hlir::StaticOp::print(OpAsmPrinter& p) {
+    p << " ";
+    PrintType(getType(), p);
+    p << " " << getSymName() << ", align " << getAlignment().getValue().getZExtValue();
+}
+
+auto hlir::StaticOp::parse(OpAsmParser&, OperationState&) -> ParseResult { Todo(); }
+
+
 void hlir::StoreOp::print(OpAsmPrinter& p) {
     p << " into " << getAddr() << ", ";
     PrintType(getValue().getType(), p);

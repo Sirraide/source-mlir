@@ -17,6 +17,7 @@
 ///
 /// - A
 /// - C
+/// - D
 /// - E
 /// - F
 /// - G
@@ -70,6 +71,8 @@ auto detail::MangledName(Expr* e) -> std::string {
         return s->stored_mangled_name;
     };
 
+    /// Helper to add the object name and mangling prefix to the mangled
+    /// name of an object. Returns whether mangling should continue.
     auto MangleModuleName = [&](ObjectDecl* obj) {
         auto& s = obj->stored_mangled_name;
 
@@ -208,6 +211,16 @@ auto detail::MangledName(Expr* e) -> std::string {
 
         /// Mangled name is now cached.
         return proc->stored_mangled_name;
+    }
+
+    /// Mangle a static variable’s name.
+    if (auto var = dyn_cast<StaticDecl>(e)) {
+        std::call_once(var->name_mangling_flag, [&] {
+            if (not MangleModuleName(var)) return;
+            var->stored_mangled_name += fmt::format("D{}{}", var->name.size(), var->name);
+        });
+
+        return var->stored_mangled_name;
     }
 
     Unreachable("Unsupported expression kind {} in mangled", +e->kind);

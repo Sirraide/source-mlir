@@ -502,6 +502,36 @@ def HLIR_LocalOp : HLIR_Op<"local"> {
     ];
 }
 
+def HLIR_StaticOp : HLIR_Op<"static"> {
+    let summary = "Static variable";
+    let hasVerifier = 0;
+    let hasCustomAssemblyFormat = 1;
+    let results = (outs HLIR_Type:$res);
+    let arguments = (ins
+        SymbolNameAttr:$sym_name,
+        LinkageAttr:$linkage,
+        Builtin_IntegerAttr:$alignment
+    );
+
+    let builders = [
+        OpBuilder<(ins
+            "StringRef":$name,
+            "::mlir::LLVM::Linkage":$linkage,
+            "::mlir::Type":$type,
+            "std::int64_t":$alignment
+        ), [{
+            build(
+                $_builder,
+                $_state,
+                type,
+                StringAttr::get($_state.getContext(), name),
+                mlir::LLVM::LinkageAttr::get($_state.getContext(), linkage),
+                $_builder.getI64IntegerAttr(alignment)
+            );
+        }]>
+    ];
+}
+
 def ExpIOp : HLIR_Op<
     "expi", [
         SameOperandsAndResultType,

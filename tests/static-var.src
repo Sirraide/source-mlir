@@ -1,13 +1,29 @@
-/// R %srcc %s --sema
-/// !* Error
+/// R %srcc %s --hlir
 
+/// d t %[a-zA-Z0-9_]+
+
+/// * hlir.static i64 _SD1y, align 8
+/// * hlir.static i64 _SD1x, align 8
 static int x;
 
+/// * hlir.func private @_S3fooPE
+/// + scope
 proc foo {
+    /// + $x1:t = global_ref @_SD1x
+    /// + $c1:t = arith.constant 42
+    /// + construct $x1 trivial i64 $c1
     x = 42;
 
     static int y;
     struct bar {
+        /// * hlir.func private @_SXS3barPE
+        /// + scope
+        /// + $y:t = global_ref @_SD1y
+        /// + $x2:t = global_ref @_SD1x
+        /// + $xval:t = load i64 from $x2
+        /// + $c2:t = arith.constant 42
+        /// + $sum:t = add i64 $xval, $c2
+        /// + construct $y trivial i64 $sum
         init {
             y = x + 42;
         }
