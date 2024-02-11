@@ -1062,7 +1062,6 @@ public:
             case K::InvokeExpr: PrintBasicNode("InvokeExpr", e, static_cast<Expr*>(e->type)); return;
             case K::MaterialiseTemporaryExpr: PrintBasicNode("MaterialiseTemporaryExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
-            case K::StaticDecl: PrintBasicNode("StaticDecl", e, static_cast<Expr*>(e->type)); return;
             case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, static_cast<Expr*>(e->type)); return;
             case K::TupleExpr: PrintBasicNode("TupleExpr", e, static_cast<Expr*>(e->type)); return;
             case K::TupleIndexExpr: PrintBasicNode("TupleIndexExpr", e, static_cast<Expr*>(e->type)); return;
@@ -1104,6 +1103,20 @@ public:
                 out += fmt::format(" {} ", c->type.str(use_colour));
                 PrintValue(c->value);
                 out += "\n";
+                return;
+            }
+
+            case K::StaticDecl: {
+                auto s = cast<StaticDecl>(e);
+                PrintBasicHeader("StaticDecl", e);
+                out += fmt::format(
+                    "{}{}{} {} {}lvalue\n",
+                    C(White),
+                    s->name.empty() ? "" : " ",
+                    s->name,
+                    s->type.str(use_colour),
+                    C(Blue)
+                );
                 return;
             }
 
