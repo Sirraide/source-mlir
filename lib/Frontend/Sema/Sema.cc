@@ -2829,26 +2829,8 @@ bool src::Sema::Analyse(Expr*& e) {
             }
 
             /// This is a regular variable.
-            else {
-                /// Infer the type from the initialiser.
-                if (var->stored_type == Type::Unknown) {
-                    if (var->init_args.empty()) return Error(var, "Type inference requires an initialiser");
-                    if (var->init_args.size() != 1) Todo();
-                    if (not Analyse(var->init_args[0])) return e->sema.set_errored();
-                    InsertLValueToRValueConversion(var->init_args[0]);
-                    var->stored_type = var->init_args[0]->type;
-                }
-
-                /// Type must be valid for a variable.
-                if (not MakeDeclType(var->stored_type)) return e->sema.set_errored();
-
-                /// Type must be constructible from the initialiser args.
-                ///
-                /// Even if this fails, do not set the error flag for this variable
-                /// since we now know its type and can still use it for other things.
-                var->ctor = Construct(var->location, var->type, var->init_args, var);
-                var->init_args.clear();
-            }
+            else if (not AnalyseVariableInitialisation(e, var->ctor, var->stored_type, var->init_args))
+                return e->sema.set_errored();
 
             /// Add the variable to the current scope.
             if (not var->sema.errored) {
@@ -2858,7 +2840,11 @@ bool src::Sema::Analyse(Expr*& e) {
         } break;
 
         /// Static variable declaration.
-        case Expr::Kind::StaticDecl: Todo();
+        case Expr::Kind::StaticDecl: {
+            auto var = cast<StaticDecl>(e);
+            if (not AnalyseAsType(var->stored_type)) return e->sema.set_errored();
+            return AnalyseVariableInitialisation(e, var->ctor, var->stored_type, var->init_args);
+        }
 
         /// If expressions.
         case Expr::Kind::IfExpr: {
@@ -3659,7 +3645,7 @@ bool src::Sema::AnalyseDeclRefExpr(Expr*& e) {
     /// Resolve a DeclRefExpr in place.
     auto ResolveInPlace = [&](Expr* decl) {
         d->stored_type = decl->type;
-        d->is_lvalue = false;
+        d->is_lvalue = decl->is_lvalue;
     };
 
     /// Some DeclRefExprs may already be resolved to a node. If this one
@@ -4446,4 +4432,31 @@ void src::Sema::AnalyseRecord(RecordType* r) {
             else s->sema.set_errored();
         }
     }
+}
+
+bool src::Sema::AnalyseVariableInitialisation(
+    Expr* e,
+    ConstructExpr*& ctor,
+    Type& type,
+    SmallVectorImpl<Expr*>& init_args
+) {
+    /// Infer the type from the initialiser.
+    if (type == Type::Unknown) {
+        if (init_args.empty()) return Error(e, "Type inference requires an initialiser");
+        if (init_args.size() != 1) Todo();
+        if (not Analyse(init_args[0])) return e->sema.set_errored();
+        InsertLValueToRValueConversion(init_args[0]);
+        type = init_args[0]->type;
+    }
+
+    /// Type must be valid for a variable.
+    if (not MakeDeclType(type)) return e->sema.set_errored();
+
+    /// Type must be constructible from the initialiser args.
+    ///
+    /// Even if this fails, do not set the error flag for this variable
+    /// since we now know its type and can still use it for other things.
+    ctor = Construct(e->location, type, init_args, e);
+    init_args.clear();
+    return true;
 }

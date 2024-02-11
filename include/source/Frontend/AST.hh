@@ -1814,6 +1814,7 @@ public:
         Location loc
     ) : ObjectDecl(Kind::StaticDecl, mod, name, type, linkage, mangling, loc),
         init_args(std::move(init)) {
+        is_lvalue = true;
     }
 
     /// RTTI.

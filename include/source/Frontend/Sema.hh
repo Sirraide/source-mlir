@@ -431,6 +431,7 @@ private:
     void AnalyseProcedure(ProcDecl* proc);
     bool AnalyseProcedureType(ProcDecl* proc);
     void AnalyseRecord(RecordType* r);
+    bool AnalyseVariableInitialisation(Expr* e, ConstructExpr*& ctor, Type& type, SmallVectorImpl<Expr*>& init_args);
 
     /// Apply a conversion sequence to an expression.
     void ApplyConversionSequence(Expr*& e, std::same_as<ConversionSequence> auto&& seq);

@@ -9,7 +9,7 @@ proc foo {
     static int y;
     struct bar {
         init {
-            y = 42;
+            y = x + 42;
         }
     }
 }
