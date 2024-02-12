@@ -718,7 +718,7 @@ auto src::Sema::LValueState::GetActiveOptionalType(Expr* e) -> OptionalType* {
                 auto s = cast<StructType>(var->type.desugared);
                 FieldDecl* f{};
                 for (auto idx : path) {
-                    f = s->all_fields[idx];
+                    f = s->fields[idx];
                     s = dyn_cast<StructType>(f->type.desugared);
                 }
 
@@ -1610,9 +1610,9 @@ auto src::Sema::Construct(
                 if (Type(t).trivially_constructible) return ConstructExpr::CreateZeroinit(mod);
 
                 /// Otherwise, all types must be default-constructible.
-                Assert(not t->non_padding_fields().empty(), "Empty record type should be trivially-constructible");
+                Assert(not t->fields.empty(), "Empty record type should be trivially-constructible");
                 SmallVector<Expr*, 16> ctors;
-                for (auto elem : t->non_padding_fields()) {
+                for (auto elem : t->fields) {
                     auto ctor = Construct(loc, elem->type, {});
                     if (not ctor) return nullptr;
                     ctors.push_back(ctor);
@@ -1635,7 +1635,7 @@ auto src::Sema::Construct(
                 /// and instead just extract the elements directly.
                 auto lit = dyn_cast<TupleExpr>(init_args[0]);
                 if (not lit) MaterialiseTemporaryIfRValue(init_args[0]);
-                for (auto [i, f] : vws::enumerate(tuple->non_padding_fields())) {
+                for (auto [i, f] : tuple->fields | vws::enumerate) {
                     auto idx = lit ? lit->elements[usz(i)] : new (mod) TupleIndexExpr(init_args[0], f, loc); // FIXME: fidelity.
                     args_storage.push_back(idx);
                 }
@@ -1645,7 +1645,7 @@ auto src::Sema::Construct(
             }
 
             /// If there are more arguments than elements, this is an error.
-            if (init_args.size() > usz(rgs::distance(t->non_padding_fields()))) {
+            if (init_args.size() > t->fields.size()) {
                 auto ToStr = [&](Expr* e) { return e->type.str(ctx->use_colours, true); };
                 Error(
                     loc,
@@ -1659,7 +1659,7 @@ auto src::Sema::Construct(
             /// time. If there are fewer arguments than elements, default
             /// construct the rest.
             SmallVector<Expr*, 16> ctors;
-            for (auto [i, elem] : t->non_padding_fields() | vws::enumerate) {
+            for (auto [i, elem] : t->fields | vws::enumerate) {
                 auto args = usz(i) < init_args.size() ? init_args[usz(i)] : MutableArrayRef<Expr*>{};
                 auto ctor = Construct(loc, elem->type, args);
                 if (not ctor) return nullptr;
@@ -2642,9 +2642,8 @@ bool src::Sema::Analyse(Expr*& e) {
                     }
 
                     /// Search fields.
-                    auto fields = s->non_padding_fields();
-                    auto f = rgs::find(fields, m->member, [](auto* f) { return f->name; });
-                    if (f != fields.end()) {
+                    auto f = rgs::find(s->fields, m->member, [](auto* f) { return f->name; });
+                    if (f != s->fields.end()) {
                         UnwrapInPlace(object, true);
                         m->field = *f;
                         m->stored_type = m->field->type;
@@ -3065,7 +3064,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 for (auto ty : tys | vws::drop(1))
                     if (ty != tys[0])
                         return NotIterable();
-                if (not ConvertTupleToArray(tys[0], t->all_fields.size())) return false;
+                if (not ConvertTupleToArray(tys[0], t->fields.size())) return false;
             }
 
             /// Anything else is not iterable.
@@ -3254,7 +3253,7 @@ bool src::Sema::Analyse(Expr*& e) {
                 /// Index must be an integer and in range.
                 if (not EvaluateAsIntegerInPlace(s->index, true)) break;
                 auto idx = cast<ConstExpr>(s->index)->value.as_int().getZExtValue();
-                if (idx >= u64(rgs::distance(t->non_padding_fields()))) return Error(
+                if (idx >= t->fields.size()) return Error(
                     e,
                     "Index {} out of range for tuple type '{}'",
                     idx,
@@ -3263,7 +3262,7 @@ bool src::Sema::Analyse(Expr*& e) {
 
                 e = new (mod) TupleIndexExpr(
                     s->object,
-                    t->nth_non_padding(u32(idx)),
+                    t->fields[idx],
                     s->location
                 );
                 break;
@@ -4313,47 +4312,9 @@ bool src::Sema::AnalyseProcedureType(ProcDecl* proc) {
 }
 
 void src::Sema::AnalyseRecord(RecordType* r) {
-    usz padding_count = 0;
-    u32 index = 0;
-
-    /// Create a padding field at the given location to serve as padding.
-    const auto CreatePaddingField = [&](Size padding, auto insert_before) {
-        auto ty = ArrayType::GetByteArray(mod, isz(padding.bytes()));
-        auto f = new (mod) FieldDecl(
-            mod->save(fmt::format("#padding{}", padding_count++)),
-            ty,
-            {},
-            r->stored_size,
-            index++,
-            true
-        );
-
-        f->sema.set_done();
-        r->all_fields.insert(insert_before, f);
-        r->stored_size += padding;
-    };
-
-    /// Helper to align a field to its alignment.
-    const auto AlignField = [&](Align alignment, usz& it) {
-        /// Check if we need to insert padding.
-        auto pad = r->stored_size.align_padding(alignment);
-        if (pad.bits() == 0) return;
-        CreatePaddingField(pad, r->all_fields.begin() + it);
-
-        /// Move iterator forward past the padding to the actual element.
-        it++;
-    };
-
     /// Members must all be valid decls.
-    ///
-    /// We iterate using an index to avoid iterator invalidation, as we
-    /// may have to insert padding fields as we go.
-    for (usz i = 0; i < r->all_fields.size(); i++) {
-        if (
-            auto& f = r->all_fields[i];
-            not AnalyseAsType(f->stored_type) or
-            not MakeDeclType(f->stored_type)
-        ) {
+    for (auto f : r->fields) {
+        if (not AnalyseAsType(f->stored_type) or not MakeDeclType(f->stored_type)) {
             f->sema.set_errored();
             r->sema.set_errored();
             continue;
@@ -4361,18 +4322,15 @@ void src::Sema::AnalyseRecord(RecordType* r) {
 
         /// Set offset of each field and determine the size and alignment
         /// of the struct.
-        auto align = r->all_fields[i]->type.align(ctx);
-        AlignField(align, i);
-        r->all_fields[i]->sema.set_done();
-        r->all_fields[i]->offset = r->stored_size;
-        r->all_fields[i]->index = index++;
+        auto align = f->type.align(ctx);
+        f->offset = r->stored_size.align(align);
+        f->sema.set_done();
         r->stored_alignment = std::max(r->stored_alignment, align);
-        r->stored_size += r->all_fields[i]->type.size(ctx);
+        r->stored_size += f->type.size(ctx);
     }
 
     /// Size must be a multiple of the alignment.
-    auto pad = r->stored_size.align_padding(r->stored_alignment);
-    if (pad.bits() != 0) CreatePaddingField(pad, r->all_fields.end());
+    r->stored_size.align(r->stored_alignment);
 
     /// We’re done if this is not a struct.
     auto s = dyn_cast<StructType>(r);

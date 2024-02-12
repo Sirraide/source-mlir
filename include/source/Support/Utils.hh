@@ -532,17 +532,29 @@ class Size {
 
 public:
     constexpr Size() : raw{0} {}
+    Size(Align align) : raw{align.value() * 8} {}
 
     [[nodiscard]] static constexpr Size Bits(usz bits) { return Size{bits}; }
     [[nodiscard]] static constexpr Size Bytes(usz bytes) { return Size{bytes * 8}; }
 
-    /// Use of `align.value()` is necessary here because we use bits, not bytes.
-    [[nodiscard]] Size align_to(Align align) const { return Size::Bytes(utils::AlignTo(bytes(), align.value())); }
+    /// Return this size aligned to a given alignment.
+    [[nodiscard]] Size aligned(Align align) const {
+        /// Use of `align.value()` is necessary here because we use bits, not bytes.
+        return Size::Bytes(utils::AlignTo(bytes(), align.value()));
+    }
+
+    /// Align this to a given alignment.
+    Size& align(Align align) {
+        *this = aligned(align);
+        return *this;
+    }
 
     /// Get the padding required to align to a given size.
-    [[nodiscard]] Size align_padding(Align align) const { return Size::Bytes(utils::AlignPadding(bytes(), align.value())); }
+    [[nodiscard]] Size align_padding(Align align) const {
+        return Size::Bytes(utils::AlignPadding(bytes(), align.value()));
+    }
 
-    [[nodiscard]] constexpr Size align_to(Size align) const { return Size{utils::AlignTo(raw, align.raw)}; }
+    [[nodiscard]] constexpr Size aligned(Size align) const { return Size{utils::AlignTo(raw, align.raw)}; }
     [[nodiscard]] constexpr auto bits() const -> usz { return raw; }
     [[nodiscard]] constexpr auto bytes() const -> usz { return utils::AlignTo<usz>(raw, 8) / 8; }
 

@@ -27,7 +27,6 @@ struct S {
 S s;
 foo s, s;
 
-/// Note: Index of `.a` is 0; index of `.c` is 3, because padding.
 /// * hlir.func private @foo
 /// + (?<A>$t) = local
 /// + store into $A
@@ -35,7 +34,7 @@ foo s, s;
 /// + (?<Aref>$t) = load $any from $A
 /// + (?<AAref>$t) = structgep $Aref[0]
 /// + (?<AA>$t) = load i8 from $AAref
-/// + (?<BCref>$t) = structgep %arg1[3]
+/// + (?<BCref>$t) = structgep %arg1[2]
 /// + (?<BC>$t) = load i8 from $BCref
 /// + (?<Sum>$t) = add i8 $AA, $BC
 /// + yield i8 $Sum

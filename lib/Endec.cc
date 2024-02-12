@@ -157,9 +157,8 @@ auto detail::MangledName(Expr* e) -> std::string {
 
         case Expr::Kind::TupleType: {
             auto t = cast<TupleType>(e);
-            auto fields = t->non_padding_fields();
-            std::string name = fmt::format("G{}", rgs::distance(fields));
-            for (auto f : fields) name += f->type.mangled_name;
+            std::string name = fmt::format("G{}_", t->fields.size());
+            for (auto f : t->fields) name += f->type.mangled_name;
             return name;
         }
 
@@ -513,7 +512,7 @@ struct Serialiser {
                 type_map[t] = hdr.type_count++;
                 *this << SerialisedTypeTag::Struct;
                 *this << ConvertMangling(s->mangling);
-                *this << s->name << s->stored_size << s->stored_alignment << s->all_fields.size();
+                *this << s->name << s->stored_size << s->stored_alignment << s->fields.size();
 
                 /// Allocate space for field types. We may have to serialise
                 /// these as well, but we can’t start serialising types inside
@@ -521,16 +520,13 @@ struct Serialiser {
                 /// then serialise the field types after that, and then come back
                 /// and fill in the proper descriptors here.
                 const auto offs = out.size();
-                out.resize(offs + s->all_fields.size() * sizeof(TD));
+                out.resize(offs + s->fields.size() * sizeof(TD));
 
                 /// Write field data, excluding the type.
-                for (auto& f : s->all_fields) {
-                    *this << f->padding << f->offset;
-                    if (not f->padding) *this << f->name;
-                }
+                for (auto& f : s->fields) *this << f->offset << f->name;
 
                 /// Write field types.
-                for (const auto& [i, f] : llvm::enumerate(s->all_fields)) {
+                for (const auto& [i, f] : llvm::enumerate(s->fields)) {
                     auto td = SerialiseType(cast<TypeBase>(f->type));
                     WriteAt(offs + usz(i) * sizeof(TD), td);
                 }
@@ -875,17 +871,14 @@ struct Deserialiser {
                         td.is_builtin() or td.index() < types.size()
                             ? Map(field_types.back())
                             : Type::UnsafeEmpty(),
-                        {},
-                        {},
-                        u32(i)
+                        {}
                     ));
                 }
 
                 /// Read fields.
                 for (auto& f : fields) {
-                    f->padding = rd<bool>();
                     f->offset = rd<Size>();
-                    if (not f->padding) f->name = mod->save(rd<std::string>());
+                    f->name = mod->save(rd<std::string>());
                 }
 
                 /// Create the struct.
@@ -902,7 +895,7 @@ struct Deserialiser {
                 );
 
                 /// Mark fields for fixup if need be.
-                for (auto& f : s->all_fields)
+                for (auto& f : s->fields)
                     if (static_cast<Expr*>(f->type) == nullptr)
                         type_fixup_list.emplace_back(&f->stored_type, field_types[f->index]);
 

@@ -97,6 +97,13 @@ src::TupleIndexExpr::TupleIndexExpr(Expr* object, FieldDecl* field, Location loc
     is_lvalue = object->is_lvalue;
 }
 
+auto src::FieldDecl::_index() -> u32 {
+    Assert(parent, "Requesting index of field without parent");
+    auto it = rgs::find(parent->fields, this);
+    Assert(it != parent->fields.end(), "Field not found in parent");
+    return u32(rgs::distance(parent->fields.begin(), it));
+}
+
 auto src::LocalDecl::parent(Module* parent_module) -> ProcDecl* {
     if (parent_ptr) return parent_ptr;
     return parent_module->top_level_func;
@@ -381,7 +388,7 @@ bool src::Type::is_int(bool bool_is_int) {
 }
 
 bool src::Type::_is_nil() {
-    if (auto t = dyn_cast<TupleType>(ptr)) return t->all_fields.empty();
+    if (auto t = dyn_cast<TupleType>(ptr)) return t->fields.empty();
     return false;
 }
 
@@ -434,7 +441,7 @@ auto src::Type::size(Context* ctx) const -> Size {
             auto int_size = Type::Int.size(ctx);
             auto ptr_align = Type::VoidRef.align(ctx);
             auto int_align = Type::Int.align(ctx);
-            return (ptr_size.align_to(int_align) + int_size).align_to(std::max(ptr_align, int_align));
+            return (ptr_size.aligned(int_align) + int_size).aligned(std::max(ptr_align, int_align));
         }
 
         case Expr::Kind::EnumType:
@@ -1562,7 +1569,7 @@ public:
             case K::StructType: {
                 auto s = cast<StructType>(e);
                 SmallVector<Expr*, 36> children{};
-                utils::append(children, s->all_fields);
+                utils::append(children, s->fields);
                 utils::append(children, s->initialisers);
                 for (auto& [_, procs] : s->member_procs) utils::append(children, procs);
                 if (s->deleter) children.push_back(s->deleter);

@@ -18,7 +18,7 @@
 foo(x);
 
 /// b
-/// * hlir.func private @_S3fooPG2I32_I32_E({ i32, i32 }) -> i32
+/// * hlir.func private @_S3fooPG2_I32_I32_E({ i32, i32 }) -> i32
 /// + $a:t = local { i32, i32 }
 /// + store into $a, { i32, i32 } %arg0
 /// + $ret:t = scope i32 {

@@ -385,7 +385,7 @@ void src::CodeGen::Construct(
         } break;
 
         case ConstructKind::RecordListInit: {
-            for (auto [f, c] : vws::zip(ctor->record_type()->non_padding_fields(), ctor->args())) {
+            for (auto [f, c] : vws::zip(ctor->record_type()->fields, ctor->args())) {
                 auto ptr = Create<hlir::StructGEPOp>(
                     loc,
                     addr,
@@ -600,8 +600,8 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
     SmallVector<llvm::OptimizedStructLayoutField, 10> captured;
     if (proc->takes_static_chain) captured.push_back({
         nullptr,
-        8,              /// FIXME: Get size of pointer type from context.
-        llvm::Align(8), /// FIXME: Get alignment of pointer type from context.
+        ctx->size_of_pointer.bytes(),
+        ctx->align_of_pointer,
         0,
     });
 
@@ -631,13 +631,10 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
             fields.push_back(new (mod) FieldDecl(
                 "",
                 new (mod) ReferenceType(proc->parent_or_null->captured_locals_type, {}),
-                {},
-                Size::Bytes(0),
-                0,
-                false
+                {}
             ));
 
-            total_size += Size::Bytes(8); /// FIXME: Get pointer alignment from context.
+            total_size += Size(ctx->align_of_pointer);
             continue;
         }
 
@@ -646,28 +643,12 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
         /// above.
         auto v = static_cast<LocalDecl*>(const_cast<void*>(var.Id));
         v->capture_index = isz(i);
-
-        /// Insert padding if required.
-        if (total_size.bytes() != var.Offset) {
-            v->capture_index++;
-            fields.push_back(new (mod) FieldDecl(
-                "",
-                ArrayType::GetByteArray(mod, isz(usz(var.Offset) - total_size.bytes())),
-                {},
-                total_size,
-                u32(-1), /// We’re past the point where this matters.
-                true
-            ));
-        }
-
         total_size = Size::Bytes(var.Offset) + v->type.size(ctx);
         fields.push_back(new (mod) FieldDecl(
             "",
             v->type,
             {},
-            Size::Bytes(var.Offset),
-            u32(-1), /// We’re past the point where this matters.
-            false
+            Size::Bytes(var.Offset)
         ));
     }
 
@@ -700,7 +681,7 @@ void src::CodeGen::InitStaticChain(ProcDecl* proc, hlir::FuncOp func) {
             builder.getUnknownLoc(),
             captured_locals_ptrs.at(proc),
             func.getExplicitArgument(u32(proc->params.size())), /// (!)
-            8                                                   /// FIXME: Get alignment of pointer type from context.
+            ctx->align_of_pointer.value()
         );
     }
 }

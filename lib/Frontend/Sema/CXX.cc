@@ -196,40 +196,21 @@ struct ImportContext {
             s->sema.set_done();
 
             SmallVector<FieldDecl*> fields;
-            Size size;
-            usz padding_count = 0;
             for (auto [i, f] : llvm::enumerate(decl->fields())) {
                 auto ty = TranslateType(f->getType());
                 if (not ty.has_value()) return std::nullopt;
                 if (f->isBitField()) return std::nullopt;
                 auto offs = Size::Bits(layout.getFieldOffset(u32(i)));
-
-                if (offs != size) {
-                    Assert(offs > size);
-                    fields.push_back(new (out) FieldDecl {
-                        out->save(fmt::format("#padding{}", padding_count++)),
-                        ArrayType::GetByteArray(out, isz((offs - size).bytes())),
-                        {},
-                        offs - size,
-                        u32(fields.size()),
-                        true
-                    });
-                }
-
                 fields.push_back(new (out) FieldDecl{
                     out->save(f->getName()),
                     *ty,
                     {},
-                    offs,
-                    u32(fields.size()),
-                    false
+                    offs
                 });
-
-                size = offs + fields.back()->type.size(ctx);
             }
 
             out->exports[s->name].push_back(s);
-            s->all_fields = std::move(fields);
+            s->replace_fields(std::move(fields));
             return s;
         }
 

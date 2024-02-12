@@ -1572,26 +1572,25 @@ public:
 /// Struct field decl.
 class FieldDecl : public Decl {
 public:
+    /// Parent record.
+    ///
+    /// This is set when a record type is constructed from a
+    /// set of fields; if additional fields are added later,
+    /// this may need manual updating.
+    RecordType* parent{};
+
     /// Offset to this field in the containing struct.
     Size offset{};
-
-    /// Index of this field in the containing struct.
-    u32 index{};
-
-    /// Whether this is a padding field.
-    bool padding{};
 
     FieldDecl(
         String name,
         Type type,
         Location loc,
-        Size offset = Size::Bits(0),
-        u32 index = 0,
-        bool padding = false
-    ) : Decl(Kind::FieldDecl, name, type, loc),
-        offset(offset),
-        index(index),
-        padding(padding) {}
+        Size offset = Size::Bits(0)
+    ) : Decl(Kind::FieldDecl, name, type, loc), offset(offset) {}
+
+    /// Get the index of this field in the parent record.
+    readonly_decl(u32, index);
 
     /// RTTI.
     static bool classof(const Expr* e) { return e->kind == Kind::FieldDecl; }
@@ -2000,37 +1999,35 @@ public:
 
 /// Base class for record types (structs and tuples).
 class RecordType : public TypeBase {
-public:
     /// The fields of this struct.
-    SmallVector<FieldDecl*> all_fields;
+    SmallVector<FieldDecl*> fields_internal;
+
+public:
+    readonly_const(const SmallVectorImpl<FieldDecl*>&, fields, return fields_internal);
 
     /// Cached size and alignment.
     Size stored_size{};
     Align stored_alignment{1};
 
 protected:
-    RecordType(Kind k, SmallVector<FieldDecl*> fields, Location loc)
-        : TypeBase(k, loc), all_fields(std::move(fields)) {}
+    RecordType(Kind k, SmallVector<FieldDecl*>&& fields, Location loc)
+        : TypeBase(k, loc) {
+        replace_fields(std::move(fields));
+    }
 
 public:
-    /// Get the fields of this struct, including all padding fields.
+    /// Get the types of the fields of this record.
     auto field_types() {
-        return vws::transform(all_fields, [](FieldDecl* f) { return f->stored_type; });
+        return vws::transform(fields, [](FieldDecl* f) { return f->stored_type; });
     }
 
-    /// Get the non-padding fields of this struct.
-    auto non_padding_fields() {
-        return vws::filter(all_fields, [](FieldDecl* f) { return not f->padding; });
-    }
-
-    /// Get a field by *logical* index (i.e. ignoring non-padding fields).
-    auto nth_non_padding(u32 n) -> FieldDecl* {
-        for (auto f : non_padding_fields()) {
-            if (n == 0) return f;
-            n--;
-        }
-
-        Unreachable("Invalid field index '{}'", n);
+    /// Replace the fields of this struct.
+    ///
+    /// Note that this does not update stored_size and stored_alignment,
+    /// so if you use this, you’ll need to update those manually.
+    void replace_fields(SmallVector<FieldDecl*>&& new_fields) {
+        fields_internal = std::move(new_fields);
+        for (auto f : fields_internal) f->parent = this;
     }
 
     /// Check if two struct types have the same layout.
