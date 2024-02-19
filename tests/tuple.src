@@ -14,7 +14,7 @@
 (i32, i32) x = (1, 2);
 
 /// + $val:t = load { i32, i32 } from $tuple
-/// + call @_S3fooPG2I32_I32_E($val) -> i32
+/// + call @_S3fooPG2_I32_I32_E($val) -> i32
 foo(x);
 
 /// b
