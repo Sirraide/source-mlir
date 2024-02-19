@@ -1,7 +1,10 @@
 #include <source/Frontend/AST.hh>
 #include <source/Frontend/Parser.hh>
 
-#define bind SRC_BIND Parser::
+#define bind           SRC_BIND Parser::
+#define Try            SRC_TRY
+#define TryParseExpr() Try(ParseExpr())
+#define TryParseType() Try(ParseType())
 
 src::Parser::Parser(Context* ctx, File& f) : ctx(ctx), main_file(f) {}
 
@@ -187,9 +190,8 @@ auto src::Parser::ParseAlias() -> Result<AliasExpr*> {
 
     /// Parse value.
     if (not Consume(Tk::Assign)) Error("Expected '='");
-    auto value = ParseExpr();
-    if (IsError(value)) return value.diag;
-    return new (mod) AliasExpr(name, *value, {start, value->location});
+    auto value = TryParseExpr();
+    return new (mod) AliasExpr(name, value, {start, value->location});
 }
 
 /// <expr-assert> ::= ASSERT <expr> [ ","  <expr> ]
@@ -198,10 +200,9 @@ auto src::Parser::ParseAssertion() -> Result<AssertExpr*> {
     Assert(Consume(Tk::Assert));
 
     /// Parse condition.
-    auto cond = ParseExpr();
-    auto mess = Consume(Tk::Comma) ? ParseExpr() : Result<Expr*>::Null();
-    if (IsError(cond, mess)) return Diag();
-    return new (mod) AssertExpr(*cond, *mess, false, {start, *mess ? mess->location : cond->location});
+    auto cond = TryParseExpr();
+    auto mess = Consume(Tk::Comma) ? TryParseExpr() : nullptr;
+    return new (mod) AssertExpr(cond, mess, false, {start, mess ? mess->location : cond->location});
 }
 
 bool src::Parser::ParseAttr(std::string_view attr_name, bool& flag) {
@@ -246,8 +247,7 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
     if (At(Tk::Proc)) Error(static_loc, "'static' does not make sense here");
 
     /// Parse decl type.
-    auto ty = ParseType();
-    if (IsError(ty)) return ty.diag;
+    auto ty = TryParseType();
 
     /// Parse name.
     if (not At(Tk::Identifier)) return Error("Expected identifier");
@@ -262,7 +262,7 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
         return new (mod) StaticDecl(
             mod,
             name,
-            *ty,
+            ty,
             std::move(init_args),
             Linkage::Internal,
             Mangling::Source,
@@ -271,7 +271,7 @@ auto src::Parser::ParseDecl() -> Result<Decl*> {
     } else {
         return new (mod) LocalDecl(
             name,
-            *ty,
+            ty,
             std::move(init_args),
             LocalKind::Variable,
             loc
@@ -301,12 +301,7 @@ auto src::Parser::ParseEnum() -> Result<EnumType*> {
     )); // clang-format on
 
     /// Parse underlying type.
-    Type underlying_type = Type::Int;
-    if (Consume(Tk::Colon)) {
-        auto ty = ParseType();
-        if (IsError(ty)) return ty.diag;
-        underlying_type = *ty;
-    }
+    Type underlying_type = Consume(Tk::Colon) ? TryParseType() : Type::Int;
 
     /// Body is optional.
     ScopeRAII sc{this};
@@ -317,25 +312,16 @@ auto src::Parser::ParseEnum() -> Result<EnumType*> {
             auto enumerator = tok.text;
             auto loc = curr_loc;
             if (not Consume(Tk::Identifier)) Error("Expected identifier");
-
-            /// Optional initialiser.
-            auto init = Result<Expr*>::Null();
-            if (Consume(Tk::Assign)) {
-                init = ParseExpr();
-                if (IsError(init)) {
-                    Synchronise(Tk::Comma, Tk::RBrace);
-                    continue;
-                }
-            }
-
+            auto init = Consume(Tk::Assign) ? TryParseExpr() : nullptr;
             enumerators.push_back(new (mod) EnumeratorDecl(
                 enumerator,
-                *init,
+                init,
                 loc
             ));
 
             if (not Consume(Tk::Comma)) break;
         }
+
         if (not Consume(Tk::RBrace)) Error("Expected ',' or '}}'");
     }
 
@@ -391,14 +377,14 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
         /// to put a semicolon after the closing brace of a struct without
         /// causing the struct to gobble up any name after it.
         case Tk::Struct:
-            lhs = ParseStruct();
-            if (lhs.is_value and not cast<StructType>(*lhs)->name.empty()) return lhs;
+            lhs = Try(ParseStruct());
+            if (not cast<StructType>(*lhs)->name.empty()) return lhs;
             break;
 
         /// Enum type. See the struct case above.
         case Tk::Enum:
-            lhs = ParseEnum();
-            if (lhs.is_value and not cast<EnumType>(*lhs)->name.empty()) return lhs;
+            lhs = Try(ParseEnum());
+            if (not cast<EnumType>(*lhs)->name.empty()) return lhs;
             break;
 
         case Tk::LBrace:
@@ -518,13 +504,8 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
         /// <expr-return> ::= RETURN [ <expr> ]
         case Tk::Return: {
             auto start = Next();
-            auto value = Result<Expr*>::Null();
-            if (MayStartAnExpression(tok.type)) {
-                value = ParseExpr();
-                if (IsError(value)) return value.diag;
-            }
-
-            lhs = new (mod) ReturnExpr(*value, {start, *value ? value->location : start});
+            auto value = MayStartAnExpression(tok.type) ? TryParseExpr() : nullptr;
+            lhs = new (mod) ReturnExpr(value, {start, value ? value->location : start});
         } break;
 
         /// <expr-jump> ::= GOTO IDENTIFIER
@@ -538,22 +519,20 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
         /// <expr-defer> ::= DEFER <implicit-block>
         case Tk::Defer: {
             auto start = Next();
-            auto expr = ParseImplicitBlock();
-            if (IsError(expr)) return expr.diag;
-            lhs = new (mod) DeferExpr(*expr, {start, expr->location});
+            auto expr = Try(ParseImplicitBlock());
+            lhs = new (mod) DeferExpr(expr, {start, expr->location});
         } break;
 
         case Tk::Star:
         case Tk::StarStar:
         case Tk::Not: {
             auto start = Next();
-            auto operand = ParseExpr(PrefixPrecedence);
-            if (IsError(operand)) return operand.diag;
+            auto operand = Try(ParseExpr(PrefixPrecedence));
             if (start_token == Tk::StarStar) {
-                lhs = new (mod) UnaryPrefixExpr(Tk::Star, *operand, {start.contract_right(1), operand->location});
+                lhs = new (mod) UnaryPrefixExpr(Tk::Star, operand, {start.contract_right(1), operand->location});
                 lhs = new (mod) UnaryPrefixExpr(Tk::Star, *lhs, {start, operand->location});
             } else {
-                lhs = new (mod) UnaryPrefixExpr(start_token, *operand, {start, operand->location});
+                lhs = new (mod) UnaryPrefixExpr(start_token, operand, {start, operand->location});
             }
         } break;
 
@@ -568,22 +547,19 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
             }
 
             /// Tuple or parenthesised expression.
-            auto expr = ParseExpr();
-            if (IsError(expr)) return expr.diag;
+            auto expr = TryParseExpr();
 
             /// At least one comma means this is a tuple.
             if (Consume(Tk::Comma)) {
-                SmallVector<Expr*> exprs{*expr};
+                SmallVector<Expr*> exprs{expr};
                 while (not At(Tk::RParen, Tk::Eof)) {
-                    expr = ParseExpr();
-                    if (IsError(expr)) return expr.diag;
-                    exprs.push_back(*expr);
+                    exprs.push_back(TryParseExpr());
                     if (not Consume(Tk::Comma)) break;
                 }
 
                 lhs = new (mod) TupleExpr(std::move(exprs), {start, curr_loc});
             } else {
-                lhs = new (mod) ParenExpr(*expr, {start, curr_loc});
+                lhs = new (mod) ParenExpr(expr, {start, curr_loc});
             }
 
             if (not At(Tk::RParen)) return Error("Expected ')'");
@@ -706,9 +682,8 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
             /// Subscripting.
             case Tk::LBrack: {
                 Next();
-                auto e = ParseExpr();
-                if (IsError(e)) return e.diag;
-                lhs = new (mod) SubscriptExpr(*lhs, *e, {lhs->location, curr_loc});
+                auto e = TryParseExpr();
+                lhs = new (mod) SubscriptExpr(*lhs, e, {lhs->location, curr_loc});
                 if (not Consume(Tk::RBrack)) Error("Expected ']'");
                 continue;
             }
@@ -751,9 +726,8 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
             case Tk::AsBang: {
                 auto kind = tok.type == Tk::As ? CastKind::Soft : CastKind::Hard;
                 Next();
-                auto ty = ParseType();
-                if (IsError(ty)) return ty.diag;
-                lhs = new (mod) CastExpr(kind, *lhs, *ty, {lhs->location, ty.value()->location});
+                auto ty = TryParseType();
+                lhs = new (mod) CastExpr(kind, *lhs, ty, {lhs->location, ty->location});
                 continue;
             }
         }
@@ -765,9 +739,8 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
         /// Save operator and parse rhs.
         auto op = tok.type;
         Next();
-        auto rhs = ParseExpr(prec);
-        if (IsError(rhs)) return rhs.diag;
-        lhs = new (mod) BinaryExpr(op, *lhs, *rhs, {lhs->location, rhs->location});
+        auto rhs = Try(ParseExpr(prec));
+        lhs = new (mod) BinaryExpr(op, *lhs, rhs, {lhs->location, rhs->location});
     }
 
     /// Done parsing.
@@ -788,17 +761,15 @@ auto src::Parser::ParseStmt() -> Result<Expr*> {
         /// <stmt-defer> ::= DEFER <implicit-block>
         case Tk::Defer: {
             auto start = Next();
-            auto block = ParseImplicitBlock();
-            if (IsError(block)) return block.diag;
-            return new (mod) DeferExpr(*block, {start, block->location});
+            auto block = Try(ParseImplicitBlock());
+            return new (mod) DeferExpr(block, {start, block->location});
         }
 
         /// <stmt-export> ::= EXPORT <stmt>
         case Tk::Export: {
             auto start = Next();
-            auto stmt = ParseStmt();
-            if (IsError(stmt)) return stmt.diag;
-            return new (mod) ExportExpr(*stmt, start);
+            auto stmt = Try(ParseStmt());
+            return new (mod) ExportExpr(stmt, start);
         }
 
         /// <stmt-labelled>  ::= IDENTIFIER ":" <stmt>
@@ -808,9 +779,8 @@ auto src::Parser::ParseStmt() -> Result<Expr*> {
                 auto text = tok.text;
                 auto start = curr_loc;
                 Next(), Next();
-                auto stmt = ParseStmt();
-                if (IsError(stmt)) return stmt.diag;
-                auto l = new (mod) LabelExpr(text, *stmt, start);
+                auto stmt = Try(ParseStmt());
+                auto l = new (mod) LabelExpr(text, stmt, start);
                 curr_or_top_level_proc->add_label(l->label, l);
                 return l;
             }
@@ -967,8 +937,8 @@ auto src::Parser::ParseFor() -> Result<Expr*> {
 
     /// Parse index and iteration variable.
     ScopeRAII sc{this};
-    auto index = Result<LocalDecl*>::Null();
-    auto iter = Result<LocalDecl*>::Null();
+    LocalDecl* index{};
+    LocalDecl* iter{};
 
     /// ENUM IDENTIFIER
     if (Consume(Tk::Enum)) {
@@ -989,14 +959,12 @@ auto src::Parser::ParseFor() -> Result<Expr*> {
 
     /// Parse range.
     if (not Consume(Tk::In)) Error("Expected 'in'");
-    auto range = ParseExpr();
-    if (IsError(range)) return range.diag;
+    auto range = TryParseExpr();
 
     /// Parse body.
     Consume(Tk::Do);
-    auto body = ParseImplicitBlock();
-    if (IsError(body)) return body.diag;
-    return new (mod) ForInExpr(*iter, *index, *range, *body, reverse, start);
+    auto body = Try(ParseImplicitBlock());
+    return new (mod) ForInExpr(iter, index, range, body, reverse, start);
 }
 
 /// <expr-if> ::= [ STATIC ] IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
@@ -1005,9 +973,9 @@ auto src::Parser::ParseIf(Location start, bool is_static) -> Result<Expr*> {
     Assert(Consume(Tk::If, Tk::Elif));
 
     /// Parse condition, and body.
-    auto cond = ParseExpr();
+    auto cond = Try(ParseExpr());
     Consume(Tk::Then);
-    auto then = ParseImplicitBlock();
+    auto then = Try(ParseImplicitBlock());
 
     /// Skip a semicolon here if we have an elif/else clause. Also diagnose
     /// 'static elif' and 'static else'; just ignore the 'static' in that case.
@@ -1022,13 +990,12 @@ auto src::Parser::ParseIf(Location start, bool is_static) -> Result<Expr*> {
     }
 
     /// Parse else branch.
-    auto else_ = At(Tk::Elif)      ? ParseIf(curr_loc, is_static)
-               : Consume(Tk::Else) ? ParseImplicitBlock()
-                                   : Result<Expr*>::Null();
+    auto else_ = At(Tk::Elif)      ? Try(ParseIf(curr_loc, is_static))
+               : Consume(Tk::Else) ? Try(ParseImplicitBlock())
+                                   : nullptr;
 
     /// Create the expression.
-    if (IsError(cond, then, else_)) return Diag();
-    return new (mod) IfExpr(*cond, *then, *else_, is_static, {start, curr_loc});
+    return new (mod) IfExpr(cond, then, else_, is_static, {start, curr_loc});
 }
 
 /// Syntactically any expression, but wrapped in an implicit
@@ -1055,13 +1022,11 @@ auto src::Parser::ParseImplicitBlock() -> Result<BlockExpr*> {
 
     /// Not already a block.
     ScopeRAII sc{this};
-    if (auto res = ParseExpr(); res.is_diag) return Diag();
-    else {
-        sc.scope->location = res->location;
-        sc.scope->exprs.push_back(*res);
-        sc.scope->implicit = true;
-        return sc.scope;
-    }
+    auto res = TryParseExpr();
+    sc.scope->location = res->location;
+    sc.scope->exprs.push_back(res);
+    sc.scope->implicit = true;
+    return sc.scope;
 }
 
 /// Parse initialise arguments for a declaration.
@@ -1131,7 +1096,7 @@ auto src::Parser::ParseParamDeclList(
         if (Consume(Tk::In)) intent = Intent::In;
         else if (At(Tk::Identifier)) {
             using enum Intent;
-            static constexpr Intent Invalid = Intent(~0);
+            static constexpr auto Invalid = Intent(~0);
             auto i = llvm::StringSwitch<Intent>(tok.text)
                          .Case("copy", Copy)
                          .Case("in", In)
@@ -1246,19 +1211,18 @@ auto src::Parser::ParseProc(bool no_parent) -> Result<ProcDecl*> {
     /// Parse the body if the procedure is not external.
     bool infer_return_type = false;
     if (not sig.is_extern) {
-        auto body = Result<BlockExpr*>::Null();
+        BlockExpr* body;
         if (Consume(Tk::Assign)) {
             infer_return_type = true;
-            body = ParseImplicitBlock();
+            body = Try(ParseImplicitBlock());
         } else if (At(Tk::LBrace)) {
-            body = ParseBlock();
+            body = Try(ParseBlock());
         } else {
-            body = Error("Expected '=' or '{{' at start of procedure body");
+            return Error("Expected '=' or '{{' at start of procedure body");
         }
 
         /// Set the body if there is one.
-        if (IsError(body)) return body.diag;
-        proc->body = *body;
+        proc->body = body;
         proc->body->set_function_scope();
 
         /// If this is a top-level function, then it cannot access variables in
@@ -1495,27 +1459,18 @@ auto src::Parser::ParseStruct() -> Result<StructType*> {
 /// <type-qual>      ::= "&" | "^" | "?" | "[" [ <expr> ] "]"
 auto src::Parser::ParseType() -> Result<Type> {
     /// Parse base type.
-    Expr* base_type = nullptr;
+    Expr* base_type;
     switch (tok.type) {
         default: return Error("Expected type");
 
-        case Tk::Struct: {
-            auto ty = ParseStruct();
-            if (IsError(ty)) return ty.diag;
-            base_type = *ty;
-        } break;
+        case Tk::Struct: base_type = Try(ParseStruct()); break;
 
-        case Tk::Enum: {
-            auto ty = ParseEnum();
-            if (IsError(ty)) return ty.diag;
-            base_type = *ty;
-        } break;
+        case Tk::Enum: base_type = Try(ParseEnum()); break;
 
         case Tk::Typeof: {
             auto loc = Next();
-            auto expr = ParseExpr(PrefixPrecedence);
-            if (IsError(expr)) return expr.diag;
-            base_type = new (mod) TypeofType(*expr, {loc, expr->location});
+            auto expr = Try(ParseExpr(PrefixPrecedence));
+            base_type = new (mod) TypeofType(expr, {loc, expr->location});
         } break;
 
         /// Tuple type.
@@ -1523,9 +1478,8 @@ auto src::Parser::ParseType() -> Result<Type> {
             auto start = Next();
             SmallVector<FieldDecl*> types;
             while (not At(Tk::RParen, Tk::Eof)) {
-                auto ty = ParseType();
-                if (IsError(ty)) return ty;
-                types.push_back(new (mod) FieldDecl("", *ty, ty->location));
+                auto ty = TryParseType();
+                types.push_back(new (mod) FieldDecl("", ty, ty->location));
                 if (not Consume(Tk::Comma)) break;
             }
 
@@ -1626,9 +1580,8 @@ auto src::Parser::ParseType() -> Result<Type> {
 
                 if (tok.type == Tk::RBrack) type = new (mod) SliceType(type, type->location);
                 else {
-                    auto dim = ParseExpr();
-                    if (IsError(dim)) return dim.diag;
-                    type = new (mod) ArrayType(type, *dim, type->location);
+                    auto dim = TryParseExpr();
+                    type = new (mod) ArrayType(type, dim, type->location);
                 }
 
                 type->location = {type->location, curr_loc};
@@ -1644,15 +1597,12 @@ auto src::Parser::ParseWhile() -> Result<Expr*> {
     Assert(Consume(Tk::While));
 
     /// Parse condition and body.
-    auto cond = ParseExpr();
-    auto body = Result<BlockExpr*>::Null();
-    if (IsError(cond)) return Diag();
+    auto cond = TryParseExpr();
     Consume(Tk::Do);
-    body = ParseImplicitBlock();
+    auto body = Try(ParseImplicitBlock());
 
     /// Create the expression.
-    if (IsError(body)) return body;
-    return new (mod) WhileExpr(*cond, *body, {start, curr_loc});
+    return new (mod) WhileExpr(cond, body, {start, curr_loc});
 }
 
 /// <expr-with> ::= WITH <expr> [ <do> ]
@@ -1661,12 +1611,11 @@ auto src::Parser::ParseWith() -> Result<WithExpr*> {
     Assert(Consume(Tk::With));
 
     /// Parse object.
-    auto object = ParseExpr();
+    auto object = TryParseExpr();
 
     /// Parse optional body.
-    auto body = Result<BlockExpr*>::Null();
-    if (Consume(Tk::Do) or MayStartAnExpression(tok.type)) body = ParseImplicitBlock();
+    BlockExpr* body{};
+    if (Consume(Tk::Do) or MayStartAnExpression(tok.type)) body = Try(ParseImplicitBlock());
     else if (not At(Tk::Semicolon)) Error("Expected body or ';' in with expression");
-    if (IsError(object, body)) return Diag();
-    return new (mod) WithExpr(*object, *body, {start, curr_loc});
+    return new (mod) WithExpr(object, body, {start, curr_loc});
 }

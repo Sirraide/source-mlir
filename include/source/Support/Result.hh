@@ -105,7 +105,6 @@ public:
 
     /// Get the value.
     [[nodiscard]] auto value() -> ValueType&
-    requires (not std::is_void_v<Type>)
     { return std::get<ValueType>(data); }
 
     /// Check if this has a value.
@@ -198,6 +197,12 @@ auto operator->*(ClassType& p, auto member_function) {
         return std::invoke(member_function, p, std::forward<decltype(args)>(args)...);
     };
 }
+
+#define SRC_TRY(X) ({                    \
+    auto _res = X;                       \
+    if (IsError(_res)) return _res.diag; \
+    std::move(_res.value());             \
+})
 
 }
 #endif // SOURCE_INCLUDE_RESULT_HH
