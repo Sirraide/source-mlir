@@ -11,11 +11,10 @@ struct S {
     }
 
     init (int x) {
-        return S::(x, x);
+        return ::(x, x);
     }
 
     init = (); /// Special form: same as '::()' only in this context.
 }
 
 var s1 = S(1, 2);
-var s2 = S::(1, 2);

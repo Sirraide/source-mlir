@@ -1475,7 +1475,6 @@ auto src::Sema::Construct(
     Expr* target,
     bool raw
 ) -> ConstructExpr* {
-
     /// If the type being constructed is an enum type, then its
     /// enumerators are in scope here.
     auto ty = type.desugared;
@@ -4406,7 +4405,29 @@ void src::Sema::AnalyseRecord(RecordType* r) {
     }
 
     /// Analyse initialisers.
+    ///
     for (auto& i : s->initialisers) {
+        /// The special initialiser `init = ()` is equivalent to
+        /// `init = ::()`.
+        if (
+            i->body->implicit and
+            i->body->exprs.size() == 1 and
+            isa<TupleExpr>(i->body->exprs[0]) and
+            cast<TupleExpr>(i->body->exprs[0])->elements.empty()
+        ) {
+            auto ctor = Construct(i->body->exprs[0]->location, s, {}, {}, true);
+            if (not ctor) {
+                i->sema.set_errored();
+                s->sema.set_errored();
+            } else {
+                i->body->exprs[0] = new (mod) MaterialiseTemporaryExpr(
+                    s,
+                    ctor,
+                    i->body->exprs[0]->location
+                );
+            }
+        }
+
         with_stack.clear();
         with_stack.push_back(new (mod) ImplicitThisExpr(i, s, {}));
         if (not Analyse(i)) s->sema.set_errored();

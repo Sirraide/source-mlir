@@ -947,6 +947,7 @@ public:
     DenseSet<const ProcDecl*> printed_functions{};
     bool print_children_of_children = true;
     bool print_procedure_bodies = true;
+    bool print_struct_bodies = true;
     std::string out;
     bool use_colour = true;
     utils::Colours C{use_colour};
@@ -1577,6 +1578,7 @@ public:
                 break;
 
             case K::StructType: {
+                if (not print_struct_bodies) break;
                 auto s = cast<StructType>(e);
                 SmallVector<Expr*, 36> children{};
                 utils::append(children, s->fields);
@@ -1635,7 +1637,10 @@ public:
 
             case K::RawLitExpr: {
                 auto c = cast<RawLitExpr>(e);
-                PrintChildren(c->args, leading_text);
+                SmallVector<Expr*, 8> children{};
+                children.append(c->args);
+                if (c->ctor) children.push_back(c->ctor);
+                PrintChildren(children, leading_text);
             } break;
 
             case K::IfExpr: {
@@ -1781,6 +1786,7 @@ public:
             case K::ConstructExpr: {
                 auto c = const_cast<ConstructExpr*>(cast<ConstructExpr>(e));
                 tempset print_procedure_bodies = false;
+                tempset print_struct_bodies = false;
                 PrintChildren(c->args_and_init(), leading_text);
             } break;
 
