@@ -1,0 +1,21 @@
+struct S {
+    int x;
+    int y;
+
+    init (int, int, int) = ::();
+
+    /// Default return type of an initialiser is the struct
+    /// type, not 'void'.
+    init (int x, int y) {
+        return ::(x, y);
+    }
+
+    init (int x) {
+        return S::(x, x);
+    }
+
+    init = (); /// Special form: same as '::()' only in this context.
+}
+
+var s1 = S(1, 2);
+var s2 = S::(1, 2);

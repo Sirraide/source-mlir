@@ -167,6 +167,14 @@ bool src::Expr::_is_smp() {
     return false;
 }
 
+auto src::ProcDecl::_smp_parent() -> StructType* {
+    return cast<ProcType>(type)->smp_parent;
+}
+
+auto src::ProcDecl::_smp_kind() -> SpecialMemberKind {
+    return cast<ProcType>(type)->smp_kind;
+}
+
 auto src::Expr::_scope_name() -> std::string {
     switch (kind) {
         default:
@@ -1067,8 +1075,10 @@ public:
             case K::ExportExpr: PrintBasicNode("ExportExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ImplicitThisExpr: PrintBasicNode("ImplicitThisExpr", e, static_cast<Expr*>(e->type)); return;
             case K::InvokeExpr: PrintBasicNode("InvokeExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::InvokeInitialiserExpr: PrintBasicNode("InvokeInitialiserExpr", e, static_cast<Expr*>(e->type)); return;
             case K::MaterialiseTemporaryExpr: PrintBasicNode("MaterialiseTemporaryExpr", e, static_cast<Expr*>(e->type)); return;
             case K::ParenExpr: PrintBasicNode("ParenExpr", e, static_cast<Expr*>(e->type)); return;
+            case K::RawLitExpr: PrintBasicNode("RawLitExpr", e, static_cast<Expr*>(e->type)); return;
             case K::SubscriptExpr: PrintBasicNode("SubscriptExpr", e, static_cast<Expr*>(e->type)); return;
             case K::TupleExpr: PrintBasicNode("TupleExpr", e, static_cast<Expr*>(e->type)); return;
             case K::TupleIndexExpr: PrintBasicNode("TupleIndexExpr", e, static_cast<Expr*>(e->type)); return;
@@ -1613,6 +1623,19 @@ public:
                 children.insert(children.end(), c->args.begin(), c->args.end());
                 children.insert(children.end(), c->init_args.begin(), c->init_args.end());
                 PrintChildren(children, leading_text);
+            } break;
+
+            case K::InvokeInitialiserExpr: {
+                auto c = cast<InvokeInitialiserExpr>(e);
+                SmallVector<Expr*, 12> children{};
+                if (c->initialiser) children.push_back(c->initialiser);
+                children.insert(children.end(), c->args.begin(), c->args.end());
+                PrintChildren(children, leading_text);
+            } break;
+
+            case K::RawLitExpr: {
+                auto c = cast<RawLitExpr>(e);
+                PrintChildren(c->args, leading_text);
             } break;
 
             case K::IfExpr: {

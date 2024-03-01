@@ -126,6 +126,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Bool:
         case Tk::Break:
         case Tk::Continue:
+        case Tk::ColonColon:
         case Tk::Dot:
         case Tk::Enum:
         case Tk::False:
@@ -134,6 +135,7 @@ constexpr bool MayStartAnExpression(Tk k) {
         case Tk::Goto:
         case Tk::Identifier:
         case Tk::If:
+        case Tk::Init:
         case Tk::Int:
         case Tk::Integer:
         case Tk::IntegerType:
@@ -565,6 +567,20 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
             if (not At(Tk::RParen)) return Error("Expected ')'");
             Next();
         } break;
+
+        /// <expr-init> ::= INIT <invoke-args>
+        case Tk::Init: {
+            auto start = Next();
+            auto [_, r, args] = Try(ParseInvokeArgs());
+            lhs = new (mod) InvokeInitialiserExpr(std::move(args), {start, r});
+        } break;
+
+        /// <expr-raw-lit> ::= "::" <expr-tuple>
+        case Tk::ColonColon: {
+            auto start = Next();
+            auto [_, r, args] = Try(ParseInvokeArgs());
+            lhs = new (mod) RawLitExpr(std::move(args), {start, r});
+        } break;
     }
 
     /// Stop here if there was an error.
@@ -653,17 +669,11 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
                 if (isa<ProcDecl>(*lhs) and not cast<ProcDecl>(*lhs)->name.empty())
                     return lhs;
 
-                /// Yeet '('
+                /// Respect precedence of ().
                 if (InvokePrecedence < curr_prec) return lhs;
-                Next();
 
                 /// Parse args.
-                SmallVector<Expr*> args;
-                while (not At(Tk::RParen, Tk::Eof)) {
-                    auto arg = ParseExpr(InvokePrecedence);
-                    if (not IsError(arg)) args.push_back(*arg);
-                    if (not Consume(Tk::Comma)) break;
-                }
+                auto [_, r, args] = Try(ParseInvokeArgs());
 
                 /// Create the invoke expression.
                 lhs = new (mod) InvokeExpr(
@@ -671,11 +681,9 @@ auto src::Parser::ParseExpr(int curr_prec, bool full_expression) -> Result<Expr*
                     std::move(args),
                     false,
                     {},
-                    {lhs->location, curr_loc}
+                    {lhs->location, r}
                 );
 
-                /// Yeet ')'
-                if (not Consume(Tk::RParen)) Error("Expected ')'");
                 continue;
             }
 
@@ -1046,6 +1054,28 @@ auto src::Parser::ParseInitArgs() -> SmallVector<Expr*> {
     return init_args;
 }
 
+/// <invoke-args> ::= [ "(" ] <expr> { "," <expr> } [ ")" ]
+auto src::Parser::ParseInvokeArgs() -> Result<InvokeArgs> {
+    InvokeArgs ia;
+    ia.lparen_loc = curr_loc;
+    if (not Consume(Tk::LParen)) return Error("Expected '('");
+
+    while (not At(Tk::RParen, Tk::Eof)) {
+        auto arg = ParseExpr();
+        if (IsError(arg)) {
+            Synchronise(Tk::Semicolon, Tk::RParen);
+            return arg.diag;
+        }
+
+        ia.args.push_back(*arg);
+        if (not Consume(Tk::Comma)) break;
+    }
+
+    ia.rparen_loc = curr_loc;
+    if (not Consume(Tk::RParen)) return Error("Expected ')'");
+    return ia;
+}
+
 /// Parse the arguments of a naked invoke expression.
 ///
 /// This does no checking as to whether this should syntactically be parsed
@@ -1292,11 +1322,11 @@ auto src::Parser::ParseSignature() -> Signature {
     }
 
     /// Finally, parse the return type.
-    Type ret_type = init or del ? Type::Void : Type::Unknown;
+    Type ret_type = del ? Type::Void : Type::Unknown;
     if (Consume(Tk::RArrow)) {
-        if (init or del) Error("{} may not specify a return type", init ? "Initialiser" : "Deleter");
+        if (del) Error("Deleter may not specify a return type");
         auto res = ParseType();
-        if (not IsError(res)) ret_type = *res;
+        if (not IsError(res) and not del) ret_type = *res;
     }
 
     /// Create the procedure type.

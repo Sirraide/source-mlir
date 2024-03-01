@@ -146,6 +146,12 @@ private:
         bool attr___srcc_external__{};
     };
 
+    struct InvokeArgs {
+        Location lparen_loc;
+        Location rparen_loc;
+        SmallVector<Expr*> args;
+    };
+
     static constexpr int NullPrecedence = 0;
     static constexpr int FullExprPrecedence = 0;
 
@@ -208,6 +214,7 @@ private:
     auto ParseIf(Location start_loc, bool is_static) -> Result<Expr*>;
     auto ParseImplicitBlock() -> Result<BlockExpr*>;
     auto ParseInitArgs() -> SmallVector<Expr*>;
+    auto ParseInvokeArgs() -> Result<InvokeArgs>;
     auto ParseNakedInvokeExpr(Expr* callee) -> Result<InvokeExpr*>;
     auto ParseParamDeclList(SVI<ParamDecl*>& param_decls, std::deque<ParamInfo>& param_types) -> Location;
     void ParsePragma();

@@ -31,9 +31,7 @@ struct foo {
     /// + scope
     /// + (?<ten>$t) = arith.constant 10
     /// + call @_SXS3fooPI64_E(%arg0, $ten)
-    init {
-        .init 10; /// Call a different constructor.
-    }
+    init = init(10); /// Call a different constructor.
 
     /// b
     /// * hlir.func private @_SXS3fooPI64_E
@@ -43,8 +41,8 @@ struct foo {
     /// + (?<x>$t) = structgep $t[0] -> i64&
     /// + (?<val1>$t) = load i64 from $param1
     /// + construct $x trivial i64 $val1
-    init (i64 x) {
-        .x = x;
+    init (i64 x) -> foo {
+        return (x, 0);
     }
 
     /// b
@@ -60,7 +58,7 @@ struct foo {
     /// + (?<sum>$t) = add i64 $val1, $val2
     /// + construct $x trivial i64 $sum
     init (i64 x, i64 y) {
-        .x = x + y;
+        return ::(x + y);
     }
 }
 

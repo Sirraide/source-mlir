@@ -421,6 +421,15 @@ public:
 private:
     bool Analyse(Expr*& e);
 
+    template <std::derived_from<Expr> Expression>
+    requires (not std::same_as<Expression, Expr>)
+    bool Analyse(Expression*& e) {
+        Expr *expr = e;
+        if (not Analyse(expr)) return false;
+        e = cast<Expression>(expr);
+        return true;
+    }
+
     template <bool allow_undefined>
     bool AnalyseDeclRefExpr(Expr*& e);
 
@@ -446,12 +455,14 @@ private:
     /// \param ty The type to construct.
     /// \param args Arguments with which to construct a \p ty.
     /// \param target Expression that is marked as active if this creates an active optional.
+    /// \param raw Disregard initialisers at the top level (used for raw literals).
     /// \return The constructor for `into`.
     auto Construct(
         Location loc,
         Type ty,
         MutableArrayRef<Expr*> args,
-        Expr* target = nullptr
+        Expr* target = nullptr,
+        bool raw = false
     ) -> ConstructExpr*;
 
     /// Convert an expression to a type, inserting implicit conversions

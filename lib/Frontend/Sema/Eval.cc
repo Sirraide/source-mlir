@@ -36,6 +36,7 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::SugaredType:
         case Expr::Kind::TupleType:
         case Expr::Kind::TypeofType:
+
             out = Type(e);
             return true;
 
@@ -67,6 +68,8 @@ bool src::Sema::Evaluate(Expr* e, EvalResult& out, bool must_succeed) {
         case Expr::Kind::UnaryPrefixExpr:
         case Expr::Kind::WhileExpr:
         case Expr::Kind::WithExpr:
+        case Expr::Kind::InvokeInitialiserExpr:
+        case Expr::Kind::RawLitExpr:
         not_constexpr:
             if (must_succeed) Error(e, "Not a constant expression");
             return false;

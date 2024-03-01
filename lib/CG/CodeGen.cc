@@ -924,6 +924,10 @@ auto src::CodeGen::Generate(src::Expr* expr) -> mlir::Value {
         case Expr::Kind::ModuleRefExpr:
             return {};
 
+        case Expr::Kind::InvokeInitialiserExpr:
+        case Expr::Kind::RawLitExpr:
+            Todo();
+
         /// A construct expression without a target is meaningless.
         case Expr::Kind::ConstructExpr:
             Diag::ICE(ctx, expr->location, "ConstructExpr without result object");

@@ -1472,8 +1472,10 @@ auto src::Sema::Construct(
     Location loc,
     Type type,
     MutableArrayRef<Expr*> init_args,
-    Expr* target
+    Expr* target,
+    bool raw
 ) -> ConstructExpr* {
+
     /// If the type being constructed is an enum type, then its
     /// enumerators are in scope here.
     auto ty = type.desugared;
@@ -1587,7 +1589,7 @@ auto src::Sema::Construct(
             auto s = cast<StructType>(ty);
 
             /// If the type has constructors, try to find one that works.
-            if (not s->initialisers.empty()) {
+            if (not raw and not s->initialisers.empty()) {
                 auto ctor = LookUpConstructor(s);
                 if (not ctor) return nullptr;
                 return ConstructExpr::CreateInitialiserCall(
@@ -1679,6 +1681,8 @@ auto src::Sema::Construct(
             if (no_args or (tuple and tuple->elements.empty())) {
                 /// An array of trivial types is itself trivial.
                 if (base.trivially_constructible) return ConstructExpr::CreateZeroinit(mod);
+
+                /// Raw construction.
 
                 /// Otherwise, if this is a struct type with a constructor
                 /// that takes no elements, call that constructor for each
@@ -1930,6 +1934,39 @@ bool src::Sema::Analyse(Expr*& e) {
             Unreachable("FieldDecl should be handled when analysing RecordTypes");
         case Expr::Kind::EnumeratorDecl:
             Unreachable("EnumeratorDecl should be handled when analysing EnumTypes");
+
+        /// Perform overload resolution against an initialiser.
+        case Expr::Kind::InvokeInitialiserExpr: {
+            if (curr_proc->smp_kind != SpecialMemberKind::Constructor) return Error(
+                e,
+                "Initialiser invocation is only allowed in initialisers"
+            );
+
+            auto i = cast<InvokeInitialiserExpr>(e);
+            auto parent = curr_proc->smp_parent;
+            auto os = PerformOverloadResolution(e->location, parent->initialisers, i->args);
+            if (not os) return false;
+            i->initialiser = std::get<OverloadResolutionResult::Ok>(os.result);
+            i->stored_type = i->initialiser->ret_type;
+        } break;
+
+        case Expr::Kind::RawLitExpr: {
+            auto r = cast<RawLitExpr>(e);
+
+            /// If no type was specified, we must be in an initialiser.
+            if (r->type == Type::Unknown) {
+                if (curr_proc->smp_kind != SpecialMemberKind::Constructor) return Error(
+                    e,
+                    "Raw initialiser invocation outside initialiser requires explicit type."
+                );
+
+                r->stored_type = curr_proc->smp_parent;
+            }
+
+            auto ctor = Construct(r->location, r->type, r->args, nullptr, true);
+            if (not ctor) return e->sema.set_errored();
+            r->ctor = ctor;
+        } break;
 
         /// Each overload of an overload set must be unique.
         /// TODO: Check that that is actually the case.
@@ -4347,6 +4384,9 @@ void src::Sema::AnalyseRecord(RecordType* r) {
         ty->smp_parent = s;
         ty->smp_kind = SpecialMemberKind::Constructor;
         i->parent_struct = s;
+
+        /// If the type is unknown, it defaults to the struct type.
+        if (ty->ret_type == Type::Unknown) ty->ret_type = s;
         if (not AnalyseProcedureType(i)) r->sema.set_errored();
     }
 
@@ -4362,33 +4402,21 @@ void src::Sema::AnalyseRecord(RecordType* r) {
 
         /// Analyse the destructor first since initialisers may call it.
         with_stack.push_back(new (mod) ImplicitThisExpr(s->deleter, s, {}));
-        Expr* p = s->deleter;
-        if (Analyse(p)) {
-            Assert(p == s->deleter, "Analysis must not reassign procedure");
-            Assert(s->deleter->ret_type == Type::Void, "Deleter must return void");
-        }
+        if (Analyse(s->deleter)) Assert(s->deleter->ret_type == Type::Void, "Deleter must return void");
     }
 
     /// Analyse initialisers.
     for (auto& i : s->initialisers) {
         with_stack.clear();
         with_stack.push_back(new (mod) ImplicitThisExpr(i, s, {}));
-        Expr* p = i;
-        if (Analyse(p)) {
-            Assert(p == i, "Analysis must not reassign procedure");
-            Assert(i->ret_type == Type::Void, "Initialiser must return void");
-        } else {
-            s->sema.set_errored();
-        }
+        if (not Analyse(i)) s->sema.set_errored();
     }
 
     /// Analyse member functions.
     for (auto& [_, procs] : s->member_procs) {
         for (auto m : procs) {
             m->parent_struct = s;
-            Expr* p = m;
-            if (Analyse(p)) Assert(p == m, "Analysis must not reassign procedure");
-            else s->sema.set_errored();
+            if (not Analyse(m)) s->sema.set_errored();
         }
     }
 }

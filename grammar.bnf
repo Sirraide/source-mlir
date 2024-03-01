@@ -49,6 +49,7 @@
          | <expr-decl-ref>
          | <expr-for-in>
          | <expr-if>
+         | <expr-init>
          | <expr-invoke>
          | <expr-jump>
          | <expr-literal>
@@ -57,6 +58,7 @@
          | <expr-prefix>
          | <expr-proc>
          | <expr-qual-name>
+         | <expr-raw-lit>
          | <expr-return>
          | <expr-subscript>
          | <expr-tuple>
@@ -68,14 +70,14 @@
 <expr-access>    ::= [ <expr> ] "." [ IDENTIFIER | INIT ]
 <expr-alias>     ::= ALIAS IDENTIFIER "=" <expr>
 <expr-assert>    ::= ASSERT <expr> [ ","  <expr> ]
-<static-assert>  ::= STATIC <expr-assert>
 <expr-binary>    ::= <expr> <binary-op> <expr>
 <expr-block>     ::= "{" <stmts> "}"
 <expr-cast>      ::= <expr> ( "as" | "as!" ) <type>
 <expr-decl-ref>  ::= IDENTIFIER
 <expr-for-in>    ::= FOR [ <for-loop-vars> ] IN <expr> <do>
 <expr-if>        ::= [ STATIC ] IF <expr> <then> { ELIF <expr> <then> } [ ELSE <implicit-block> ]
-<expr-invoke>    ::= <expr> [ "(" ] <expr> { "," <expr> } [ ")" ]
+<expr-init>      ::= INIT <invoke-args>
+<expr-invoke>    ::= <expr> <invoke-args>
 <expr-jump>      ::= GOTO IDENTIFIER
 <expr-literal>   ::= INTEGER_LITERAL | STRING_LITERAL | TRUE | FALSE
 <expr-loop-ctrl> ::= ( BREAK | CONTINUE ) [ IDENTIFIER ]
@@ -83,11 +85,13 @@
 <expr-prefix>    ::= <prefix-op> <expr>
 <expr-proc>      ::= <proc-extern> | <proc-named>
 <expr-qual-name> ::= <expr> "::" IDENTIFIER
+<expr-raw-lit>   ::= "::" <expr-tuple>
 <expr-return>    ::= RETURN [ <expr> ]
 <expr-subscript> ::= <expr> "[" <expr> "]"
 <expr-tuple>     ::= "(" { <expr> "," } [ <expr> ] ")"
 <expr-while>     ::= WHILE <expr> <do>
 <expr-with>      ::= WITH <expr> [ <do> ]
+<static-assert>  ::= STATIC <expr-assert>
 
 <proc-extern>    ::= PROC IDENTIFIER <proc-signature>
 <proc-named>     ::= PROC IDENTIFIER <proc-signature> <proc-body>
@@ -105,6 +109,7 @@
 <implicit-block> ::= <stmt> /// Syntactically any statement, but wrapped in an implicit block if it isn’t already one.
 <prefix-op>      ::= /// All prefix operators.
 <binary-op>      ::= /// All binary operators.
+<invoke-args>    ::= [ "(" ] <expr> { "," <expr> } [ ")" ]
 
 /// ===========================================================================
 ///  Declarations
