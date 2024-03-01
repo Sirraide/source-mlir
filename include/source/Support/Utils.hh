@@ -103,7 +103,7 @@ using f64 = double;
 ///     auto file = std::fopen(...);
 ///     defer { if (file) std::fclose(file); };
 /// \endcode
-#define defer auto CAT(_defer_, __COUNTER__) = ::src::detail::DeferStage1{}->*[&]
+#define defer auto _ = ::src::detail::DeferStage1{}->*[&]
 
 /// \brief Temporarily set a variable to a value.
 ///
@@ -113,7 +113,7 @@ using f64 = double;
 ///     tempset x = 1;
 ///     /// x is reset to `0` at end of scope.
 /// \endcode
-#define tempset auto CAT(_tempset_, __COUNTER__) = ::src::detail::TempsetStage1{}->*
+#define tempset auto _ = ::src::detail::TempsetStage1{}->*
 
 #define readonly(type, name, code)         \
     [[nodiscard]] type _##name() { code; } \
