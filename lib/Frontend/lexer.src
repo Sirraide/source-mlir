@@ -1,3 +1,5 @@
+/// Despite the name, this file mostly just has ideas for things to add.
+
 /// IDEA:
 /// Unified sum-product type.
 ///
@@ -109,7 +111,8 @@ dynamic struct Expr {
 /// Add a `bit` data type. It differs from `i1` in that it is packed, i.e. a `bit[32]` is 4 bytes,
 /// whereas an `i1[32]` is 32 bytes.
 
-/// Use :>, <:, :>=, <=: for unsigned comparison.
+/// Use :>, <:, :>=, <=: for unsigned comparison. // and %% for unsigned division/remainder. (note: multiplication
+/// isn’t signed, so ** can still be exponentiation).
 
 /// `pragma export` to automatically export all following declarations in the current scope, and `pragma noexport`
 /// to turn it off again. Also consider an `internal` keyword to turn off exporting for a specific declaration.
